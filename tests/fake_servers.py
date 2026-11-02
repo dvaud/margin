@@ -1,6 +1,6 @@
 """Small stand-ins for an Ollama server and the Claude API, for tests and for trying the GUI offline.
 
-They speak the same HTTP as the real services for the calls enlens makes, and answer from simple rules:
+They speak the same HTTP as the real services for the calls margin makes, and answer from simple rules:
 search terms are the claim's words, and a check grades the first passage as supporting with a short quote from it.
 Run `python tests/fake_servers.py` to start a fake Ollama on port 11435.
 """

@@ -21,7 +21,7 @@ honoured everywhere (one more place now).
   *Restricted document 3*). Hidden there too.
 
 **Defects in checks and judgements.**
-- A check queued again under a new prompt version (`enlens refresh`) wiped a person's own judgements when the new
+- A check queued again under a new prompt version (`margin refresh`) wiped a person's own judgements when the new
   answer was stored. A judgement now survives any second answer, and the earlier AI judgement joins the excerpt's
   history ("answered again").
 - The Results list and a result page disagreed about *waiting*: the list looked at the last task row only (with 0.11
@@ -56,7 +56,7 @@ honoured everywhere (one more place now).
   the next task queued behind it). The reader now closes the response the moment it arrives.
 - The Claude API client retries once at most (the SDK's default of two could hold a task for three times the
   timeout; a Stop in the app took effect only when the call returned).
-- `enlens queue run` (answering the queue here) claimed each task unconditionally, overwriting a claim a Claude Code
+- `margin queue run` (answering the queue here) claimed each task unconditionally, overwriting a claim a Claude Code
   session had made in between, so both answered it. It is now the same compare-and-set as `next_tasks`, and a task
   taken meanwhile is skipped.
 
@@ -78,13 +78,13 @@ honoured everywhere (one more place now).
   now "k must be a whole number." like the query values. `start_label_compare` checks the codebook and whether AI
   labels exist before starting a job instead of failing inside it. `GET …/passages/<id>/terms` gives 404 for an
   unknown passage as its siblings do. `POST /api/quit` is documented in `docs/API.md`.
-- `enlens prepare theme` made naming tasks whose representatives included *Only a local AI* passages; the queue
+- `margin prepare theme` made naming tasks whose representatives included *Only a local AI* passages; the queue
   refused them, so such themes were never named. It asks for Claude-readable representatives only, as the app does,
-  and counts what was queued. `enlens prepare link` counted pairs for which no task was made. `enlens prepare check
-  --file` dropped the `framework` and `code` columns of the CSV. `enlens queue withdraw` without a kind removed the
+  and counts what was queued. `margin prepare link` counted pairs for which no task was made. `margin prepare check
+  --file` dropped the `framework` and `code` columns of the CSV. `margin queue withdraw` without a kind removed the
   tasks of every kind but left the waiting hypotheses behind. `make-tasks audit-vca` re-checked every claim
   (`--sample` defaulted to 1.0 instead of the pack's 0.1).
-- `enlens update` on a git copy read the installed extras after the merge, against the new `pyproject.toml`: an extra
+- `margin update` on a git copy read the installed extras after the merge, against the new `pyproject.toml`: an extra
   whose packages grew counted as "not installed" and was dropped by the reinstall (OCR or pdfminer silently gone
   after an update). They are read before the merge. On Python 3.10 without `tomli` every extra was dropped (the
   table is now read line by line there). On a detached HEAD the advice was a command git refuses; it says `git
@@ -93,7 +93,7 @@ honoured everywhere (one more place now).
 - `install.sh` piped uv's installer into `sh`: a failed download went unnoticed and the line ended with "uv was
   installed, but cannot be found". It downloads to a file first and says "Are you online?"; `install.ps1` checks the
   installer's exit code.
-- Choosing the Claude API on a one-line install said `pip install 'enlens-claims[anthropic]'`, which a uv tool
+- Choosing the Claude API on a one-line install said `pip install 'margin[anthropic]'`, which a uv tool
   install cannot do; the message now gives the `uv tool install` line for the release's wheel.
 - `evaluation.py` had a backslash inside an f-string expression: a SyntaxError on Python 3.10 and 3.11 (the one-line
   install uses 3.12, so it showed only on git copies; four tests failed there). The whole suite passes on 3.11 now.
@@ -187,7 +187,7 @@ Until now the choice was all or nothing: `local_only()` switched cloud models of
 project ran on one route, so a single licensed PDF or interview transcript forced the whole project onto a local
 model. 0.11 lets one project mix documents Claude may read with documents that must stay on the computer, and the
 code makes it impossible for a restricted document's text to reach a cloud model. The promise, in the app's words:
-*Documents you mark as local stay on this computer. ENLENS never sends their text to Claude, in any feature, and
+*Documents you mark as local stay on this computer. Margin never sends their text to Claude, in any feature, and
 shows you how much of every other document it has sent.* Every model answer still goes through the quote check, a
 person can overrule it, every result records how it was made, and `local_only()` is honoured everywhere.
 
@@ -211,7 +211,7 @@ person) and *No AI* (`none`: a person only; Search, the keyword Profile, Concept
   server counts as on this computer only at a loopback address (localhost, 127.x, ::1): one on another machine is
   treated like Claude. With Claude Code, a task the queue would never hand out is refused instead of waited for.
 - The queue only ever holds and hands out `cloud` tasks (`mark_queued`, `next_tasks`, `status` and the sidebar count
-  check `access` too), so Claude Code never sees the rest. The file queue (`enlens export`) writes only `cloud` tasks.
+  check `access` too), so Claude Code never sees the rest. The file queue (`margin export`) writes only `cloud` tasks.
 - Changing a setting applies to every task not answered yet (`access.relabel`); a queued task that is no longer
   `cloud` leaves the queue. What Claude already read stays in the results and the ledger.
 - Search by meaning: an embedding server on another computer is not given restricted passages (they are found by
@@ -254,7 +254,7 @@ every check on equal terms; only the reading is split.
 **The Claude Code run and the connector.**
 - The headless run started from the app is denied Claude Code's own tools that read or write files, run commands or
   fetch pages (`--disallowedTools Bash,Read,Grep,Glob,Write,Edit,WebFetch,…`, which holds for the helper agents too;
-  `--allowedTools` only pre-approves) and starts in an empty folder (`~/enlens/claude-runs/work/`, emptied first),
+  `--allowedTools` only pre-approves) and starts in an empty folder (`~/margin/claude-runs/work/`, emptied first),
   away from the projects' databases, which hold every document's full text.
 - The connector's tools filter restricted documents: `search_corpus` gives lines from documents Claude may read and
   the other hits as `restricted_hits`; `find_concept` example lines and wordings only from them; `document_profile` a
@@ -281,16 +281,16 @@ reads*: the account kind when `claude auth status` reports a plan, otherwise a c
 or the Claude API*, setting `account_type`). Personal plans: consumer terms; training when the model-improvement
 setting is on (5 years' retention, 30 days when off), with a link to turn it off. Commercial: no training, 30 days.
 EU-only: mark those documents *Only a local AI*. The panel cites Anthropic's Claude Code data-usage page and the date
-its wording was checked (30 October 2026); ENLENS decides nothing there. *Settings → AI* also gets *Local model for
+its wording was checked (30 October 2026); Margin decides nothing there. *Settings → AI* also gets *Local model for
 restricted documents* (`restricted_server`, `restricted_model`; a model of a server on this computer, or none).
 
-**Upgrading.** A normal commit on `main`; `enlens update` and a reopen are enough, no new venv. Migrations add
+**Upgrading.** A normal commit on `main`; `margin update` and a reopen are enough, no new venv. Migrations add
 `documents.ai_access`, `ai_note`, `ai_budget`, `tasks.access` and `ai_sent`. A project made before 0.11, on its first
 open: its default becomes *Claude may read it* (`local` on a `--local-only` installation), so nothing changes silently;
 the tasks not answered yet get their setting (a queued one no longer `cloud` leaves the queue); answers given on a
 Claude route (from their recorded provenance) enter the ledger with the time of the answer, and the column says
-"since 0.11, plus earlier results ENLENS recorded"; the Documents page shows a one-time banner, *New in 0.11: choose
-which documents Claude may read*. Project zips (export, import, *Move ENLENS to another computer*) carry each
+"since 0.11, plus earlier results Margin recorded"; the Documents page shows a one-time banner, *New in 0.11: choose
+which documents Claude may read*. Project zips (export, import, *Move Margin to another computer*) carry each
 document's setting and note; importing a zip made before 0.11 asks the question once for all its documents.
 
 **Answers to the roadmap's open questions.**
@@ -325,8 +325,8 @@ a 0.10 zip asks once; the headless run's arguments and empty folder; the account
 
 **Not yet done.**
 - The headless run with `--disallowedTools` and the empty working folder was tried only with the stand-in
-  (`tests/fake_claude_cli.py`). Needs a real, signed-in Claude Code: does `/enlens-run` still work with those tools
-  denied (it needs only Agent and the ENLENS tools), and does the version people run accept the flag?
+  (`tests/fake_claude_cli.py`). Needs a real, signed-in Claude Code: does `/margin-run` still work with those tools
+  denied (it needs only Agent and the Margin tools), and does the version people run accept the flag?
 - Whether a real `claude auth status` reports the plan, and under which field name; until then most people pick their
   account kind in the panel.
 - A real local model reading restricted excerpts while Claude reads the rest (only stand-ins were used), and a person
@@ -340,24 +340,24 @@ a 0.10 zip asks once; the headless run's arguments and empty folder; the account
 Two problems met right after updating to 0.10.1 on a Mac. No analysis changes: every answer still goes through the
 quote check, a person can overrule it, and every result records how it was made.
 
-**The icon has its picture, always.** The ENLENS icon was drawn when it was made, with the Python package Pillow;
+**The icon has its picture, always.** The Margin icon was drawn when it was made, with the Python package Pillow;
 without Pillow (a git copy installed without the `ocr` extra) it silently came out as a blank square on macOS and a
-plain shortcut on Windows. The picture now ships with ENLENS (`gui/icons/ENLENS.icns`, up to 1024 pixels for the
-Desktop at full size, and `ENLENS.ico`), drawn once by `tools/make_icons.py` from the same logo; Pillow is only a
-fallback if the files are missing. An icon made without its picture is given it when ENLENS starts
-(`launcher.repair_icons`): on macOS the ENLENS app (and only an app made by `--make-launcher`) gets `ENLENS.icns`
-and its Info.plist names it, nothing else changes; on Windows, when the data folder has no `ENLENS.ico`, it is
-written and the ENLENS shortcuts on the Desktop and in the Start menu are pointed at it. Linux already used
+plain shortcut on Windows. The picture now ships with Margin (`gui/icons/Margin.icns`, up to 1024 pixels for the
+Desktop at full size, and `Margin.ico`), drawn once by `tools/make_icons.py` from the same logo; Pillow is only a
+fallback if the files are missing. An icon made without its picture is given it when Margin starts
+(`launcher.repair_icons`): on macOS the Margin app (and only an app made by `--make-launcher`) gets `Margin.icns`
+and its Info.plist names it, nothing else changes; on Windows, when the data folder has no `Margin.ico`, it is
+written and the Margin shortcuts on the Desktop and in the Start menu are pointed at it. Linux already used
 `logo.svg`.
 
-**The icon opens the version that is installed.** After an update (`git pull`, `enlens update`, the install line),
+**The icon opens the version that is installed.** After an update (`git pull`, `margin update`, the install line),
 the copy still running was the old version, and double-clicking the icon only showed it again: the new page files
 (read from disk) with the old program, so Settings showed the old version number with the new layout.
-- Double-clicking the icon while an **older** version runs now quits it, as *Quit ENLENS* would, and starts this
+- Double-clicking the icon while an **older** version runs now quits it, as *Quit Margin* would, and starts this
   version (`launcher.is_older`, `launcher.stop_older`; the log says so). When a check or another job runs in it, it
   is left alone and opened, because quitting would stop that work. A newer copy running is just opened.
 - `/api/state` says which version is installed now (`installed_version`, read from the package on disk). When it is
-  newer than the running one, every page shows *ENLENS X is installed, but Y is still running* with a *Quit ENLENS*
+  newer than the running one, every page shows *Margin X is installed, but Y is still running* with a *Quit Margin*
   button, and the version label in Settings shows *Y · X installed*. (A copy older than 0.10.2 cannot say this; the
   icon handles that case.)
 
@@ -380,18 +380,18 @@ state; the page files. Two 0.10.1 tests no longer pin the version number (the sa
 A small polish release, and the first made with the new release workflow from start to finish. No analysis changes:
 every answer still goes through the quote check, a person can overrule it, and every result records how it was made.
 
-- **Settings moved to the foot of the sidebar,** in one short list with *Theme* and *Quit ENLENS*, under the line
+- **Settings moved to the foot of the sidebar,** in one short list with *Theme* and *Quit Margin*, under the line
   that says where text goes. The list above now holds only what you do with the documents (Overview, Documents,
   Explore the documents, Check hypotheses); what you set up for the app is in one place at the bottom, on the
-  desktop and in the menu on a phone. *Theme* and *Quit ENLENS* are aligned with Settings (same icon width, padding
+  desktop and in the menu on a phone. *Theme* and *Quit Margin* are aligned with Settings (same icon width, padding
   and hover) instead of sitting as two small buttons. Settings still shows as the current page on every Settings
   tab.
 - **The version on every Settings tab.** The title row of Settings shows *Version X.Y.Z*; clicking it opens
   *Technical → Where your data is*, which says how this copy was installed and how to update it. Before, the
-  version was only in that card, three clicks away, so after `enlens update` there was no quick way to see whether
+  version was only in that card, three clicks away, so after `margin update` there was no quick way to see whether
   the new version was running.
 - **Fixed on the way: the release tests no longer break on every new version.** Three 0.10.0 tests had `0.10.0`
-  written into them (the message after `post-install`, `enlens update` finding a newer release, and
+  written into them (the message after `post-install`, `margin update` finding a newer release, and
   `tools/release.py check`/`notes`/`assets`), so the first thing any new tag did was fail its own release workflow
   at *Test and build*. They now follow the package's version, with the next patch as the "newer release".
 - The release's CSS is in `gui/static/v0101.css` (colour tokens of `app.css` only; light and dark checked, and at
@@ -408,7 +408,7 @@ expects Settings at the end of the list of features. Three tests in `tests/test_
 
 ## 0.10.0 (October 2026): from GitHub to the icon in one line
 
-Getting from the GitHub page to an ENLENS icon took eleven separate actions in 0.9.1, seven of them in a terminal
+Getting from the GitHub page to a Margin icon took eleven separate actions in 0.9.1, seven of them in a terminal
 (git, Python, a venv, pip, `--make-launcher`, Claude Code, its sign-in). 0.10 is Phase 1 of the set-up roadmap, with
 the parts of Phases 2 and 3 that live inside the app: one pasted line, then one button. No analysis changes: every
 answer still goes through the quote check, a person can overrule it, and every result records how it was made.
@@ -419,14 +419,14 @@ answer still goes through the quote check, a person can overrule it, and every r
   …/install.ps1 | iex` in PowerShell) gets uv unless it is there, downloads the release's wheel and checks it against
   the release's `SHA256SUMS`, installs it with `uv tool install` into its own Python 3.12 (uv-managed only, so a
   Homebrew upgrade cannot break it; no git, no venv, no pip, no administrator rights), with the `connector`, `fast`,
-  `pdfminer` and `ocr` extras, and runs `enlens post-install`: it records how ENLENS was installed, makes the icon,
-  repairs the Claude Code plugin, and opens ENLENS. Running the line again updates. `ENLENS_LOCAL_ONLY=1` and
-  `ENLENS_HOME=` are built into the icon; `ENLENS_WHEEL=` installs a local build. The PowerShell script never calls
+  `pdfminer` and `ocr` extras, and runs `margin post-install`: it records how Margin was installed, makes the icon,
+  repairs the Claude Code plugin, and opens Margin. Running the line again updates. `MARGIN_LOCAL_ONLY=1` and
+  `MARGIN_HOME=` are built into the icon; `MARGIN_WHEEL=` installs a local build. The PowerShell script never calls
   `exit`, which would close the window `irm | iex` runs in.
 - `installation.py`: how this copy was installed (`git`, `script`, `package`, `pip`), from a marker
-  `<sys.prefix>/enlens-install.json` the installers write (a git copy needs none). *Settings → Technical* says it and
-  how to update. `enlens post-install [--by script|package|pip|none] [--no-icon] [--open] [--home]`.
-- `enlens update` follows the installation: a git copy pulls as in 0.8.2; a one-line install asks GitHub for the
+  `<sys.prefix>/margin-install.json` the installers write (a git copy needs none). *Settings → Technical* says it and
+  how to update. `margin post-install [--by script|package|pip|none] [--no-icon] [--open] [--home]`.
+- `margin update` follows the installation: a git copy pulls as in 0.8.2; a one-line install asks GitHub for the
   latest release, downloads its wheel, refuses it unless it matches `SHA256SUMS`, installs it with uv in the same
   place (so the icon and the plugin keep their Python) and runs `post-install` from the new version; on Windows, where
   a running program cannot replace itself, it gives the install line instead. A pip install is told about the line.
@@ -446,16 +446,16 @@ still open, in order, and skips what is done:
   page. `find_claude()` also looks for `~/.local/bin/claude.exe` (Windows).
 - Not signed in: it opens a Terminal (macOS) or PowerShell (Windows) window, or the first terminal found on Linux,
   already running `claude` (`POST /api/claude-setup/sign-in`), and checks every few seconds until Claude Code says it
-  is signed in; *I have signed in* checks at once, *Stop waiting* stops. No window: the line to type. ENLENS still
+  is signed in; *I have signed in* checks at once, *Stop waiting* stops. No window: the line to type. Margin still
   never sees the login.
 - The plugin: added straight away, with no second button. The checklist ticks each step as it is done.
 - *Set it up yourself instead* keeps the three steps to type.
-- **The plugin follows the installation.** When the plugin names another Python or another data folder (ENLENS moved,
+- **The plugin follows the installation.** When the plugin names another Python or another data folder (Margin moved,
   or was installed again), the app writes it again on start and runs the two set-up commands again, quietly, in the
-  background (`claude_setup.repair()`); `post-install` and `enlens update` do the same. The Claude desktop app's
+  background (`claude_setup.repair()`); `post-install` and `margin update` do the same. The Claude desktop app's
   connector entry is pointed at this Python when the one it names is gone (`mcp_server.repair_desktop()`).
 
-**Move ENLENS to another computer.** *Projects → Move ENLENS to another computer → Download everything (.zip)*
+**Move Margin to another computer.** *Projects → Move Margin to another computer → Download everything (.zip)*
 (`GET /api/move.zip`): every project (each as its own project zip, `bundle.export_all`) and the settings, never a
 saved Claude API key; quick looks not kept stay behind; projects used in place come along as copies. The new
 computer's first screen offers *Import from another computer*, and *Import a project (.zip)* takes both kinds of zip
@@ -466,7 +466,7 @@ installation never the choice of a cloud AI.
 **Scanned PDFs: Tesseract offered, and found.** When a scanned page stays without text because Tesseract is missing,
 the notice after adding documents, the Documents page and *Settings → Documents* say how to get it on this system
 (Homebrew's `brew install tesseract`, the Windows installer the Tesseract project links to, `apt install
-tesseract-ocr`), instead of "ask IT to install Tesseract". ENLENS now finds Tesseract where those installers put it
+tesseract-ocr`), instead of "ask IT to install Tesseract". Margin now finds Tesseract where those installers put it
 when it is not on the PATH (`ingest.find_tesseract()`; also used for highlighted copies).
 
 **Usability problems fixed on the way.**
@@ -481,7 +481,7 @@ when it is not on the PATH (`ingest.find_tesseract()`; also used for highlighted
 
 Tests: 21 new (`tests/test_0100_setup_and_moving.py`): the installation kinds and marker; `post-install` (marker,
 icon, plugin repaired with the stand-in `claude`); the plugin repaired only when it names another Python or data
-folder, never when local only; the Claude desktop entry; `enlens update` from a release (up to date, waiting,
+folder, never when local only; the Claude desktop entry; `margin update` from a release (up to date, waiting,
 installed with uv, a wrong checksum refused, Windows, offline) and by kind; `install.sh` with stand-ins for uv and
 curl (download, checksum, the uv command, `post-install`; a wrong checksum installs nothing; a local package and the
 options; the raw script refuses without a version); the PowerShell script's shape; `tools/release.py` and the
@@ -496,7 +496,7 @@ stand-ins; `--no-tesseract` the Tesseract offer.
   `install.ps1` was not run (no PowerShell in the build environment), and `install.sh` was not run on a Mac: the
   release workflow tries both on GitHub's runners when the tag is pushed; check that run before publishing.
 - The install line works only once a release is **published** (`releases/latest`); the draft from the tag must be
-  published first. Until then `enlens update` on a one-line install says it cannot ask GitHub.
+  published first. Until then `margin update` on a one-line install says it cannot ask GitHub.
 - *Set up Claude* against a real Claude Code: Anthropic's installer, the sign-in window on macOS (`open -a Terminal`
   with a `.command` file) and Windows (`Start-Process powershell`), and `claude auth status` after signing in were
   tested only with stand-ins. Re-running `claude plugin marketplace add` / `install` after a move relies on both
@@ -524,25 +524,25 @@ started from the app, and the app opens on exploring the documents, with checkin
 **Subscription first.**
 - A new installation answers with **Claude Code on the researcher's own Claude plan** (`backend: "claude_code"`,
   `allow_claude_code: true` by default). Nothing is sent before the researcher starts Claude Code (a button or
-  `/enlens-run`); then only the passages inside the tasks it takes go to Anthropic. An installation that already
+  `/margin-run`); then only the passages inside the tasks it takes go to Anthropic. An installation that already
   chose a model keeps it when it is updated (its settings file names it). With `--local-only` the default stays the
   local model (`auto`) and Claude Code cannot be chosen.
 - **Set up Claude Code** (first screen, *Settings → AI*): a checklist (Claude Code on this computer, signed in with
-  your plan, the ENLENS plugin added) and one button that prepares the plugin and adds it to Claude Code itself, by
+  your plan, the Margin plugin added) and one button that prepares the plugin and adds it to Claude Code itself, by
   running the two commands a person used to type (`claude plugin marketplace add …`, `claude plugin install
-  enlens-run@enlens`; both tested idempotent with Claude Code 2.1.312). What only a person can do (install Claude
-  Code, sign in once) is said plainly; *Set it up from a terminal instead* keeps the two lines. `enlens claude-setup`
-  does the same from a terminal (`--print-only`: only print them). ENLENS finds `claude` on the PATH or where its
-  installers put it; `ENLENS_CLAUDE` names it.
+  margin-run@margin`; both tested idempotent with Claude Code 2.1.312). What only a person can do (install Claude
+  Code, sign in once) is said plainly; *Set it up from a terminal instead* keeps the two lines. `margin claude-setup`
+  does the same from a terminal (`--print-only`: only print them). Margin finds `claude` on the PATH or where its
+  installers put it; `MARGIN_CLAUDE` names it.
 - **Start Claude Code.** Wherever AI work waits (a check, labels, theme names…) and in the sidebar's queue panel,
-  *Start Claude Code* starts it in the background for that project (`claude -p "/enlens-run:enlens-run <project>"`,
-  allowed only the four ENLENS queue tools and its helpers, run in the ENLENS folder). The page says *Claude Code is
+  *Start Claude Code* starts it in the background for that project (`claude -p "/margin-run:margin-run <project>"`,
+  allowed only the four Margin queue tools and its helpers, run in the Margin folder). The page says *Claude Code is
   working on it*, with *Stop*; it stops by itself when nothing waits; *Stop* gives the batches it had taken back to
   the queue at once instead of after 30 minutes; a run that ends with a problem shows the end of its report. The
-  first start adds the plugin if that was not done yet. Typing `/enlens-run <project>` in Claude Code still works
-  and is shown one line below. ENLENS still never sees the Claude login. **Not yet done:** a run in a signed-in
+  first start adds the plugin if that was not done yet. Typing `/margin-run <project>` in Claude Code still works
+  and is shown one line below. Margin still never sees the Claude login. **Not yet done:** a run in a signed-in
   Claude Code from the button; the command line was checked against Claude Code 2.1.312 (the skill resolves as
-  `enlens-run:enlens-run` with its seven helpers, with the model API blocked), and the whole path with a stand-in.
+  `margin-run:margin-run` with its seven helpers, with the model API blocked), and the whole path with a stand-in.
 - *Save and test* on Claude Code says whether it is set up (and signed in) instead of always "working".
 - The sidebar's privacy line on Claude Code is the normal case, not a warning: *Claude, on your plan · Only the
   passages of AI tasks leave this computer*.
@@ -570,7 +570,7 @@ started from the app, and the app opens on exploring the documents, with checkin
   it; no AI; the Claude API for a team key). Old links to a section open its tab. On the Claude Code route the
   Technical tab leaves out what only a local model uses (the second model, the context length).
 - The sidebar shows the jobs box only when there are jobs, and the queue panel only when work waits or Claude Code
-  is working; *Theme* and *Quit ENLENS* share a row.
+  is working; *Theme* and *Quit Margin* share a row.
 - Profile: the explanation of what a passage is moved into *Technical details*.
 
 **Usability fixes found on the way.**
@@ -585,7 +585,7 @@ started from the app, and the app opens on exploring the documents, with checkin
 Tests: 9 new (`tests/test_090_subscription_first.py`): the defaults (and local only), set-up with Claude Code missing
 and with a stand-in `claude` (`tests/fake_claude_cli.py`), the run command's allowed tools, *Start Claude Code*
 answering a project's queue and *Stop* returning its batches, the overview counts, the model test, and the order and
-AI marks of the sidebar. A test never touches a real Claude Code (`conftest.py` points `ENLENS_CLAUDE` nowhere).
+AI marks of the sidebar. A test never touches a real Claude Code (`conftest.py` points `MARGIN_CLAUDE` nowhere).
 `tools/dev_server.py --claude-cli` runs the app with the stand-in.
 
 ## 0.8.2 (October 2026): readable heat grids, updating in place
@@ -598,22 +598,22 @@ AI marks of the sidebar. A test never touches a real Claude Code (`conftest.py` 
   and a cell under the mouse by its outline.
 - **The darkest cell in the light theme is darker** (`--heat-4`, a new token): its white numbers went from 3.3:1 to
   4.7:1 against the background. The dark theme is unchanged (4.7:1).
-- **`enlens update`.** ENLENS installed once from a git copy (clone, venv, `pip install -e .`) now updates itself:
-  `enlens update` fetches the new version from GitHub into the same folder and moves forward only; it reinstalls
+- **`margin update`.** Margin installed once from a git copy (clone, venv, `pip install -e .`) now updates itself:
+  `margin update` fetches the new version from GitHub into the same folder and moves forward only; it reinstalls
   into the same Python only when `pyproject.toml` changed (keeping the extras already installed), refreshes the
   Claude Code plugin if one was set up, and says to restart the app if it is running. It stops, changing nothing,
-  if files of the copy were edited by hand. `enlens update --check` only says whether a new version is waiting.
+  if files of the copy were edited by hand. `margin update --check` only says whether a new version is waiting.
   The data folder is never touched. See the README, *Updating*.
 - Tests: 7 new (`tests/test_082_update_and_grid.py`): the heat levels outrank every row-hover rule, the darkest cell
-  has its token in all three theme blocks, and `enlens update` on real git copies (up to date, code only, new
+  has its token in all three theme blocks, and `margin update` on real git copies (up to date, code only, new
   requirements, local changes, not a git copy).
 
 ## 0.8.1 (October 2026): Claude Code for every AI task
 
 0.8 sent every AI button of the app to Claude Code, but three kinds of work still could not use it. They can now.
 
-- **The SDG pack through the queue.** `enlens prepare split|extract|verify-vca|verify-claims|audit-vca` makes the
-  pack's tasks (the options of `make-tasks`) and puts them in the queue; `/enlens-run` answers them. The pack's
+- **The SDG pack through the queue.** `margin prepare split|extract|verify-vca|verify-claims|audit-vca` makes the
+  pack's tasks (the options of `make-tasks`) and puts them in the queue; `/margin-run` answers them. The pack's
   tasks still never enter the queue on their own: `make-tasks`, `run` and the file queue are unchanged, and the
   test that the pilot makes no new tasks still holds.
   - Routing (`routing.py`) knows the pack's kinds: extract on Sonnet (stepping up to Opus), split on Opus, verify and
@@ -621,12 +621,12 @@ AI marks of the sidebar. A test never touches a real Claude Code (`conftest.py` 
     *AI model per task* has a row for each of them.
   - Audits (audit-vca, verify-claims) get the role "audit" (new column `tasks.role`). They are routed like a second
     opinion, to the auditor (or the `--model` given), and they keep that model: an audit never steps up.
-  - A seventh helper, `enlens-extractor` (Sonnet), answers extract and split. The checker also answers verify and
+  - A seventh helper, `margin-extractor` (Sonnet), answers extract and split. The checker also answers verify and
     verify_set, and the auditor the audits.
   - The queue: batch sizes for the pack's kinds, which are handed out after the app's own work. A batch's system
     prompt now counts against the connector's 25,000-token cap (extract's holds the 169 targets, about 11,000
     tokens). The other kinds' batches are unchanged.
-  - Groups are told apart by helper as well as kind and model. `next_tasks` takes `helper`, and `/enlens-run`
+  - Groups are told apart by helper as well as kind and model. `next_tasks` takes `helper`, and `/margin-run`
     passes it, so each answer records the helper that gave it.
 - **Model tests with Claude Code.** *Compare a sample* of labels and the *Model test* no longer refuse Claude Code.
   Their tasks wait in the queue of a temporary copy of the project, which is removed afterwards
@@ -639,10 +639,10 @@ AI marks of the sidebar. A test never touches a real Claude Code (`conftest.py` 
 
 ## 0.8.0 (October 2026): Claude Code on your own plan, a model per task
 
-0.8 lets a researcher use Claude Code, signed in with their own Claude plan, as the AI behind every ENLENS task, and
+0.8 lets a researcher use Claude Code, signed in with their own Claude plan, as the AI behind every Margin task, and
 adds the tools to prove on the pilot which model each task needs (G1 to G7 of the 0.8 roadmap). It adds no new
 exploring features. The 0.7 rules hold: every answer goes through the quote check, a person can overrule it, and
-every result records how it was made. Four rules are added: the researcher runs Claude Code and ENLENS never does;
+every result records how it was made. Four rules are added: the researcher runs Claude Code and Margin never does;
 one queue feeds every AI; each kind of task gets the cheapest model that is good enough; checking itself does not
 change.
 
@@ -652,11 +652,11 @@ instead of calling a model: profile labels, concept links, theme names, referenc
 again, second opinions and other wordings of a concept. The page says what waits, for example *Waiting for Claude
 Code: 120 passages to label · about 25 minutes*, with the command to type and a copy button. The progress moves as
 answers arrive, and the result appears as before.
-- Tasks in the queue are marked (`tasks.queued`). Tasks of 0.7 and of the SDG pack never are, so `/enlens-run` never
+- Tasks in the queue are marked (`tasks.queued`). Tasks of 0.7 and of the SDG pack never are, so `/margin-run` never
   answers the pack's work.
 - A batch handed out is a claim (table `task_claims`: who took it, when, model, helper). Two sessions never get the
   same task, and a claim not answered within 30 minutes lapses: its tasks are handed out again.
-- **A check by queue.** The search and the choice of excerpts run in ENLENS at once; only the model's steps wait
+- **A check by queue.** The search and the choice of excerpts run in Margin at once; only the model's steps wait
   (search words, the split into parts, the judging). Each step is taken when the answer before it arrives, in the
   app or in the connector, so a check finishes even when the app was closed meanwhile. Until then it is listed as
   *Waiting for Claude Code*. Stop withdraws it, as a stopped check leaves nothing behind.
@@ -664,26 +664,26 @@ answers arrive, and the result appears as before.
   helper and estimate; *Do first*, *Hold* / *Go on*, *Remove*; the command to type; and the privacy line. When the
   route is not Claude Code, *Answer them here instead* answers the queue with the AI model of Settings.
 - The app's waiting jobs do not hold the model's turn, and the app reads the queue every few seconds.
-- Command line: `enlens prepare label|link|theme|resolve|check`, and `enlens queue status|run|first|hold|go|withdraw`.
+- Command line: `margin prepare label|link|theme|resolve|check`, and `margin queue status|run|first|hold|go|withdraw`.
   `queue run --backend anthropic` answers the queue unattended (the shared installation).
 
-**The Claude Code plugin (G2).** `enlens claude-setup` writes the plugin into the ENLENS data folder
+**The Claude Code plugin (G2).** `margin claude-setup` writes the plugin into the Margin data folder
 (`claude-plugin/`, a marketplace of one plugin), checks that the connector starts and offers the queue tools, and
 prints the two lines that add it to Claude Code (`claude plugin marketplace add …`, `claude plugin install
-enlens-run@enlens`). Settings offers the same as *Prepare the plugin*. ENLENS writes nothing to Claude Code's own
+margin-run@margin`). Settings offers the same as *Prepare the plugin*. Margin writes nothing to Claude Code's own
 settings, never starts Claude Code and never handles its login.
-- `/enlens-run <project> [kind] [--parallel N]`: the orchestrator skill. It hands each group of tasks (kind and
+- `/margin-run <project> [kind] [--parallel N]`: the orchestrator skill. It hands each group of tasks (kind and
   model) to a helper agent and reports what is done and what is left. It never reads a task itself.
-- Six helpers, each limited to the connector's queue tools: `enlens-labeller` and `enlens-linker` (Haiku),
-  `enlens-namer` and `enlens-reader` (Sonnet), `enlens-checker` and `enlens-auditor` (Opus). A task routed to
+- Six helpers, each limited to the connector's queue tools: `margin-labeller` and `margin-linker` (Haiku),
+  `margin-namer` and `margin-reader` (Sonnet), `margin-checker` and `margin-auditor` (Opus). A task routed to
   another model goes to its helper with Claude Code's per-call model choice.
 - The connector gains `queue_status`, `next_tasks` (a claim, the versioned system prompt once, each task's prompt,
   at most about 15,000 tokens a batch), `submit_answers` (every answer quote-checked; per task *stored* or
   *problems*) and `release`.
 - The plugin's files were checked with Claude Code 2.1.312 (`claude plugin validate`, installed from the data
   folder: one skill, six agents, one connector). **Not yet done:** a run in a signed-in Claude Code, and a check of
-  which model each helper actually ran on (G5). The skill is named so that its command is `/enlens-run`; if Claude
-  Code shows it with its plugin's prefix (`/enlens-run:enlens-run`), autocomplete offers it on `/enlens-run`.
+  which model each helper actually ran on (G5). The skill is named so that its command is `/margin-run`; if Claude
+  Code shows it with its plugin's prefix (`/margin-run:margin-run`), autocomplete offers it on `/margin-run`.
 
 **Model routing (G3).** New module `routing.py`. Each kind of task has its own model on all three routes:
 - Claude Code and the Claude API: labels and links on Haiku (stepping up to Sonnet), search words, splitting,
@@ -701,10 +701,10 @@ settings, never starts Claude Code and never handles its login.
 - On the Claude API the second opinion comes from the auditor, so no second local model is needed.
 
 **Time, limits and stopping (G4).** Claims are small (20 labels, 1 check) and lapse after 30 minutes, so a stop
-costs at most one batch and the next `/enlens-run` continues. The researcher's own requests come first, then small
+costs at most one batch and the next `/margin-run` continues. The researcher's own requests come first, then small
 jobs, then the bulk. Estimates come from the measured seconds per task of each kind and model; before any are
 measured the panel says so. When answers stop arriving the app says *Paused at 340 of 7,868 labels. To go on, type
-/enlens-run Pilot in Claude Code.*
+/margin-run Pilot in Claude Code.*
 
 **Privacy and records (G5).** Choosing Claude Code shows what leaves the computer once, with a confirmation, and the
 queue panel repeats it. `--local-only` hides the option and makes the connector refuse `next_tasks`. Each answer
@@ -712,10 +712,10 @@ records its route, helper, model as set for the helper, prompt version, whether 
 claimed (`results.route`, `helper`, `step`, `claimed_at`). *How these results were made* shows them per kind, says
 that Claude Code answers are not repeatable by seed, and counts the answers that stepped up.
 
-**Proving it on the pilot (G6).** New module `evaluation.py`. `enlens acceptance queue --kind K --model M [--again]`
+**Proving it on the pilot (G6).** New module `evaluation.py`. `margin acceptance queue --kind K --model M [--again]`
 makes a copy of the reference workspace with that kind's sample tasks waiting for that model. The copy keeps each
-model's answers apart from the others and from the pilot's. Claude models are answered with `/enlens-run "<copy>"`,
-a local model with `enlens queue run`. `enlens acceptance score [--apply]` scores every run: labels by kappa against
+model's answers apart from the others and from the pilot's. Claude models are answered with `/margin-run "<copy>"`,
+a local model with `margin queue run`. `margin acceptance score [--apply]` scores every run: labels by kappa against
 f2, links against f3, theme names against a sheet written per model, references against f5, and checks against the
 pilot's reference answers and a person's g6 sheet. It also measures repeatability (`--again`) and seconds per task.
 It writes `acceptance/MODEL_CHOICE.md`, and with `--apply` makes the cheapest passing model the installation's
@@ -740,7 +740,7 @@ defaults.
   downloads it.
 - Comparing profiles waits for a later release.
 
-**Tests.** 173 automated tests (21 new). The new ones play `/enlens-run` with a fake Claude Code through the
+**Tests.** 173 automated tests (21 new). The new ones play `/margin-run` with a fake Claude Code through the
 connector, in process and over MCP, with a wrong quote on the first try of each kind. They check every AI button by
 queue, two sessions at once, a lapsed claim, a stop at a random point followed by a new session (every task answered
 once, no claim left open), routing on the three routes (the fake Claude API and fake Ollama), stepping up once,
@@ -765,8 +765,8 @@ the G6 runs and pass marks; and the test with two or three real researchers.
 
 ## 0.7.0 (October 2026): explore the documents; Cross-Doc SDG Explorer replaced
 
-0.7 builds the whole design roadmap (F1 to F8, reproducibility and testing) so that ENLENS does what people used the
-Cross-Doc SDG Explorer for. Its outcomes are rebuilt with ENLENS's own parts (keyword index, optional embeddings,
+0.7 builds the whole design roadmap (F1 to F8, reproducibility and testing) so that Margin does what people used the
+Cross-Doc SDG Explorer for. Its outcomes are rebuilt with Margin's own parts (keyword index, optional embeddings,
 model tasks with checked quotes, review screens); SpanBERT, fastcoref, SciCo, PreSumm, FAISS and Integrated Gradients
 are not ported. The core stays light (pydantic, pypdf, openpyxl; numpy with `fast`, pdfminer and OCR as extras). The
 SDG pack is untouched: on the pilot, `make-tasks` for every SDG kind creates 0 new tasks.
@@ -798,7 +798,7 @@ New pages under **Explore the documents**, and what they replace:
   answer (zip) and per document column of the evidence map.
 - **Quick look and FlexiConc (F8)**: one document in a temporary project (kept or discarded; trash after 7 days), and
   the project as Cross-Doc's FlexiConc SQLite (`documents`, `sentences`, `chains`, `clusters`, `embeddings`), from the
-  Projects page or `enlens export-flexiconc`.
+  Projects page or `margin export-flexiconc`.
 
 **Reproducibility.** Every model request carries a seed (setting `seed`, 42) at temperature 0; every answer records
 the model, its digest (Ollama) or file (LM Studio), the prompt version, the seed and the settings; runs warn when any
@@ -816,7 +816,7 @@ expression for all 20); the keyword pass 12 s; the glossary 22 s (6,000 terms, 8
 themes by words about 40 s; the FlexiConc export 13 s. The keyword pass puts 62% of the codes of the pilot's
 extraction answers among a passage's top 8 candidates (a proxy for the F2 recall measure).
 
-**Not measured yet** (they need people or a real model): the acceptance measures of F2 to F7 (`enlens acceptance
+**Not measured yet** (they need people or a real model): the acceptance measures of F2 to F7 (`margin acceptance
 samples` writes the sheets; the team sets the pass marks first), and the quality of the AI passes with a local model;
 the tests run against a stand-in model.
 
@@ -837,7 +837,7 @@ to the output cap and is asked again, up to three times, for every step of the c
   as with reasoning off. Ollama's `think` is a per-request option, so switching it per step does not reload the
   model.
 - **A reasoning budget** (`think_budget`, default 1,500 tokens; 0 = no limit). When a model is still reasoning at
-  the budget, ENLENS stops that request and asks again without reasoning, giving the reasoning so far as notes. The
+  the budget, Margin stops that request and asks again without reasoning, giving the reasoning so far as notes. The
   model must still quote only from the passages, and every quote is checked as before. At 20 tokens a second, a
   judgement then takes at most about 75 seconds of reasoning, and an answer is never lost to the output cap. The
   budget applies whenever reasoning is on (`judging`, `on`, or the model's default).
@@ -847,7 +847,7 @@ to the output cap and is asked again, up to three times, for every step of the c
   `judging`, 8 excerpts per check and a budget of 1,500 tokens, it is 12,288 tokens; with reasoning off it stays
   8,192.
 - Command line: `--think on|off|judging` and `--think-budget N` (default 1500) on every model command, so
-  `enlens benchmark … --think judging` compares a model with and without reasoning on the pilot's tasks.
+  `margin benchmark … --think judging` compares a model with and without reasoning on the pilot's tasks.
 
 Whether reasoning helps depends on the model. Small models do not always judge better with it, and it can make
 copying quotes word for word worse. Run the test with `--think off` and `--think judging` before relying on it.
@@ -856,7 +856,7 @@ copying quotes word for word worse. Run the test with `--think off` and `--think
 
 0.6 builds the fifteen features agreed after 0.5.1 and adds an icon that starts the app without a terminal. Through
 all of them the owner's standing requirement holds: the local model gets as much of the computer as possible.
-ENLENS loads no model of its own, makes one model call at a time, keeps heavy tools optional, streams files, and
+Margin loads no model of its own, makes one model call at a time, keeps heavy tools optional, streams files, and
 runs OCR at low priority on one thread.
 
 Two simulated first-time users tested it: a labour sociologist with ten goals covering the new features, then,
@@ -939,24 +939,24 @@ after the fixes, a public-administration researcher on the parts that had caused
   so two models are never in memory together. Its judgements are stored apart (table `second_opinions`) and never
   change an answer. Cards show "Second AI model: Contradicts (70%), disagrees", and *Next to review* goes to
   disagreements first. The Results list gets "models disagree on N", and Excel gets columns for it.
-- **A project as one zip** (`GET …/export.zip`, `POST /api/projects/import`, `enlens export-project` /
+- **A project as one zip** (`GET …/export.zip`, `POST /api/projects/import`, `margin export-project` /
   `import-project`). The zip holds a consistent copy of the database (SQLite's backup API), `config.json`, the
   codebooks, `uploads/`, and the original files kept outside the project. It is written to a temporary file and
   streamed. Import unpacks with the zip-slip guard and a size budget, and points the documents at their files.
 
 ### Starting without the terminal
 
-- **`enlens-gui --make-launcher`** puts an ENLENS icon on the Desktop:
+- **`margin-gui --make-launcher`** puts a Margin icon on the Desktop:
   - macOS: an app, also in ~/Applications;
   - Windows: a shortcut that runs `pythonw`, also in the Start menu;
   - Linux: a menu entry.
 
-  The icon calls the Python ENLENS was installed in, so another `enlens-gui` earlier on the PATH cannot get in
+  The icon calls the Python Margin was installed in, so another `margin-gui` earlier on the PATH cannot get in
   the way.
-- **Double-clicking the icon** runs `enlens-gui --launcher`. If ENLENS is already running, it opens it again.
-  Otherwise it starts the app in the background, writes its output to `logs/enlens.log`, starts the Ollama app
+- **Double-clicking the icon** runs `margin-gui --launcher`. If Margin is already running, it opens it again.
+  Otherwise it starts the app in the background, writes its output to `logs/margin.log`, starts the Ollama app
   when the model service is Ollama on this computer and not running, and opens the browser.
-- **Quit ENLENS** in the sidebar (`POST /api/quit`) stops the app. It asks first when a check is running, and
+- **Quit Margin** in the sidebar (`POST /api/quit`) stops the app. It asks first when a check is running, and
   stopped checks clean up before the app exits.
 - Tested on Linux, where the icon was built, run and run again. On macOS and Windows only the icon files were
   checked; a trial on those systems is pending.
@@ -995,7 +995,7 @@ after the fixes, a public-administration researcher on the parts that had caused
 
 ## 0.5.1 (October 2026): an app for researchers who don't program
 
-0.5.0 made ENLENS a local hypothesis checker; 0.5.1 makes its app clear to a social scientist who has never
+0.5.0 made Margin a local hypothesis checker; 0.5.1 makes its app clear to a social scientist who has never
 programmed, using it for the first time on a computer someone else set up.
 
 It was tested that way five times by simulated first-time users (sociologists and a public-administration researcher who
@@ -1017,7 +1017,7 @@ test setup, which the app let the testers catch and correct.
   search, and says when everything that matches has been read. A search with other words reads only excerpts that
   contain them.
 - *Check several* starts as soon as hypotheses are pasted and ends with each answer listed, in the order typed.
-- The cloud option sits apart, behind a confirmation; `enlens-gui --local-only` (or `ENLENS_LOCAL_ONLY=1`, or a file
+- The cloud option sits apart, behind a confirmation; `margin-gui --local-only` (or `MARGIN_LOCAL_ONLY=1`, or a file
   `local_only` in the data folder) removes it for good.
 - `tools/dev_server.py --fresh-user` shows the app as a new user finds it, with a demo corpus on remote work.
 
@@ -1068,7 +1068,7 @@ pipeline of the green hydrogen pilot is kept as an optional pack and gives the s
 - **Show in context** (neighbouring passages), **notes** on a check, **remove one document** (past checks keep their
   evidence), a **document viewer**.
 - **Batches**: one hypothesis per line or a CSV (comma, semicolon or tab; `hypothesis`, optional `framework`, `code`),
-  in the app and with `enlens batch FILE --out results.csv`.
+  in the app and with `margin batch FILE --out results.csv`.
 - **Frameworks**: optional codebooks a hypothesis can be tagged with. The 169 SDG targets ship as one; add your own as
   a CSV (`code, description[, group, group_name]`) per project or for all projects.
 - Generic prompts (`check-v2`, `expand-v2`, new `decompose-v1`); the pack's prompts are unchanged.
@@ -1076,7 +1076,7 @@ pipeline of the green hydrogen pilot is kept as an optional pack and gives the s
 
 ### Local first
 
-- **Model servers found automatically**: Ollama, LM Studio, llama.cpp, Jan, vLLM (`enlens detect`; backend `auto`, the
+- **Model servers found automatically**: Ollama, LM Studio, llama.cpp, Jan, vLLM (`margin detect`; backend `auto`, the
   new default in the app and on the command line).
 - **OpenAI-compatible backend rewritten**: streams (progress, stall detection, Stop), sends the answer's JSON schema and
   falls back to `json_object` or no format, has `check()` and `models()`, and turns network problems into plain
@@ -1084,9 +1084,9 @@ pipeline of the green hydrogen pilot is kept as an optional pack and gives the s
 - **The Claude API is opt-in**: the app uses it only after *Allow cloud models* (with a notice that passages leave the
   computer); on the command line only with `--backend anthropic`.
 - **Semantic search with local embeddings** (optional): Ollama or OpenAI-compatible embedding models, vectors stored in
-  the project, keyword and semantic rankings fused (reciprocal rank fusion). `enlens embed`, or *Build semantic index*.
+  the project, keyword and semantic rankings fused (reciprocal rank fusion). `margin embed`, or *Build semantic index*.
 - **Multilingual search**: the tokenizer keeps letters of every language (0.4 turned "économie" into "conomie").
-- **The app** (`enlens-gui`, now http://127.0.0.1:8765) is a standard-library HTTP server with a static page: no
+- **The app** (`margin-gui`, now http://127.0.0.1:8766) is a standard-library HTTP server with a static page: no
   Streamlit, no CDN, no fonts or analytics from the internet. A token per run, Host and Origin checks (no DNS
   rebinding, no cross-site requests), a strict Content Security Policy. `--host 0.0.0.0` serves the network only by IP
   address and hands the token out only in the link printed in the terminal.
@@ -1191,7 +1191,7 @@ and uploads, Stop not reaching the Claude API, semicolon CSVs, overlapping inges
 
 ### Compatibility
 
-- `enlens-gui` no longer needs Streamlit; the `gui` extra is empty. New extra `fast` (numpy).
+- `margin-gui` no longer needs Streamlit; the `gui` extra is empty. New extra `fast` (numpy).
 - Default backend is `auto` (local). For the 0.4 behaviour pass `--backend anthropic`. Settings of a 0.4 install that
   used the Claude API with a key keep it (cloud allowed); otherwise the app starts local.
 - Status texts: "Stated by a source" is now "Supported by a source"; new status `contested`.

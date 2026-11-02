@@ -13,16 +13,16 @@ from pathlib import Path
 import pytest
 from helpers_0110 import LOCAL_MARK, Cloud, Local, mixed_project, use_local_model
 
-from enlens_claims import access, claimcheck, home, taskqueue, tasks
-from enlens_claims.llm import BackendError
+from margin import access, claimcheck, home, taskqueue, tasks
+from margin.llm import BackendError
 
 HYP = "Green hydrogen production can increase water stress in arid regions."
 
 
 @pytest.fixture
 def mixed(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY", raising=False)
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY", raising=False)
     ws = home.create_project("Mixed")
     ids = mixed_project(ws, tmp_path / "corpus")
     return ws, ids
@@ -52,7 +52,7 @@ def test_the_summary_is_the_main_parts_not_the_local_models(mixed, monkeypatch):
     assert local.sent, "the local model read nothing: the test proves nothing"
     assert LOCAL_MARK.lower() not in (res["parts"][0]["rationale"] or "").lower()
     assert res["model"] == "claude-opus"
-    from enlens_claims import mcp_server
+    from margin import mcp_server
 
     summary = mcp_server._summary(ws, res["parts"][0]["claim_id"])
     assert LOCAL_MARK.lower() not in json.dumps(summary).lower()
@@ -79,7 +79,7 @@ def test_a_claude_chat_is_recorded_without_context_passages(mixed):
 
 
 def test_the_connector_hides_a_no_ai_title_in_its_warnings(mixed, tmp_path):
-    from enlens_claims import mcp_server
+    from margin import mcp_server
 
     ws, ids = mixed
     short = tmp_path / "short"
@@ -241,7 +241,7 @@ def test_a_failed_local_part_is_shown(mixed, monkeypatch):
 
 
 def test_the_sdg_verifier_is_told_about_excerpts_read_elsewhere():
-    from enlens_claims import prompts
+    from margin import prompts
 
     pl = {"claim": "x", "target": "6.4", "target_description": "water", "passages": [{"text": "t", "title": "a"}],
           "read_elsewhere": 2}
@@ -252,10 +252,10 @@ def test_the_sdg_verifier_is_told_about_excerpts_read_elsewhere():
 # settings, projects, the app
 # ---------------------------------------------------------------------------------------------
 def test_local_only_with_cloud_still_allowed_in_the_file(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY", raising=False)
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY", raising=False)
     home.update_settings({"allow_cloud": True})
-    monkeypatch.setenv("ENLENS_LOCAL_ONLY", "1")
+    monkeypatch.setenv("MARGIN_LOCAL_ONLY", "1")
     s = home.load_settings()
     assert s["allow_cloud"] is False and s["allow_claude_code"] is False
     home.update_settings({"threshold": 0.7})  # used to be refused: "Cloud models are switched off"
@@ -263,7 +263,7 @@ def test_local_only_with_cloud_still_allowed_in_the_file(tmp_path, monkeypatch):
 
 
 def test_a_stale_link_does_not_decide_where_a_new_project_goes(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
     home.home()
     home._save_links({"Old": str(tmp_path / "gone")})
     ws = home.create_project("Old")
@@ -271,7 +271,7 @@ def test_a_stale_link_does_not_decide_where_a_new_project_goes(tmp_path, monkeyp
 
 
 def test_the_tracker_takes_notes_without_a_phantom_part():
-    from enlens_claims.gui.progress import Tracker
+    from margin.gui.progress import Tracker
 
     t = Tracker()
     t.step("grade", "Claude is reading 3 excerpts", {"part": 1, "parts": 2, "claim": "a"})
@@ -288,9 +288,9 @@ def test_the_tracker_takes_notes_without_a_phantom_part():
 def test_the_app_refuses_a_key_on_a_local_only_installation_and_speaks_plainly(tmp_path, monkeypatch):
     import test_app
 
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from enlens_claims.gui.server import make_server
+    from margin.gui.server import make_server
 
     srv, app = make_server("127.0.0.1", 0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -302,7 +302,7 @@ def test_the_app_refuses_a_key_on_a_local_only_installation_and_speaks_plainly(t
         assert st == 400 and body["error"] == "k must be a whole number."
         assert api("GET", "/api/projects/P/passages/nothing/terms")[0] == 404
         assert api("GET", "/api/state")[1]["installation"].get("updates")
-        monkeypatch.setenv("ENLENS_LOCAL_ONLY", "1")
+        monkeypatch.setenv("MARGIN_LOCAL_ONLY", "1")
         st, body = api("POST", "/api/settings/key", {"key": "sk-ant-x"})
         assert st == 403 and "switched off" in body["error"]
     finally:
@@ -311,7 +311,7 @@ def test_the_app_refuses_a_key_on_a_local_only_installation_and_speaks_plainly(t
 
 
 def test_ollama_is_started_for_the_restricted_model_too(monkeypatch):
-    from enlens_claims.gui import launcher
+    from margin.gui import launcher
 
     asked = []
 
@@ -334,7 +334,7 @@ def test_ollama_is_started_for_the_restricted_model_too(monkeypatch):
 def test_a_stop_before_the_first_token_closes_the_response():
     """Ollama sends its headers with the first token; a Stop pressed while it still reads the prompt used to let
     it generate the whole answer."""
-    from enlens_claims.llm import OllamaBackend
+    from margin.llm import OllamaBackend
 
     class Resp:
         closed = False
@@ -382,18 +382,18 @@ def test_the_claude_api_retries_once_at_most(monkeypatch):
             seen.update(kw)
 
     monkeypatch.setitem(sys.modules, "anthropic", types.SimpleNamespace(Anthropic=Anthropic))
-    from enlens_claims.llm import AnthropicBackend
+    from margin.llm import AnthropicBackend
 
     AnthropicBackend(api_key="k")
     assert seen["max_retries"] == 1
 
 
 def test_the_api_extra_hint_fits_the_one_line_install(monkeypatch):
-    from enlens_claims import installation, llm
+    from margin import installation, llm
 
     monkeypatch.setattr(installation, "kind", lambda: "script")
     hint = llm._anthropic_install_hint()
-    from enlens_claims import __version__
+    from margin import __version__
 
     assert "uv tool install" in hint and "anthropic" in hint and f"v{__version__}" in hint
 
@@ -402,7 +402,7 @@ def test_the_api_extra_hint_fits_the_one_line_install(monkeypatch):
 # the command line, updating, the installer
 # ---------------------------------------------------------------------------------------------
 def test_prepare_hands_claude_code_only_what_it_may_read(mixed, monkeypatch):
-    from enlens_claims import cli, themes
+    from margin import cli, themes
 
     ws, ids = mixed
     themes.run(ws, k=2, mode="words")
@@ -425,13 +425,13 @@ def test_prepare_hands_claude_code_only_what_it_may_read(mixed, monkeypatch):
 
 def test_update_keeps_an_extra_whose_packages_grew(tmp_path):
     """The extras to reinstall are read before the merge, against the pyproject the copy was installed from."""
-    from enlens_claims import update
+    from margin import update
 
     root = tmp_path / "copy"
-    (root / "src" / "enlens_claims").mkdir(parents=True)
-    (root / "src" / "enlens_claims" / "__init__.py").write_text('__version__ = "0.11.0"\n')
+    (root / "src" / "margin").mkdir(parents=True)
+    (root / "src" / "margin" / "__init__.py").write_text('__version__ = "0.11.0"\n')
     py = root / "pyproject.toml"
-    py.write_text('[project]\nname = "enlens-claims"\n[project.optional-dependencies]\nconnector = ["pydantic>=2"]\n')
+    py.write_text('[project]\nname = "margin"\n[project.optional-dependencies]\nconnector = ["pydantic>=2"]\n')
     calls = []
 
     class R:
@@ -447,9 +447,9 @@ def test_update_keeps_an_extra_whose_packages_grew(tmp_path):
         if cmd[:2] == ["git", "rev-list"]:
             return R("1" if "HEAD..origin/main" in cmd else "0")
         if cmd[:2] == ["git", "merge"]:  # the new version wants one more package in the extra
-            py.write_text('[project]\nname = "enlens-claims"\n[project.optional-dependencies]\n'
+            py.write_text('[project]\nname = "margin"\n[project.optional-dependencies]\n'
                           'connector = ["pydantic>=2", "a-package-nobody-has>=1"]\n')
-            (root / "src" / "enlens_claims" / "__init__.py").write_text('__version__ = "0.11.1"\n')
+            (root / "src" / "margin" / "__init__.py").write_text('__version__ = "0.11.1"\n')
             return R("")
         return R("")
 
@@ -459,7 +459,7 @@ def test_update_keeps_an_extra_whose_packages_grew(tmp_path):
 
 
 def test_update_on_a_detached_head_says_what_to_do(tmp_path):
-    from enlens_claims import update
+    from margin import update
 
     root = tmp_path / "copy"
     root.mkdir()
@@ -482,7 +482,7 @@ def test_update_on_a_detached_head_says_what_to_do(tmp_path):
 
 
 def test_the_extras_of_a_pyproject_without_tomllib():
-    from enlens_claims.update import _extras_in
+    from margin.update import _extras_in
 
     text = ("[project]\nname = \"x\"\n[project.optional-dependencies]\nfast = [\"numpy>=1.24\"]  # c\n"
             "ocr = [\n  \"pypdfium2>=4.20\",\n  \"pillow>=10\",\n]\ndev = []\n[tool.other]\nx = [\"y\"]\n")
@@ -500,7 +500,7 @@ def test_the_installer_downloads_uvs_installer_before_running_it():
 # documents and the exploring layer
 # ---------------------------------------------------------------------------------------------
 def test_a_bad_word_file_is_listed_under_failed(ws, tmp_path):
-    from enlens_claims import ingest
+    from margin import ingest
 
     folder = tmp_path / "docs"
     folder.mkdir()
@@ -511,7 +511,7 @@ def test_a_bad_word_file_is_listed_under_failed(ws, tmp_path):
 
 
 def test_a_forced_cut_loses_no_character():
-    from enlens_claims.ingest import make_passages
+    from margin.ingest import make_passages
 
     text = "x" * 2500
     spans = [(0, len(text))]
@@ -523,8 +523,8 @@ def test_a_forced_cut_loses_no_character():
 
 
 def test_coverage_totals_belong_to_one_pass():
-    from enlens_claims import frameworks
-    from enlens_claims.profile import _coverage
+    from margin import frameworks
+    from margin.profile import _coverage
 
     fw = frameworks.get("sdg", None)
     code = next(iter(fw.codes))
@@ -539,7 +539,7 @@ def test_label_indexes_and_the_set_based_removal(loaded):
     ws = loaded
     names = {r[0] for r in ws.query("SELECT name FROM sqlite_master WHERE type='index'")}
     assert {"ix_labels_passage_fw", "ix_labels_task"} <= names and "ix_labels_passage" not in names
-    from enlens_claims import profile
+    from margin import profile
 
     profile.ensure_pass1(ws, "sdg")
     docs = [r[0] for r in ws.query("SELECT doc_id FROM documents ORDER BY doc_id")]
@@ -561,7 +561,7 @@ def test_label_indexes_and_the_set_based_removal(loaded):
 
 
 def test_passages_with_a_code_match_the_full_table(loaded):
-    from enlens_claims import profile
+    from margin import profile
 
     ws = loaded
     profile.ensure_pass1(ws, "sdg")
@@ -573,7 +573,7 @@ def test_passages_with_a_code_match_the_full_table(loaded):
 
 
 def test_a_themes_passages_follow_merges_and_moves(mixed):
-    from enlens_claims import themes
+    from margin import themes
 
     ws, _ids = mixed
     run = themes.run(ws, k=3, mode="words")
@@ -591,7 +591,7 @@ def test_a_themes_passages_follow_merges_and_moves(mixed):
 
 
 def test_a_search_export_is_one_search(loaded, monkeypatch):
-    from enlens_claims import concordance
+    from margin import concordance
 
     ws = loaded
     page = concordance.search(ws, "the", limit=2)
@@ -601,7 +601,7 @@ def test_a_search_export_is_one_search(loaded, monkeypatch):
 
 
 def test_an_unclosed_front_matter_is_no_front_matter(tmp_path):
-    from enlens_claims.claude_setup import frontmatter
+    from margin.claude_setup import frontmatter
 
     f = tmp_path / "x.md"
     f.write_text("---\nname: x\nno end here\n")
@@ -609,7 +609,7 @@ def test_an_unclosed_front_matter_is_no_front_matter(tmp_path):
 
 
 def test_the_page_files():
-    static = Path(__file__).parent.parent / "src" / "enlens_claims" / "gui" / "static"
+    static = Path(__file__).parent.parent / "src" / "margin" / "gui" / "static"
     index = (static / "index.html").read_text()
     assert "/static/v0111.css" in index and (static / "v0111.css").exists()
     assert "progress-notes" in (static / "views" / "progress.js").read_text()

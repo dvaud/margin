@@ -1,0 +1,6 @@
+"""Margin: check hypotheses against your own documents, locally. Every verdict comes with exact, checked quotes.
+
+The SDG / value chain assessment pipeline of the green hydrogen pilot is included as an optional pack
+(`margin load-vca`, `make-tasks`, `report`, ...).
+"""
+__version__ = "0.11.1"

@@ -12,16 +12,16 @@ import json
 import pytest
 from helpers_0110 import LOCAL_MARK, NONE_MARK, Cloud, Local, mixed_project, use_local_model
 
-from enlens_claims import access, claimcheck, home, profile, references, tasks, terms, themes
-from enlens_claims.store import Workspace
+from margin import access, claimcheck, home, profile, references, tasks, terms, themes
+from margin.store import Workspace
 
 HYP = "Green hydrogen production can increase water stress in arid regions."
 
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY", raising=False)
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY", raising=False)
     ws = home.create_project("Mixed")
     ids = mixed_project(ws, tmp_path / "corpus")
     cloud, local = Cloud(), Local()
@@ -78,7 +78,7 @@ def test_every_task_kind_through_a_cloud_model(env):
 
 def test_the_sdg_pack_and_the_file_queue(env, vca_xlsx):
     ws, ids, cloud, local = env
-    from enlens_claims import sources, vca
+    from margin import sources, vca
 
     vca.load_into(ws, vca_xlsx)
     sources.match(ws)
@@ -98,7 +98,7 @@ def test_the_queue_for_claude_code(env):
     ws, ids, _cloud, local = env
     import fake_claude_code
 
-    from enlens_claims import taskqueue
+    from margin import taskqueue
 
     seen: list[str] = []
 
@@ -135,7 +135,7 @@ def test_the_connector_tools(env):
 
     from mcp import Client
 
-    from enlens_claims.mcp_server import build_server
+    from margin.mcp_server import build_server
 
     ws, ids, _cloud, _local = env
     out: list[str] = []

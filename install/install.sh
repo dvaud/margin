@@ -1,36 +1,36 @@
 #!/bin/sh
-# ENLENS one-line install for macOS and Linux (0.10). Paste this in Terminal:
+# Margin one-line install for macOS and Linux (0.10). Paste this in Terminal:
 #
-#   curl -fsSL https://github.com/dvaud/claim_checker_demo/releases/latest/download/install.sh | sh
+#   curl -fsSL https://github.com/dvaud/margin/releases/latest/download/install.sh | sh
 #
 # It needs no git, no Python and no venv of your own:
 #   1. gets uv (a small tool from Astral that installs Python programs), unless it is already here;
-#   2. downloads the ENLENS package of this release and checks it against the release's checksums;
-#   3. installs ENLENS with uv, which brings its own Python (3.12) and keeps it apart from any other Python;
-#   4. makes the ENLENS icon (macOS: Applications and Desktop; Linux: the applications menu) and opens ENLENS.
-# Running the same line again installs the newest release over this one: your projects (in ~/enlens) stay as they are.
+#   2. downloads the Margin package of this release and checks it against the release's checksums;
+#   3. installs Margin with uv, which brings its own Python (3.12) and keeps it apart from any other Python;
+#   4. makes the Margin icon (macOS: Applications and Desktop; Linux: the applications menu) and opens Margin.
+# Running the same line again installs the newest release over this one: your projects (in ~/margin) stay as they are.
 #
 # Options, as environment variables before `sh`:
-#   ENLENS_LOCAL_ONLY=1   nothing may leave this computer (no cloud AI; built into the icon)
-#   ENLENS_HOME=<folder>  keep projects and settings in another folder (built into the icon)
-#   ENLENS_VERSION=0.10.0 install that release instead of the one this script came with
-#   ENLENS_WHEEL=<file>   install this package file instead of downloading one (for testing a build)
-#   ENLENS_NO_OPEN=1      do not open ENLENS at the end
+#   MARGIN_LOCAL_ONLY=1   nothing may leave this computer (no cloud AI; built into the icon)
+#   MARGIN_HOME=<folder>  keep projects and settings in another folder (built into the icon)
+#   MARGIN_VERSION=0.10.0 install that release instead of the one this script came with
+#   MARGIN_WHEEL=<file>   install this package file instead of downloading one (for testing a build)
+#   MARGIN_NO_OPEN=1      do not open Margin at the end
 set -eu
 
-REPO="${ENLENS_REPO:-dvaud/claim_checker_demo}"
-VERSION="${ENLENS_VERSION:-@ENLENS_VERSION@}"
+REPO="${MARGIN_REPO:-dvaud/margin}"
+VERSION="${MARGIN_VERSION:-@MARGIN_VERSION@}"
 EXTRAS="connector,fast,pdfminer,ocr"
 
 say() { printf '%s\n' "$*"; }
-fail() { printf '\nENLENS could not be installed: %s\n' "$*" >&2; exit 1; }
+fail() { printf '\nMargin could not be installed: %s\n' "$*" >&2; exit 1; }
 
 case "$VERSION" in
-  @*) [ -n "${ENLENS_WHEEL:-}" ] || fail "this copy of install.sh does not name a version. Use the one from a GitHub Release: https://github.com/$REPO/releases" ;;
+  @*) [ -n "${MARGIN_WHEEL:-}" ] || fail "this copy of install.sh does not name a version. Use the one from a GitHub Release: https://github.com/$REPO/releases" ;;
 esac
 command -v curl >/dev/null 2>&1 || fail "the program curl is missing."
 
-tmp="$(mktemp -d 2>/dev/null || mktemp -d -t enlens)"
+tmp="$(mktemp -d 2>/dev/null || mktemp -d -t margin)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 # 1. uv ---------------------------------------------------------------------------------------
@@ -42,7 +42,7 @@ find_uv() {
 }
 UV="$(find_uv || true)"
 if [ -z "$UV" ]; then
-  say "1/4  Getting uv, which installs ENLENS and its own Python…"
+  say "1/4  Getting uv, which installs Margin and its own Python…"
   # downloaded to a file first (0.11.1): in a pipe a failed download went unnoticed, and the line went on to say
   # that uv "cannot be found" instead of that the computer is offline
   curl -LsSf -o "$tmp/uv-install.sh" https://astral.sh/uv/install.sh || fail "uv's installer could not be downloaded. Are you online?"
@@ -54,15 +54,15 @@ else
 fi
 
 # 2. the package --------------------------------------------------------------------------------
-if [ -n "${ENLENS_WHEEL:-}" ]; then
-  [ -f "$ENLENS_WHEEL" ] || fail "no such file: $ENLENS_WHEEL"
-  WHEEL="$(basename "$ENLENS_WHEEL")"
-  cp "$ENLENS_WHEEL" "$tmp/$WHEEL"
+if [ -n "${MARGIN_WHEEL:-}" ]; then
+  [ -f "$MARGIN_WHEEL" ] || fail "no such file: $MARGIN_WHEEL"
+  WHEEL="$(basename "$MARGIN_WHEEL")"
+  cp "$MARGIN_WHEEL" "$tmp/$WHEEL"
   say "2/4  Using the package $WHEEL."
 else
-  WHEEL="enlens_claims-$VERSION-py3-none-any.whl"
+  WHEEL="margin-$VERSION-py3-none-any.whl"
   BASE="https://github.com/$REPO/releases/download/v$VERSION"
-  say "2/4  Downloading ENLENS $VERSION…"
+  say "2/4  Downloading Margin $VERSION…"
   curl -fsSL -o "$tmp/$WHEEL" "$BASE/$WHEEL" || fail "the download of $BASE/$WHEEL did not work. Are you online?"
   curl -fsSL -o "$tmp/SHA256SUMS" "$BASE/SHA256SUMS" || fail "the checksums of the release could not be downloaded."
   want="$(awk -v f="$WHEEL" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS")"
@@ -72,22 +72,22 @@ else
 fi
 
 # 3. install ------------------------------------------------------------------------------------
-say "3/4  Installing ENLENS (the first time this also fetches Python 3.12; a minute or two)…"
+say "3/4  Installing Margin (the first time this also fetches Python 3.12; a minute or two)…"
 UV_PYTHON_PREFERENCE=only-managed "$UV" tool install --force --quiet --python 3.12 \
-  "enlens-claims[$EXTRAS] @ file://$tmp/$WHEEL" || fail "uv could not install ENLENS (see the lines above)."
+  "margin[$EXTRAS] @ file://$tmp/$WHEEL" || fail "uv could not install Margin (see the lines above)."
 BIN="$("$UV" tool dir --bin 2>/dev/null || printf '%s' "$HOME/.local/bin")"
-[ -x "$BIN/enlens" ] || fail "ENLENS was installed, but $BIN/enlens is missing."
+[ -x "$BIN/margin" ] || fail "Margin was installed, but $BIN/margin is missing."
 
 # 4. the icon, the Claude Code plugin, and open ---------------------------------------------------
-say "4/4  Making the ENLENS icon…"
+say "4/4  Making the Margin icon…"
 set -- post-install --by script
-if [ -n "${ENLENS_HOME:-}" ]; then set -- "$@" --home "$ENLENS_HOME"; fi
-if [ -z "${ENLENS_NO_OPEN:-}" ]; then set -- "$@" --open; fi
-"$BIN/enlens" "$@" || fail "the last step did not work (see above)."
+if [ -n "${MARGIN_HOME:-}" ]; then set -- "$@" --home "$MARGIN_HOME"; fi
+if [ -z "${MARGIN_NO_OPEN:-}" ]; then set -- "$@" --open; fi
+"$BIN/margin" "$@" || fail "the last step did not work (see above)."
 
 say ""
-say "Done. Next time, open ENLENS from its icon. To update it later, run the same line again."
+say "Done. Next time, open Margin from its icon. To update it later, run the same line again."
 case ":$PATH:" in
   *":$BIN:"*) ;;
-  *) say "(In a terminal, ENLENS's commands are in $BIN, for example: $BIN/enlens update)" ;;
+  *) say "(In a terminal, Margin's commands are in $BIN, for example: $BIN/margin update)" ;;
 esac

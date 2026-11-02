@@ -9,14 +9,14 @@ pytest.importorskip("mcp")
 
 from mcp import Client, StdioServerParameters  # noqa: E402
 
-from enlens_claims import claimcheck  # noqa: E402
+from margin import claimcheck  # noqa: E402
 
 CLAIM = "Green hydrogen production can increase water stress in arid regions."
 
 
 @pytest.fixture
 def home(tmp_path, monkeypatch, corpus):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
     return tmp_path / "home"
 
 
@@ -30,7 +30,7 @@ def _json(result):
 
 
 def test_full_check_through_the_connector(home, corpus):
-    from enlens_claims.mcp_server import build_server
+    from margin.mcp_server import build_server
 
     async def run():
         async with Client(build_server()) as c:
@@ -86,19 +86,19 @@ def test_full_check_through_the_connector(home, corpus):
 
     asyncio.run(run())
     # the browser app sees the same check
-    from enlens_claims import home as core
+    from margin import home as core
     h = claimcheck.history(core.open_project("Demo"))
     assert h[0]["model"] == claimcheck.CHAT_MODEL and h[0]["passages_read"] >= 3
 
 
 def test_connector_over_stdio(home, corpus):
-    from enlens_claims import home as core
-    from enlens_claims import ingest
+    from margin import home as core
+    from margin import ingest
 
     ws = core.create_project("Demo")
     ingest.ingest(ws, [corpus])
-    env = {**os.environ, "ENLENS_HOME": str(home), "PYTHONPATH": os.pathsep.join(sys.path)}
-    params = StdioServerParameters(command=sys.executable, args=["-m", "enlens_claims.mcp_server"], env=env)
+    env = {**os.environ, "MARGIN_HOME": str(home), "PYTHONPATH": os.pathsep.join(sys.path)}
+    params = StdioServerParameters(command=sys.executable, args=["-m", "margin.mcp_server"], env=env)
 
     async def run():
         async with Client(params, read_timeout_seconds=60) as c:
@@ -111,14 +111,14 @@ def test_connector_over_stdio(home, corpus):
 
 
 def test_desktop_config_is_merged_with_a_backup(home, tmp_path):
-    from enlens_claims import mcp_server
+    from margin import mcp_server
 
     cfg = tmp_path / "claude_desktop_config.json"
     cfg.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}, "theme": "dark"}))
     mcp_server.install_desktop(cfg)
     data = json.loads(cfg.read_text())
-    assert data["theme"] == "dark" and set(data["mcpServers"]) == {"other", "enlens"}
-    assert data["mcpServers"]["enlens"]["env"]["ENLENS_HOME"] == str(home)
-    assert data["mcpServers"]["enlens"]["command"] == sys.executable
-    assert data["mcpServers"]["enlens"]["args"] == ["-m", "enlens_claims.mcp_server"]
+    assert data["theme"] == "dark" and set(data["mcpServers"]) == {"other", "margin"}
+    assert data["mcpServers"]["margin"]["env"]["MARGIN_HOME"] == str(home)
+    assert data["mcpServers"]["margin"]["command"] == sys.executable
+    assert data["mcpServers"]["margin"]["args"] == ["-m", "margin.mcp_server"]
     assert json.loads((tmp_path / "claude_desktop_config.json.bak").read_text())["mcpServers"] == {"other": {"command": "x"}}

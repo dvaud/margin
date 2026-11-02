@@ -8,15 +8,15 @@ from __future__ import annotations
 import pytest
 from helpers_0110 import Cloud, Local, mixed_project, use_local_model
 
-from enlens_claims import access, claimcheck, home, taskqueue, tasks
+from margin import access, claimcheck, home, taskqueue, tasks
 
 HYP = "Green hydrogen production can increase water stress in arid regions."
 
 
 @pytest.fixture
 def mixed(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY", raising=False)
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY", raising=False)
     ws = home.create_project("Mixed")
     ids = mixed_project(ws, tmp_path / "corpus")
     use_local_model(monkeypatch, Local())
@@ -82,7 +82,7 @@ def test_the_csv_and_the_documents_page(mixed, tmp_path):
 
     from test_app import Api
 
-    from enlens_claims.gui.server import make_server
+    from margin.gui.server import make_server
 
     claimcheck.check_hypothesis(ws, HYP, Cloud(), "claude-opus", k=12, per_doc=4)
     srv, app = make_server("127.0.0.1", 0)

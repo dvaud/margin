@@ -1,6 +1,6 @@
 """0.8.1: every task that needs an AI can be answered by Claude Code through the queue.
 
-- the SDG pack (split, extract, verify-vca, verify-claims, audit-vca): `enlens prepare <kind>` puts its tasks in the
+- the SDG pack (split, extract, verify-vca, verify-claims, audit-vca): `margin prepare <kind>` puts its tasks in the
   queue, each kind on its routed model and helper; the audits keep their second model and go to the auditor;
 - the model tests (label compare, the model test against a reference, repeatable answers) work with Claude Code:
   their tasks wait in the queue of a scratch copy that is removed afterwards, and nothing is stored.
@@ -18,8 +18,8 @@ from test_app import home  # noqa: F401  (fixture)
 def _baseline_answer(ws_of):
     """A fake Claude Code answer function that answers like the offline demo (it handles the SDG pack's kinds): the
     task is found by its prompt, so the demo gets the payload it reads."""
-    from enlens_claims import prompts
-    from enlens_claims.llm import BaselineBackend
+    from margin import prompts
+    from margin.llm import BaselineBackend
 
     be = BaselineBackend()
 
@@ -36,7 +36,7 @@ def _baseline_answer(ws_of):
 
 @pytest.fixture
 def sdg(home, corpus, vca_xlsx):  # noqa: F811
-    from enlens_claims import ingest, sources, vca
+    from margin import ingest, sources, vca
 
     ws = home.create_project("S")
     vca.load_into(ws, vca_xlsx)
@@ -47,15 +47,15 @@ def sdg(home, corpus, vca_xlsx):  # noqa: F811
 
 
 def test_the_router_covers_the_sdg_pack():
-    from enlens_claims import routing
+    from margin import routing
 
     r = routing.from_settings({"backend": "claude_code"})
     assert [r.first(k) for k in ("extract", "split", "verify", "verify_set", "audit")] == \
         ["sonnet", "opus", "opus", "opus", "opus"]
     assert r.step_up("extract") == "opus" and r.step_up("split") == "opus" and r.step_up("audit") is None
     assert [r.helper(k) for k in ("extract", "split", "verify", "verify_set", "audit")] == \
-        ["enlens-extractor", "enlens-extractor", "enlens-checker", "enlens-checker", "enlens-auditor"]
-    assert r.helper("verify_set", 1) == "enlens-auditor" and r.helper("extract", 1) == "enlens-extractor"
+        ["margin-extractor", "margin-extractor", "margin-checker", "margin-checker", "margin-auditor"]
+    assert r.helper("verify_set", 1) == "margin-auditor" and r.helper("extract", 1) == "margin-extractor"
     f = routing.from_settings({"backend": "claude_code", "use_fable": True})
     assert f.first("audit") == "fable" and f.step_up("verify_set") == "fable"
     api_r = routing.from_settings({"backend": "anthropic"})
@@ -63,7 +63,7 @@ def test_the_router_covers_the_sdg_pack():
     assert routing.certainty("extract", {"claims": [{"confidence": 0.4}, {"confidence": 0.9}]}) == 0.4
     assert routing.certainty("verify", {"verdict": "supports", "confidence": 0.7}) == 0.7
     # every kind a task can have, and every kind the queue hands out, has a model and a helper on Claude Code
-    from enlens_claims import prompts, taskqueue, tasks
+    from margin import prompts, taskqueue, tasks
 
     for k in set(tasks.KINDS) | set(taskqueue.KINDS) | set(prompts.VERSIONS):
         assert r.first(k) and r.helper(k) in routing.HELPER_MODEL, k
@@ -71,33 +71,33 @@ def test_the_router_covers_the_sdg_pack():
 
 
 def test_the_sdg_pack_through_the_queue(sdg, home):  # noqa: F811
-    from enlens_claims import routing, taskqueue, tasks
-    from enlens_claims.retrieve import screen
+    from margin import routing, taskqueue, tasks
+    from margin.retrieve import screen
 
     r = routing.from_settings(home.load_settings(), route="claude_code")
     made = tasks.prepare_sdg(sdg, "split", r)
     assert made["tasks"] >= 1 and made["queued"] == made["tasks"] and made["model"] == "opus"
-    # the task records the API id of its model, so `enlens run --backend anthropic` can still answer it
+    # the task records the API id of its model, so `margin run --backend anthropic` can still answer it
     assert {x[0] for x in sdg.query("SELECT model FROM tasks WHERE kind='split'")} == {"claude-opus-5-5"}
     g = taskqueue.status(sdg, "S")["groups"]
-    assert [(x["kind"], x["model"], x["helper"]) for x in g] == [("split", "opus", "enlens-extractor")]
+    assert [(x["kind"], x["model"], x["helper"]) for x in g] == [("split", "opus", "margin-extractor")]
 
     cc = fcc.FakeClaudeCode(fcc.DirectTools(), answer=_baseline_answer(lambda: [sdg]))
     cc.run("S")
     assert sdg.scalar("SELECT COUNT(*) FROM tasks WHERE kind='split' AND status='done'") == made["tasks"]
     assert sdg.scalar("SELECT COUNT(*) FROM vca_claims") >= 1
     assert {tuple(x) for x in sdg.query("SELECT DISTINCT route, helper, model FROM results WHERE kind='split' AND "
-                                        "valid=1")} == {("Claude Code", "enlens-extractor", "opus")}
+                                        "valid=1")} == {("Claude Code", "margin-extractor", "opus")}
 
     v = tasks.prepare_sdg(sdg, "verify-vca", r, k=3)
     screen(sdg)
     e = tasks.prepare_sdg(sdg, "extract", r)
     assert v["tasks"] >= 1 and e["tasks"] >= 1 and e["model"] == "sonnet"
     kinds = {(x["kind"], x["helper"]) for x in taskqueue.status(sdg, "S")["groups"]}
-    assert kinds == {("verify_set", "enlens-checker"), ("extract", "enlens-extractor")}
+    assert kinds == {("verify_set", "margin-checker"), ("extract", "margin-extractor")}
     # extract's batch stays within the connector's cap with its long system prompt (the 169 targets)
     got = taskqueue.next_tasks(sdg, "extract", taken_by="t")
-    from enlens_claims.llm import estimate_tokens
+    from margin.llm import estimate_tokens
 
     assert estimate_tokens(got["system"]) + sum(estimate_tokens(t["prompt"]) for t in got["tasks"]) < \
         taskqueue.CONNECTOR_CAP
@@ -113,21 +113,21 @@ def test_the_sdg_pack_through_the_queue(sdg, home):  # noqa: F811
     a = tasks.prepare_sdg(sdg, "audit-vca", r, sample=1.0)
     assert a["tasks"] >= 1 and a["model"] == "fable"
     g = taskqueue.status(sdg, "S")["groups"]
-    assert [(x["kind"], x["model"], x["helper"]) for x in g] == [("verify_set", "fable", "enlens-auditor")]
+    assert [(x["kind"], x["model"], x["helper"]) for x in g] == [("verify_set", "fable", "margin-auditor")]
     cc.run("S")
     assert sdg.scalar("SELECT COUNT(*) FROM verifications WHERE subject_kind='vca_claim_audit'") >= 0
     assert {tuple(x) for x in sdg.query("SELECT DISTINCT helper, model FROM results WHERE task_id LIKE '%:audit:%' "
-                                        "AND valid=1")} == {("enlens-auditor", "fable")}
+                                        "AND valid=1")} == {("margin-auditor", "fable")}
     assert sdg.scalar("SELECT COUNT(*) FROM tasks WHERE role='audit' AND step=1") == 0   # an audit never steps up
 
 
 def test_prepare_on_the_command_line_and_answering_it_here(sdg, home, capsys):  # noqa: F811
-    from enlens_claims import cli
+    from margin import cli
 
     assert cli.main(["--ws", str(sdg.root), "prepare", "split"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["prepared"]["tasks"] >= 1 and out["waiting"] == out["prepared"]["tasks"]
-    assert out["next"].startswith("In Claude Code: /enlens-run")
+    assert out["next"].startswith("In Claude Code: /margin-run")
     assert cli.main(["--ws", str(sdg.root), "prepare", "audit-vca", "--model", "gpt-4"]) == 1
     assert "haiku, sonnet, opus or fable" in capsys.readouterr().err
     # a shared installation answers the same queue here, with the routed models
@@ -136,9 +136,9 @@ def test_prepare_on_the_command_line_and_answering_it_here(sdg, home, capsys):  
 
 
 def test_the_sdg_pack_stays_out_of_the_queue_unless_prepared(sdg):
-    """make-tasks and `enlens run` work as before: nothing of the pack enters the queue on its own."""
-    from enlens_claims import tasks
-    from enlens_claims.llm import BaselineBackend
+    """make-tasks and `margin run` work as before: nothing of the pack enters the queue on its own."""
+    from margin import tasks
+    from margin.llm import BaselineBackend
 
     tasks.make_split(sdg)
     assert sdg.scalar("SELECT COUNT(*) FROM tasks WHERE queued=1") == 0
@@ -159,7 +159,7 @@ class _Answering(threading.Thread):
         self.errors: list[str] = []
 
     def run(self):
-        from enlens_claims import home as core
+        from margin import home as core
 
         while not self.stop.is_set():
             for name in core.list_projects():
@@ -171,16 +171,16 @@ class _Answering(threading.Thread):
 
 
 def test_repeatable_says_claude_code_takes_no_seed():
-    from enlens_claims.llm import ClaudeCodeBackend, repeatable
+    from margin.llm import ClaudeCodeBackend, repeatable
 
     r = repeatable(ClaudeCodeBackend(), "opus")
     assert r["repeatable"] is False and "seed" in r["note"]
 
 
 def test_label_compare_with_claude_code(home, corpus):  # noqa: F811
-    from enlens_claims import home as core
-    from enlens_claims import ingest, profile
-    from enlens_claims.llm import BaselineBackend
+    from margin import home as core
+    from margin import ingest, profile
+    from margin.llm import BaselineBackend
 
     ws = home.create_project("L")
     ingest.ingest(ws, [corpus])
@@ -202,10 +202,10 @@ def test_label_compare_with_claude_code(home, corpus):  # noqa: F811
 
 
 def test_benchmark_with_claude_code(home, corpus, vca_xlsx):  # noqa: F811
-    from enlens_claims import benchmark, ingest, sources, tasks, vca
-    from enlens_claims import home as core
-    from enlens_claims.llm import BaselineBackend
-    from enlens_claims.retrieve import screen
+    from margin import benchmark, ingest, sources, tasks, vca
+    from margin import home as core
+    from margin.llm import BaselineBackend
+    from margin.retrieve import screen
 
     ref = home.create_project("R")
     vca.load_into(ref, vca_xlsx)
@@ -238,10 +238,10 @@ def test_benchmark_with_claude_code(home, corpus, vca_xlsx):  # noqa: F811
 
 def test_the_app_runs_the_model_tests_with_claude_code(home, corpus):  # noqa: F811
     """The buttons that were refused with Claude Code in 0.8 (compare labels, repeatable answers) now work."""
-    from enlens_claims import home as core
-    from enlens_claims import ingest, profile
-    from enlens_claims.gui.server import make_server
-    from enlens_claims.llm import BaselineBackend
+    from margin import home as core
+    from margin import ingest, profile
+    from margin.gui.server import make_server
+    from margin.llm import BaselineBackend
     from test_app import Api
 
     ws = home.create_project("G")

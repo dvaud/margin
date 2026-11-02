@@ -1,4 +1,4 @@
-"""0.8.2: the heat grids stay readable on hover, and `enlens update` moves a git copy forward without a new venv."""
+"""0.8.2: the heat grids stay readable on hover, and `margin update` moves a git copy forward without a new venv."""
 from __future__ import annotations
 
 import re
@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from enlens_claims import update
+from margin import update
 
-STATIC = Path(__file__).resolve().parents[1] / "src" / "enlens_claims" / "gui" / "static"
+STATIC = Path(__file__).resolve().parents[1] / "src" / "margin" / "gui" / "static"
 
 
 # ---------------------------------------------------------------------------------------------
@@ -52,7 +52,7 @@ def test_darkest_cell_has_its_own_token_in_every_theme():
 
 
 # ---------------------------------------------------------------------------------------------
-# enlens update
+# margin update
 # ---------------------------------------------------------------------------------------------
 needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
@@ -63,8 +63,8 @@ def _g(cwd: Path, *args: str) -> str:
 
 
 def _release(repo: Path, version: str, deps: str = '"pydantic>=2.5"') -> None:
-    (repo / "src" / "enlens_claims").mkdir(parents=True, exist_ok=True)
-    (repo / "src" / "enlens_claims" / "__init__.py").write_text(f'__version__ = "{version}"\n', encoding="utf-8")
+    (repo / "src" / "margin").mkdir(parents=True, exist_ok=True)
+    (repo / "src" / "margin" / "__init__.py").write_text(f'__version__ = "{version}"\n', encoding="utf-8")
     (repo / "pyproject.toml").write_text(f'[project]\nname = "x"\nversion = "{version}"\ndependencies = [{deps}]\n',
                                          encoding="utf-8")
     _g(repo, "add", "-A")
@@ -107,7 +107,7 @@ def test_up_to_date(copies):
 @needs_git
 def test_code_only_update_needs_no_reinstall(copies):
     dev, user = copies
-    (dev / "src" / "enlens_claims" / "__init__.py").write_text('__version__ = "0.8.2"\n', encoding="utf-8")
+    (dev / "src" / "margin" / "__init__.py").write_text('__version__ = "0.8.2"\n', encoding="utf-8")
     _g(dev, "commit", "-qam", "0.8.2")
     _g(dev, "push", "-q")
     assert update.update(check_only=True, root=user, run=Pip())["waiting"] == 1
@@ -134,7 +134,7 @@ def test_local_changes_stop_the_update(copies):
     dev, user = copies
     _release(dev, "0.8.2")
     _g(dev, "push", "-q")
-    (user / "src" / "enlens_claims" / "__init__.py").write_text('__version__ = "mine"\n', encoding="utf-8")
+    (user / "src" / "margin" / "__init__.py").write_text('__version__ = "mine"\n', encoding="utf-8")
     with pytest.raises(update.UpdateError, match="changed on this computer.*__init__.py"):
         update.update(root=user, run=Pip())
     assert update.version_in(user) == "mine"

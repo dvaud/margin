@@ -8,15 +8,15 @@ then the defaults below are the roadmap's starting points.
 ## How the runs are made
 
 ```bash
-enlens --ws pilot acceptance samples                      # once: acceptance/*.csv for a person to fill in
+margin --ws pilot acceptance samples                      # once: acceptance/*.csv for a person to fill in
 # the team writes acceptance/pass_marks.json, e.g. {"label": 0.6, "link": 0.8, "theme": 0.8, "resolve": 0.8, "check": 0.8}
-enlens --ws pilot acceptance queue --kind label --model haiku     # a copy of the pilot with label tasks for Haiku
-/enlens-run "pilot eval label haiku"                                # in Claude Code: answers them
-enlens --ws pilot acceptance queue --kind label --model local:qwen3:8b
-enlens --ws "<the copy's folder>" queue run --backend ollama        # the local model answers its copy
-enlens --ws pilot acceptance queue --kind label --model haiku --again   # the same tasks again: repeatability
-enlens --ws pilot acceptance score                                  # writes acceptance/MODEL_CHOICE.md
-enlens --ws pilot acceptance score --apply                          # the cheapest passing model becomes the default
+margin --ws pilot acceptance queue --kind label --model haiku     # a copy of the pilot with label tasks for Haiku
+/margin-run "pilot eval label haiku"                                # in Claude Code: answers them
+margin --ws pilot acceptance queue --kind label --model local:qwen3:8b
+margin --ws "<the copy's folder>" queue run --backend ollama        # the local model answers its copy
+margin --ws pilot acceptance queue --kind label --model haiku --again   # the same tasks again: repeatability
+margin --ws pilot acceptance score                                  # writes acceptance/MODEL_CHOICE.md
+margin --ws pilot acceptance score --apply                          # the cheapest passing model becomes the default
 ```
 
 Each run works on its own copy of the pilot, so the models' answers never mix with each other or with the pilot's.
@@ -35,7 +35,7 @@ A kind where no affordable model passes keeps a person in the loop: its answers 
 
 ## Results
 
-Not measured yet. `enlens acceptance score` writes the tables here (one per kind: model, tasks answered, score,
+Not measured yet. `margin acceptance score` writes the tables here (one per kind: model, tasks answered, score,
 repeatability, seconds per task, pass mark, passes) with the chosen default and why.
 
 ## Defaults until then
@@ -56,7 +56,7 @@ repeatability, seconds per task, pass mark, passes) with the chosen default and 
 
 ### Why these defaults for the SDG pack (0.8.1)
 
-The SDG pack's tasks reach Claude Code only when they are prepared for the queue (`enlens prepare split|extract|
+The SDG pack's tasks reach Claude Code only when they are prepared for the queue (`margin prepare split|extract|
 verify-vca|verify-claims|audit-vca`). Its defaults follow the rule of the others, the cheapest model likely to be good
 enough, with what the pilot used as the anchor (split on Fable 5.1, extract and the VCA checks on Opus 5.5, audits
 on Fable 5.1):
@@ -65,7 +65,7 @@ on Fable 5.1):
   `--per-target 6`, thousands with every screened passage) and the batch's system prompt already carries the 169
   targets. Every claim has a confidence, so a claim Sonnet is unsure of (under 0.6) sends the passage to Opus; claims
   under `accept_confidence` (0.8) wait for a person in any case, and every quote is checked. Haiku was not chosen:
-  coding claims against 169 targets with directions and interactions is the hardest coding task ENLENS has.
+  coding claims against 169 targets with directions and interactions is the hardest coding task Margin has.
 - **split: Opus, stepping up to the auditor.** Few tasks (61 on the pilot), but its claims become the reference that
   every VCA check and every acceptance run is measured against, and the format has no confidence to step up on.
   This is the one kind where a cheaper model saves little and a wrong answer costs the most.
@@ -76,5 +76,5 @@ on Fable 5.1):
   for a real second model, as the pilot did.
 
 The acceptance runs do not cover the SDG pack's kinds yet. Until they do, the *Model test* in Settings (which now
-works with Claude Code) or `enlens benchmark` (local models, the Claude API) compares a model with the pilot's
+works with Claude Code) or `margin benchmark` (local models, the Claude API) compares a model with the pilot's
 answers on extract and verify_set.

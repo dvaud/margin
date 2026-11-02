@@ -1,0 +1,12 @@
+{
+  "name": "margin",
+  "description": "Margin for Claude Code: answer a Margin project's task queue on your own Claude plan",
+  "owner": {"name": "Margin"},
+  "plugins": [
+    {
+      "name": "margin-run",
+      "source": "./plugins/margin-run",
+      "description": "Works through a Margin project's task queue with helper agents on the right model per task"
+    }
+  ]
+}

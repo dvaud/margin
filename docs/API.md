@@ -1,19 +1,19 @@
-# ENLENS local app: HTTP API
+# Margin local app: HTTP API
 
-The app (`enlens-gui`) is a small HTTP server on `127.0.0.1` (default port 8765) that serves one static page
-(`src/enlens_claims/gui/static/`) and a JSON API under `/api/`. Everything stays on the computer; text goes only to
+The app (`margin-gui`) is a small HTTP server on `127.0.0.1` (default port 8766) that serves one static page
+(`src/margin/gui/static/`) and a JSON API under `/api/`. Everything stays on the computer; text goes only to
 the model service chosen in Settings.
 
 ## Rules
 
-- **Token.** `GET /` returns `index.html` with `{{ENLENS_TOKEN}}` replaced by a random token for this run (and
-  `{{ENLENS_VERSION}}` by the version). Every API call sends it as the header `X-Enlens-Token`. The endpoints a
+- **Token.** `GET /` returns `index.html` with `{{MARGIN_TOKEN}}` replaced by a random token for this run (and
+  `{{MARGIN_VERSION}}` by the version). Every API call sends it as the header `X-Margin-Token`. The endpoints a
   plain link opens (the exports `…/export.csv|json|xlsx|zip`, the original file `…/documents/<id>/file`, and the
   0.7 downloads: search, profile and themes exports, highlighted copies, the FlexiConc file) also accept `?token=`.
 - **Host.** Requests must name `127.0.0.1:<port>`, `localhost:<port>` or `[::1]:<port>` in `Host`; requests carrying an
   `Origin` other than their own `Host` are refused (403).
-- **Network mode** (`enlens-gui --host 0.0.0.0`): `Host` may also be an IP address of the computer (never a domain
-  name: that could be DNS rebinding). The page is served without the token (`{{ENLENS_TOKEN}}` becomes empty); the
+- **Network mode** (`margin-gui --host 0.0.0.0`): `Host` may also be an IP address of the computer (never a domain
+  name: that could be DNS rebinding). The page is served without the token (`{{MARGIN_TOKEN}}` becomes empty); the
   token comes in the link printed in the terminal, `http://<address>:<port>/#token=<token>`, which the page reads
   from `location.hash` and keeps in `sessionStorage`.
 - **Content Security Policy** on the page: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
@@ -72,7 +72,7 @@ when nothing was graded. `who` lists the same documents by side (see the hypothe
 
 `GET /api/state` →
 ```json
-{"version": "0.7.0", "home": "/Users/me/enlens",
+{"version": "0.7.0", "home": "/Users/me/margin",
  "settings": {"backend": "auto", "allow_cloud": false, "anthropic_model": "claude-opus-5-5",
               "ollama_url": "http://localhost:11434", "ollama_model": "", "openai_url": "http://localhost:1234/v1",
               "openai_model": "", "num_ctx": "auto", "think": "off", "think_budget": 1500, "embed_backend": "ollama", "embed_model": "",
@@ -135,12 +135,12 @@ in alphabetical order. `POST /api/servers/test` then says so in `warning`.
 while `local_only` is true). `project` sets the current project.
 
 `local_only` (in the state) is true when whoever installed the app switched cloud models off for good
-(`enlens-gui --local-only`, `ENLENS_LOCAL_ONLY=1`, or a file `local_only` in the data folder): hide the cloud option.
+(`margin-gui --local-only`, `MARGIN_LOCAL_ONLY=1`, or a file `local_only` in the data folder): hide the cloud option.
 
 `POST /api/settings/key` `{"key": "sk-ant-…", "remember": false}` → `{"key": {...}}`. Without `remember` the key is
 kept in memory for this run only. `DELETE /api/settings/key` forgets both. 403 when `local_only` is true (0.11.1).
 
-`POST /api/quit` → `{"stopping": true, "jobs_stopped": n}`: stops the app ("Quit ENLENS" in the sidebar) once the
+`POST /api/quit` → `{"stopping": true, "jobs_stopped": n}`: stops the app ("Quit Margin" in the sidebar) once the
 running jobs have stopped (at most 20 s); 409 when this copy was not started in a way that can be stopped from here.
 
 `GET /api/servers` → local model servers running now (probed in parallel, < 1 s):
@@ -169,7 +169,7 @@ running jobs have stopped (at most 20 s); 409 when this copy was not started in 
 `GET /api/projects/<p>/export.zip` → the whole project as one zip, to give to a colleague or move to another
 computer: a consistent copy of the database, `config.json`, the project's codebooks, `uploads/`, and the original
 file of every other document (as `originals/<doc_id>/<name>` when it was read from outside the project folder).
-Built in a temporary file and sent in chunks; the file name is readable ("ENLENS project - Demo - 2026-10-28.zip").
+Built in a temporary file and sent in chunks; the file name is readable ("Margin project - Demo - 2026-10-28.zip").
 `POST /api/projects/import?name=<name>` with the zip as the raw body → `{"project": summary}` (it becomes the
 current project). Without `name` the project keeps the name it had, with " (2)" added when that is taken; a `name`
 that is taken → 409. 400 for a file that is not a zip, or a zip without a project (`enlens.sqlite`). Paths in the zip
@@ -559,7 +559,7 @@ comment, the full excerpt, notes, code). `.csv` and `.json` give the technical f
 `GET /api/projects/<p>/export.xlsx?threshold=` → the same for every check of the project, plus a sheet *Map* (the
 evidence map: one row per hypothesis, one column per document, + supports, (+) partly, − contradicts, ± both, with
 the number of excerpts that count); `export.csv` the technical CSV (ids, raw verdicts, UTC times). File names are
-readable ("ENLENS results - <project> - <date>.xlsx"). From 0.6 the *Excerpts* sheet also has "About another group
+readable ("Margin results - <project> - <date>.xlsx"). From 0.6 the *Excerpts* sheet also has "About another group
 (AI's note)" and "AI's earlier judgement (before reading it again)", and, when a second model read any of the
 excerpts, "Second model", "Second model's judgement", "Second model's certainty", "The two models agree". The
 *Summary* sheet has "Excerpts where a second model disagrees" and "Documents added since the check".
@@ -647,7 +647,7 @@ every answer they store records the model, its digest, the prompt version, the s
 
 - `GET /api/projects/<p>/documents/<id>/annotated.pdf?hyp=h1,h2&layers=judgements,labels,concepts,references&framework=&concept=&threshold=`
   → the PDF with highlight annotations (exact boxes with pdfminer, lines otherwise, OCR for scanned pages) and a
-  note listing quotes it could not place; an HTML copy for other documents. Header `X-Enlens-Placed: placed/marks`.
+  note listing quotes it could not place; an HTML copy for other documents. Header `X-Margin-Placed: placed/marks`.
 - `GET /api/projects/<p>/hypotheses/<id>/annotated.zip?layers=&threshold=` → every document behind one answer.
 
 #### Quick look and FlexiConc (F8)
@@ -669,7 +669,7 @@ every answer they store records the model, its digest, the prompt version, the s
 With `settings.backend = "claude_code"` (it needs `allow_claude_code: true`, refused with `--local-only`) every job
 that would call a model prepares tasks in the queue and waits for them: its Job has `"queue": true`, does not wait
 for the model's turn, and its `progress` carries `queue`: `{"phase": "queue", "text": "Waiting for Claude Code: 3
-passages to label", "waiting", "being_answered", "estimate", "paused", "paused_text", "command": "/enlens-run P",
+passages to label", "waiting", "being_answered", "estimate", "paused", "paused_text", "command": "/margin-run P",
 "privacy"}` (checks, batches: under `progress.model` with `phase: "queue"`). Cancelling such a job takes its tasks
 that no session has taken yet out of the queue; a check by queue is removed whole.
 
@@ -688,7 +688,7 @@ that no session has taken yet out of the queue; a check by queue is removed whol
 - `GET /api/routing` → `{"route", "route_name", "rows": [{"row", "kinds", "title", "model", "step_up", "helper",
   "chosen", "recommended"}], "aliases", "fable", "local_small_model", "second_model", "step_up_below", "routing"}`.
 - `GET /api/claude-setup` → `{"folder", "ready", "commands": ["claude plugin marketplace add …", "claude plugin
-  install enlens-run@enlens"], "terminal": "enlens claude-setup", "in_claude_code": [...], "local_only"}`;
+  install margin-run@margin"], "terminal": "margin claude-setup", "in_claude_code": [...], "local_only"}`;
   `POST /api/claude-setup` writes the plugin into the data folder and adds `"problems": []`.
 - Settings (`PUT /api/settings`): `allow_claude_code`, `use_fable`, `task_models` (`{"claude": {"label": "sonnet"},
   "local": {"label": "llama3.2:3b"}}`), `local_small_model`, `routing` (default true).
@@ -710,8 +710,8 @@ that no session has taken yet out of the queue; a check by queue is removed whol
   `{..., "steps": [{"step", "ok", "text"}], "status", "commands", "problems"}`; `{"write_only": true}` only writes
   the plugin (as 0.8); `{"check": true}` also starts the connector to check it.
 - `POST /api/projects/<p>/queue/claude-code` → `{"running", "started_at", "seconds", "exit_code", "report",
-  "stopped"}`: starts Claude Code headless for the project's queue (`claude -p "/enlens-run:enlens-run <p>"
-  --allowedTools Agent mcp__plugin_enlens-run_enlens__{queue_status,next_tasks,submit_answers,release}`), one run per
+  "stopped"}`: starts Claude Code headless for the project's queue (`claude -p "/margin-run:margin-run <p>"
+  --allowedTools Agent mcp__plugin_margin-run_margin__{queue_status,next_tasks,submit_answers,release}`), one run per
   project; adds the plugin first if needed. 400 when Settings do not name Claude Code, when Claude Code is not found,
   or with `--local-only`.
 - `POST /api/projects/<p>/queue/claude-code/stop` → the same object: stops it, and gives the batches it had taken
@@ -738,7 +738,7 @@ that no session has taken yet out of the queue; a check by queue is removed whol
   then reads `GET /api/claude-setup?refresh=1` every few seconds until `status.signed_in` is true, and adds the
   plugin. 400 when Claude Code is not found, or with `--local-only`.
 - On start, the app writes the Claude Code plugin again (and runs the two set-up commands again, quietly) when the
-  plugin names another Python or another data folder than this ENLENS (it moved, or was installed again).
+  plugin names another Python or another data folder than this Margin (it moved, or was installed again).
 - `GET /api/move.zip` (a download; the token may be given as `?token=`) → one zip with every project (each as the
   zip of `GET /api/projects/<p>/export.zip`, under `projects/NNN.zip`) and `enlens-move.json`: `{"format":
   "enlens-move", "version", "made", "projects": [{"name", "file", "documents", "linked", "missing"}], "current",

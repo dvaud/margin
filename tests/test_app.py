@@ -10,16 +10,16 @@ import urllib.request
 import pytest
 
 import fake_servers
-from enlens_claims.llm import BackendError, BaselineBackend, LocalBackend, OllamaBackend
+from margin.llm import BackendError, BaselineBackend, LocalBackend, OllamaBackend
 
 CLAIM = "Green hydrogen production can increase water stress in arid regions."
 
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from enlens_claims import home
+    from margin import home
     return home
 
 
@@ -54,7 +54,7 @@ def test_settings_projects_and_key(home, tmp_path):
     assert folder.parent.parent == ws.root
 
     other = tmp_path / "pilot"
-    from enlens_claims.store import Workspace
+    from margin.store import Workspace
     Workspace.create(other)
     assert home.link_existing(str(other)) == "pilot" and "pilot" in home.list_projects()
     assert home.project_path("pilot") == other.resolve() and home.is_linked("pilot")
@@ -86,7 +86,7 @@ def test_make_backend(home):
     assert isinstance(home.make_backend(s)[0], BaselineBackend)
     assert home.backend_label(s).startswith("Offline demo")
     s.update(backend="auto", ollama_url="http://127.0.0.1:9", openai_url="http://127.0.0.1:9/v1")
-    from enlens_claims import llm
+    from margin import llm
     llm._DETECTED.clear()
     with pytest.raises(BackendError, match="No local model server is running"):
         home.make_backend(s)
@@ -103,7 +103,7 @@ def test_default_model_is_one_in_memory_then_the_newest(home):
 
     srv, url = fake_servers.start("ollama")
     try:
-        from enlens_claims import llm
+        from margin import llm
         srv.modified = {fake_servers.SLOW: "2026-10-01T00:00:00Z"}
         llm._DETECTED.clear()
         be, model = home.make_backend(dict(home.DEFAULTS, backend="auto", ollama_url=url))
@@ -144,8 +144,8 @@ def test_context_length_is_the_smallest_that_fits_and_stays_put(home, tmp_path):
 
     srv, url = fake_servers.start("ollama")
     try:
-        from enlens_claims import claimcheck, ingest
-        from enlens_claims.store import Workspace
+        from margin import claimcheck, ingest
+        from margin.store import Workspace
         from helpers import PAPER_A_PAGES, make_pdf
         ws = Workspace.create(tmp_path / "ctx")
         make_pdf(tmp_path / "a.pdf", PAPER_A_PAGES)
@@ -164,7 +164,7 @@ def test_context_length_is_the_smallest_that_fits_and_stays_put(home, tmp_path):
 def test_auto_backend_finds_a_local_server(home):
     srv, url = fake_servers.start("ollama")
     try:
-        from enlens_claims import llm
+        from margin import llm
         llm._DETECTED.clear()
         s = dict(home.DEFAULTS, backend="auto", ollama_url=url)
         be, model = home.make_backend(s)
@@ -183,7 +183,7 @@ class Api:
         self.base, self.token = base, token
 
     def __call__(self, method, path, body=None, raw=None, headers=None, token=True):
-        h = {"X-Enlens-Token": self.token} if token else {}
+        h = {"X-Margin-Token": self.token} if token else {}
         h.update(headers or {})
         data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
         if body is not None:
@@ -208,7 +208,7 @@ class Api:
 
 @pytest.fixture
 def api(home):
-    from enlens_claims.gui.server import make_server
+    from margin.gui.server import make_server
 
     srv, app = make_server("127.0.0.1", 0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -225,7 +225,7 @@ def test_api_guards(api):
     assert api("GET", "/api/nothing")[0] == 404
     assert api("DELETE", "/api/state")[0] == 405
     st, page = api("GET", "/", token=False)
-    assert st == 200 and api.token.encode() in page and b"{{ENLENS_TOKEN}}" not in page
+    assert st == 200 and api.token.encode() in page and b"{{MARGIN_TOKEN}}" not in page
     assert api("GET", "/static/../server.py", token=False)[0] == 404
     st, s = api("GET", "/api/state")
     assert st == 200 and s["settings"]["backend"] == "claude_code" and s["projects"] == [] and s["statuses"]
@@ -339,7 +339,7 @@ def test_backend_problem_is_reported_as_such(api):
 
 
 def test_progress_tracker_and_model_line():
-    from enlens_claims.gui.progress import Tracker, model_line
+    from margin.gui.progress import Tracker, model_line
 
     now = [100.0]
     t = Tracker(expand=True, clock=lambda: now[0])
@@ -405,7 +405,7 @@ def test_openai_compatible_server_falls_back_and_streams(loaded):
         url = f"http://127.0.0.1:{srv.server_address[1]}/v1"
         be = LocalBackend(base_url=url)
         assert be.check("local-model")["model_available"]
-        from enlens_claims import claimcheck, tasks
+        from margin import claimcheck, tasks
         out = be.complete("expand", "You prepare a search", "CLAIM:\nwater", "local-model", {})
         assert tasks.parse_json(out) == {"terms": ["water", "stress"]}
         assert seen == ["json_schema", "json_object"] and be._format == "json_object"
@@ -419,7 +419,7 @@ def test_openai_compatible_server_falls_back_and_streams(loaded):
 
 def test_remove_all_refuses_when_pipeline_results_would_go(api, loaded, home):
     name = home.link_existing(str(loaded.root), "Pipeline")
-    from enlens_claims import tasks
+    from margin import tasks
     tasks.make_split(loaded, model="m")
     tasks.run(loaded, "split", BaselineBackend())
     tasks.make_verify_vca(loaded, model="m", k=3)
@@ -437,7 +437,7 @@ def test_upload_names_cannot_leave_the_project(api):
 
 
 def test_network_mode_hands_out_no_token(home):
-    from enlens_claims.gui.server import make_server
+    from margin.gui.server import make_server
 
     srv, app = make_server("0.0.0.0", 0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -456,14 +456,14 @@ def test_network_mode_hands_out_no_token(home):
 
 def test_an_installer_can_switch_the_cloud_off_for_good(api, home, monkeypatch):
     assert api("GET", "/api/state")[1]["local_only"] is False
-    monkeypatch.setenv("ENLENS_LOCAL_ONLY", "1")
+    monkeypatch.setenv("MARGIN_LOCAL_ONLY", "1")
     st, s = api("GET", "/api/state")
     assert s["local_only"] is True
     st, body = api("PUT", "/api/settings", {"allow_cloud": True, "backend": "anthropic"})
     assert st == 400 and "switched off on this computer" in body["error"]
     with pytest.raises(BackendError, match="switched off on this computer"):
         home.make_backend({**home.load_settings(), "backend": "anthropic", "allow_cloud": True})
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY")
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY")
     (home.home() / "local_only").write_text("")
     assert home.local_only()
 
@@ -682,7 +682,7 @@ def test_a_body_no_endpoint_reads_does_not_spoil_the_next_request(api):
     api("POST", "/api/projects", {"name": "K"})
     host, port = api.base.split("//")[1].split(":")
     cx = http.client.HTTPConnection(host, int(port), timeout=10)
-    hdr = {"X-Enlens-Token": api.token, "Content-Type": "application/json"}
+    hdr = {"X-Margin-Token": api.token, "Content-Type": "application/json"}
     for _ in range(2):
         cx.request("GET", "/api/projects", body=b'{"unused": true}', headers=hdr)  # 200, keeps the connection
         assert cx.getresponse().read()
@@ -697,17 +697,17 @@ def test_the_icon_starts_one_copy_without_a_terminal_and_quit_stops_it(home, tmp
     import socket
     import subprocess
     import sys
-    from enlens_claims.gui import launcher
+    from margin.gui import launcher
 
     # the icons: a macOS app, a Linux menu entry, a Windows command file when PowerShell is not there
     mac = launcher.make_launcher(str(tmp_path / "data"), True, [tmp_path / "mac"], python=sys.executable, platform="darwin")[0]
     info = plistlib.loads((mac / "Contents" / "Info.plist").read_bytes())
-    script = (mac / "Contents" / "MacOS" / "ENLENS").read_text()
-    assert info["CFBundleExecutable"] == "ENLENS" and os.access(mac / "Contents" / "MacOS" / "ENLENS", os.X_OK)
+    script = (mac / "Contents" / "MacOS" / "Margin").read_text()
+    assert info["CFBundleExecutable"] == "Margin" and os.access(mac / "Contents" / "MacOS" / "Margin", os.X_OK)
     assert "--launcher" in script and "--local-only" in script and str(tmp_path / "data") in script and "&" in script
     lin = launcher.make_launcher(None, False, [tmp_path / "lin"], python=sys.executable, platform="linux")[0]
     entry = lin.read_text()
-    assert "Terminal=false" in entry and "enlens_claims.gui.launch --launcher" in entry and sys.executable in entry
+    assert "Terminal=false" in entry and "margin.gui.launch --launcher" in entry and sys.executable in entry
     win = launcher.make_launcher(None, False, [tmp_path / "win"], python=sys.executable, platform="win32")[0]
     assert win.suffix in (".lnk", ".cmd") and (win.suffix == ".lnk" or "--launcher" in win.read_text())
     assert launcher.draw_icon(64) is None or launcher.draw_icon(64).size == (64, 64)
@@ -715,8 +715,8 @@ def test_the_icon_starts_one_copy_without_a_terminal_and_quit_stops_it(home, tmp
     with socket.socket() as sk:
         sk.bind(("127.0.0.1", 0))
         port = sk.getsockname()[1]
-    env = {**os.environ, "ENLENS_HOME": str(home.home())}
-    cmd = [sys.executable, "-m", "enlens_claims.gui.launch", "--launcher", "--headless", "--no-start-ollama",
+    env = {**os.environ, "MARGIN_HOME": str(home.home())}
+    cmd = [sys.executable, "-m", "margin.gui.launch", "--launcher", "--headless", "--no-start-ollama",
            "--port", str(port)]
     first = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
@@ -729,15 +729,15 @@ def test_the_icon_starts_one_copy_without_a_terminal_and_quit_stops_it(home, tmp
         again = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)  # a second double-click
         assert again.returncode == 0 and "already running" in again.stdout
         page = urllib.request.urlopen(live["url"], timeout=5).read().decode()
-        token = page.split('name="enlens-token" content="')[1].split('"')[0]
+        token = page.split('name="margin-token" content="')[1].split('"')[0]
         a = Api(live["url"].rstrip("/"), token)
         st, s = a("GET", "/api/state")
         assert s["launcher"] is True and s["can_quit"] is True
         assert a("POST", "/api/quit", {})[1]["stopping"] is True
         assert first.wait(timeout=15) == 0
         assert not (home.home() / "app.json").exists() and launcher.running() is None
-        log = (home.home() / "logs" / "enlens.log").read_text()
-        assert "started by the launcher" in log and "ENLENS stopped." in log
+        log = (home.home() / "logs" / "margin.log").read_text()
+        assert "started by the launcher" in log and "Margin stopped." in log
     finally:
         if first.poll() is None:
             first.kill()
@@ -746,7 +746,7 @@ def test_the_icon_starts_one_copy_without_a_terminal_and_quit_stops_it(home, tmp
 def test_reasoning_only_when_judging_and_within_a_budget(home, tmp_path):
     """0.6.1: a model that would reason for ever is stopped at its budget and answers from its notes; with
     "judging", it reasons only when it judges excerpts."""
-    from enlens_claims.llm import JUDGING
+    from margin.llm import JUDGING
 
     srv, url = fake_servers.start("ollama")
     try:
@@ -760,8 +760,8 @@ def test_reasoning_only_when_judging_and_within_a_budget(home, tmp_path):
 
         srv.requests.clear()
         be = OllamaBackend(base_url=url, think=True, think_kinds=JUDGING, think_budget=200, num_ctx=12288)
-        from enlens_claims import claimcheck, ingest
-        from enlens_claims.store import Workspace
+        from margin import claimcheck, ingest
+        from margin.store import Workspace
         from helpers import PAPER_A_PAGES, make_pdf
         ws = Workspace.create(tmp_path / "w")
         make_pdf(tmp_path / "a.pdf", PAPER_A_PAGES)

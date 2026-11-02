@@ -1,4 +1,4 @@
-"""A fake Claude Code for tests (0.8): plays /enlens-run through the connector's queue tools.
+"""A fake Claude Code for tests (0.8): plays /margin-run through the connector's queue tools.
 
 It does what the plugin's orchestrator and helpers do: queue_status, then for every group next_tasks with the group's
 kind and model, an answer for every task, submit_answers, and a fix of every task reported with problems. The answers
@@ -45,7 +45,7 @@ class DirectTools:
     """The four queue tools without MCP: the same functions the connector calls."""
 
     def __init__(self):
-        from enlens_claims import home, taskqueue
+        from margin import home, taskqueue
 
         self.home, self.q = home, taskqueue
 
@@ -76,7 +76,7 @@ class DirectTools:
 
 
 class McpTools:
-    """The four queue tools through an MCP client connected to the ENLENS connector. The client lives in one task of
+    """The four queue tools through an MCP client connected to the Margin connector. The client lives in one task of
     an event loop on its own thread (its context must be entered and left in the same task); calls go to it."""
 
     def __init__(self, client, loop):
@@ -149,7 +149,7 @@ class FakeClaudeCode:
             if not r["open"]:
                 break
             # a real helper would read the problems and fix the answer; the fake answers again, with the problems
-            # listed in the prompt as ENLENS shows them on a retry, which gives the right answer
+            # listed in the prompt as Margin shows them on a retry, which gives the right answer
             again = []
             for tid in r["open"]:
                 again.append({"task_id": tid, "answer": good[tid]})
@@ -159,7 +159,7 @@ class FakeClaudeCode:
         return entry
 
     def run(self, project, kind=None, max_batches=500) -> dict:
-        """/enlens-run <project> [kind]: work through the groups until nothing waits."""
+        """/margin-run <project> [kind]: work through the groups until nothing waits."""
         while self.batches < max_batches:
             st = self.tools.queue_status(project)
             groups = [g for g in st["groups"] if kind is None or g["kind"] == kind]
@@ -173,14 +173,14 @@ class FakeClaudeCode:
 
 
 def run(project, kind=None, tools=None, **kw) -> dict:
-    """Play /enlens-run once, through an in-process connector unless `tools` is given."""
+    """Play /margin-run once, through an in-process connector unless `tools` is given."""
     if tools is not None:
         return FakeClaudeCode(tools, **kw).run(project, kind)
     import threading
 
     from mcp import Client
 
-    from enlens_claims.mcp_server import build_server
+    from margin.mcp_server import build_server
 
     loop = asyncio.new_event_loop()
     ready, done = threading.Event(), None

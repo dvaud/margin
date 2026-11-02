@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from enlens_claims import ingest, sources, vca
-from enlens_claims.retrieve import screen
+from margin import ingest, sources, vca
+from margin.retrieve import screen
 
 REAL_XLSX = Path(os.environ.get(
-    "ENLENS_VCA_XLSX",
-    "/tmp/claude-0/-home-claude/12a8b3dc-c29e-5901-9802-f0034d70c22a/scratchpad/repo/ENLENS_CrossDoc/app_data/43621_2024_374_MOESM1_ESM.xlsx"))
+    "MARGIN_VCA_XLSX",
+    "/tmp/claude-0/-home-claude/12a8b3dc-c29e-5901-9802-f0034d70c22a/scratchpad/repo/MARGIN_CrossDoc/app_data/43621_2024_374_MOESM1_ESM.xlsx"))
 
 
 def test_fake_workbook_cells(vca_xlsx):
@@ -97,7 +97,7 @@ def test_manifest_declares_the_reference(ws, vca_xlsx, tmp_path):
 def test_old_workspace_is_migrated(tmp_path):
     import sqlite3
 
-    from enlens_claims.store import Workspace
+    from margin.store import Workspace
 
     root = tmp_path / "old"
     root.mkdir()

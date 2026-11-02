@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "enlens-claims"
+name = "margin"
 version = "0.11.1"
-description = "Explore your documents (search, code profiles, concepts, themes) and check hypotheses against them with Claude Code on your own plan or a local model, with verified quotes (ENLENS); includes the SDG value chain assessment pipeline"
+description = "Explore your documents (search, code profiles, concepts, themes) and check hypotheses against them with Claude Code on your own plan or a local model, with verified quotes (Margin); includes the SDG value chain assessment pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# the app (enlens-gui) needs nothing beyond the core: it is a standard-library server and a static page
+# the app (margin-gui) needs nothing beyond the core: it is a standard-library server and a static page
 gui = []
 fast = ["numpy>=1.24"]                 # faster semantic search on large projects (pure Python otherwise)
 anthropic = ["anthropic>=0.40"]        # the Claude API (cloud, opt-in)
@@ -25,15 +25,15 @@ ocr = ["pypdfium2>=4.20", "pillow>=10"]  # read scanned PDF pages; also needs th
 dev = ["pytest>=8"]
 
 [project.scripts]
-enlens = "enlens_claims.cli:main"
-enlens-gui = "enlens_claims.gui.launch:main"
-enlens-mcp = "enlens_claims.mcp_server:main"
+margin = "margin.cli:main"
+margin-gui = "margin.gui.launch:main"
+margin-mcp = "margin.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-enlens_claims = ["data/*.csv", "data/*.md", "gui/static/*", "gui/static/views/*", "gui/icons/*", "claude_plugin/*", "claude_plugin/agents/*"]
+margin = ["data/*.csv", "data/*.md", "gui/static/*", "gui/static/views/*", "gui/icons/*", "claude_plugin/*", "claude_plugin/agents/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

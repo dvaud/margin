@@ -2,19 +2,19 @@
 
 - the list of features (Overview … Results) no longer ends with Settings: Settings is one list with Theme and Quit
   at the foot of the sidebar, and still shows as the current page when a Settings tab is open;
-- every Settings tab shows the version in its title row, linking to Technical → Where your data is (how ENLENS was
+- every Settings tab shows the version in its title row, linking to Technical → Where your data is (how Margin was
   installed and how to update it);
 - the release's CSS uses only colour tokens defined in app.css (light and dark themes).
 """
 import re
 from pathlib import Path
 
-from enlens_claims import __version__
+from margin import __version__
 
 from test_app import Api, api, home  # noqa: F401  (fixtures)
 
 ROOT = Path(__file__).resolve().parent.parent
-STATIC = ROOT / "src" / "enlens_claims" / "gui" / "static"
+STATIC = ROOT / "src" / "margin" / "gui" / "static"
 
 
 def _html():
@@ -56,7 +56,7 @@ def test_the_version_reaches_the_page(api):  # noqa: F811
     code, st = api("GET", "/api/state")
     assert code == 200 and st["version"] == __version__
     code, body = api("GET", "/", token=False)
-    assert code == 200 and f'<meta name="enlens-version" content="{__version__}">' in body.decode()
+    assert code == 200 and f'<meta name="margin-version" content="{__version__}">' in body.decode()
 
 
 def test_page_files_of_the_release():

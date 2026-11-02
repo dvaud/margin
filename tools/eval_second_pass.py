@@ -20,11 +20,11 @@ sys.path.insert(0, str(ROOT / "src"))
 
 
 def main(folder: str) -> dict:
-    from enlens_claims.search import rank_passages
-    from enlens_claims.sources import docs_for_target
-    from enlens_claims.store import Workspace
+    from margin.search import rank_passages
+    from margin.sources import docs_for_target
+    from margin.store import Workspace
 
-    tmp = Path(tempfile.mkdtemp(prefix="enlens-eval-"))
+    tmp = Path(tempfile.mkdtemp(prefix="margin-eval-"))
     for name in ("enlens.sqlite", "config.json"):
         if (Path(folder) / name).exists():
             shutil.copy2(Path(folder) / name, tmp / name)

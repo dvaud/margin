@@ -14,8 +14,8 @@ import sqlite3
 import pytest
 from helpers_0110 import mixed_project, write_corpus
 
-from enlens_claims import access, bundle, claimcheck, home, ingest, tasks
-from enlens_claims.store import Workspace
+from margin import access, bundle, claimcheck, home, ingest, tasks
+from margin.store import Workspace
 
 HYP = "Green hydrogen production can increase water stress in arid regions."
 
@@ -48,8 +48,8 @@ def _make_010(path, corpus) -> Workspace:
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY", raising=False)
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY", raising=False)
     return tmp_path
 
 
@@ -73,7 +73,7 @@ def test_a_010_project_opens_unchanged(env):
 
 def test_on_an_installation_without_cloud_models_queued_tasks_leave(env, monkeypatch):
     old = _make_010(env / "old", env / "c")
-    monkeypatch.setenv("ENLENS_LOCAL_ONLY", "1")
+    monkeypatch.setenv("MARGIN_LOCAL_ONLY", "1")
     ws = Workspace.open(old.root)
     assert access.default(ws) == "local"
     assert ws.scalar("SELECT COUNT(*) FROM tasks WHERE COALESCE(queued, 0)=1") == 0
@@ -109,7 +109,7 @@ def test_a_zip_made_before_011_asks_once(env):
 
 
 def test_the_headless_run_is_closed(env, monkeypatch):
-    from enlens_claims import claude_setup
+    from margin import claude_setup
 
     args = claude_setup.run_args("P", "/usr/bin/claude")
     denied = args[args.index("--disallowedTools") + 1].split(",")
@@ -141,13 +141,13 @@ def test_the_headless_run_is_closed(env, monkeypatch):
 
 def test_the_account_kind_from_claude_code(env, monkeypatch, tmp_path):
     """When `claude auth status` says the plan, the panel shows it (the stand-in says nothing: the person picks)."""
-    from enlens_claims import claude_setup
+    from margin import claude_setup
 
     fake = tmp_path / "claude"
     fake.write_text("#!/bin/sh\nif [ \"$1\" = auth ]; then echo '{\"loggedIn\": true, \"subscriptionType\": \"max\"}'; "
                     "else echo 2.1.0; fi\n")
     fake.chmod(0o755)
-    monkeypatch.setenv("ENLENS_CLAUDE", str(fake))
+    monkeypatch.setenv("MARGIN_CLAUDE", str(fake))
     claude_setup._STATUS.update(at=0.0, value=None)
     st = claude_setup.status(refresh=True)
     assert st["account"] == "personal" and st["plan"] == "max"

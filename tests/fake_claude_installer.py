@@ -1,6 +1,6 @@
 """A stand-in for Anthropic's Claude Code installer (0.10), for tests and `tools/dev_server.py --claude-install`.
 
-Point ENLENS_CLAUDE_INSTALLER at this file and ENLENS_CLAUDE at a path that does not exist yet (ending in .py): it
+Point MARGIN_CLAUDE_INSTALLER at this file and MARGIN_CLAUDE at a path that does not exist yet (ending in .py): it
 "installs" Claude Code by writing, at that path, a small program that runs the stand-in `claude`
 (fake_claude_cli.py). FAKE_INSTALLER_FAIL=1 makes it fail as a real installer would without a network.
 """
@@ -15,12 +15,12 @@ HERE = Path(__file__).resolve().parent
 
 
 def main() -> int:
-    target = os.environ.get("ENLENS_CLAUDE", "")
+    target = os.environ.get("MARGIN_CLAUDE", "")
     if os.environ.get("FAKE_INSTALLER_FAIL"):
         print("curl: (6) Could not resolve host: claude.ai", file=sys.stderr)
         return 6
     if not target.endswith(".py"):
-        print("ENLENS_CLAUDE must name a .py path for the stand-in installer", file=sys.stderr)
+        print("MARGIN_CLAUDE must name a .py path for the stand-in installer", file=sys.stderr)
         return 2
     time.sleep(float(os.environ.get("FAKE_INSTALLER_DELAY", "0")))
     Path(target).parent.mkdir(parents=True, exist_ok=True)
