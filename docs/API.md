@@ -790,10 +790,11 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
   PDF, text, Markdown, HTML; at most 50 MB) → `{"draft": summary}`.
 - `GET /api/projects/<p>/drafts/<d>` → `{"draft": {…, "ai_access", "ai_label", "batch_id", "found_by": "ai" | "rules",
   "found_at", "words"}, "text", "claims": [{"claim_id", "start", "end" (offsets in "text"), "quote", "claim", "kind",
-  "kind_text", "why", "cited", "source": "ai" | "rules" | "person", "skip", "edited", "hyp_id", "status",
+  "kind_text", "why", "cited", "source": "ai" | "rules" | "person", "skip", "edited", "decision": "supported" |
+  "refuted" | "dismissed" | null, "decided_at", "hyp_id", "status",
   "status_text", "evidence": {"supports" | "partly" | "refutes": [{"doc_id", "title", "excerpts", "locations",
   "quote", "location", "passage_id"}]}, "to_review", "waiting_for_you"}], "counts": {"claims", "kept", "checked",
-  "to_check", "cited", "status": {status: n}}, "finding": {"total", "waiting", "done", "failed", "queued",
+  "to_check", "cited", "status": {status: n}, "decided": {decision: n}}, "finding": {"total", "waiting", "done", "failed", "queued",
   "errors"?}, "sent": {"times", "routes", "parts_read", "claims_read", "first", "last"}, "documents",
   "queue_command", "default", "labels", "local_only"}`.
 - `PUT /api/projects/<p>/drafts/<d>` `{"title"?, "ai_access"?}` (`""`: the project's default) → `{"draft"}`. A changed
@@ -803,15 +804,19 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
   tasks (kind `claims`, one per part of a few paragraphs) wait in the queue; a draft Claude may not read is read by the
   local model for restricted documents, or by rules when there is none (or when it is *No AI*). Progress `{"message",
   "done", "total", "queue"?}`; result `{"draft_id", "by", "found", "failed", "note"}`. Claims nobody touched are found
-  anew; checked, reworded, dropped and marked ones stay.
+  anew; checked, reworded, decided, dismissed and marked ones stay.
 - `POST /api/projects/<p>/drafts/<d>/check` `{"claim_ids"?, "k"?, "per_doc"?, "expand"?, "semantic"?}` → job
   `draft-check` (progress as a batch of checks). No splitting into parts; no AI search words for a draft the model
-  may not read. 400 when nothing waits to be checked or the project has no documents.
+  may not read. 400 when nothing waits to be checked or the project has no documents. Without `claim_ids`, the
+  claims the person decided on (Margin 0.3) wait out; with them, they are checked too.
 - `POST /api/projects/<p>/drafts/<d>/claims` `{"start", "end", "claim"?}` → `{"claim_id"}`: a claim the person marks.
-- `PUT /api/projects/<p>/drafts/<d>/claims/<c>` `{"claim"?, "skip"?}`: reword (before it is checked) or drop / keep.
+- `PUT /api/projects/<p>/drafts/<d>/claims/<c>` `{"claim"?, "skip"?, "decision"?}` → `{"claim_id", "claim", "skip",
+  "decision"}`: reword (before it is checked), drop / keep, or (Margin 0.3) the person's decision: `"supported"`,
+  `"refuted"`, `"dismissed"` (the same as `skip: true`), or `null` to take it back (a dismissed claim is kept again).
+  400 for another value. A decision belongs to the draft: the answer of the claim's check does not change.
 - `DELETE /api/projects/<p>/drafts/<d>/claims/<c>`: the claim and its check.
 - `GET /api/projects/<p>/drafts/<d>/export.xlsx|csv`: one row per claim (sentence, claim checked, kind, cited, found
-  by, answer, supporting, partly supporting and contradicting documents with their places); the Excel file ends with
+  by, answer, the person's decision, supporting, partly supporting and contradicting documents with their places); the Excel file ends with
   *How these results were made*.
 - `GET /api/projects/<p>/hypotheses/<h>` and the Results list carry `draft_id`; `GET /api/projects/<p>/overview`
   carries `drafts`.

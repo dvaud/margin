@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.3.0 (November 2026): decide on each claim of a draft
+
+**Claim supported, Claim refuted, Dismiss claim.** Each claim's card on the *Check a draft* page has three buttons for
+your own decision, before or after a check.
+- **The card folds** to what is left to do: the claim's number, your decision, the AI's answer if it was checked, the
+  claim (two lines at most) and what to cite: the documents that support it (for *supported*) or contradict it (for
+  *refuted*), or *Your draft cites a source here*. *More* opens the full card (the chosen button is pressed; press it
+  again or *Undo* to take the decision back) and *Fold* closes it.
+- **The highlight in the draft changes** to say a source should be cited there: no colour fill, a green (supported)
+  or red (refuted) underline, and a small tag **cite here** after the sentence, where the citation goes (*cited*, in
+  grey, when the draft already gives a source). A dismissed claim is only dotted, as a dropped one was.
+- **Dismiss claim takes the place of Drop**, so there is one way to say a sentence needs no source; claims dropped
+  before 0.3 show as dismissed. Person-marked claims keep *Remove* as well.
+- New filters: *To decide* (once something is decided), *You: supported*, *You: refuted*; *Dropped* is now
+  *Dismissed*. The claims heading counts the decided ones.
+- A decision belongs to the draft: **the result page and the claim's answer do not change** (no change was asked
+  there). Decided claims are kept when the claims are found again, are left out of *Check N claims* (open the card
+  and press *Check this one* to check one anyway), and the Excel and CSV export gain a *Your decision* column.
+- API: `PUT …/drafts/<d>/claims/<c>` takes `{"decision": "supported" | "refuted" | "dismissed" | null}`; each claim
+  of `GET …/drafts/<d>` has `decision` and `decided_at`, and `counts` has `decided` (`docs/API.md`). Two new columns
+  on `draft_claims`, added to existing projects when they open.
+
+**The claims scroll on their own.** On a wide window the draft and the claims are two panes of the window's height:
+the page scrolls until they fill it, then each scrolls by itself, so looking through the claims never moves the
+draft. The claims' heading and filters stay in view at the top of their pane. Clicking a sentence in the draft
+scrolls only the claims pane to its card; on a narrow window (stacked) the page scrolls as before.
+
+**The whole card is clickable.** A click anywhere on a claim's card (not on its buttons, links, or text being
+selected) shows its sentence in the draft, scrolling only the draft pane; the number stays the keyboard way to do it.
+
+**Fixed on the way:** the draft pane's heading could slide off the top of the window when the page was scrolled to
+its end (the page's bottom margin let it scroll past the board); the wording "dropped" in the steps, the *Find again*
+question and the export is now "dismissed".
+
+**Tests:** `tests/test_m030_claim_decisions.py` (the three decisions and taking one back, dismissing is dropping and
+older dropped claims, decided claims kept when found again and left out of the bulk check, a decision never changing
+the check and its export, the API, the page files). Checked in Chrome on the dev server: a draft of 13 claims, 8
+checked and 4 decided, in light and dark at 1440 px and at 390 px; the wheel over the claims moves only the claims;
+a click on a card scrolls the draft to its sentence and a click on a sentence scrolls the claims to its card; deciding
+folds the card and the tag *4 · cite here* appears; *Undo* unfolds it; no console errors and nothing wider than a
+phone.
+
+**Not yet done:** tried only with the dev server's stand-in models, not a real signed-in Claude Code. The Map and the
+result page do not show the person's decision. Keyboard users open a sentence from a card with its number button
+(the card itself is not a tab stop).
+
 ## 0.2.2 (November 2026): a stronger model's answer, and a Start Claude Code button you cannot miss
 
 **From ENLENS 0.11.2 and 0.11.3**, brought in with `tools/sync_enlens.py` (the first sync: ENLENS's commits keep

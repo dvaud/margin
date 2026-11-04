@@ -2225,10 +2225,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def put_draft_claim(self, name, draft_id, claim_id, q):
         body = self._body()
+        extra = {"decision": body["decision"] or None} if "decision" in body else {}
         row = drafts.update_claim(self.app.ws(name), draft_id, claim_id,
                                   str(body["claim"]) if body.get("claim") is not None else None,
-                                  bool(body["skip"]) if "skip" in body else None)
-        return {"claim_id": row["claim_id"], "claim": row["claim"], "skip": bool(row["skip"])}
+                                  bool(body["skip"]) if "skip" in body else None, **extra)
+        return {"claim_id": row["claim_id"], "claim": row["claim"], "skip": bool(row["skip"]),
+                "decision": row["decision"]}
 
     def delete_draft_claim(self, name, draft_id, claim_id, q):
         drafts.remove_claim(self.app.ws(name), draft_id, claim_id)

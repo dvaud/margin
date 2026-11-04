@@ -44,34 +44,23 @@ restarts by itself (on Windows it says to use the install line). Or do it by han
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.2: Margin's own look
+## New in 0.3: decide on each claim of your draft
 
-- **A new look, nothing moved.** Every page keeps its place, buttons and steps; it now looks like Margin instead of
-  ENLENS: ink-blue buttons and links, page titles set in a book face, small red labels above each title, and the
-  page you are on marked in the sidebar with a red margin line, like a note in a margin. Dark mode has the same
-  look in night colours.
-- **A new icon**: a page with its margin rule and a tick in the margin, in the app, the browser tab and the icon you
-  open Margin from (after the update, quit Margin and open it again; on a Mac, re-add it to the Dock if you had
-  pinned the old one).
-- On a phone, long button labels now wrap instead of widening the page.
-- **Update Margin from the app (0.2.1)**: a button at the bottom of the sidebar checks for a new version, installs
-  it and restarts Margin; if you updated in a terminal while Margin was open, it offers *Restart now*.
-- **Projects zipped by hand (0.2.1)**: *Import a project (.zip)* also takes a project folder you compressed yourself
-  (Finder's *Compress*, Windows' *Send to compressed folder*), and accented file names in such zips are no longer
-  garbled.
-- **A stronger model's answer is the answer (0.2.2)**: when a stronger model reads a check's excerpts again and
-  finds, say, *supported* where the first one found *partly supported*, the result shows **Supported** with a small
-  mark *at first: partly supported* (hover it for which models and how many judgements changed); the Results list
-  and the Excel summary say the same. Under each result, *Ask another AI model* offers two clearly different
-  choices: *Ask a stronger model* (its judgements replace the first AI's, so the answer can change) and *Get a second
-  opinion* (shown beside the first, never changes the answer). It is called *second opinion* everywhere now.
-- **Start Claude Code asks for attention (0.2.2)**: a few seconds after work starts waiting with nothing reading it,
-  **Start Claude Code** pulses and says *Nothing runs until you press it.* The button is also on follow-ups under a
-  result, and the one that stops Claude Code is called *Stop Claude Code*, apart from a job's own *Stop*.
-- 0.2.2 brings in ENLENS 0.11.2 and 0.11.3, the first ENLENS updates taken into Margin.
+- **Claim supported, Claim refuted, Dismiss claim.** On *Check a draft*, each claim's card has three buttons for
+  your own decision, before or after a check. The card then folds to what is left to do: the claim, your decision
+  and what to cite (the documents that support it, or the ones that contradict it). *More* opens it again; *Undo*
+  takes the decision back. Your decision stays on the draft page: a claim's result page does not change.
+- **The draft shows where to cite.** A sentence you decided on loses its colour fill and gets a green or red
+  underline with a small **cite here** tag where the citation goes (*cited* if your draft already gives one).
+- **The claims scroll on their own.** On a wide window, scrolling through the claims no longer moves your draft.
+- **Click anywhere on a claim's card**, not only its number, to see its sentence in the draft.
 
 ## Earlier releases
 
+- **Margin 0.2**: Margin's own look (ink blue, a book face for titles, a red margin line for the page you are on)
+  and icon; *Update Margin* from the sidebar and hand-zipped project imports (0.2.1); a stronger model's answer
+  becomes the answer, *second opinion* everywhere, and a *Start Claude Code* button you cannot miss (0.2.2, from
+  ENLENS 0.11.2 and 0.11.3).
 - **Margin 0.1**: check a draft: the claims of your writing that need a source, and which of your documents
   support or contradict each; Margin gets its own name, command, data folder and icon beside ENLENS, and copies
   your ENLENS projects over in one click.

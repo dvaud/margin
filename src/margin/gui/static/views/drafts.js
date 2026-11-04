@@ -2,6 +2,9 @@
 // for each the documents of the project that support or contradict it. Two steps: find the claims (the AI, or rules
 // without AI; the person keeps, drops, rewords and adds claims by selecting a sentence), then check them against
 // the documents (each claim is a hypothesis of its own, with its full result page).
+// Margin 0.3: the person decides on each claim (supported, refuted, dismissed): its card folds to what matters and its
+// highlight in the draft says a source should be cited there; the claims scroll on their own beside the draft, and a
+// click anywhere on a card shows its sentence in the draft.
 import { featureEyebrow } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, statusBadge, confirmDialog, dialog, download, TERMINAL, runningJob, plural, session, queueNotice, navigate } from "../lib.js";
 import { ProgressPanel, jobCard } from "./progress.js";
@@ -25,9 +28,18 @@ const ADVICE = {
   not_checked: "",
 };
 const SIDES = [["supports", "Supports it", "circle-check", "ok"], ["partly", "Partly supports it", "circle-half", "partly"], ["refutes", "Contradicts it", "circle-x", "bad"]];
-const FILTERS = [["all", "All"], ["unchecked", "Not checked"], ["supported", "Supported"], ["partially_supported", "Partly supported"], ["contested", "Mixed evidence"], ["contradicted", "Contradicted"], ["unsupported", "No evidence"], ["no_passages", "Nothing matched"], ["uncertain", "Uncertain"], ["waiting", "Waiting"], ["skip", "Dropped"]];
+const FILTERS = [["all", "All"], ["open", "To decide"], ["you_supported", "You: supported"], ["you_refuted", "You: refuted"], ["unchecked", "Not checked"], ["supported", "Supported"], ["partially_supported", "Partly supported"], ["contested", "Mixed evidence"], ["contradicted", "Contradicted"], ["unsupported", "No evidence"], ["no_passages", "Nothing matched"], ["uncertain", "Uncertain"], ["waiting", "Waiting"], ["skip", "Dismissed"]];
+// the person's decisions on a claim (Margin 0.3); `side` is the evidence the folded card names as what to cite
+const DECIDE = {
+  supported: { label: "Claim supported", short: "You: supported", icon: "circle-check", side: "supports", cite: "Cite a source here", none: "Cite the source that supports it here." },
+  refuted: { label: "Claim refuted", short: "You: refuted", icon: "circle-x", side: "refutes", cite: "Cite or revise here", none: "Cite the source that contradicts it, or revise the sentence." },
+  dismissed: { label: "Dismiss claim", short: "Dismissed", icon: "x", title: "Not a claim that needs a source" },
+};
 
 const statusOf = (c) => (c.skip ? "skip" : c.status || "unchecked");
+const decided = (c) => c.decision === "supported" || c.decision === "refuted";
+const matches = (c, k) => (k === "all" ? true : k === "open" ? !c.decision : k === "you_supported" ? c.decision === "supported"
+  : k === "you_refuted" ? c.decision === "refuted" : statusOf(c) === k);
 
 // ---------------------------------------------------------------------------------------------
 // the list of drafts, and a new one
@@ -120,6 +132,7 @@ export async function renderDraft(view, [draftId], query) {
   }
   let filter = "all";
   let picked = null;
+  const unfolded = new Set();  // decided claims shown in full for now
   let watchers = [];
   let refreshTimer = null;
   let alive = true;
@@ -214,7 +227,7 @@ export async function renderDraft(view, [draftId], query) {
     const running = watchers.length > 0;
     const findBtn = h("button", { class: `btn ${d.found_at || c.claims ? "btn-sm btn-ghost" : "btn-primary"}`, type: "button", disabled: running }, icon(d.found_at ? "refresh" : "sparkles", { size: 14 }), d.found_at ? "Find again" : "Find the claims");
     findBtn.addEventListener("click", async () => {
-      if (d.found_at && !(await confirmDialog({ title: "Find the claims again?", message: "The claims you have not checked, reworded or dropped are found anew. Checked claims, and the ones you marked or changed, stay.", confirmText: "Find again", danger: false }))) return;
+      if (d.found_at && !(await confirmDialog({ title: "Find the claims again?", message: "The claims you have not checked, decided on, reworded or dismissed are found anew. The others, and the ones you marked, stay.", confirmText: "Find again", danger: false }))) return;
       startJob("find", {});
     });
     const by = d.found_by === "rules" ? "by rules (no AI)" : "by the AI";
@@ -237,9 +250,15 @@ export async function renderDraft(view, [draftId], query) {
         h("p", { class: "muted small" }, !docs ? h("span", {}, "This project has no documents yet. ", h("a", { href: "#/sources" }, "Add the documents your draft draws on"), ", then check the claims.")
           : !c.claims ? "Find the claims first, or select a sentence in your draft to mark one."
           : c.to_check ? `${plural(c.to_check, "claim waits", "claims wait")} to be checked; ${c.checked} checked so far. Each is checked like a hypothesis, against all ${plural(docs, "document", "documents")}.`
-          : `Every claim you kept is checked${c.claims - c.kept ? ` (${c.claims - c.kept} dropped)` : ""}. Every result is also under Results.`)),
+          : doneText(c))),
       c.to_check || !c.checked ? checkBtn : null);
     replace(stepsBody, step1, step2);
+  }
+
+  function doneText(c) {
+    const own = data.claims.filter((x) => decided(x) && !x.hyp_id).length;
+    const bits = [c.checked ? `${c.checked} checked` : null, own ? `${own} decided by you without a check` : null, c.claims - c.kept ? `${c.claims - c.kept} dismissed` : null].filter(Boolean);
+    return `Nothing left to check${bits.length ? `: ${bits.join(", ")}` : ""}.${c.checked ? " Every result is also under Results." : ""}`;
   }
 
   async function startJob(kind, body) {
@@ -303,8 +322,12 @@ export async function renderDraft(view, [draftId], query) {
       if (s >= c.end) continue;
       if (s > pos) textBox.append(document.createTextNode(text.slice(pos, s)));
       const st = statusOf(c);
-      const m = h("mark", { class: `dm dm-${st}${picked === c.claim_id ? " dm-picked" : ""}`, "data-n": String(c.n), "data-id": c.claim_id, tabindex: "0", role: "button",
-        "aria-label": `Claim ${c.n}: ${st === "unchecked" ? "not checked yet" : st === "skip" ? "dropped" : App.statusText(st) || st}`, title: `Claim ${c.n}` }, text.slice(s, c.end));
+      const you = decided(c) ? DECIDE[c.decision] : null;
+      const cite = you ? (c.cited ? "cited" : "cite here") : null;
+      const said = st === "unchecked" ? "not checked yet" : st === "skip" ? "dismissed" : App.statusText(st) || st;
+      const m = h("mark", { class: `dm dm-${st}${you ? ` dm-you dm-you-${c.decision}` : ""}${picked === c.claim_id ? " dm-picked" : ""}`, "data-n": String(c.n), "data-id": c.claim_id, "data-cite": cite, tabindex: "0", role: "button",
+        "aria-label": you ? `Claim ${c.n}: ${c.decision === "supported" ? "you marked it supported" : "you marked it refuted"}; ${c.cited ? "your draft cites a source here" : "a source should be cited here"}` : `Claim ${c.n}: ${said}`,
+        title: you ? `Claim ${c.n}: ${c.cited ? "your draft cites a source here" : you.cite.toLowerCase()}` : `Claim ${c.n}` }, text.slice(s, c.end));
       m.addEventListener("click", () => pick(c.claim_id, "card"));
       m.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(c.claim_id, "card"); } });
       textBox.append(m);
@@ -314,16 +337,18 @@ export async function renderDraft(view, [draftId], query) {
   }
 
   function drawChips(claims) {
-    const count = (k) => claims.filter((c) => (k === "all" ? true : statusOf(c) === k)).length;
+    const count = (k) => claims.filter((c) => matches(c, k)).length;
     clear(chips);
     for (const [k, label] of FILTERS) {
       const n = count(k);
       if (k !== "all" && !n) continue;
+      if (k === "open" && n === claims.length) continue;  // nothing decided yet: the same as All
       chips.appendChild(h("button", { class: `chip-btn draft-chip dm-chip-${k}`, type: "button", "aria-pressed": String(filter === k), onClick: () => { filter = k; drawBoard(); } }, `${label} `, h("span", { class: "count" }, String(n))));
     }
     if (filter !== "all" && !count(filter)) filter = "all";
     const cnt = view.querySelector(".draft-claims-count");
-    if (cnt) cnt.textContent = claims.length ? `${plural(claims.length, "claim", "claims")}, in the order of the draft` : "";
+    const nd = claims.filter((c) => c.decision).length;
+    if (cnt) cnt.textContent = claims.length ? `${plural(claims.length, "claim", "claims")}, in the order of the draft${nd ? `; ${nd} decided` : ""}` : "";
   }
 
   function drawList(claims) {
@@ -334,8 +359,8 @@ export async function renderDraft(view, [draftId], query) {
       return;
     }
     for (const c of claims) {
-      if (filter !== "all" && statusOf(c) !== filter) continue;
-      list.appendChild(claimCard(c));
+      if (!matches(c, filter)) continue;
+      list.appendChild(c.decision && !unfolded.has(c.claim_id) ? foldedCard(c) : claimCard(c));
     }
   }
 
@@ -345,7 +370,32 @@ export async function renderDraft(view, [draftId], query) {
     for (const el of list.querySelectorAll(".dc-card")) el.classList.toggle("dc-picked", el.dataset.id === id);
     const target = scrollTo === "card" ? list.querySelector(`.dc-card[data-id="${CSS.escape(id)}"]`) : textBox.querySelector(`mark.dm[data-id="${CSS.escape(id)}"]`);
     if (!target && scrollTo === "card" && filter !== "all") { filter = "all"; drawBoard(); return pick(id, scrollTo); }
-    if (target) target.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (target) reveal(scrollTo === "card" ? list : textBox, target);
+  }
+
+  // Scroll only the pane that holds `el` (the draft, or the claims), so the other pane stays where it is. When the
+  // panes are stacked (a narrow window) the claims are not a pane of their own: the page scrolls instead.
+  function reveal(pane, el) {
+    const smooth = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    if (pane.scrollHeight <= pane.clientHeight + 1 || !/(auto|scroll)/.test(getComputedStyle(pane).overflowY)) {
+      el.scrollIntoView({ block: "center", behavior: smooth });
+      return;
+    }
+    const pr = pane.getBoundingClientRect(), er = el.getBoundingClientRect();
+    const top = pane.scrollTop + (er.top - pr.top) - Math.max(12, (pane.clientHeight - er.height) / 2);
+    pane.scrollTo({ top: Math.max(0, top), behavior: smooth });
+    if (pr.top < 0 || pr.bottom > innerHeight) pane.scrollIntoView({ block: "nearest", behavior: smooth });
+  }
+
+  // A click anywhere on a card (not on its buttons, links or a text being selected) shows its sentence in the draft.
+  function clickToShow(card, c) {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("button, a, input, textarea, select, label, summary")) return;
+      const sel = document.getSelection();
+      if (sel && !sel.isCollapsed && card.contains(sel.anchorNode)) return;
+      pick(c.claim_id, "text");
+    });
+    return card;
   }
 
   const differs = (c) => norm(c.claim) !== norm(c.quote);
@@ -353,19 +403,57 @@ export async function renderDraft(view, [draftId], query) {
 
   function claimCard(c) {
     const st = statusOf(c);
-    const card = h("article", { class: `dc-card dc-${st}${picked === c.claim_id ? " dc-picked" : ""}`, "data-id": c.claim_id },
+    const card = h("article", { class: `dc-card dc-${st}${c.decision ? ` dc-you-${c.decision}` : ""}${picked === c.claim_id ? " dc-picked" : ""}`, "data-id": c.claim_id },
       h("div", { class: "dc-head" },
         h("button", { class: `dc-n dm-${st}`, type: "button", title: "Show it in the draft", "aria-label": `Show claim ${c.n} in the draft`, onClick: () => pick(c.claim_id, "text") }, String(c.n)),
         h("span", { class: "dc-kind" }, c.kind_text),
         c.cited ? h("span", { class: "chip dc-chip", title: "Your draft already gives a source for this" }, icon("quote", { size: 11 }), "cited in your draft") : null,
         c.source !== "ai" ? h("span", { class: "chip dc-chip" }, c.source === "person" ? "marked by you" : "found by rules") : null,
         h("span", { class: "grow" }),
-        c.status ? statusBadge(c.status, { short: true }) : h("span", { class: "muted small" }, c.skip ? "Dropped" : "Not checked yet")),
+        c.status ? statusBadge(c.status, { short: true }) : h("span", { class: "muted small" }, c.skip ? "Dismissed" : "Not checked yet")),
       h("p", { class: "dc-claim" }, c.claim),
       differs(c) ? h("p", { class: "dc-quote muted small" }, "In your draft: ", h("q", {}, c.quote.replace(/\s+/g, " "))) : null,
       c.status ? evidence(c) : c.why && !c.skip ? h("p", { class: "muted small dc-why" }, c.why) : null,
-      actions(c));
-    return card;
+      decide(c),
+      foot(c));
+    return clickToShow(card, c);
+  }
+
+  // A claim decided on: folded to its number, the decision, the claim and what to cite (Margin 0.3).
+  function foldedCard(c) {
+    const st = statusOf(c), you = DECIDE[c.decision];
+    const docs = you.side ? ((c.evidence || {})[you.side] || []) : [];
+    const cite = !you.side ? null
+      : c.cited ? h("p", { class: "dc-cite small" }, icon("quote", { size: 12 }), "Your draft cites a source here.")
+      : h("p", { class: "dc-cite small" }, icon("quote", { size: 12 }), docs.length
+        ? [h("span", {}, "Cite: "), ...docs.slice(0, 3).flatMap((e, i) => [i ? h("span", { class: "muted" }, " · ") : null, h("a", { href: `#/doc/${encodeURIComponent(e.doc_id)}`, class: "dc-doc" }, e.title)].filter(Boolean)),
+          docs.length > 3 ? h("span", { class: "muted" }, ` and ${docs.length - 3} more`) : null].filter(Boolean)
+        : you.none);
+    const card = h("article", { class: `dc-card dc-folded dc-${st} dc-you-${c.decision}${picked === c.claim_id ? " dc-picked" : ""}`, "data-id": c.claim_id },
+      h("div", { class: "dc-head" },
+        h("button", { class: `dc-n dm-${st} dm-you-${c.decision}`, type: "button", title: "Show it in the draft", "aria-label": `Show claim ${c.n} in the draft`, onClick: () => pick(c.claim_id, "text") }, String(c.n)),
+        h("span", { class: `dc-you dc-you-badge-${c.decision}` }, icon(you.icon, { size: 13 }), you.short),
+        c.status && c.decision !== "dismissed" ? h("span", { class: "muted small dc-ai" }, `AI: ${(c.status_text || App.statusText(c.status) || "").toLowerCase()}`) : null,
+        h("span", { class: "grow" }),
+        h("button", { class: "btn btn-sm btn-ghost", type: "button", "aria-expanded": "false", title: "Show the whole card", onClick: () => { unfolded.add(c.claim_id); drawList(numbered()); } }, icon("chevron-down", { size: 13 }), "More"),
+        h("button", { class: "btn btn-sm btn-ghost", type: "button", title: "Take the decision back", onClick: () => decideClaim(c, null) }, "Undo")),
+      h("p", { class: "dc-claim" }, c.claim),
+      cite);
+    return clickToShow(card, c);
+  }
+
+  // The person's decision: three buttons; the one chosen is pressed, and pressing it again takes it back.
+  function decide(c) {
+    const row = h("div", { class: "dc-decide", role: "group", "aria-label": `Your decision on claim ${c.n}` },
+      Object.entries(DECIDE).map(([k, d]) => h("button", { class: `btn btn-sm dc-decide-btn dc-decide-${k}`, type: "button", "aria-pressed": String(c.decision === k), title: d.title || null,
+        onClick: () => decideClaim(c, c.decision === k ? null : k) }, icon(d.icon, { size: 13 }), d.label)));
+    return row;
+  }
+
+  async function decideClaim(c, decision) {
+    unfolded.delete(c.claim_id);
+    picked = c.claim_id;
+    await setClaim(c, { decision });
   }
 
   function evidence(c) {
@@ -383,6 +471,13 @@ export async function renderDraft(view, [draftId], query) {
       c.waiting_for_you ? h("p", { class: "small dc-advice" }, icon("alert-circle", { size: 12 }), ` ${plural(c.waiting_for_you, "excerpt waits", "excerpts wait")} for your judgement on the result page.`) : null);
   }
 
+  // the card's own buttons, and Fold at the end for a claim decided on
+  function foot(c) {
+    const row = actions(c) || (c.decision ? h("div", { class: "dc-actions" }) : null);
+    if (c.decision) row.append(h("button", { class: "btn btn-sm btn-ghost dc-fold", type: "button", "aria-expanded": "true", title: "Fold the card again", onClick: () => { unfolded.delete(c.claim_id); drawList(numbered()); } }, icon("chevron-up", { size: 13 }), "Fold"));
+    return row;
+  }
+
   function actions(c) {
     const row = h("div", { class: "dc-actions" });
     if (c.hyp_id) {
@@ -390,16 +485,11 @@ export async function renderDraft(view, [draftId], query) {
       row.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => removeClaim(c) }, "Remove"));
       return row;
     }
-    if (c.skip) {
-      row.append(h("button", { class: "btn btn-sm", type: "button", onClick: () => setClaim(c, { skip: false }) }, icon("plus", { size: 13 }), "Keep it"));
-      return row;
-    }
+    if (c.skip) return c.source === "person" ? (row.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => removeClaim(c) }, "Remove")), row) : null;
     const docs = data.documents || 0;
     row.append(h("button", { class: "btn btn-sm", type: "button", disabled: watchers.length > 0 || !docs, onClick: () => startJob("check", { claim_ids: [c.claim_id] }) }, icon("play", { size: 13 }), "Check this one"));
     row.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => reword(c, row) }, "Reword"));
-    row.append(c.source === "person"
-      ? h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => removeClaim(c) }, "Remove")
-      : h("button", { class: "btn btn-sm btn-ghost", type: "button", title: "Not a claim that needs a source", onClick: () => setClaim(c, { skip: true }) }, "Drop"));
+    if (c.source === "person") row.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => removeClaim(c) }, "Remove"));
     return row;
   }
 

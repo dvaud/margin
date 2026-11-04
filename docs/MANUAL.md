@@ -360,17 +360,30 @@ used as evidence.
    is restated as one self-contained sentence ("it" replaced by what it stands for), and says whether your draft
    already cites a source there. Without AI (a draft marked *No AI*, or *Only a local AI* with no local model chosen)
    rules find the likely ones instead, and the page says so.
-2. **Keep the ones you want checked.** *Drop* one that is not a claim, *Reword* one before it is checked (what is
-   checked is that wording), or select a sentence in the draft and press *Mark as a claim*. *Find again* finds the
-   claims anew and keeps every one you checked, dropped, reworded or marked.
+2. **Keep the ones you want checked.** *Dismiss claim* on one that is not a claim, *Reword* one before it is checked
+   (what is checked is that wording), or select a sentence in the draft and press *Mark as a claim*. *Find again*
+   finds the claims anew and keeps every one you checked, decided on, dismissed, reworded or marked.
 3. **Check them.** Each claim is checked against all the documents as a hypothesis of its own (one claim, no
    splitting; AI search words only when the AI may read the draft). The draft then shows each claim coloured by its
    answer, and each card lists the documents that support it, partly support it or contradict it, with the best quote
    and its place, and what to do next ("cite them", "your documents disagree: cite both sides"). *Open the result*
    gives the full result page, where you review the excerpts as for any check.
+4. **Decide on each claim (Margin 0.3).** Every card has three buttons: **Claim supported**, **Claim refuted** and
+   **Dismiss claim**. You can use them before or after a check. The card then folds to what you need: its number,
+   your decision, the claim, and what to cite (the documents that support it, or the ones that contradict it, or
+   *Your draft cites a source here*); *More* opens it again and *Undo* takes the decision back. In the draft, the
+   sentence loses its colour fill and gets an underline (green for supported, red for refuted) with a small tag
+   **cite here** where the citation goes (*cited* when your draft already gives one); a dismissed claim is only
+   dotted. Your decision belongs to the draft: the answer on the claim's result page does not change. The filters
+   above the claims add *To decide*, *You: supported* and *You: refuted*. Claims you decided on are left out of
+   *Check N claims*; open the card and press *Check this one* to check one anyway.
 
-*Excel* and *CSV* download one row per claim: the sentence, the claim checked, whether it is cited, the answer and the
-documents on each side, as a list of what to cite. The checks are also under *Results*, as a set. A draft marked
+On a wide window the draft and the claims scroll on their own: scroll through the claims and the draft stays where
+it is. Click anywhere on a claim's card (not on its buttons or links) to show its sentence in the draft, and click a
+sentence in the draft to bring its card into view.
+
+*Excel* and *CSV* download one row per claim: the sentence, the claim checked, whether it is cited, the answer, your
+decision and the documents on each side, as a list of what to cite. The checks are also under *Results*, as a set. A draft marked
 *Only a local AI* or *No AI* is never sent to Claude, in finding its claims or in any task of their checks, and is
 hidden from a Claude chat; for a draft Claude may read, the page says how much of it Claude has read and when.
 

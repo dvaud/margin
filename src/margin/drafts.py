@@ -39,6 +39,12 @@ KIND_TEXT = {"statistic": "A number or share", "causal": "A cause or effect", "c
              "prior_research": "What research found", "generalisation": "A general claim",
              "definition": "A definition or history", "other": "A claim"}
 SOURCE_TEXT = {"ai": "the AI", "rules": "rules (no AI)", "person": "you"}
+# Margin 0.3: the person's own decision on a claim, made on the draft page. "dismissed" is a claim that needs no
+# source (skip=1: it is not checked); "supported" and "refuted" say a source should be cited there. A decision
+# belongs to the draft: it never changes the answer of the claim's check.
+DECISIONS = ("supported", "refuted", "dismissed")
+DECISION_TEXT = {"supported": "supported", "refuted": "refuted", "dismissed": "dismissed"}
+_KEEP = object()
 
 Progress = Callable[..., None]
 
@@ -190,10 +196,10 @@ def _task_ids(ws: Workspace, draft_id: str) -> list[str]:
 
 
 def _forget_found(cx, draft_id: str) -> None:
-    """Before finding again: the claims nobody touched go (a claim checked, reworded, dropped or added stays), and
-    so do the earlier tasks."""
-    cx.execute("DELETE FROM draft_claims WHERE draft_id=? AND hyp_id IS NULL AND edited=0 AND skip=0 AND source != "
-               "'person'", (draft_id,))
+    """Before finding again: the claims nobody touched go (a claim checked, reworded, decided on, dismissed or added
+    stays), and so do the earlier tasks."""
+    cx.execute("DELETE FROM draft_claims WHERE draft_id=? AND hyp_id IS NULL AND edited=0 AND skip=0 AND decision IS "
+               "NULL AND source != 'person'", (draft_id,))
     for tbl in ("results", "tasks"):
         cx.execute(f"DELETE FROM {tbl} WHERE task_id LIKE ?", (f"claims:{draft_id}:%",))
 
@@ -297,7 +303,8 @@ def store_claims(cx, t, payload: dict, obj: Any, model: str) -> tuple[bool, list
     if errors:
         return False, errors
     with_draft = cx.execute("SELECT text FROM drafts WHERE draft_id=?", (did,)).fetchone()[0]
-    cx.execute("DELETE FROM draft_claims WHERE task_id=? AND hyp_id IS NULL AND edited=0 AND skip=0", (t["task_id"],))
+    cx.execute("DELETE FROM draft_claims WHERE task_id=? AND hyp_id IS NULL AND edited=0 AND skip=0 AND decision IS "
+               "NULL", (t["task_id"],))
     kept = [(r[0], r[1]) for r in cx.execute("SELECT start, end FROM draft_claims WHERE draft_id=?", (did,))]
     for a, b, c in found:
         if any(_overlap((a, b), k) > 0.5 for k in kept):
@@ -436,18 +443,26 @@ def add_claim(ws: Workspace, draft_id: str, start: int, end: int, claim: str | N
 
 
 def update_claim(ws: Workspace, draft_id: str, claim_id: str, claim: str | None = None,
-                 skip: bool | None = None) -> dict:
+                 skip: bool | None = None, decision: Any = _KEEP) -> dict:
+    """Reword a claim (before it is checked), drop or keep it (`skip`), or record the person's decision on it
+    (`decision`: 'supported', 'refuted', 'dismissed', or None to take it back). Dismissing is dropping: both set
+    skip, and keeping a dismissed claim takes the decision back."""
     rows = ws.query("SELECT * FROM draft_claims WHERE claim_id=? AND draft_id=?", (claim_id, draft_id))
     if not rows:
         raise KeyError(claim_id)
+    if decision is not _KEEP and decision is not None and decision not in DECISIONS:
+        raise ValueError("A decision is 'supported', 'refuted' or 'dismissed'.")
+    if skip is not None and decision is _KEEP:
+        decision = "dismissed" if skip else (None if rows[0]["decision"] in (None, "dismissed") else rows[0]["decision"])
     with ws.connect() as cx:
         if claim is not None:
             if rows[0]["hyp_id"]:
                 raise ValueError("This claim was checked already. Mark the sentence again to check new wording.")
             c = claimcheck._clean(claim)
             cx.execute("UPDATE draft_claims SET claim=?, edited=1 WHERE claim_id=?", (c, claim_id))
-        if skip is not None:
-            cx.execute("UPDATE draft_claims SET skip=? WHERE claim_id=?", (int(bool(skip)), claim_id))
+        if decision is not _KEEP:
+            cx.execute("UPDATE draft_claims SET decision=?, decided_at=?, skip=? WHERE claim_id=?",
+                       (decision, now() if decision else None, int(decision == "dismissed"), claim_id))
     return dict(ws.query("SELECT * FROM draft_claims WHERE claim_id=?", (claim_id,))[0])
 
 
@@ -465,10 +480,13 @@ def remove_claim(ws: Workspace, draft_id: str, claim_id: str) -> None:
 # step 2: check the claims against the documents
 # ---------------------------------------------------------------------------------------------
 def to_check(ws: Workspace, draft_id: str, claim_ids: list[str] | None = None) -> list[dict]:
-    """The claims kept and not checked yet (or these of them), in the order of the draft."""
+    """The claims kept and not checked yet (or these of them), in the order of the draft. A claim the person has
+    already decided on is checked only when asked for by its id."""
     rows = [dict(r) for r in ws.query("SELECT * FROM draft_claims WHERE draft_id=? AND skip=0 AND hyp_id IS NULL "
                                       "ORDER BY start", (draft_id,))]
-    if claim_ids is not None:
+    if claim_ids is None:
+        rows = [r for r in rows if not r["decision"]]
+    else:
         want = set(claim_ids)
         rows = [r for r in rows if r["claim_id"] in want]
     return rows
@@ -578,6 +596,7 @@ def view(ws: Workspace, draft_id: str, threshold: float | None = None) -> dict:
         c = {k: r[k] for k in ("claim_id", "start", "end", "quote", "claim", "kind", "why", "source", "model",
                                "hyp_id")}
         c.update(cited=bool(r["cited"]), skip=bool(r["skip"]), edited=bool(r["edited"]),
+                 decision=r["decision"] or ("dismissed" if r["skip"] else None), decided_at=r["decided_at"],
                  kind_text=KIND_TEXT.get(r["kind"] or "other", "A claim"),
                  source_text=SOURCE_TEXT.get(r["source"], r["source"]), status=None, evidence=None)
         if r["hyp_id"]:
@@ -599,7 +618,8 @@ def view(ws: Workspace, draft_id: str, threshold: float | None = None) -> dict:
             "text": d["text"], "claims": claims, "threshold": thr,
             "counts": {"claims": len(claims), "kept": sum(1 for c in claims if not c["skip"]),
                        "checked": sum(1 for c in claims if c["hyp_id"]),
-                       "to_check": sum(1 for c in claims if not c["skip"] and not c["hyp_id"]),
+                       "to_check": sum(1 for c in claims if not c["skip"] and not c["hyp_id"] and not c["decision"]),
+                       "decided": {k: sum(1 for c in claims if c["decision"] == k) for k in DECISIONS},
                        "cited": sum(1 for c in claims if c["cited"]), "status": counts},
             "finding": finding(ws, draft_id), "sent": access.draft_ledger(ws, draft_id),
             "status_text": claimcheck.STATUS_TEXT}
@@ -617,8 +637,9 @@ def export_rows(ws: Workspace, draft_id: str, threshold: float | None = None) ->
     for n, c in enumerate(v["claims"], 1):
         rows.append({"#": n, "Sentence in the draft": c["quote"], "Claim checked": c["claim"], "Kind": c["kind_text"],
                      "Already cited in the draft": "yes" if c["cited"] else "no", "Found by": c["source_text"],
-                     "Checked": "dropped" if c["skip"] else ("yes" if c["hyp_id"] else "not yet"),
+                     "Checked": "dismissed" if c["skip"] else ("yes" if c["hyp_id"] else "not yet"),
                      "Answer": c.get("status_text") or "",
+                     "Your decision": DECISION_TEXT.get(c["decision"] or "", ""),
                      "Supporting documents": docs(c, "supports"), "Partly supporting": docs(c, "partly"),
                      "Contradicting documents": docs(c, "refutes"),
                      "Position in the draft": f"characters {c['start']}–{c['end']}"})

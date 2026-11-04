@@ -234,7 +234,11 @@ MIGRATIONS = [("documents", "declared_ref", "TEXT"), ("vca_refs", "alias_of", "T
               # 0.11: the most restricted setting of the documents a task's text comes from (see access.py)
               ("tasks", "access", "TEXT"),
               # Margin 0.1: the draft a hypothesis comes from (a claim of a draft, checked against the documents)
-              ("hypotheses", "draft_id", "TEXT")]
+              ("hypotheses", "draft_id", "TEXT"),
+              # Margin 0.3: the person's own decision on a claim of a draft ('supported', 'refuted', 'dismissed'; a
+              # dismissed claim also has skip=1) and when it was made. It belongs to the draft: the check's answer
+              # on its result page does not change.
+              ("draft_claims", "decision", "TEXT"), ("draft_claims", "decided_at", "TEXT")]
 
 
 def _migrate(cx: sqlite3.Connection) -> None:
