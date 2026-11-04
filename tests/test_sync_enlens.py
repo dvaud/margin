@@ -146,3 +146,17 @@ def test_it_refuses_to_mix_in_uncommitted_changes(repos):
     (margin / "README.md").write_text("# Margin, edited\n")
     with pytest.raises(sync_enlens.SyncError, match="uncommitted"):
         run(margin, enlens, split)
+
+
+def test_it_refuses_margin_s_own_history_as_enlens(repos):
+    enlens, margin, split = repos
+    with pytest.raises(sync_enlens.SyncError, match="that is Margin, not ENLENS"):
+        sync_enlens.sync(margin, ref="HEAD", split=split, say=lambda *_: None)
+
+
+def test_a_fetch_by_something_else_does_not_change_what_comes_in(repos):
+    enlens, margin, split = repos
+    write(enlens, {"src/enlens_claims/new.py": "x = 1\n"})
+    new = commit(enlens, "new")
+    (margin / ".git" / "FETCH_HEAD").write_text(git(margin, "rev-parse", "HEAD").strip() + "\t\tbranch 'main'\n")
+    assert run(margin, enlens, split, dry_run=True)["commits"] == [new]

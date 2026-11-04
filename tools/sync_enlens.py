@@ -30,6 +30,7 @@ from pathlib import Path
 
 SPLIT = "68201e33d88791f34c1d0b5540911373d03402bc"  # ENLENS 0.11.1, which Margin 0.1 grew from
 TRAILER = "ENLENS-Commit"
+FETCHED = "refs/sync-enlens/head"  # where the fetched ENLENS branch is kept
 
 # Names that stay ENLENS's in Margin: file formats both apps read.
 _PROTECT = re.compile(r"enlens(?=\.sqlite|-move|_text|_sources)")
@@ -194,6 +195,10 @@ def plan(git: Git, enlens_head: str, split: str = SPLIT) -> dict:
         raise SyncError(f"ENLENS's history no longer contains {base_enlens[:7]}, where the last sync stopped "
                         "(was it rewritten?). Nothing was changed.")
     new = git.run("rev-list", "--first-parent", "--reverse", f"{base_enlens}..{enlens_head}").split()
+    own = git.run("rev-list", f"{base_enlens}..{enlens_head}", "--not", "HEAD", "--max-count=1") if new else ""
+    if new and (not own.strip() or git.ok("merge-base", "--is-ancestor", new[0], "HEAD")):
+        raise SyncError(f"{enlens_head[:7]} is already in this branch's history: that is Margin, not ENLENS "
+                        "(check the remote with `git remote -v`). Nothing was changed.")
     frozen = git.run("diff", "--name-only", base_enlens, enlens_head, "--", *FROZEN).split() if new else []
     return {"first": done is None, "base": done[0] if done else None, "since": base_enlens, "commits": new,
             "frozen": frozen}
@@ -210,8 +215,9 @@ def sync(repo: Path, ref: str | None = None, remote: str = "enlens", branch: str
                             "ENLENS's work.")
     if ref is None:
         say(f"Fetching {remote} {branch} ...")
-        git.run("fetch", "--quiet", remote, branch)
-        ref = "FETCH_HEAD"
+        # into a ref of its own: FETCH_HEAD is shared, and another fetch (the app's update check) can overwrite it
+        git.run("fetch", "--quiet", "--no-tags", remote, f"+refs/heads/{branch}:{FETCHED}")
+        ref = FETCHED
     head = git.run("rev-parse", f"{ref}^{{commit}}").strip()
     p = plan(git, head, split)
     commits = p["commits"]
