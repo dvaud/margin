@@ -146,7 +146,8 @@ The app speaks plain language; the command line, the API and the code use the te
 | Search | Round | One set of excerpts read for a part. *Look for more evidence* and *Search with other words* add searches. |
 | Search by meaning | Semantic index | Optional: a vector per excerpt from a local embedding model, so excerpts are found by meaning as well as by shared words. |
 | About another group | Scope note | The AI's note that an excerpt is about another group, setting, place or period than the hypothesis names ("about fully remote workers, not hybrid"). Such an excerpt supports the hypothesis at most partly. |
-| Second AI model | Second opinion | Another local model that reads the same excerpts again, to show where two models disagree. Its judgements never change an answer. |
+| Second opinion | Model for second opinions | Another model that reads the same excerpts on its own, to show where it differs. Its judgements never change an answer. |
+| Stronger model | Model routing (*Steps up to*) | The model a check steps up to: it reads the excerpts again and its judgements replace the first ones; the answer shows what it was at first. |
 | Codebook | Framework | An optional list of codes a hypothesis can be tagged with (like codes in NVivo or Atlas.ti). The 169 SDG targets ship with Margin; add your own as a CSV. The AI sees the code's text. |
 
 ### Answers
@@ -292,10 +293,21 @@ it moved in the list.
 
 - When documents were added to the project after the check, it says how many and how many have matching excerpts.
   *Read them* reads those documents as a further search; the check is not run again, so your reviews are kept.
-- **Ask a second AI model** has another local model (chosen there or in Settings) read the same excerpts. Each card
-  then shows "Second AI model: Contradicts (70%) — disagrees" or "agrees", and *Next to review* goes to the
-  disagreements first. Only one model is kept in the computer's memory at a time: the main model is unloaded while
-  the second one reads, so this takes a while. The second model's judgements never change the answer; yours do.
+- **Ask another AI model to read these excerpts** offers two different things, side by side (0.11.2):
+  - **Stronger model** (*replaces the AI's judgements*): *Ask a stronger model* has the model checks step up to (on
+    Claude the auditor, Opus or Fable) read every search of the result again, once. Its judgements take the place of
+    the first AI's, so the answer can change. The answer then shows the stronger model's reading with a small mark
+    beside it, e.g. **Supported** *at first: partly supported* (hover or click it for which models and how many
+    judgements changed), and each changed excerpt shows both readings ("Read again by a stronger model: was Partly
+    supports, now Supports"). The same happens on its own when an answer was unsure or rejected twice. Your own
+    judgements stay and count either way. Not offered when the AI chosen in Settings has no stronger model.
+  - **Second opinion** (*only for comparison*): *Get a second opinion* has another model (on Claude the auditor; with
+    a local model, a second local model chosen there or in Settings) read the same excerpts on its own. Each card
+    then shows both readings in one line, "Second opinion differs · The AI: Supports (80%) · Second opinion (opus):
+    Partly supports (70%)" (and yours, when you judged it), and, when the second opinion points to another sentence,
+    *Highlight the quote of: The AI | Second opinion* switches which quote is highlighted. *Next to review* goes to
+    the excerpts where the second opinion differs first. A second opinion never changes the answer; yours does. With
+    local models only one is kept in memory at a time, so this takes a while.
 
 **Look harder**: *Look for more evidence* reads the next excerpts that match the same words; *Search with other
 words* reads excerpts containing words you type (documents often say "telework" where the hypothesis says "remote
@@ -313,9 +325,10 @@ judgement when one was asked, the full excerpt). CSV and JSON are under *Technic
 
 **Results** lists every hypothesis with its answer, the excerpts that count (and how many were too uncertain), tags
 such as *part of a set*, *checked in 2 parts*, *N to review*, *N changed by you*, *has notes*, *N documents added
-since*, *models disagree on N*, and the date. Search, filter by answer, open one, or **Download all for Excel** (with a
+since*, *second opinion differs on N*, and the date; an answer a stronger model changed carries the small mark *was
+partly supported* (or whatever it was at first). Search, filter by answer, open one, or **Download all for Excel** (with a
 *Map* sheet). *Read the new documents for all N* brings every result with documents added since up to date in one go;
-*Ask a second AI model* does the same for the second model.
+*Get a second opinion for all results* does the same for second opinions.
 
 **Show as a map** shows all results (or one set) as a grid: one row per hypothesis, one column per document, and in
 each cell + supports, (+) partly supports, − contradicts or ± both, with the number of excerpts that count. It flags
@@ -661,10 +674,18 @@ the Claude desktop app's connector entry is pointed at the new Python too when t
 Claude Code: 120 passages to label · about 25 minutes*, with **Start Claude Code**. Margin then starts Claude Code
 in the background for that project (`claude -p "/margin-run:margin-run <project>"`, run in the Margin folder),
 allowed only the four Margin queue tools and its helpers, so a passage that tries to give it instructions can do
-nothing else. The page and the sidebar's queue panel say *Claude Code is working on it*, with *Stop*; it stops by
-itself when nothing waits. *Stop* returns the batches it had taken to the queue at once. If a run ends with a
-problem (a usage limit, for example), the page shows the end of its report. The first start also adds the plugin if
-that was not done yet.
+nothing else. The page and the sidebar's queue panel say *Claude Code is working on it*, with *Stop Claude Code*;
+it stops by itself when nothing waits. *Stop Claude Code* returns the batches it had taken to the queue at once. If a
+run ends with a problem (a usage limit, for example), the page shows the end of its report. The first start also
+adds the plugin if that was not done yet.
+
+Until it is pressed, nothing is answered: the step that waits keeps its spinner, so from 0.11.3 a **Start Claude
+Code** left unpressed for about five seconds while work waits (and nothing answers it) pulses, and the line beside it
+says *Nothing runs until you press it.* (with reduced motion in the computer's settings, it has a still ring
+instead). The pulse stops once it is pressed, or once Claude Code started some other way takes the work. The button
+is wherever work waits: a check's progress, a result that waits, the sidebar's queue panel, and since 0.11.3 also
+the line of a follow-up on a result (reading an excerpt again, reading new documents, a second opinion, a stronger
+model), which used to say only which command to type.
 
 **Or type it yourself.** The same work can be started in Claude Code, opened in any folder:
 

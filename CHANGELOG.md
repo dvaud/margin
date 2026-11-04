@@ -1,5 +1,49 @@
 # Changelog
 
+## Unreleased
+
+**From ENLENS 0.11.2 and 0.11.3**, brought in with `tools/sync_enlens.py` (the first sync: ENLENS's commits keep
+their own messages in the history, with Margin's names). Every answer still goes through the quote check, a person
+can overrule it, every result records how it was made, and nothing about what leaves the computer changed.
+
+**A stronger model's answer is the answer (ENLENS 0.11.2).**
+- When a stronger model reads a check's excerpts again and changes the answer, the result shows the new answer with
+  a small mark, e.g. **Supported** *at first: partly supported* (hover or click it: which models, how many judgements
+  changed). Each part of a split hypothesis carries its own mark; the Results list shows *was partly supported*, and
+  the Excel *Summary* sheet has the column "Answer before a stronger model read it again". Each changed excerpt
+  keeps its first reading under *Technical details*.
+- *Keep this result up to date* has one block, **Ask another AI model to read these excerpts**, with two clearly
+  different choices: **Stronger model** (replaces the AI's judgements, so the answer can change) and **Second
+  opinion** (only for comparison, never changes the answer). *Ask a stronger model* now works on the whole result
+  (`POST /api/projects/<p>/hypotheses/<h>/stronger`) instead of a button under each search.
+- "Second AI model" is called **second opinion** everywhere. On an excerpt, a second opinion is one line with every
+  reading (the AI, the second opinion, you), and a switch shows which sentence each of them quoted.
+- API: `status_first`, `status_before_stronger` and `stronger` on a hypothesis and each part, `can_step_up` per
+  search, `status_before_stronger` on each row of the Results list (`docs/API.md`).
+
+**A Start Claude Code button you cannot miss (ENLENS 0.11.3).**
+- About five seconds after work starts waiting with nothing answering it, **Start Claude Code** pulses and says
+  **Nothing runs until you press it.** (a still ring with reduced motion). It stops once the button is pressed or
+  something answers the work (Claude Code started from Margin, or `/margin-run` typed in Claude Code). The same in a
+  check's progress, a waiting result and the sidebar's queue panel.
+- A follow-up on a result that waits (a stronger model, a second opinion, reading again) now has the button too,
+  not only the command to type. The button that stops Claude Code is called **Stop Claude Code**, so it is no longer
+  mixed up with a job's own *Stop*.
+
+**Merged with Margin's own work:** the results history keeps both Margin's `draft_id` and ENLENS's
+`status_before_stronger`; ENLENS's new styles (`v0112.css`, `v0113.css`) load before Margin's, so Margin's look wins.
+
+**Also:** `tools/sync_enlens.py` fetches ENLENS into a ref of its own (`refs/sync-enlens/head`) instead of the shared
+`FETCH_HEAD`, which another fetch had overwritten during the first sync, and stops if the commits it would bring in
+are already in Margin's history.
+
+**Tests:** `tests/test_0112_stronger_model.py` and `tests/test_0113_start_nudge.py` (from ENLENS);
+`tests/test_sync_enlens.py` gains two tests for the fix above.
+
+**Not yet done:** as in ENLENS, tried only with the stand-in Claude Code, not a real signed-in one. Not checked in a
+browser in Margin's look yet (light and dark, 390 px). The Map does not show the stronger-model mark yet, and the
+waiting step still spins until Claude Code takes the work.
+
 ## 0.2.1 (November 2026): Update Margin from the app, import hand-zipped projects
 
 **Update Margin** (bottom of the sidebar, beside *Quit Margin*).
