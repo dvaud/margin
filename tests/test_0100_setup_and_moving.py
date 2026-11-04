@@ -324,9 +324,12 @@ def test_release_check_notes_and_assets(tmp_path):
 def test_release_workflow_builds_tries_and_drafts():
     wf = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     for needle in ('tags: ["v*"]', "python tools/release.py check", "python -m pytest -q", "tools/release.py assets dist",
-                   "ubuntu-latest, macos-latest, windows-latest", "dist/install.sh", "install.ps1", "--draft",
+                   "ubuntu-latest, windows-latest", "dist/install.sh", "install.ps1", "--draft",
                    "needs: [build, try-install]", "check_connector()"):
         assert needle in wf, needle
+    # Margin 0.2.1: macOS is still tried, in its own job that the draft does not wait for
+    mac = wf.split("try-install-mac:", 1)[1].split("\n  release:", 1)[0]
+    assert "runs-on: macos-latest" in mac and "dist/install.sh" in mac and "check_connector()" in mac
 
 
 # ---------------------------------------------------------------------------------------------

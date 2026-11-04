@@ -26,6 +26,9 @@ zip*; its documents are pointed at the unpacked copies. A zip holding several pr
   copies in Margin's.
 - A checkout used as `MARGIN_HOME` no longer shows Margin's data folders and settings as untracked files
   (`.gitignore`).
+- The release workflow: the one-line install test on macOS is now its own job, and the draft release no longer waits
+  for it. GitHub's Mac runners were unavailable for three runs in a row, which held up the whole release. Check that
+  the Mac job is green (or re-run it) before publishing.
 
 **For developers.** `tools/sync_enlens.py` merges ENLENS's new commits under Margin's names (`--dry-run` lists them
 first) and leaves the merge uncommitted so the tests can run before the commit (README, *For developers*).
