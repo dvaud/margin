@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.2.1 (November 2026): Update Margin from the app, import hand-zipped projects
+
+**Update Margin** (bottom of the sidebar, beside *Quit Margin*).
+- It asks whether a newer Margin waits: the latest GitHub release for the one-line install, or new commits on the
+  branch a git copy follows. It says what it found ("Margin 0.2.2 is ready (you have 0.2.1)", or how many changes are
+  waiting), and on *Update and restart* installs it the way this copy was installed (`update.py`, as `margin update`
+  does), then restarts on the same port; the open page shows that Margin is restarting and reloads by itself once the
+  new version answers. If a check or documents being added still run, the dialog says that restarting stops them.
+- When a newer version is already on disk (updated in a terminal while this copy ran), the button and the update
+  banner offer **Restart now** instead of *Quit Margin*.
+- The button appears only where this copy can restart itself (started from its icon or `margin-gui`). On Windows,
+  where a running program cannot replace itself, a one-line install says to quit Margin and run the install line.
+- New endpoints: `GET /api/update`, `POST /api/update`, `POST /api/restart` (`docs/API.md`). On macOS and Linux the
+  restart replaces the running process (same terminal, same Ctrl+C); on Windows it starts the new one beside it.
+
+**Import a project folder zipped by hand.** *Projects → Import a project (.zip)* now takes a project's folder
+compressed with Finder's *Compress* or Windows' *Send to compressed folder*, not only zips made with *Download as a
+zip*; its documents are pointed at the unpacked copies. A zip holding several projects, or none, says so plainly.
+
+**Fixed on the way.**
+- Zips that do not mark their names as UTF-8 (Finder's *Compress*, for one) garbled accented file names
+  ("másolat" became "ma╠üsolat"); they are now read correctly, for projects and for documents.
+- Projects copied over from ENLENS kept their uploaded documents pointing into ENLENS's folder; they now point at the
+  copies in Margin's.
+- A checkout used as `MARGIN_HOME` no longer shows Margin's data folders and settings as untracked files
+  (`.gitignore`).
+
+**For developers.** `tools/sync_enlens.py` merges ENLENS's new commits under Margin's names (`--dry-run` lists them
+first) and leaves the merge uncommitted so the tests can run before the commit (README, *For developers*).
+
+**Tests:** `tests/test_m021_update_button.py` (the update check and its answers, update and restart, the restart
+command, a second click while updating, the hand-zipped import with relinked documents, accented zip names),
+`tests/test_sync_enlens.py`, and additions to `tests/test_hypotheses.py` and `tests/test_m010_drafts.py`.
+
+**Not yet done**
+- *Update and restart* against a real published release and a real restart from the Mac icon: the tests use
+  stand-ins for GitHub, uv and the restart. The first update to 0.2.1 itself is still the old way (`margin update`
+  or the install line), since 0.2.0 has no button.
+
 ## 0.2.0 (November 2026): Margin's own look
 
 A full re-styling, so Margin no longer looks like ENLENS. Nothing about how the app works changed: every page keeps

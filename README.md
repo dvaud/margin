@@ -33,6 +33,9 @@ Used Margin on another computer? Choose *Import from another computer* on the fi
 
 ## Update
 
+From 0.2.1 on, click **Update Margin** at the bottom of the sidebar: Margin looks for a new version, installs it and
+restarts by itself (on Windows it says to use the install line). Or do it by hand:
+
 1. **Quit Margin** (*Quit Margin* at the bottom of the sidebar).
 2. **Get the new version:** in Terminal or PowerShell type `margin update`, or paste the install line again. On
    Windows, use the install line.
@@ -51,6 +54,11 @@ instead? `margin update` pulls the new version (see *For developers*).
   open Margin from (after the update, quit Margin and open it again; on a Mac, re-add it to the Dock if you had
   pinned the old one).
 - On a phone, long button labels now wrap instead of widening the page.
+- **Update Margin from the app (0.2.1)**: a button at the bottom of the sidebar checks for a new version, installs
+  it and restarts Margin; if you updated in a terminal while Margin was open, it offers *Restart now*.
+- **Projects zipped by hand (0.2.1)**: *Import a project (.zip)* also takes a project folder you compressed yourself
+  (Finder's *Compress*, Windows' *Send to compressed folder*), and accented file names in such zips are no longer
+  garbled.
 
 ## Earlier releases
 

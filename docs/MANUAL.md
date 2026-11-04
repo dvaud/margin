@@ -84,6 +84,12 @@ same Python only when the requirements changed (with the extras already installe
 plugin if one was set up, and says to restart the app if it is running. It changes nothing if files of the copy
 were edited by hand, and never touches the data folder. `margin update --check` only looks.
 
+**Update Margin in the app (0.2.1).** At the bottom of the sidebar, *Update Margin* does the same from the page: it
+says what is waiting, and *Update and restart* installs it and restarts Margin on the same address; the page reloads by
+itself. If a newer version is already installed (updated in a terminal while Margin ran), it offers *Restart now*.
+The button shows only where Margin can restart itself (started from its icon or `margin-gui`). On Windows, a one-line
+install says to quit Margin and run the install line.
+
 **An icon instead of the terminal.** The one-line install makes it. From a git copy, run once, as the person who will
 use the app:
 
@@ -318,7 +324,9 @@ which are the ones to read most carefully.
 
 **Projects** (the project menu → *Manage projects*): *Download as a zip* puts the whole project in one file (the
 database, the documents and their original files, the codebooks) for a co-author or another computer; *Import a
-project (.zip)* opens such a file as a new project. *Download the whole project (.zip)* is also on the Results page.
+project (.zip)* opens such a file as a new project. It also takes a project's folder zipped by hand (Finder's
+*Compress*, Windows' *Send to compressed folder*; 0.2.1): its documents are pointed at the unpacked copies.
+*Download the whole project (.zip)* is also on the Results page.
 
 **Check several** checks many hypotheses one after the other: paste them one per line, or load a CSV with a column
 `hypothesis` (or `claim`, `text`, `statement`) and optional `framework` and `code` columns. *Show the list* previews

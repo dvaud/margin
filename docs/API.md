@@ -143,6 +143,20 @@ kept in memory for this run only. `DELETE /api/settings/key` forgets both. 403 w
 `POST /api/quit` → `{"stopping": true, "jobs_stopped": n}`: stops the app ("Quit Margin" in the sidebar) once the
 running jobs have stopped (at most 20 s); 409 when this copy was not started in a way that can be stopped from here.
 
+`POST /api/restart` → `{"restarting": true, "jobs_stopped": n}`: stops the app the same way, then starts the version
+on disk in its place on the same port (Margin 0.2.1; *Restart now*). 409 when this copy cannot restart itself
+(`GET /api/state` → `can_restart` is false).
+
+`GET /api/update` → whether a newer Margin waits (Margin 0.2.1): `{"available": bool, "on_disk": bool, "version":
+"0.2.1", "latest": "0.2.2" | null, "changes": n | null}`. `on_disk` is true when a newer version is installed already
+(updated while this copy ran); `latest` is the newest release (one-line install), `changes` the number of new commits
+(git copy). 409 with the reason when this copy cannot update itself (installed with pip, files changed by hand, offline…).
+
+`POST /api/update` → installs the newest Margin the way this copy was installed (as `margin update`), then restarts
+into it: `{"updated": true, "restarting": true, "from": "0.2.1", "version": "0.2.2", "jobs_stopped": n}`, or
+`{"updated": false, "restarting": false, "version": "0.2.1"}` when it is up to date (nothing restarts). 409 when the
+update fails (with the reason), when this copy cannot restart itself, or while an update is already running.
+
 `GET /api/servers` → local model servers running now (probed in parallel, < 1 s):
 ```json
 {"servers": [{"kind": "ollama", "url": "http://localhost:11434", "version": "0.12.3",
