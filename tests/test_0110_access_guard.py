@@ -13,14 +13,14 @@ import json
 import pytest
 from helpers_0110 import Cloud, Local, mixed_project
 
-from enlens_claims import access, home, ingest, taskqueue, tasks
-from enlens_claims.store import Workspace
+from margin import access, home, ingest, taskqueue, tasks
+from margin.store import Workspace
 
 
 @pytest.fixture
 def mixed(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY", raising=False)
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY", raising=False)
     ws = home.create_project("Mixed")
     ids = mixed_project(ws, tmp_path / "corpus")
     pid = {k: ws.scalar("SELECT passage_id FROM passages WHERE doc_id=? ORDER BY seq LIMIT 1", (v,)) for k, v in ids.items()}
@@ -71,7 +71,7 @@ def test_run_one_refuses_before_the_backend_is_asked(mixed):
     tasks.run_one(ws, "label:sdg:" + pid["local"], local, "m")
     assert local.sent
     # Claude Code: a task the queue would never hand out is not waited for
-    from enlens_claims.llm import ClaudeCodeBackend
+    from margin.llm import ClaudeCodeBackend
 
     _insert(ws, "label:sdg:other", _label(pid["none"]), "label")
     with pytest.raises(access.AccessError):
@@ -111,8 +111,8 @@ def test_a_changed_setting_applies_to_tasks_not_answered_yet(mixed):
 
 
 def test_project_default_and_the_question_once(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY", raising=False)
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY", raising=False)
     from helpers_0110 import write_corpus
 
     ws = home.create_project("New")
@@ -127,7 +127,7 @@ def test_project_default_and_the_question_once(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         access.set_default(ws, "everyone")
     # an installation without cloud models: local is the default and cloud cannot be chosen
-    monkeypatch.setenv("ENLENS_LOCAL_ONLY", "1")
+    monkeypatch.setenv("MARGIN_LOCAL_ONLY", "1")
     ws2 = home.create_project("Shared")
     assert access.default(ws2) == "local"
     with pytest.raises(ValueError, match="switched off"):
@@ -135,7 +135,7 @@ def test_project_default_and_the_question_once(tmp_path, monkeypatch):
 
 
 def test_the_manifest_sets_the_setting_per_file(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
     from helpers_0110 import write_corpus
 
     folder = write_corpus(tmp_path / "c")
@@ -174,7 +174,7 @@ def test_an_address_on_this_computer():
 
 def test_embeddings_on_another_computer_skip_restricted_passages(mixed):
     ws, ids, pid = mixed
-    from enlens_claims import embed
+    from margin import embed
 
     class FarEmbedder:
         model = "far-embed"

@@ -1,5 +1,78 @@
 # Changelog
 
+## 0.1.0 (November 2026): Margin, a writing companion that checks your draft against your sources
+
+Margin is a research and paper-writing companion grown from ENLENS 0.11.1: everything ENLENS did (exploring the
+documents, checking hypotheses, per-document AI settings, Claude Code on your own plan) is here, and Margin adds what a
+writer needs first: **check a draft**. Its numbering starts again at 0.1.0; the entries below 0.1.0 are ENLENS's.
+
+**Check a draft** (sidebar, *Your writing*; also on the Overview).
+- Paste a section, a chapter or a paper, or load it (Word, PDF, text, Markdown, a web page). The draft is kept apart
+  from the documents (`drafts` table): it is never searched as evidence.
+- **Find the claims.** A new AI task, `claims` (prompt `claims-v1`, Sonnet by default, stepping up to Opus; the
+  `margin-reader` helper in Claude Code), reads the draft a few paragraphs at a time (up to 4,000 characters, with
+  the end of the part before to say what "it" stands for) and lists the statements a reader would want a source for:
+  numbers, causes and effects, comparisons, what research found, general claims, definitions. Not the author's own
+  aims, methods, arguments or results. Each claim quotes its sentence, which goes through the quote check against
+  the draft (an answer whose quote is not in the text is rejected with the problem listed, as every other answer);
+  it is restated as one self-contained sentence and says whether the draft already cites a source there.
+- **Without AI**, rules find the likely claims (numbers, "studies show", causal verbs, comparisons, generalisations,
+  minus the author's own work, questions, headings, citations and references such as "Table 2"): for a draft marked
+  *No AI*, for *Only a local AI* without a local model, and for the offline demo. The page says when rules were used.
+- **The person decides.** Drop a claim, reword it before it is checked, or select a sentence in the draft and press
+  *Mark as a claim*. *Find again* keeps every claim that was checked, dropped, reworded or marked.
+- **Check them.** Each claim kept is checked as a hypothesis of its own (`hypotheses.draft_id`, one set per draft),
+  so the result page, reviews, second opinions, Excel downloads and the evidence map all work as before; the result
+  page links back to the draft. The draft page shows the text with each claim marked and numbered, coloured by its
+  answer, and a card per claim with the documents that support, partly support or contradict it, the best quote and
+  its place, and what to do next. *Excel* / *CSV*: one row per claim, a list of what to cite.
+
+**The draft's AI setting, enforced in code.** A draft has the same three settings as a document. Every task that holds
+its text (finding its claims, and each task of the checks of its claims: search words, judging excerpts, reading
+again, second opinions) is labelled with it by `access.label_payload`, which follows a task's claim or hypothesis to
+its draft (`access.draft_of`); a round of excerpts of such a claim goes to the local model or to the person, never
+to Claude. Changing the setting relabels the tasks not answered yet. A Claude chat (the connector) does not see the
+checks of a draft it may not read. Each time Claude reads part of a draft is recorded (`draft_sent`), and the page
+says how much of the draft Claude has read and when.
+
+**Margin, beside ENLENS.** The rename is complete, so the two can be installed on one computer side by side:
+- the commands are `margin`, `margin-gui` and `margin-mcp`; the package `margin` (Python module `margin`); the
+  data folder `~/margin` (`MARGIN_HOME`, and every other `ENLENS_*` variable is now `MARGIN_*`); the app's default
+  address `http://127.0.0.1:8766`; the icon *Margin*; the Claude Code plugin `margin-run@margin` (`/margin-run`,
+  helpers `margin-checker`, `margin-reader`…); the Claude app connector `margin`;
+- the one-line install and `margin update` take their releases from github.com/dvaud/margin;
+- **your ENLENS projects come along**: on the first screen (and on the Projects page) *Bring them over* copies every
+  ENLENS project (documents, results, judgements, notes), its codebooks and, on a first start, its settings into
+  Margin; each database is copied with SQLite's backup, so a running ENLENS does not spoil the copy; a project ENLENS
+  uses in place from another folder is linked, not copied. ENLENS's folder is not changed. Also `margin
+  import-enlens [names]`, and `ENLENS_HOME` when ENLENS's data is not in `~/enlens`;
+- a project's database keeps its file name (`enlens.sqlite`) and the zips of *Download as a zip* and *Move to
+  another computer* keep their format, so Margin opens ENLENS projects and imports ENLENS zips as they are.
+
+**API:** `GET|POST /api/projects/<p>/drafts`, `POST …/drafts/upload`, `GET|PUT|DELETE …/drafts/<d>`,
+`POST …/drafts/<d>/find` (job `draft-find`), `POST …/drafts/<d>/check` (job `draft-check`), `POST|PUT|DELETE
+…/drafts/<d>/claims[/<c>]`, `GET …/drafts/<d>/export.xlsx|csv`, `POST /api/import-enlens`; `GET /api/state` carries
+`enlens` (docs/API.md). The page: `views/drafts.js`, `m010.css`; the manual has a section *Checking a draft*.
+
+**Defects fixed on the way:** an uploaded draft's file title was read from a field that does not exist (the upload
+failed); the rules missed numbers with units they did not list ("9 litres"); a link ending in `#token=…` opened
+while the page already carried its token showed *No such page* (an ENLENS defect).
+
+**Tests:** `tests/test_m010_drafts.py` (16): the rules, the parts, the quote check of the AI's claims, the person's
+changes surviving *Find again*, checks as hypotheses of the draft, a draft kept from Claude never reaching a cloud
+model (nor its search words, nor its excerpts), relabelling, the queue handing out only drafts Claude may read and
+recording what it read, the offline demo, a PDF draft, the whole API, the page files, and bringing ENLENS projects
+over (copied, linked, codebooks, settings, ENLENS untouched). The launcher tests use versions below 0.1.0. The test
+stand-in model answers `claims` tasks with the rules.
+
+**Not yet done**
+- Not tried with a real signed-in Claude Code or a real local model: how well `claims-v1` finds claims (and leaves
+  out the author's own) is untested beyond the stand-in. Worth measuring on a real draft.
+- The one-line install of Margin has not run on a real computer yet (the release workflow tries it on Linux, macOS
+  and Windows), nor *Set up Claude* adding `margin-run` beside an existing `enlens-run`.
+- A draft cannot be edited in place; a new version is a new draft (its claims are found and checked again).
+- The icon's picture is still ENLENS's lens.
+
 ## 0.11.1 (November 2026): a deep clean after 0.11
 
 No new features. Much had been added between 0.7 and 0.11, so every part of the code was read again for defects,

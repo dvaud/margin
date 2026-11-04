@@ -1,8 +1,8 @@
 import csv
 import json
 
-from enlens_claims import analysis, review
-from enlens_claims.cli import main
+from margin import analysis, review
+from margin.cli import main
 
 
 def test_cli_pipeline_with_baseline(tmp_path, corpus, vca_xlsx, capsys):
@@ -38,9 +38,9 @@ def test_cli_pipeline_with_baseline(tmp_path, corpus, vca_xlsx, capsys):
 
 
 def test_inferred_interactions_and_review_roundtrip(loaded, tmp_path):
-    from enlens_claims import tasks
-    from enlens_claims.llm import BaselineBackend
-    from enlens_claims.retrieve import screen
+    from margin import tasks
+    from margin.llm import BaselineBackend
+    from margin.retrieve import screen
 
     screen(loaded)
     tasks.make_extract(loaded)
@@ -81,7 +81,7 @@ def test_inferred_interactions_and_review_roundtrip(loaded, tmp_path):
 
 
 def test_label_recovery_counts_cells(loaded):
-    from enlens_claims import tasks
+    from margin import tasks
 
     # one perfect claim for 6.4 production negative, one wrong-sign claim for 8.5
     t = [r for r in loaded.query("SELECT * FROM passages WHERE text LIKE '%water stress%'")][0]

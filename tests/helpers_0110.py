@@ -48,7 +48,7 @@ def write_corpus(folder: Path) -> Path:
 
 def mixed_project(ws, folder: Path) -> dict[str, str]:
     """Ingest the three documents and give them their settings. Returns {"cloud"|"local"|"none": doc_id}."""
-    from enlens_claims import access, ingest
+    from margin import access, ingest
 
     write_corpus(folder)
     ingest.ingest(ws, [folder], ai_access="cloud")
@@ -86,7 +86,7 @@ class Recorder:
 
 
 class Cloud(Recorder):
-    """Claude, as far as ENLENS can tell (the Claude API backend's name)."""
+    """Claude, as far as Margin can tell (the Claude API backend's name)."""
     name = "anthropic"
 
 
@@ -98,7 +98,7 @@ class Local(Recorder):
 
 def use_local_model(monkeypatch, local: Local | None) -> None:
     """Make `local` the local model for restricted documents (None: no local model is chosen)."""
-    from enlens_claims import home
+    from margin import home
 
     if local is None:
         monkeypatch.setattr(home, "restricted_choice", lambda s: {})

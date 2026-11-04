@@ -1,8 +1,8 @@
 import json
 
-from enlens_claims import tasks
-from enlens_claims.llm import AnthropicBackend, LocalBackend
-from enlens_claims.retrieve import screen
+from margin import tasks
+from margin.llm import AnthropicBackend, LocalBackend
+from margin.retrieve import screen
 
 
 def _water_task(ws):
@@ -161,7 +161,7 @@ def test_anthropic_backend_uses_cached_system_prompt():
 
 
 def test_refresh_requeues_after_prompt_change_and_keeps_history(loaded, monkeypatch):
-    from enlens_claims import prompts
+    from margin import prompts
 
     tasks.make_split(loaded, model="m")
     good = {"claims": [{"text": "Electrolysis needs large amounts of fresh water.",
@@ -206,7 +206,7 @@ def _two_vca_claims(ws):
 
 
 def test_set_wise_verification_grades_passages(loaded):
-    from enlens_claims import analysis
+    from margin import analysis
 
     _two_vca_claims(loaded)
     s = tasks.make_verify_vca(loaded, model="m", k=3)
@@ -237,7 +237,7 @@ def test_set_wise_verification_grades_passages(loaded):
 
 
 def test_extraction_selection_needs_hydrogen(loaded):
-    from enlens_claims.retrieve import H2_RE, screen
+    from margin.retrieve import H2_RE, screen
 
     screen(loaded)
     with_h2 = tasks.select_per_target(loaded, 3, only_screened=False)
@@ -249,7 +249,7 @@ def test_extraction_selection_needs_hydrogen(loaded):
 
 
 def test_audit_of_vca_checks_is_kept_apart(loaded):
-    from enlens_claims import analysis
+    from margin import analysis
 
     _two_vca_claims(loaded)
     tasks.make_verify_vca(loaded, model="m", k=3)
@@ -267,7 +267,7 @@ def test_audit_of_vca_checks_is_kept_apart(loaded):
 
 
 def test_new_documents_reach_claims_already_checked(loaded, tmp_path):
-    from enlens_claims import ingest, sources
+    from margin import ingest, sources
 
     _two_vca_claims(loaded)
     assert tasks.make_verify_vca(loaded, model="m", k=3)["tasks"] == 1

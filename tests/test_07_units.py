@@ -12,8 +12,8 @@ import pytest
 
 from helpers import make_pdf
 
-from enlens_claims import concordance, terms, themes
-from enlens_claims.textutil import token_spans, tokens
+from margin import concordance, terms, themes
+from margin.textutil import token_spans, tokens
 
 SAMPLES = [
     "Green hydrogen’s water footprint—in arid regions—can rise; it’s “stress” on aquifers (e.g. Morocco).",
@@ -105,7 +105,7 @@ def test_kmeans_is_deterministic_for_a_seed():
 def test_highlights_land_inside_the_page(tmp_path):
     from pypdf import PdfReader
 
-    from enlens_claims import annotate
+    from margin import annotate
 
     pdf = make_pdf(tmp_path / "a.pdf", ["Green hydrogen needs water. Its production can increase water stress in "
                                         "arid regions such as Morocco.", "A second page about export hubs and jobs."])
@@ -134,7 +134,7 @@ def test_highlights_land_inside_the_page(tmp_path):
 
 
 def test_flexiconc_export_reads_back(loaded, tmp_path):
-    from enlens_claims import flexiconc_export, profile
+    from margin import flexiconc_export, profile
 
     terms.build(loaded)
     profile.keyword_pass(loaded, "sdg")
@@ -154,8 +154,8 @@ def test_flexiconc_export_reads_back(loaded, tmp_path):
 
 def test_sdg_pack_is_untouched_by_07(loaded):
     """The SDG / VCA pipeline makes the same tasks as before: 0.7 adds kinds, it does not change the old ones."""
-    from enlens_claims import tasks
-    from enlens_claims.prompts import VERSIONS
+    from margin import tasks
+    from margin.prompts import VERSIONS
 
     assert VERSIONS["extract"].startswith("extract-") and VERSIONS["split"].startswith("split-")
     assert {"label", "link", "theme", "resolve"} <= set(tasks.KINDS)
@@ -163,7 +163,7 @@ def test_sdg_pack_is_untouched_by_07(loaded):
 
 
 def test_new_cli_commands(loaded, tmp_path, capsys):
-    from enlens_claims.cli import main
+    from margin.cli import main
 
     ws = str(loaded.root)
     run = lambda *a: main(["--ws", ws, *a])  # noqa: E731
@@ -197,8 +197,8 @@ def test_new_kinds_ask_again_when_a_quote_is_wrong(loaded):
     problems listed, and the second (right) answer is stored."""
     import fake_servers
 
-    from enlens_claims import ingest, profile, references
-    from enlens_claims.llm import OllamaBackend
+    from margin import ingest, profile, references
+    from margin.llm import OllamaBackend
 
     demo = Path(__file__).resolve().parent.parent / "tools" / "demo_corpus"
     ingest.ingest(loaded, [demo])

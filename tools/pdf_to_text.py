@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn a folder of PDFs into small text files the ENLENS pipeline reads exactly as it reads the PDFs.
+"""Turn a folder of PDFs into small text files the Margin pipeline reads exactly as it reads the PDFs.
 
 Each PDF becomes <name>.txt with one form-feed character between pages, so page numbers survive.
 HTML files and manifest.csv are copied as they are. The result is zipped for upload.

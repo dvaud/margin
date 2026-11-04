@@ -1,6 +1,6 @@
 """Small stand-ins for an Ollama server and the Claude API, for tests and for trying the GUI offline.
 
-They speak the same HTTP as the real services for the calls enlens makes, and answer from simple rules:
+They speak the same HTTP as the real services for the calls margin makes, and answer from simple rules:
 search terms are the claim's words, and a check grades the first passage as supporting with a short quote from it.
 Run `python tests/fake_servers.py` to start a fake Ollama on port 11435.
 """
@@ -289,6 +289,11 @@ def _answer1(system: str, user: str, varied: bool = False) -> dict:
     if system.startswith("You split a hypothesis"):
         text = user.split("\n", 1)[1] if "\n" in user else user
         return {"parts": [{"text": p, "role": "component"} for p in _split_hypothesis(text.strip())], "note": None}
+    if system.startswith("You read part of a researcher's own draft"):  # Margin 0.1: a stand-in that uses the rules
+        from margin.drafts import rule_claims
+
+        text = user.split("PASSAGE:\n", 1)[1] if "PASSAGE:\n" in user else user
+        return {"claims": rule_claims(text)[:25], "note": None}
     return {}
 
 

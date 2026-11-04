@@ -6,12 +6,12 @@ import zipfile
 
 import pytest
 
-from enlens_claims import claimcheck, embed, frameworks, ingest, tasks
-from enlens_claims.llm import BaselineBackend
-from enlens_claims.retrieve import BM25
-from enlens_claims.search import passage_index, rank_passages
-from enlens_claims.store import Workspace
-from enlens_claims.textutil import find_quote, normalise_with_map, tokens, tokens_v1
+from margin import claimcheck, embed, frameworks, ingest, tasks
+from margin.llm import BaselineBackend
+from margin.retrieve import BM25
+from margin.search import passage_index, rank_passages
+from margin.store import Workspace
+from margin.textutil import find_quote, normalise_with_map, tokens, tokens_v1
 
 CLAIM = "Green hydrogen production can increase water stress in arid regions."
 
@@ -282,8 +282,8 @@ def test_one_unreadable_file_does_not_stop_the_others(ws, tmp_path, monkeypatch)
 
 
 def test_a_failed_answer_keeps_the_earlier_claims_and_reviews_survive(loaded):
-    from enlens_claims import review
-    from enlens_claims.retrieve import screen
+    from margin import review
+    from margin.retrieve import screen
 
     screen(loaded)
     tasks.make_extract(loaded, model="m")
@@ -371,7 +371,7 @@ def test_nested_transactions_roll_back_only_their_own_writes(ws):
 
 
 def test_stop_between_steps_leaves_nothing(loaded):
-    from enlens_claims.llm import BackendError
+    from margin.llm import BackendError
 
     calls = []
     with pytest.raises(BackendError, match="Stopped"):
@@ -381,7 +381,7 @@ def test_stop_between_steps_leaves_nothing(loaded):
 
 
 def test_refresh_with_a_model_reaches_every_kind(loaded):
-    from enlens_claims.retrieve import screen
+    from margin.retrieve import screen
 
     screen(loaded)
     n = tasks.make_extract(loaded, model="old")
@@ -681,7 +681,7 @@ def test_scanned_pages_are_read_with_local_ocr_when_it_is_installed(ws, tmp_path
     assert st["added"] == 1 and st["ocr"] == ["scan.pdf"]
     text = ws.scalar("SELECT text FROM documents")
     assert "commuting" in text.lower() and "eighteen" in text.lower()
-    from enlens_claims.sources import document_overview
+    from margin.sources import document_overview
     d = document_overview(ws)[0]
     assert d["ocr_pages"] == 1 and d["scanned"].startswith("Scanned: text recognised (OCR)")
 
@@ -750,7 +750,7 @@ def test_an_excerpt_about_another_group_is_flagged_and_supports_at_most_partly(l
     item = next(x for x in claimcheck.result(loaded, hid)["passages"] if x["ai_verdict"])
     assert item["scope_note"] == "about fully remote workers, not hybrid" and item["ai_verdict"] == "partially_supports"
     assert loaded.scalar("SELECT prompt_version FROM tasks WHERE task_id=?", (f"check:{hid}",)) == "check-v4"
-    from enlens_claims import prompts
+    from margin import prompts
     assert "scope_note" in prompts.system_prompt("check") and "scope_note" not in prompts.system_prompt("verify_set")
 
 
@@ -781,7 +781,7 @@ def test_the_ai_can_read_one_excerpt_again_and_its_earlier_judgement_is_kept(loa
 
 
 def test_the_second_sorting_pass_prefers_passages_that_word_the_claim(ws, tmp_path):
-    from enlens_claims.search import lexical_score, passage_index
+    from margin.search import lexical_score, passage_index
     d = tmp_path / "s"
     d.mkdir()
     (d / "a.txt").write_text("Water is scarce. Stress at work rose. Arid soil cracks. Regions differ a lot. Hydrogen "
@@ -884,8 +884,8 @@ def test_documents_added_since_a_check_are_read_without_running_it_again(loaded,
 
 
 def test_project_zip_carries_everything_and_imports_elsewhere(loaded, tmp_path):
-    from enlens_claims import bundle
-    from enlens_claims.cli import main
+    from margin import bundle
+    from margin.cli import main
 
     outside = tmp_path / "elsewhere"
     outside.mkdir()
@@ -908,7 +908,7 @@ def test_project_zip_carries_everything_and_imports_elsewhere(loaded, tmp_path):
     assert after["status"] == before["status"] and after["reviewed"] == 1
     assert [x["quote"] for p in after["parts"] for x in p["passages"]] == [x["quote"] for p in before["parts"]
                                                                           for x in p["passages"]]
-    from enlens_claims.sources import original_file
+    from margin.sources import original_file
     assert all(original_file(ws2, d)["available"] and original_file(ws2, d)["inside"]
                for (d,) in ws2.query("SELECT doc_id FROM documents"))
     with pytest.raises(ValueError, match="not empty"):

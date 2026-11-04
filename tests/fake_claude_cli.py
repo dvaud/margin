@@ -1,9 +1,9 @@
 """A stand-in for the `claude` program (0.9), for tests and `tools/dev_server.py --claude-cli`.
 
-Point ENLENS_CLAUDE at this file. It answers what ENLENS asks of Claude Code: `--version`, `auth status`,
-`plugin list --json`, `plugin marketplace add <folder>`, `plugin install enlens-run@enlens`, and
-`-p "/enlens-run:enlens-run <project>" ...`, which plays /enlens-run with the fake Claude Code of the tests
-(fake_claude_code.py) until nothing waits. What was "installed" is kept in <ENLENS_HOME>/fake-claude.json.
+Point MARGIN_CLAUDE at this file. It answers what Margin asks of Claude Code: `--version`, `auth status`,
+`plugin list --json`, `plugin marketplace add <folder>`, `plugin install margin-run@margin`, and
+`-p "/margin-run:margin-run <project>" ...`, which plays /margin-run with the fake Claude Code of the tests
+(fake_claude_code.py) until nothing waits. What was "installed" is kept in <MARGIN_HOME>/fake-claude.json.
 
 0.10: with FAKE_CLAUDE_LOGGED_OUT=1 it starts signed out; run with no arguments (as the sign-in window of "Set up
 Claude" does) it "signs in".
@@ -22,7 +22,7 @@ sys.path[:0] = [str(HERE), str(HERE.parent / "src")]
 
 
 def _state_file() -> Path:
-    return Path(os.environ.get("ENLENS_HOME", ".")) / "fake-claude.json"
+    return Path(os.environ.get("MARGIN_HOME", ".")) / "fake-claude.json"
 
 
 def _state() -> dict:
@@ -53,26 +53,26 @@ def main(argv: list[str]) -> int:
         return 0
     if argv[:2] == ["plugin", "list"]:
         st = _state()
-        print(json.dumps([{"id": "enlens-run@enlens", "version": "x", "enabled": True}] if st.get("installed") else []))
+        print(json.dumps([{"id": "margin-run@margin", "version": "x", "enabled": True}] if st.get("installed") else []))
         return 0
     if argv[:3] == ["plugin", "marketplace", "add"]:
         st = _state()
         st["marketplace"] = argv[3]
         _save(st)
-        print("Successfully added marketplace: enlens")
+        print("Successfully added marketplace: margin")
         return 0
     if argv[:2] == ["plugin", "install"]:
         st = _state()
         if not st.get("marketplace"):
-            print("Marketplace enlens not found", file=sys.stderr)
+            print("Marketplace margin not found", file=sys.stderr)
             return 1
         st["installed"] = True
         _save(st)
-        print("Successfully installed plugin: enlens-run@enlens")
+        print("Successfully installed plugin: margin-run@margin")
         return 0
     if argv[:1] == ["-p"]:
         words = shlex.split(argv[1])
-        if not words or not words[0].startswith("/enlens-run") or len(words) < 2:
+        if not words or not words[0].startswith("/margin-run") or len(words) < 2:
             print("Unknown command", file=sys.stderr)
             return 1
         project = words[1]
@@ -89,7 +89,7 @@ def main(argv: list[str]) -> int:
             total += n
             if not n:
                 break
-        print(f"Done: {total} batches answered for {project}. The results are in the ENLENS app.")
+        print(f"Done: {total} batches answered for {project}. The results are in the Margin app.")
         return 0
     print(f"unsupported: {argv}", file=sys.stderr)
     return 2

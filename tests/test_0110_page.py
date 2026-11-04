@@ -3,7 +3,7 @@ from pathlib import Path
 
 from test_app import api, home  # noqa: F401  (fixtures)
 
-STATIC = Path(__file__).resolve().parent.parent / "src" / "enlens_claims" / "gui" / "static"
+STATIC = Path(__file__).resolve().parent.parent / "src" / "margin" / "gui" / "static"
 
 
 def test_the_page_files():

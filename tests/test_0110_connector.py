@@ -12,21 +12,21 @@ pytest.importorskip("mcp")
 from helpers_0110 import mixed_project, use_local_model, write_corpus  # noqa: E402
 from mcp import Client  # noqa: E402
 
-from enlens_claims import access, home  # noqa: E402
+from margin import access, home  # noqa: E402
 
 HYP = "Green hydrogen production can increase water stress in arid regions."
 
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY", raising=False)
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY", raising=False)
     use_local_model(monkeypatch, None)
     return tmp_path
 
 
 def _run(fn):
-    from enlens_claims.mcp_server import build_server
+    from margin.mcp_server import build_server
 
     async def go():
         async with Client(build_server()) as c:

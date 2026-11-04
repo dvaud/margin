@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from helpers import PAPER_A_PAGES, REPORT_B_TEXT, UNRELATED_HTML, make_pdf, make_vca_workbook  # noqa: E402
 
-from enlens_claims.store import Workspace  # noqa: E402
+from margin.store import Workspace  # noqa: E402
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def ws(tmp_path: Path) -> Workspace:
 
 @pytest.fixture
 def loaded(ws: Workspace, corpus: Path, vca_xlsx: Path) -> Workspace:
-    from enlens_claims import ingest, sources, vca
+    from margin import ingest, sources, vca
 
     vca.load_into(ws, vca_xlsx)
     ingest.ingest(ws, [corpus])
@@ -44,9 +44,9 @@ def loaded(ws: Workspace, corpus: Path, vca_xlsx: Path) -> Workspace:
 
 @pytest.fixture(autouse=True)
 def _no_real_claude_code(tmp_path, monkeypatch):
-    """0.9: ENLENS finds and sets up Claude Code by itself. Tests never touch a real Claude Code: the `claude` program
-    is "not found" unless a test points ENLENS_CLAUDE at the stand-in (tests/fake_claude_cli.py)."""
-    monkeypatch.setenv("ENLENS_CLAUDE", str(tmp_path / "no-claude-here"))
-    from enlens_claims import claude_setup
+    """0.9: Margin finds and sets up Claude Code by itself. Tests never touch a real Claude Code: the `claude` program
+    is "not found" unless a test points MARGIN_CLAUDE at the stand-in (tests/fake_claude_cli.py)."""
+    monkeypatch.setenv("MARGIN_CLAUDE", str(tmp_path / "no-claude-here"))
+    from margin import claude_setup
 
     claude_setup._STATUS.update(at=0.0, value=None)

@@ -1,5 +1,5 @@
-from enlens_claims.taxonomy import normalise_target, targets, targets_reference_text
-from enlens_claims.textutil import clean_doi, find_dois, find_quote, split_sentences
+from margin.taxonomy import normalise_target, targets, targets_reference_text
+from margin.textutil import clean_doi, find_dois, find_quote, split_sentences
 
 
 def test_169_targets_including_lettered():

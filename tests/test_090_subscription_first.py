@@ -3,7 +3,7 @@
 - a new installation answers with Claude Code on the researcher's own plan; a local-only installation and an
   installation that already chose a local model are left alone;
 - `claude_setup` finds the `claude` program, says what is ready (found, signed in, plugin added), adds the plugin by
-  itself, and starts Claude Code for one project's queue with only the ENLENS queue tools allowed (the stand-in
+  itself, and starts Claude Code for one project's queue with only the Margin queue tools allowed (the stand-in
   tests/fake_claude_cli.py plays the real program);
 - the overview counts what each feature has made; the sidebar marks which features use the AI.
 """
@@ -22,8 +22,8 @@ FAKE = str(Path(__file__).with_name("fake_claude_cli.py"))
 
 @pytest.fixture
 def fake_claude(monkeypatch):
-    monkeypatch.setenv("ENLENS_CLAUDE", FAKE)
-    from enlens_claims import claude_setup
+    monkeypatch.setenv("MARGIN_CLAUDE", FAKE)
+    from margin import claude_setup
 
     claude_setup._STATUS.update(at=0.0, value=None)
     return claude_setup
@@ -39,7 +39,7 @@ def test_a_new_installation_is_subscription_first(home, monkeypatch):  # noqa: F
     assert home.load_settings()["backend"] == "ollama"
     # local only: the subscription default becomes the local one, and Claude Code cannot be chosen
     (home.home() / "settings.json").unlink()
-    monkeypatch.setenv("ENLENS_LOCAL_ONLY", "1")
+    monkeypatch.setenv("MARGIN_LOCAL_ONLY", "1")
     s = home.load_settings()
     assert s["backend"] == "auto" and s["allow_claude_code"] is False
     with pytest.raises(ValueError, match="switched off"):
@@ -47,13 +47,13 @@ def test_a_new_installation_is_subscription_first(home, monkeypatch):  # noqa: F
 
 
 def test_claude_code_not_found(home):  # noqa: F811
-    from enlens_claims import claude_setup
+    from margin import claude_setup
 
     st = claude_setup.status(refresh=True)
     assert st["found"] is False and st["ready"] is False
     r = claude_setup.install()
     assert r["steps"][0]["ok"] and not r["steps"][-1]["ok"] and "not found" in r["steps"][-1]["text"]
-    assert r["commands"][1] == "claude plugin install enlens-run@enlens"
+    assert r["commands"][1] == "claude plugin install margin-run@margin"
 
 
 def test_setup_adds_the_plugin_by_itself(home, fake_claude):  # noqa: F811
@@ -67,19 +67,19 @@ def test_setup_adds_the_plugin_by_itself(home, fake_claude):  # noqa: F811
 
 
 def test_the_run_command_allows_only_the_queue_tools():
-    from enlens_claims import claude_setup
+    from margin import claude_setup
 
     args = claude_setup.run_args('My "big" project', "/usr/bin/claude")
-    assert args[:3] == ["/usr/bin/claude", "-p", '/enlens-run:enlens-run "My big project"']
+    assert args[:3] == ["/usr/bin/claude", "-p", '/margin-run:margin-run "My big project"']
     tools = args[args.index("--allowedTools") + 1:]
-    assert tools[0] == "Agent" and all(t.startswith("mcp__plugin_enlens-run_enlens__") for t in tools[1:])
+    assert tools[0] == "Agent" and all(t.startswith("mcp__plugin_margin-run_margin__") for t in tools[1:])
     assert {t.rsplit("__", 1)[1] for t in tools[1:]} == set(claude_setup.QUEUE_TOOLS)
     # a stand-in written in Python runs with this Python
     assert claude_setup.run_args("P", FAKE)[1] == FAKE
 
 
 def _queued_labels(home, corpus):  # noqa: F811
-    from enlens_claims import ingest, profile, tasks
+    from margin import ingest, profile, tasks
 
     ws = home.create_project("Q")
     ingest.ingest(ws, [corpus])
@@ -95,7 +95,7 @@ def _waiting(ws):
 
 
 def test_start_claude_code_from_the_app_answers_the_queue(api, corpus, monkeypatch, fake_claude):  # noqa: F811
-    from enlens_claims import home as core
+    from margin import home as core
 
     ws = _queued_labels(core, corpus)
     assert _waiting(ws) > 0
@@ -119,7 +119,7 @@ def test_start_claude_code_from_the_app_answers_the_queue(api, corpus, monkeypat
 
 
 def test_stop_returns_the_taken_batches(api, corpus, monkeypatch, fake_claude):  # noqa: F811
-    from enlens_claims import home as core
+    from margin import home as core
 
     monkeypatch.setenv("FAKE_CLAUDE_DELAY", "30")  # it waits before answering anything
     ws = _queued_labels(core, corpus)
@@ -132,7 +132,7 @@ def test_stop_returns_the_taken_batches(api, corpus, monkeypatch, fake_claude): 
 
 
 def test_start_needs_claude_code_chosen(api, corpus, fake_claude):  # noqa: F811
-    from enlens_claims import home as core
+    from margin import home as core
 
     _queued_labels(core, corpus)
     assert api("PUT", "/api/settings", {"backend": "baseline"})[0] == 200
@@ -150,7 +150,7 @@ def test_setup_endpoint_and_model_test(api, fake_claude):  # noqa: F811
 
 
 def test_the_page_puts_exploring_first_and_marks_the_ai():
-    static = ROOT / "src" / "enlens_claims" / "gui" / "static"
+    static = ROOT / "src" / "margin" / "gui" / "static"
     html = (static / "index.html").read_text(encoding="utf-8")
     nav = html[html.index('<nav class="nav"'):html.index("</nav>")]
     order = [nav.index(f'data-route="{r}"') for r in ("overview", "sources", "search", "profile", "concepts", "themes",
@@ -170,6 +170,6 @@ def test_the_page_puts_exploring_first_and_marks_the_ai():
 def test_a_link_button_keeps_its_colours_on_hover():
     """The general `a:hover` colour outranked `.btn-primary`: a primary button made from a link (Overview's *Set up
     Claude Code*, *Add documents*…) turned its text the colour of its own hover background, so it read as empty."""
-    css = (ROOT / "src" / "enlens_claims" / "gui" / "static" / "app.css").read_text(encoding="utf-8")
+    css = (ROOT / "src" / "margin" / "gui" / "static" / "app.css").read_text(encoding="utf-8")
     assert "a:hover { color: var(--accent-strong); }" in css
     assert "a.btn-primary:hover { color: var(--on-accent); }" in css and "a.btn:hover { color: var(--text); }" in css

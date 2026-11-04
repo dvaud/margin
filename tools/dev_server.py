@@ -1,6 +1,6 @@
 """Run the app against fake local servers, for developing and testing the interface without real models.
 
-    python tools/dev_server.py [--port 8765] [--home /tmp/enlens-dev] [--pilot path/to/pilot] [--delay 0.05]
+    python tools/dev_server.py [--port 8766] [--home /tmp/margin-dev] [--pilot path/to/pilot] [--delay 0.05]
 
 - starts a fake Ollama (chat model `fake-model:latest`, embedding model `fake-embed:latest`; with `--fresh-user` or
   `--corpus social` it lists them as `qwen3:8b` and `nomic-embed-text:latest`, as a real install would) on a free port,
@@ -8,7 +8,7 @@
 - optionally links a real workspace (for example the pilot) as a second project,
 - starts the app with its API token printed, so the API can be called with curl as well;
 - with `--claude-code` (0.8): Settings name Claude Code, and a fake Claude Code session answers the queue every few
-  seconds (tests/fake_claude_code.py), as if the researcher had typed /enlens-run; `--claude-code-paused` leaves the
+  seconds (tests/fake_claude_code.py), as if the researcher had typed /margin-run; `--claude-code-paused` leaves the
   queue unanswered, to see the waiting and paused states;
 - with `--claude-cli` (0.9): Claude Code chosen, and a stand-in `claude` program (tests/fake_claude_cli.py) that the
   app finds, adds the plugin to, and starts with "Start Claude Code" (each run waits 2 s per round, so the progress
@@ -48,7 +48,7 @@ def social_documents(folder: Path, make_pdf) -> Path:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--port", type=int, default=8766)
     ap.add_argument("--home", default=None)
     ap.add_argument("--pilot", default=None, help="a workspace folder to link as a project")
     ap.add_argument("--delay", type=float, default=0.03, help="seconds between streamed chunks of the fake model")
@@ -69,15 +69,15 @@ def main() -> int:
                     help="0.11: the Demo project's documents have each AI setting (one Claude may read, one only a local "
                          "AI, one no AI), Claude Code is the AI and the fake local model reads the restricted one")
     a = ap.parse_args()
-    home_dir = Path(a.home or tempfile.mkdtemp(prefix="enlens-dev-"))
-    os.environ["ENLENS_HOME"] = str(home_dir)
+    home_dir = Path(a.home or tempfile.mkdtemp(prefix="margin-dev-"))
+    os.environ["MARGIN_HOME"] = str(home_dir)
 
     import fake_servers
     from helpers import PAPER_A_PAGES, REPORT_B_TEXT, UNRELATED_HTML, make_pdf
 
-    from enlens_claims import claimcheck, embed, home, ingest
-    from enlens_claims.gui.server import make_server
-    from enlens_claims.llm import OllamaBackend
+    from margin import claimcheck, embed, home, ingest
+    from margin.gui.server import make_server
+    from margin.llm import OllamaBackend
 
     fake, fake_url = fake_servers.start("ollama")
     fake.delay = 0.0  # seeding runs at full speed; the delay applies to checks made in the app
@@ -107,7 +107,7 @@ def main() -> int:
         embed.build(ws, emb)
         be = OllamaBackend(base_url=fake_url)
         if a.mixed:  # 0.11: one document per AI setting; "Claude" (the fake model under Claude's name) reads the rest
-            from enlens_claims import access
+            from margin import access
 
             docs = [r[0] for r in ws.query("SELECT doc_id FROM documents ORDER BY title")]
             access.set_documents(ws, docs[:1], "local", note="publisher licence")
@@ -139,21 +139,21 @@ def main() -> int:
         ingest._OCR_STATUS[:] = [0.0, None]
     if a.claude_code or a.claude_code_paused:
         home.update_settings({"allow_claude_code": True, "backend": "claude_code"})
-        from enlens_claims import claude_setup
+        from margin import claude_setup
 
         claude_setup.write_plugin()
     if a.claude_cli:
-        os.environ["ENLENS_CLAUDE"] = str(ROOT / "tests" / "fake_claude_cli.py")
+        os.environ["MARGIN_CLAUDE"] = str(ROOT / "tests" / "fake_claude_cli.py")
         os.environ.setdefault("FAKE_CLAUDE_DELAY", "2")
         home.update_settings({"allow_claude_code": True, "backend": "claude_code"})
     if a.claude_install:
         import subprocess
         import time
 
-        from enlens_claims import claude_setup
+        from margin import claude_setup
 
-        os.environ["ENLENS_CLAUDE"] = str(home_dir / "claude-code" / "claude.py")
-        os.environ["ENLENS_CLAUDE_INSTALLER"] = str(ROOT / "tests" / "fake_claude_installer.py")
+        os.environ["MARGIN_CLAUDE"] = str(home_dir / "claude-code" / "claude.py")
+        os.environ["MARGIN_CLAUDE_INSTALLER"] = str(ROOT / "tests" / "fake_claude_installer.py")
         os.environ.setdefault("FAKE_INSTALLER_DELAY", "3")
         os.environ["FAKE_CLAUDE_LOGGED_OUT"] = "1"
         home.update_settings({"allow_claude_code": True, "backend": "claude_code"})
@@ -161,7 +161,7 @@ def main() -> int:
         def sign_in_later(script):  # the "window": the stand-in signs in after a few seconds
             def run():
                 time.sleep(6)
-                subprocess.run([sys.executable, os.environ["ENLENS_CLAUDE"]], capture_output=True)
+                subprocess.run([sys.executable, os.environ["MARGIN_CLAUDE"]], capture_output=True)
             threading.Thread(target=run, daemon=True).start()
             return "Terminal (stand-in)"
 
@@ -182,8 +182,8 @@ def main() -> int:
 
         threading.Thread(target=session, daemon=True).start()
     srv, app = make_server("127.0.0.1", a.port)
-    app.stop = lambda: threading.Thread(target=srv.shutdown, daemon=True).start()  # "Quit ENLENS" works here too
-    app.launcher = a.fresh_user  # a new user starts it from the ENLENS icon
+    app.stop = lambda: threading.Thread(target=srv.shutdown, daemon=True).start()  # "Quit Margin" works here too
+    app.launcher = a.fresh_user  # a new user starts it from the Margin icon
     print(f"data folder: {home_dir}\nfake Ollama: {fake_url}\napp: http://127.0.0.1:{srv.server_address[1]}/\n"
           f"token: {app.token}", flush=True)
     try:

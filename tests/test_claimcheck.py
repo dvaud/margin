@@ -3,10 +3,10 @@ import json
 import pytest
 
 import fake_servers
-from enlens_claims import benchmark, claimcheck, tasks
-from enlens_claims.llm import AnthropicBackend, BackendError, BaselineBackend, OllamaBackend
-from enlens_claims.retrieve import screen
-from enlens_claims.schema import output_schema
+from margin import benchmark, claimcheck, tasks
+from margin.llm import AnthropicBackend, BackendError, BaselineBackend, OllamaBackend
+from margin.retrieve import screen
+from margin.schema import output_schema
 
 CLAIM = "Green hydrogen production can increase water stress in arid regions."
 
@@ -34,7 +34,7 @@ def test_check_claim_with_baseline(loaded):
 
 
 def test_check_claim_limits_and_errors(loaded, tmp_path):
-    from enlens_claims.store import Workspace
+    from margin.store import Workspace
 
     empty = Workspace.create(tmp_path / "empty")
     with pytest.raises(ValueError, match="no readable documents"):
@@ -164,7 +164,7 @@ def test_benchmark_compares_with_reference_and_stores_nothing(loaded):
 
 
 def test_cli_check_and_backend_check(loaded, capsys):
-    from enlens_claims.cli import main
+    from margin.cli import main
 
     assert main(["--ws", str(loaded.root), "check", CLAIM, "--backend", "baseline", "--k", "3"]) == 0
     out = json.loads(capsys.readouterr().out)

@@ -9,16 +9,16 @@ from __future__ import annotations
 import pytest
 from helpers_0110 import Cloud, Local, mixed_project, use_local_model
 
-from enlens_claims import claimcheck, home
-from enlens_claims.llm import BackendError
+from margin import claimcheck, home
+from margin.llm import BackendError
 
 HYP = "Green hydrogen production can increase water stress in arid regions."
 
 
 @pytest.fixture
 def mixed(tmp_path, monkeypatch):
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY", raising=False)
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY", raising=False)
     ws = home.create_project("Mixed")
     return ws, mixed_project(ws, tmp_path / "corpus")
 
@@ -112,7 +112,7 @@ def test_a_check_in_a_claude_chat(mixed, monkeypatch):
     assert claimcheck.submit_grades(ws, hid, [{"passage": 1, "verdict": "supports", "confidence": 0.9, "quote": quote}],
                                     "One.")["accepted"]
     # the app reads the local part with the local model ("Read them now")
-    from enlens_claims import access
+    from margin import access
 
     assert claimcheck.run_local_parts(ws, [hid], access.Readers(None, "")) == 1
     res = claimcheck.hypothesis_result(ws, hid)

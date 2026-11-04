@@ -1,13 +1,13 @@
-"""0.10: from GitHub to the ENLENS icon in one line, Claude set up with one button, and moving to another computer.
+"""0.10: from GitHub to the Margin icon in one line, Claude set up with one button, and moving to another computer.
 
-- installation.py says how ENLENS was installed (git copy, the one-line install, a package, pip); `enlens
-  post-install` records it, makes the icon and repairs the Claude Code plugin; `enlens update` follows it (a git
+- installation.py says how Margin was installed (git copy, the one-line install, a package, pip); `margin
+  post-install` records it, makes the icon and repairs the Claude Code plugin; `margin update` follows it (a git
   copy pulls, the one-line install takes the newest GitHub Release, checked against its SHA256SUMS);
 - install/install.sh runs with stand-ins for uv and curl (no network), and refuses a package whose checksum is wrong;
 - tools/release.py checks the version everywhere, writes the install scripts and the checksums;
 - "Set up Claude": the app installs Claude Code (a stand-in installer), opens the sign-in and waits for it, adds the
   plugin; the plugin is written again when the Python it names has moved;
-- Move ENLENS to another computer: every project and the settings in one zip, never a saved cloud key; importing it
+- Move Margin to another computer: every project and the settings in one zip, never a saved cloud key; importing it
   on a new computer takes the settings, on one in use keeps its own;
 - Tesseract is found where its installers put it, and the app says how to get it on this system.
 A test never touches a real Claude Code (conftest.py), a real uv or the network.
@@ -27,7 +27,7 @@ import pytest
 
 from test_app import Api, api, home  # noqa: F401  (fixtures)
 
-from enlens_claims import __version__ as VERSION
+from margin import __version__ as VERSION
 
 # 0.10.1: the tests follow the package's version (a newer published release is the next patch), so a release no
 # longer has to edit them
@@ -50,54 +50,54 @@ def prefix(tmp_path, monkeypatch):
 
 @pytest.fixture
 def fake_claude(monkeypatch):
-    monkeypatch.setenv("ENLENS_CLAUDE", FAKE)
-    from enlens_claims import claude_setup
+    monkeypatch.setenv("MARGIN_CLAUDE", FAKE)
+    from margin import claude_setup
 
     claude_setup._STATUS.update(at=0.0, value=None)
     return claude_setup
 
 
 # ---------------------------------------------------------------------------------------------
-# how ENLENS was installed
+# how Margin was installed
 # ---------------------------------------------------------------------------------------------
 def test_installation_kind_and_marker(prefix, monkeypatch):
-    from enlens_claims import installation, update
+    from margin import installation, update
 
     assert installation.kind() == "git"  # the tests run from the git copy
     monkeypatch.setattr(update, "source_root", lambda: None)
     assert installation.kind() == "pip"
     p = installation.write_marker("script")
-    assert p == prefix / "enlens-install.json"
+    assert p == prefix / "margin-install.json"
     m = json.loads(p.read_text())
     assert m["kind"] == "script" and m["repo"] == installation.REPO and m["python"] == sys.executable
     assert installation.kind() == "script"
     with pytest.raises(ValueError):
         installation.write_marker("zip")
-    assert installation.install_line("mac") == ("curl -fsSL https://github.com/dvaud/claim_checker_demo/releases/latest/"
+    assert installation.install_line("mac") == ("curl -fsSL https://github.com/dvaud/margin/releases/latest/"
                                                  "download/install.sh | sh")
     assert "install.ps1 | iex" in installation.install_line("windows")
     assert set(installation.EXTRAS) == {"connector", "fast", "pdfminer", "ocr"}
 
 
 def test_post_install_records_makes_the_icon_and_repairs_the_plugin(home, prefix, tmp_path, monkeypatch, fake_claude):  # noqa: F811
-    from enlens_claims import installation
+    from margin import installation
 
     monkeypatch.setenv("HOME", str(tmp_path / "user"))
-    monkeypatch.setattr("enlens_claims.gui.launcher._desktop", lambda: tmp_path / "user" / "Desktop")
+    monkeypatch.setattr("margin.gui.launcher._desktop", lambda: tmp_path / "user" / "Desktop")
     fake_claude.write_plugin()
     mcp = fake_claude.plugin_folder() / ".mcp.json"
     cfg = json.loads(mcp.read_text())
-    cfg["mcpServers"]["enlens"]["command"] = "/old/place/python"
+    cfg["mcpServers"]["margin"]["command"] = "/old/place/python"
     mcp.write_text(json.dumps(cfg))
     out = installation.post_install(by="script", icon=True, open_app=False)
     assert installation.read_marker()["kind"] == "script"
     assert out["icons"] and all(Path(p).exists() for p in out["icons"])
     assert out["plugin"]["repaired"] and "/old/place/python" in out["plugin"]["reason"]
     assert [s["ok"] for s in out["plugin"]["steps"]] == [True, True]  # the two set-up commands, again
-    assert json.loads(mcp.read_text())["mcpServers"]["enlens"]["command"] == sys.executable
-    assert f"ENLENS {VERSION} is installed." in out["message"]
+    assert json.loads(mcp.read_text())["mcpServers"]["margin"]["command"] == sys.executable
+    assert f"Margin {VERSION} is installed." in out["message"]
     # the CLI runs the same (without an icon here)
-    from enlens_claims import cli
+    from margin import cli
 
     assert cli.main(["post-install", "--by", "none", "--no-icon"]) == 0
 
@@ -108,34 +108,34 @@ def test_plugin_repair_only_when_needed(home, fake_claude, monkeypatch):  # noqa
     assert fake_claude.stale() == "" and fake_claude.repair()["repaired"] is False
     mcp = fake_claude.plugin_folder() / ".mcp.json"
     cfg = json.loads(mcp.read_text())
-    cfg["mcpServers"]["enlens"]["env"]["ENLENS_HOME"] = "/elsewhere"
+    cfg["mcpServers"]["margin"]["env"]["MARGIN_HOME"] = "/elsewhere"
     mcp.write_text(json.dumps(cfg))
     assert "another data folder" in fake_claude.stale()
-    monkeypatch.setenv("ENLENS_LOCAL_ONLY", "1")
+    monkeypatch.setenv("MARGIN_LOCAL_ONLY", "1")
     assert fake_claude.repair()["repaired"] is False  # local only: never
-    monkeypatch.delenv("ENLENS_LOCAL_ONLY")
+    monkeypatch.delenv("MARGIN_LOCAL_ONLY")
     assert fake_claude.repair()["repaired"] is True and fake_claude.stale() == ""
 
 
 def test_desktop_config_follows_a_moved_python(home, tmp_path):  # noqa: F811
-    from enlens_claims import mcp_server
+    from margin import mcp_server
 
     cfg = tmp_path / "claude_desktop_config.json"
-    entry = {"command": str(tmp_path / "gone" / "python"), "args": ["-m", "enlens_claims.mcp_server"],
-             "env": {"ENLENS_HOME": str(home.home())}}
-    cfg.write_text(json.dumps({"mcpServers": {"enlens": entry, "other": {"command": "x"}}}))
+    entry = {"command": str(tmp_path / "gone" / "python"), "args": ["-m", "margin.mcp_server"],
+             "env": {"MARGIN_HOME": str(home.home())}}
+    cfg.write_text(json.dumps({"mcpServers": {"margin": entry, "other": {"command": "x"}}}))
     assert mcp_server.repair_desktop(cfg) is True
     data = json.loads(cfg.read_text())
-    assert data["mcpServers"]["enlens"]["command"] == sys.executable and data["mcpServers"]["other"] == {"command": "x"}
+    assert data["mcpServers"]["margin"]["command"] == sys.executable and data["mcpServers"]["other"] == {"command": "x"}
     assert mcp_server.repair_desktop(cfg) is False  # now it fits
-    entry["env"]["ENLENS_HOME"] = "/another/home"  # another data folder's entry is left alone
-    cfg.write_text(json.dumps({"mcpServers": {"enlens": entry}}))
+    entry["env"]["MARGIN_HOME"] = "/another/home"  # another data folder's entry is left alone
+    cfg.write_text(json.dumps({"mcpServers": {"margin": entry}}))
     assert mcp_server.repair_desktop(cfg) is False
     assert mcp_server.repair_desktop(tmp_path / "missing.json") is False
 
 
 # ---------------------------------------------------------------------------------------------
-# enlens update from GitHub Releases
+# margin update from GitHub Releases
 # ---------------------------------------------------------------------------------------------
 class Runs:
     def __init__(self, code=0):
@@ -147,10 +147,10 @@ class Runs:
 
 
 def _releases(version=NEXT, wheel=b"PK fake wheel", good_sum=True):
-    name = f"enlens_claims-{version}-py3-none-any.whl"
+    name = f"margin-{version}-py3-none-any.whl"
     digest = hashlib.sha256(wheel if good_sum else b"other").hexdigest()
     pages = {
-        "https://api.github.com/repos/dvaud/claim_checker_demo/releases/latest": json.dumps({
+        "https://api.github.com/repos/dvaud/margin/releases/latest": json.dumps({
             "tag_name": f"v{version}", "html_url": "https://github.com/x/releases/tag/v" + version, "body": "notes",
             "assets": [{"name": name, "browser_download_url": "https://dl/" + name},
                        {"name": "SHA256SUMS", "browser_download_url": "https://dl/SHA256SUMS"},
@@ -162,7 +162,7 @@ def _releases(version=NEXT, wheel=b"PK fake wheel", good_sum=True):
 
 
 def test_update_from_the_latest_release(monkeypatch, tmp_path):
-    from enlens_claims import update
+    from margin import update
 
     monkeypatch.setattr(update, "find_uv", lambda: "/bin/uv")
     assert update.version_tuple("v0.10.1") == (0, 10, 1) and update.version_tuple("0.9.1") < update.version_tuple("0.10.0")
@@ -175,8 +175,8 @@ def test_update_from_the_latest_release(monkeypatch, tmp_path):
     assert r["updated"] and r["version"] == NEXT and r["route"] == "release"
     uv = runs.calls[0]
     assert uv[:6] == ["/bin/uv", "tool", "install", "--force", "--quiet", "--python"]
-    assert uv[-1].startswith("enlens-claims[connector,fast,pdfminer,ocr] @ file://") and uv[-1].endswith(".whl")
-    assert runs.calls[1][1:] == ["-m", "enlens_claims.cli", "post-install", "--by", "script", "--no-icon"]
+    assert uv[-1].startswith("margin[connector,fast,pdfminer,ocr] @ file://") and uv[-1].endswith(".whl")
+    assert runs.calls[1][1:] == ["-m", "margin.cli", "post-install", "--by", "script", "--no-icon"]
     # a download that does not match the release's checksum is never installed
     runs = Runs()
     with pytest.raises(update.UpdateError, match="does not match"):
@@ -193,7 +193,7 @@ def test_update_from_the_latest_release(monkeypatch, tmp_path):
 
 
 def test_update_follows_the_way_it_was_installed(prefix, monkeypatch):
-    from enlens_claims import installation, update
+    from margin import installation, update
 
     monkeypatch.setattr(update, "source_root", lambda: None)
     installation.write_marker("script")
@@ -210,13 +210,13 @@ def test_update_follows_the_way_it_was_installed(prefix, monkeypatch):
 # the one-line install, with stand-ins for uv and curl
 # ---------------------------------------------------------------------------------------------
 FAKE_UV = r"""#!/bin/sh
-# a stand-in for uv: records its arguments, "installs" an enlens program that records its own
+# a stand-in for uv: records its arguments, "installs" an margin program that records its own
 echo "UV_PYTHON_PREFERENCE=$UV_PYTHON_PREFERENCE $*" >> "$LOG"
 if [ "$1 $2" = "tool dir" ]; then echo "$FAKE_BIN"; exit 0; fi
 if [ "$1 $2" = "tool install" ]; then
   mkdir -p "$FAKE_BIN"
-  printf '#!/bin/sh\necho "enlens $*" >> "%s"\necho "ENLENS is installed."\n' "$LOG" > "$FAKE_BIN/enlens"
-  chmod +x "$FAKE_BIN/enlens"
+  printf '#!/bin/sh\necho "margin $*" >> "%s"\necho "Margin is installed."\n' "$LOG" > "$FAKE_BIN/margin"
+  chmod +x "$FAKE_BIN/margin"
 fi
 """
 FAKE_CURL = r"""#!/bin/sh
@@ -240,25 +240,25 @@ def sandbox(tmp_path):
     dl = tmp_path / "dl"
     dl.mkdir()
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path / "user"), "LOG": str(tmp_path / "log"),
-           "FAKE_BIN": str(tmp_path / "user" / "tools-bin"), "FAKE_DL": str(dl), "ENLENS_NO_OPEN": "1"}
+           "FAKE_BIN": str(tmp_path / "user" / "tools-bin"), "FAKE_DL": str(dl), "MARGIN_NO_OPEN": "1"}
     return tmp_path, env
 
 
 def test_install_sh_downloads_checks_installs_and_finishes(sandbox):
     tmp, env = sandbox
     script = tmp / "install.sh"
-    script.write_text((ROOT / "install" / "install.sh").read_text().replace("@ENLENS_VERSION@", "0.10.0"))
-    wheel = Path(env["FAKE_DL"]) / "enlens_claims-0.10.0-py3-none-any.whl"
+    script.write_text((ROOT / "install" / "install.sh").read_text().replace("@MARGIN_VERSION@", "0.10.0"))
+    wheel = Path(env["FAKE_DL"]) / "margin-0.10.0-py3-none-any.whl"
     wheel.write_bytes(b"PK the package")
     (Path(env["FAKE_DL"]) / "SHA256SUMS").write_text(f"{hashlib.sha256(wheel.read_bytes()).hexdigest()}  {wheel.name}\n")
     r = subprocess.run(["sh", str(script)], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr + r.stdout
     log = (tmp / "log").read_text().splitlines()
-    assert any("releases/download/v0.10.0/enlens_claims-0.10.0-py3-none-any.whl" in x for x in log)
+    assert any("releases/download/v0.10.0/margin-0.10.0-py3-none-any.whl" in x for x in log)
     install = next(x for x in log if " tool install " in x)
     assert install.startswith("UV_PYTHON_PREFERENCE=only-managed tool install --force --quiet --python 3.12 "
-                              "enlens-claims[connector,fast,pdfminer,ocr] @ file://")
-    assert log[-1] == "enlens post-install --by script"  # ENLENS_NO_OPEN: not opened
+                              "margin[connector,fast,pdfminer,ocr] @ file://")
+    assert log[-1] == "margin post-install --by script"  # MARGIN_NO_OPEN: not opened
     assert "Done." in r.stdout and "4/4" in r.stdout
     # a package that does not match the checksum is refused before anything is installed
     (Path(env["FAKE_DL"]) / "SHA256SUMS").write_text(f"{'0' * 64}  {wheel.name}\n")
@@ -270,15 +270,15 @@ def test_install_sh_downloads_checks_installs_and_finishes(sandbox):
 
 def test_install_sh_with_a_local_package_and_options(sandbox):
     tmp, env = sandbox
-    pkg = tmp / "enlens_claims-0.10.0-py3-none-any.whl"
+    pkg = tmp / "margin-0.10.0-py3-none-any.whl"
     pkg.write_bytes(b"PK")
-    env.update(ENLENS_WHEEL=str(pkg), ENLENS_HOME=str(tmp / "data"))
-    env.pop("ENLENS_NO_OPEN")
+    env.update(MARGIN_WHEEL=str(pkg), MARGIN_HOME=str(tmp / "data"))
+    env.pop("MARGIN_NO_OPEN")
     r = subprocess.run(["sh", str(ROOT / "install" / "install.sh")], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
-    assert (tmp / "log").read_text().splitlines()[-1] == f"enlens post-install --by script --home {tmp / 'data'} --open"
+    assert (tmp / "log").read_text().splitlines()[-1] == f"margin post-install --by script --home {tmp / 'data'} --open"
     # the raw script (no version filled in) needs a package or a version
-    env.pop("ENLENS_WHEEL")
+    env.pop("MARGIN_WHEEL")
     r = subprocess.run(["sh", str(ROOT / "install" / "install.sh")], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode != 0 and "does not name a version" in r.stderr
 
@@ -287,7 +287,7 @@ def test_install_scripts_parse():
     if shutil.which("sh"):
         assert subprocess.run(["sh", "-n", str(ROOT / "install" / "install.sh")]).returncode == 0
     ps1 = (ROOT / "install" / "install.ps1").read_text()
-    assert "@ENLENS_VERSION@" in ps1 and "connector,fast,pdfminer,ocr" in ps1
+    assert "@MARGIN_VERSION@" in ps1 and "connector,fast,pdfminer,ocr" in ps1
     assert "exit" not in [w.strip().lower() for w in ps1.split()]  # `irm | iex` runs in the person's own window
     assert ps1.count("{") == ps1.count("}") and ps1.count("(") == ps1.count(")")
 
@@ -308,15 +308,15 @@ def test_release_check_notes_and_assets(tmp_path):
     assert "install.sh \\| sh" in notes and f"## {v}" not in notes and f"## {headings[1]}" not in notes
     dist = tmp_path / "dist"
     dist.mkdir()
-    (dist / f"enlens_claims-{v}-py3-none-any.whl").write_bytes(b"PK")
+    (dist / f"margin-{v}-py3-none-any.whl").write_bytes(b"PK")
     files = release.assets(dist)
-    assert {p.name for p in files} == {f"enlens_claims-{v}-py3-none-any.whl", "install.sh", "install.ps1", "SHA256SUMS"}
-    assert f'VERSION="${{ENLENS_VERSION:-{v}}}"' in (dist / "install.sh").read_text()
+    assert {p.name for p in files} == {f"margin-{v}-py3-none-any.whl", "install.sh", "install.ps1", "SHA256SUMS"}
+    assert f'VERSION="${{MARGIN_VERSION:-{v}}}"' in (dist / "install.sh").read_text()
     assert f"'{v}'" in (dist / "install.ps1").read_text()
     for line in (dist / "SHA256SUMS").read_text().splitlines():
         digest, name = line.split("  ")
         assert hashlib.sha256((dist / name).read_bytes()).hexdigest() == digest
-    (dist / "enlens_claims-0.9.0-py3-none-any.whl").write_bytes(b"PK")
+    (dist / "margin-0.9.0-py3-none-any.whl").write_bytes(b"PK")
     with pytest.raises(release.ReleaseError, match="exactly"):
         release.assets(dist)
 
@@ -334,18 +334,18 @@ def test_release_workflow_builds_tries_and_drafts():
 # ---------------------------------------------------------------------------------------------
 @pytest.fixture
 def not_installed(tmp_path, monkeypatch):
-    """Claude Code not on this computer yet; the stand-in installer puts it at ENLENS_CLAUDE; signed out."""
-    monkeypatch.setenv("ENLENS_CLAUDE", str(tmp_path / "claude-code" / "claude.py"))
-    monkeypatch.setenv("ENLENS_CLAUDE_INSTALLER", INSTALLER)
+    """Claude Code not on this computer yet; the stand-in installer puts it at MARGIN_CLAUDE; signed out."""
+    monkeypatch.setenv("MARGIN_CLAUDE", str(tmp_path / "claude-code" / "claude.py"))
+    monkeypatch.setenv("MARGIN_CLAUDE_INSTALLER", INSTALLER)
     monkeypatch.setenv("FAKE_CLAUDE_LOGGED_OUT", "1")
-    from enlens_claims import claude_setup
+    from margin import claude_setup
 
     claude_setup._STATUS.update(at=0.0, value=None)
     opened = []
 
     def window(script):  # the "terminal window": the person signs in
         opened.append(script)
-        subprocess.run([sys.executable, os.environ["ENLENS_CLAUDE"]], capture_output=True, timeout=30)
+        subprocess.run([sys.executable, os.environ["MARGIN_CLAUDE"]], capture_output=True, timeout=30)
         return "Terminal"
 
     monkeypatch.setattr(claude_setup, "_open_window", window)
@@ -369,7 +369,7 @@ def test_set_up_claude_installs_signs_in_and_adds_the_plugin(api, not_installed)
     st, info = api("GET", "/api/claude-setup?refresh=1")
     assert info["status"]["signed_in"] is True and info["status"]["installed"] is False
     # refresh=1 reads Claude Code again instead of the status of half a minute ago (0.9 ignored it)
-    state = Path(os.environ["ENLENS_HOME"]) / "fake-claude.json"
+    state = Path(os.environ["MARGIN_HOME"]) / "fake-claude.json"
     state.write_text(json.dumps({"logged_in": False}))
     assert api("GET", "/api/claude-setup")[1]["status"]["signed_in"] is True  # cached
     assert api("GET", "/api/claude-setup?refresh=1")[1]["status"]["signed_in"] is False
@@ -387,16 +387,16 @@ def test_a_failed_install_says_so(api, not_installed, monkeypatch):  # noqa: F81
 
 
 def test_set_up_claude_is_refused_when_local_only(api, not_installed, monkeypatch):  # noqa: F811
-    monkeypatch.setenv("ENLENS_LOCAL_ONLY", "1")
+    monkeypatch.setenv("MARGIN_LOCAL_ONLY", "1")
     assert api("POST", "/api/claude-setup/claude-code", {})[0] == 403
     assert api("POST", "/api/claude-setup/sign-in", {})[0] == 400
     assert not_installed == []
 
 
 def test_installer_command_per_system(monkeypatch):
-    from enlens_claims import claude_setup
+    from margin import claude_setup
 
-    monkeypatch.delenv("ENLENS_CLAUDE_INSTALLER", raising=False)
+    monkeypatch.delenv("MARGIN_CLAUDE_INSTALLER", raising=False)
     mac = claude_setup.installer_command("mac")
     assert mac["line"] == "curl -fsSL https://claude.ai/install.sh | bash" and mac["args"][-1] == mac["line"]
     win = claude_setup.installer_command("windows")
@@ -404,7 +404,7 @@ def test_installer_command_per_system(monkeypatch):
 
 
 # ---------------------------------------------------------------------------------------------
-# Move ENLENS to another computer
+# Move Margin to another computer
 # ---------------------------------------------------------------------------------------------
 def _project_with_a_document(api, name, corpus):  # noqa: F811
     st, r = api("POST", "/api/projects", {"name": name})
@@ -429,7 +429,7 @@ def test_move_everything_to_another_computer(api, home, corpus, tmp_path, monkey
     assert not any("credentials" in n for n in names)
 
     # a new computer: everything comes in, with the settings
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "new-computer"))
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "new-computer"))
     st, r = api("POST", "/api/projects/import", raw=data, headers={"Content-Type": "application/zip"})
     assert st == 200, r
     assert [(p["from"], p["name"]) for p in r["moved"]["projects"]] == [("Alpha", "Alpha"), ("Beta", "Beta")]
@@ -454,14 +454,14 @@ def test_a_single_project_zip_still_imports(api, corpus):  # noqa: F811
 
 
 def test_moved_settings_respect_local_only(home, tmp_path, monkeypatch):  # noqa: F811
-    from enlens_claims import bundle
+    from margin import bundle
 
     home.create_project("P")
     home.update_settings({"backend": "claude_code", "allow_claude_code": True, "themes_k": 12})
     out = tmp_path / "all.zip"
     bundle.export_all(out)
-    monkeypatch.setenv("ENLENS_HOME", str(tmp_path / "locked"))
-    monkeypatch.setenv("ENLENS_LOCAL_ONLY", "1")
+    monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "locked"))
+    monkeypatch.setenv("MARGIN_LOCAL_ONLY", "1")
     r = bundle.import_all(out)
     s = home.load_settings()
     assert r["settings"] is True and s["themes_k"] == 12 and s["backend"] == "auto"  # nothing may leave this one
@@ -476,7 +476,7 @@ def test_moved_settings_respect_local_only(home, tmp_path, monkeypatch):  # noqa
 # Tesseract
 # ---------------------------------------------------------------------------------------------
 def test_tesseract_is_found_where_installers_put_it(tmp_path, monkeypatch):
-    from enlens_claims import ingest
+    from margin import ingest
 
     monkeypatch.setattr(ingest.shutil, "which", lambda name: None)
     monkeypatch.setattr(ingest, "TESSERACT_PLACES", [str(tmp_path / "opt" / "homebrew" / "bin" / "tesseract")])
@@ -490,7 +490,7 @@ def test_tesseract_is_found_where_installers_put_it(tmp_path, monkeypatch):
 
 
 def test_the_app_says_how_to_get_tesseract(monkeypatch):
-    from enlens_claims import ingest, installation
+    from margin import ingest, installation
 
     monkeypatch.setattr(ingest, "find_tesseract", lambda: "")
     ingest._OCR_STATUS[:] = [0.0, None]
@@ -506,7 +506,7 @@ def test_the_app_says_how_to_get_tesseract(monkeypatch):
 # the page
 # ---------------------------------------------------------------------------------------------
 def test_page_files_of_the_release():
-    static = ROOT / "src" / "enlens_claims" / "gui" / "static"
+    static = ROOT / "src" / "margin" / "gui" / "static"
     assert '<link rel="stylesheet" href="/static/v010.css">' in (static / "index.html").read_text()
     css = (static / "v010.css").read_text()
     import re

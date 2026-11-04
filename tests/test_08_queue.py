@@ -1,7 +1,7 @@
 """0.8: the task queue answered by Claude Code (a fake one), model routing, stepping up, the plugin, local only, the
 acceptance runs, and the items carried over from 0.7.
 
-The fake Claude Code (tests/fake_claude_code.py) plays /enlens-run through the connector's queue tools and answers
+The fake Claude Code (tests/fake_claude_code.py) plays /margin-run through the connector's queue tools and answers
 with the fake model's canned answers, spoiling the first quote of each kind to prove that it is sent back."""
 import json
 import random
@@ -39,7 +39,7 @@ def _project(api, corpus, name="P"):
 
 
 class Session(threading.Thread):
-    """A fake Claude Code session that keeps running /enlens-run until stopped (as a researcher would type it again)."""
+    """A fake Claude Code session that keeps running /margin-run until stopped (as a researcher would type it again)."""
 
     def __init__(self, project, **kw):
         super().__init__(daemon=True)
@@ -70,7 +70,7 @@ def test_every_ai_button_waits_for_claude_code_and_gets_its_answers(api, corpus)
     docs = _project(api, corpus)
     paper = docs["paper_a.pdf"]
     st, q = api("GET", "/api/projects/P/queue")
-    assert st == 200 and q["waiting"] == 0 and q["command"] == "/enlens-run P" and "Anthropic" in q["privacy"]
+    assert st == 200 and q["waiting"] == 0 and q["command"] == "/margin-run P" and "Anthropic" in q["privacy"]
 
     # nothing answers yet: the label button prepares tasks and waits, and the page says what waits
     st, r = api("POST", "/api/projects/P/profile/label", {"limit": 3})
@@ -79,7 +79,7 @@ def test_every_ai_button_waits_for_claude_code_and_gets_its_answers(api, corpus)
     job = api("GET", f"/api/jobs/{r['job']['id']}")[1]
     assert job["state"] == "running" and job["progress"]["queue"]["text"].startswith("Waiting for Claude Code: 3 passages")
     q = api("GET", "/api/projects/P/queue")[1]
-    assert q["waiting"] == 3 and q["groups"][0] == {"kind": "label", "model": "haiku", "helper": "enlens-labeller",
+    assert q["waiting"] == 3 and q["groups"][0] == {"kind": "label", "model": "haiku", "helper": "margin-labeller",
                                                      "waiting": 3}
     assert api("GET", "/api/state")[1]["queue"]["waiting"] == 3
 
@@ -115,7 +115,7 @@ def test_every_ai_button_waits_for_claude_code_and_gets_its_answers(api, corpus)
         hid = j["result"]["hyp_id"]
         h = api("GET", f"/api/projects/P/hypotheses/{hid}")[1]
         assert len(h["parts"]) == 2 and all(p["status"] != "waiting" for p in h["parts"])
-        assert h["stronger_model"] == "opus" and h["queue_command"] == "/enlens-run P"
+        assert h["stronger_model"] == "opus" and h["queue_command"] == "/margin-run P"
         part = h["parts"][0]
         graded = [x for x in part["passages"] if x["verdict"]]
         assert graded and part["terms"]
@@ -134,22 +134,22 @@ def test_every_ai_button_waits_for_claude_code_and_gets_its_answers(api, corpus)
     by_kind = {}
     for e in log:
         by_kind.setdefault(e["kind"], set()).add((e["helper"], e["model"]))
-    assert by_kind["label"] == {("enlens-labeller", "haiku")}
-    assert by_kind["link"] == {("enlens-linker", "haiku")}
-    assert by_kind["theme"] == {("enlens-namer", "sonnet")}
-    assert by_kind["expand"] == {("enlens-namer", "sonnet")}
-    assert by_kind["decompose"] == {("enlens-reader", "sonnet")}
-    assert by_kind["resolve"] == {("enlens-reader", "sonnet")}
-    assert by_kind["check"] == {("enlens-checker", "opus")} and by_kind["reread"] == {("enlens-checker", "opus")}
-    assert by_kind["second"] == {("enlens-auditor", "opus")}
+    assert by_kind["label"] == {("margin-labeller", "haiku")}
+    assert by_kind["link"] == {("margin-linker", "haiku")}
+    assert by_kind["theme"] == {("margin-namer", "sonnet")}
+    assert by_kind["expand"] == {("margin-namer", "sonnet")}
+    assert by_kind["decompose"] == {("margin-reader", "sonnet")}
+    assert by_kind["resolve"] == {("margin-reader", "sonnet")}
+    assert by_kind["check"] == {("margin-checker", "opus")} and by_kind["reread"] == {("margin-checker", "opus")}
+    assert by_kind["second"] == {("margin-auditor", "opus")}
     assert any(e["resent"] for e in log), "a wrong quote is sent back and answered again"
     assert api("GET", "/api/projects/P/queue")[1]["waiting"] == 0
 
-    from enlens_claims import home as core
+    from margin import home as core
 
     ws = core.open_project("P")
     rows = ws.query("SELECT DISTINCT route, helper FROM results WHERE valid=1 AND kind IN ('label', 'check')")
-    assert {tuple(r) for r in rows} == {("Claude Code", "enlens-labeller"), ("Claude Code", "enlens-checker")}
+    assert {tuple(r) for r in rows} == {("Claude Code", "margin-labeller"), ("Claude Code", "margin-checker")}
     import io
 
     import openpyxl
@@ -157,7 +157,7 @@ def test_every_ai_button_waits_for_claude_code_and_gets_its_answers(api, corpus)
     sheet = list(openpyxl.load_workbook(io.BytesIO(body))["How these results were made"].values)
     head = sheet[0]
     assert "Route" in head and "Helper" in head and "Of them from the stronger model (stepped up)" in head
-    assert any(r[head.index("Route")] == "Claude Code" and r[head.index("Helper")] == "enlens-checker" for r in sheet[1:])
+    assert any(r[head.index("Route")] == "Claude Code" and r[head.index("Helper")] == "margin-checker" for r in sheet[1:])
     assert any("not repeatable by seed" in str(r[0]) for r in sheet)
 
 
@@ -177,7 +177,7 @@ def test_stopping_a_waiting_check_withdraws_it(api, corpus):
 
 def test_a_check_moves_on_without_the_app(home, corpus):
     """The app may be closed: the connector takes the check's next steps when the answers arrive."""
-    from enlens_claims import claimcheck, ingest, routing, taskqueue
+    from margin import claimcheck, ingest, routing, taskqueue
 
     ws = home.create_project("Demo")
     ingest.ingest(ws, [corpus])
@@ -195,7 +195,7 @@ def test_a_check_moves_on_without_the_app(home, corpus):
 # G1, G4: claims, two sessions, lapsed claims, stopping and continuing
 # ---------------------------------------------------------------------------------------------
 def _queued_labels(home, corpus, name="Q"):
-    from enlens_claims import ingest, profile, tasks
+    from margin import ingest, profile, tasks
 
     ws = home.create_project(name)
     ingest.ingest(ws, [corpus, ROOT / "tools" / "demo_corpus"])
@@ -208,7 +208,7 @@ def _queued_labels(home, corpus, name="Q"):
 
 
 def test_two_sessions_take_different_tasks_and_a_claim_lapses(home, corpus):
-    from enlens_claims import taskqueue
+    from margin import taskqueue
 
     ws, pids = _queued_labels(home, corpus)
     assert len(pids) >= 8
@@ -230,7 +230,7 @@ def test_two_sessions_take_different_tasks_and_a_claim_lapses(home, corpus):
 
 
 def test_a_stop_at_a_random_point_then_a_new_session_answers_every_task_once(home, corpus):
-    from enlens_claims import taskqueue
+    from margin import taskqueue
 
     ws, pids = _queued_labels(home, corpus, "R")
     rng = random.Random(3)
@@ -251,7 +251,7 @@ def test_a_stop_at_a_random_point_then_a_new_session_answers_every_task_once(hom
 
 
 def test_order_hold_and_paused(home, corpus):
-    from enlens_claims import claimcheck, routing, taskqueue
+    from margin import claimcheck, routing, taskqueue
 
     ws, pids = _queued_labels(home, corpus, "O")
     claimcheck.queue_check(ws, CLAIM, routing.from_settings(home.load_settings()), k=3)
@@ -269,20 +269,20 @@ def test_order_hold_and_paused(home, corpus):
         cx.execute("UPDATE task_claims SET finished_at='x'")
         cx.execute("UPDATE tasks SET queued_at='2000-01-01T00:00:00+00:00' WHERE queued=1")
     st = taskqueue.status(ws, "O")
-    assert st["paused"] and st["paused_text"].startswith("Paused at 0 of ") and "/enlens-run O" in st["paused_text"]
+    assert st["paused"] and st["paused_text"].startswith("Paused at 0 of ") and "/margin-run O" in st["paused_text"]
 
 
 # ---------------------------------------------------------------------------------------------
 # G3: routing and stepping up, on the three routes
 # ---------------------------------------------------------------------------------------------
 def test_the_router_names_a_model_per_kind():
-    from enlens_claims import routing
+    from margin import routing
 
     r = routing.from_settings({"backend": "claude_code"})
     assert [r.model(k) for k in ("label", "link", "expand", "decompose", "theme", "resolve", "check", "second")] == \
         ["haiku", "haiku", "sonnet", "sonnet", "sonnet", "sonnet", "opus", "opus"]
     assert r.step_up("label") == "sonnet" and r.step_up("theme") == "opus" and r.step_up("second") is None
-    assert r.helper("check") == "enlens-checker" and r.helper("check", 1) == "enlens-auditor"
+    assert r.helper("check") == "margin-checker" and r.helper("check", 1) == "margin-auditor"
     f = routing.from_settings({"backend": "claude_code", "use_fable": True})
     assert f.model("second") == "fable" and f.step_up("check") == "fable"
     api_r = routing.from_settings({"backend": "anthropic", "anthropic_model": "claude-opus-5-5"})
@@ -309,13 +309,13 @@ def _low(kind_prefix, conf=0.3):
 
 
 def test_an_unsure_answer_steps_up_once_by_queue(home, corpus):
-    from enlens_claims import runs, taskqueue
+    from margin import runs, taskqueue
 
     ws, pids = _queued_labels(home, corpus, "S")
     session = fcc.FakeClaudeCode(fcc.DirectTools(), wrong_first=False, answer=_low("label"))
     session.run("S")
     models = [(e["model"], e["helper"]) for e in session.log]
-    assert ("haiku", "enlens-labeller") in models and ("sonnet", "enlens-labeller") in models
+    assert ("haiku", "margin-labeller") in models and ("sonnet", "margin-labeller") in models
     rows = ws.query("SELECT task_id, step, again FROM tasks WHERE kind='label'")
     stepped = [r for r in rows if r["step"]]
     assert stepped and all(r["again"] == 0 for r in rows)          # read once more, then never again
@@ -328,7 +328,7 @@ def test_an_unsure_answer_steps_up_once_by_queue(home, corpus):
     assert sonnet["Of them from the stronger model (stepped up)"] == len(stepped)
 
     # two rejected answers: the last attempt goes to the stronger model
-    from enlens_claims import profile, tasks
+    from margin import profile, tasks
 
     with tasks.queueing():
         profile.make_label_tasks(ws, "sdg", pids[:1], "haiku")
@@ -348,8 +348,8 @@ def test_an_unsure_answer_steps_up_once_by_queue(home, corpus):
 
 def test_routing_on_the_claude_api_and_on_a_local_server(home, corpus, monkeypatch):
     pytest.importorskip("anthropic")
-    from enlens_claims import ingest, profile
-    from enlens_claims import home as core
+    from margin import ingest, profile
+    from margin import home as core
 
     ws = home.create_project("A")
     ingest.ingest(ws, [corpus])
@@ -411,18 +411,18 @@ def test_ask_a_stronger_model_on_a_check(api, corpus):
         assert api("POST", f"/api/projects/P/tasks/{rd['task_id']}/stronger", {})[0] == 400   # once at most
     finally:
         log = s.finish()
-    assert ("check", "enlens-auditor") in {(e["kind"], e["helper"]) for e in log}
+    assert ("check", "margin-auditor") in {(e["kind"], e["helper"]) for e in log}
 
 
 # ---------------------------------------------------------------------------------------------
 # G5: local only; the plugin's files; the connector's tools over MCP
 # ---------------------------------------------------------------------------------------------
 def test_local_only_refuses_the_queue(home, corpus, monkeypatch):
-    from enlens_claims import claude_setup, ingest, taskqueue
+    from margin import claude_setup, ingest, taskqueue
 
     ws = home.create_project("L")
     ingest.ingest(ws, [corpus])
-    monkeypatch.setenv("ENLENS_LOCAL_ONLY", "1")
+    monkeypatch.setenv("MARGIN_LOCAL_ONLY", "1")
     with pytest.raises(ValueError, match="local only"):
         taskqueue.next_tasks(ws)
     with pytest.raises(ValueError, match="switched off"):
@@ -432,34 +432,34 @@ def test_local_only_refuses_the_queue(home, corpus, monkeypatch):
 
 
 def test_the_plugin_files_are_as_claude_code_expects(home):
-    from enlens_claims import claude_setup, routing
+    from margin import claude_setup, routing
 
     root = claude_setup.write_plugin()
     assert claude_setup.check_files(root) == []
-    plug = root / "plugins" / "enlens-run"
+    plug = root / "plugins" / "margin-run"
     assert json.loads((root / ".claude-plugin" / "marketplace.json").read_text())["plugins"][0]["source"] == \
-        "./plugins/enlens-run"
-    mcp = json.loads((plug / ".mcp.json").read_text())["mcpServers"]["enlens"]
-    assert mcp["command"] == sys.executable and mcp["env"]["ENLENS_HOME"] == str(home.home())
+        "./plugins/margin-run"
+    mcp = json.loads((plug / ".mcp.json").read_text())["mcpServers"]["margin"]
+    assert mcp["command"] == sys.executable and mcp["env"]["MARGIN_HOME"] == str(home.home())
     queue_tools = {claude_setup.TOOL_PREFIX + t for t in claude_setup.QUEUE_TOOLS}
     for f in sorted((plug / "agents").glob("*.md")):
         fm = claude_setup.frontmatter(f)
         assert fm["name"] == f.stem and fm["description"] and fm["model"] == routing.HELPER_MODEL[f.stem]
         assert {t.strip() for t in fm["tools"].split(",")} <= queue_tools
     skill = claude_setup.frontmatter(plug / "SKILL.md")
-    assert skill["name"] == "enlens-run" and "$ARGUMENTS" in (plug / "SKILL.md").read_text()
+    assert skill["name"] == "margin-run" and "$ARGUMENTS" in (plug / "SKILL.md").read_text()
     if shutil.which("claude"):
         import subprocess
 
         out = subprocess.run(["claude", "plugin", "validate", str(root)], capture_output=True, text=True, timeout=120)
         assert out.returncode == 0, out.stdout + out.stderr
     info = claude_setup.setup_info()
-    assert info["ready"] and info["commands"][1] == "claude plugin install enlens-run@enlens"
+    assert info["ready"] and info["commands"][1] == "claude plugin install margin-run@margin"
 
 
 def test_the_queue_through_the_connector(home, corpus):
     pytest.importorskip("mcp")
-    from enlens_claims import ingest, profile, tasks, taskqueue
+    from margin import ingest, profile, tasks, taskqueue
 
     ws = home.create_project("M")
     ingest.ingest(ws, [corpus])
@@ -469,7 +469,7 @@ def test_the_queue_through_the_connector(home, corpus):
     with tasks.queueing():
         profile.make_label_tasks(ws, "sdg", plan["passage_ids"], "haiku")
     out = fcc.run("M")    # through an in-process MCP client on the connector
-    assert out["batches"] >= 1 and out["log"][0]["helper"] == "enlens-labeller"
+    assert out["batches"] >= 1 and out["log"][0]["helper"] == "margin-labeller"
     assert taskqueue.status(ws)["waiting"] == 0
 
 
@@ -480,8 +480,8 @@ def test_the_sdg_pack_makes_no_new_tasks_on_the_pilot(tmp_path):
     src = ROOT / "pilot" / "enlens.sqlite"
     if not src.exists():
         pytest.skip("the pilot workspace is not in this copy")
-    from enlens_claims import tasks
-    from enlens_claims.store import Workspace
+    from margin import tasks
+    from margin.store import Workspace
 
     d = tmp_path / "pilot"
     d.mkdir()
@@ -500,8 +500,8 @@ def test_the_sdg_pack_makes_no_new_tasks_on_the_pilot(tmp_path):
 
 def test_routing_leaves_a_local_main_model_alone(home, corpus):
     """With no small model chosen, a local server answers every kind with the main model, as in 0.7."""
-    from enlens_claims import claimcheck, ingest, profile
-    from enlens_claims import home as core
+    from margin import claimcheck, ingest, profile
+    from margin import home as core
 
     ws = home.create_project("U")
     ingest.ingest(ws, [corpus])
@@ -522,7 +522,7 @@ def test_routing_leaves_a_local_main_model_alone(home, corpus):
 # G6: an acceptance run per kind and model, through the queue
 # ---------------------------------------------------------------------------------------------
 def test_an_acceptance_run_is_scored(home, corpus, tmp_path):
-    from enlens_claims import acceptance, evaluation, ingest, profile
+    from margin import acceptance, evaluation, ingest, profile
 
     ref = home.create_project("Ref")
     ingest.ingest(ref, [corpus])
@@ -537,7 +537,7 @@ def test_an_acceptance_run_is_scored(home, corpus, tmp_path):
     (folder / "pass_marks.json").write_text(json.dumps({"label": -1}))
     home.update_settings({"allow_claude_code": True, "backend": "claude_code"})
     p = evaluation.prepare(ref, folder, "label", "haiku")
-    assert p["tasks"] == len(rows) and p["next"] == f'In Claude Code: /enlens-run "{p["project"]}"'
+    assert p["tasks"] == len(rows) and p["next"] == f'In Claude Code: /margin-run "{p["project"]}"'
     fcc.run(p["project"], tools=fcc.DirectTools(), wrong_first=False)
     again = evaluation.prepare(ref, folder, "label", "haiku", again=True)
     fcc.run(again["project"], tools=fcc.DirectTools(), wrong_first=False)
@@ -575,8 +575,8 @@ def _docx(path: Path, paragraphs: list[tuple[str, str]], title: str | None = Non
 def test_a_word_file_reads_like_its_pdf(tmp_path):
     from helpers import PAPER_A_PAGES, make_pdf
 
-    from enlens_claims import ingest
-    from enlens_claims.store import Workspace
+    from margin import ingest
+    from margin.store import Workspace
 
     title = "Water footprint of electrolytic hydrogen in arid export regions"
     paras = []
@@ -606,8 +606,8 @@ def test_a_word_file_reads_like_its_pdf(tmp_path):
 
 
 def test_letter_spaced_words_are_joined_for_the_glossary_only(tmp_path):
-    from enlens_claims import ingest, terms
-    from enlens_claims.store import Workspace
+    from margin import ingest, terms
+    from margin.store import Workspace
 
     d = tmp_path / "docs"
     d.mkdir()
@@ -629,7 +629,7 @@ def test_letter_spaced_words_are_joined_for_the_glossary_only(tmp_path):
 
 
 def test_undo_a_removed_concept_link_and_theme_numbers(home, corpus):
-    from enlens_claims import ingest, terms, themes
+    from margin import ingest, terms, themes
 
     ws = home.create_project("G")
     ingest.ingest(ws, [corpus, ROOT / "tools" / "demo_corpus"])
@@ -663,8 +663,8 @@ def test_undo_a_removed_concept_link_and_theme_numbers(home, corpus):
 # the command line: prepare, the queue, the plugin's set-up
 # ---------------------------------------------------------------------------------------------
 def test_command_line_prepare_queue_and_claude_setup(home, corpus, tmp_path, capsys):
-    from enlens_claims import cli, ingest
-    from enlens_claims.store import Workspace
+    from margin import cli, ingest
+    from margin.store import Workspace
 
     ws_dir = tmp_path / "cliws"
     assert cli.main(["--ws", str(ws_dir), "init"]) == 0
@@ -673,7 +673,7 @@ def test_command_line_prepare_queue_and_claude_setup(home, corpus, tmp_path, cap
     capsys.readouterr()
     assert cli.main(["--ws", str(ws_dir), "prepare", "label", "--limit", "2"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["prepared"]["tasks"] == 2 and out["waiting"] == 2 and out["next"] == "In Claude Code: /enlens-run cliws"
+    assert out["prepared"]["tasks"] == 2 and out["waiting"] == 2 and out["next"] == "In Claude Code: /margin-run cliws"
     assert "cliws" in home.list_projects()                  # linked, so Claude Code can reach it
     assert cli.main(["--ws", str(ws_dir), "prepare", "check", CLAIM, "--no-expand"]) == 0
     assert json.loads(capsys.readouterr().out)["waiting"] == 3
@@ -690,12 +690,12 @@ def test_command_line_prepare_queue_and_claude_setup(home, corpus, tmp_path, cap
     assert r["answered"] == 3 and r["kinds"] == {"check": 1, "label": 2}
     assert cli.main(["--ws", str(ws_dir), "claude-setup", "--no-check"]) == 0
     text = capsys.readouterr().out
-    assert "claude plugin install enlens-run@enlens" in text and "claude plugin marketplace add" in text
+    assert "claude plugin install margin-run@margin" in text and "claude plugin marketplace add" in text
 
 
 def test_claude_setup_starts_the_connector(home):
     pytest.importorskip("mcp")
-    from enlens_claims import claude_setup
+    from margin import claude_setup
 
     claude_setup.write_plugin()
     r = claude_setup.check_connector()
