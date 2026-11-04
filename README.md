@@ -59,6 +59,16 @@ instead? `margin update` pulls the new version (see *For developers*).
 - **Projects zipped by hand (0.2.1)**: *Import a project (.zip)* also takes a project folder you compressed yourself
   (Finder's *Compress*, Windows' *Send to compressed folder*), and accented file names in such zips are no longer
   garbled.
+- **A stronger model's answer is the answer (0.2.2)**: when a stronger model reads a check's excerpts again and
+  finds, say, *supported* where the first one found *partly supported*, the result shows **Supported** with a small
+  mark *at first: partly supported* (hover it for which models and how many judgements changed); the Results list
+  and the Excel summary say the same. Under each result, *Ask another AI model* offers two clearly different
+  choices: *Ask a stronger model* (its judgements replace the first AI's, so the answer can change) and *Get a second
+  opinion* (shown beside the first, never changes the answer). It is called *second opinion* everywhere now.
+- **Start Claude Code asks for attention (0.2.2)**: a few seconds after work starts waiting with nothing reading it,
+  **Start Claude Code** pulses and says *Nothing runs until you press it.* The button is also on follow-ups under a
+  result, and the one that stops Claude Code is called *Stop Claude Code*, apart from a job's own *Stop*.
+- 0.2.2 brings in ENLENS 0.11.2 and 0.11.3, the first ENLENS updates taken into Margin.
 
 ## Earlier releases
 
@@ -253,7 +263,7 @@ see docs/MODEL_CHOICE.md) set them.
 
 - [docs/MANUAL.md](docs/MANUAL.md): the manual (app, command line, connector, models, the SDG pack).
 - [docs/API.md](docs/API.md): the local app's HTTP API.
-- [CHANGELOG.md](CHANGELOG.md): what changed in each release (ENLENS 0.5 to 0.11.1, then Margin from 0.1.0), including the defects fixed.
+- [CHANGELOG.md](CHANGELOG.md): what changed in each release (ENLENS 0.5 to 0.11.1, then Margin from 0.1.0, which takes in ENLENS 0.11.2 and later), including the defects fixed.
 - [docs/USER_TESTS.md](docs/USER_TESTS.md): the first-time user tests behind the app (0.5.1 to 0.7.0).
 - [docs/MODEL_CHOICE.md](docs/MODEL_CHOICE.md): which model each task needs, measured on the pilot (ENLENS 0.8: the method
   and the empty tables, until the runs are made).

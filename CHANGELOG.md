@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 (November 2026): a stronger model's answer, and a Start Claude Code button you cannot miss
 
 **From ENLENS 0.11.2 and 0.11.3**, brought in with `tools/sync_enlens.py` (the first sync: ENLENS's commits keep
 their own messages in the history, with Margin's names). Every answer still goes through the quote check, a person
