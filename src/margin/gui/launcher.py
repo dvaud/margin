@@ -217,22 +217,23 @@ def draw_icon(size: int = 512):
         from PIL import Image, ImageDraw
     except ImportError:
         return None
-    s = size / 64
-    big = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    k = 4  # drawn 4 times larger, then scaled down: smooth edges
+    s = size * k / 64
+    big = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
     d = ImageDraw.Draw(big)
-    for i in range(56, 0, -1):  # the gradient disc, from the edge inwards
-        t = i / 56
-        c = tuple(int(a + (b - a) * (1 - t)) for a, b in zip((0x0d, 0x5c, 0x5a), (0x1c, 0x8c, 0x86)))
-        r = 28 * s * t
-        d.ellipse([32 * s - r, 32 * s - r, 32 * s + r, 32 * s + r], fill=c + (255,))
-    cream = (0xf6, 0xf3, 0xec, 255)
-    r = 18.5 * s
-    d.ellipse([32 * s - r, 32 * s - r, 32 * s + r, 32 * s + r], outline=cream, width=max(1, round(3.5 * s)))
-    for y, x2 in ((24.5, 41), (32, 41), (39.5, 34)):
-        d.line([(23 * s, y * s), (x2 * s, y * s)], fill=cream, width=max(1, round(3 * s)))
-    d.line([(37.5 * s, 38.5 * s), (40.5 * s, 41.5 * s), (46.5 * s, 35.5 * s)], fill=(0xff, 0xd3, 0x6a, 255),
-           width=max(1, round(3.2 * s)), joint="curve")
-    return big
+    ink, paper, rule = (0x24, 0x34, 0x5f, 255), (0xf8, 0xf4, 0xea, 255), (0xd0, 0x4a, 0x32, 255)
+    d.rounded_rectangle([4 * s, 4 * s, 60 * s, 60 * s], radius=14 * s, fill=ink)
+    d.rounded_rectangle([15 * s, 12 * s, 49 * s, 52 * s], radius=3.5 * s, fill=paper)
+    d.line([(24.5 * s, 12 * s), (24.5 * s, 52 * s)], fill=rule, width=max(1, round(2.4 * s)))
+    line = tuple(round(a * .55 + b * .45) for a, b in zip(ink[:3], paper[:3])) + (255,)  # the ink at 55% on paper
+    w = max(1, round(2.6 * s))
+    for y, x2 in ((21.5, 43), (28, 43), (34.5, 43), (41, 38)):
+        d.line([(29 * s, y * s), (x2 * s, y * s)], fill=line, width=w)
+        for x in (29, x2):  # round ends
+            d.ellipse([x * s - w / 2, y * s - w / 2, x * s + w / 2, y * s + w / 2], fill=line)
+    d.line([(16.8 * s, 33.6 * s), (19 * s, 35.9 * s), (22.6 * s, 31.3 * s)], fill=rule,
+           width=max(1, round(2.2 * s)), joint="curve")
+    return big.resize((size, size), Image.LANCZOS)
 
 
 def _put_icon(dest: Path, ext: str) -> bool:

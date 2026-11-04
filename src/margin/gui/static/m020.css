@@ -1,0 +1,67 @@
+/* Margin 0.2: the Margin look. Paper and ink, serif titles, and a red margin rule as the one signature line.
+   Only the look changes: every page keeps its layout and controls. Colours are the tokens of app.css
+   (--accent is the ink blue, --rule the margin red, which is never used for a verdict). */
+
+::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* ---- type: serif titles, as on a printed page */
+h1, h2 { font-family: var(--font-serif); font-weight: 600; letter-spacing: 0; }
+h1 { font-size: 1.85rem; line-height: 1.2; }
+h2 { font-size: 1.22rem; line-height: 1.3; }
+.hero h1 { font-size: 2.3rem; }
+.page-sub { color: var(--text-2); font-size: 1rem; max-width: 52em; }
+
+/* the small line above a page title reads like a note in the margin */
+.eyebrow { text-transform: uppercase; letter-spacing: .1em; font-size: .7rem; font-weight: 700; color: var(--rule-text); }
+.fe-section { color: var(--rule-text); letter-spacing: .1em; }
+.eyebrow .ai-tag { text-transform: none; letter-spacing: 0; }
+.hero p.eyebrow { font-size: .7rem; color: var(--rule-text); }  /* the first screen: `.hero p` would win otherwise */
+
+/* page heads end on a hairline, like a running head */
+.page-head { padding-bottom: 18px; border-bottom: 1px solid var(--border); margin-bottom: 26px; }
+
+/* ---- the sidebar: a page edge with the margin rule */
+.sidebar { background: var(--bg-2); border-right: 1px solid color-mix(in srgb, var(--rule) 40%, var(--border)); }
+.brand img { border-radius: 0; }
+.brand-text strong { font-family: var(--font-serif); font-size: 1.42rem; font-weight: 600; letter-spacing: 0; line-height: 1.05; }
+.brand-text small { font-size: .72rem; margin-top: 2px; }
+.nav-group { text-transform: uppercase; letter-spacing: .1em; font-size: .66rem; font-weight: 700; color: var(--faint); }
+.nav a { border-radius: 6px; }
+.nav a[aria-current="page"] {
+  background: var(--surface); color: var(--text); font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--rule), 0 1px 2px rgba(20, 24, 40, .06);
+}
+.nav a[aria-current="page"] .nav-icon { color: var(--accent-text); }
+.project-switch summary, .privacy, .jobs summary { border-radius: 6px; }
+
+/* ---- controls: crisper corners, ink-blue primary */
+.btn { border-radius: 6px; font-weight: 600; }
+.btn-sm { border-radius: 5px; }
+.btn-primary { box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .18); }
+.icon-btn { border-radius: 6px; }
+.input, .select, .textarea { border-radius: 6px; }
+.dialog { border-radius: 10px; }
+.toast { border-radius: 8px; }
+
+/* ---- cards and tables */
+.card { box-shadow: var(--shadow); }
+.card > h2:first-child, .card > header h2 { margin-bottom: .25rem; }
+.ov-card-icon { border-radius: 7px; }
+.ov-card:hover { border-color: var(--accent); box-shadow: var(--shadow), inset 3px 0 0 var(--rule); }
+.table th { text-transform: uppercase; letter-spacing: .07em; font-size: .7rem; font-weight: 700; }
+
+/* ---- the first screens */
+.setup-step { border-radius: 6px; }
+
+/* ---- phone width */
+@media (max-width: 860px) {
+  .topbar { border-bottom-color: color-mix(in srgb, var(--rule) 40%, var(--border)); }
+  .brand-small { font-family: var(--font-serif); font-weight: 600; letter-spacing: 0; font-size: 1.12rem; }
+  h1 { font-size: 1.5rem; }
+  .hero h1 { font-size: 1.75rem; }
+  .page-head { padding-bottom: 14px; margin-bottom: 20px; }
+}
+/* a long button label wraps on a phone instead of widening the page */
+@media (max-width: 480px) {
+  .btn { white-space: normal; text-align: center; }
+}

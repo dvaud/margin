@@ -1300,13 +1300,13 @@ def _text_with_quote(path: Path, quote: str, name: str) -> bytes | None:
     return ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
             "content=\"width=device-width, initial-scale=1\"><meta name=\"color-scheme\" content=\"light dark\">"
             f"<title>{html.escape(name)}</title><style>"
-            "body{margin:0;font:15px/1.55 ui-serif,Georgia,serif;background:#fbfaf6;color:#1d1d1b}"
-            "header{position:sticky;top:0;padding:10px 16px;font:13px/1.4 system-ui,sans-serif;background:#efece3;"
-            "border-bottom:1px solid #ddd8cc}"
+            "body{margin:0;font:15px/1.55 ui-serif,Georgia,serif;background:#f8f6f1;color:#1b1e27}"
+            "header{position:sticky;top:0;padding:10px 16px;font:13px/1.4 system-ui,sans-serif;background:#f1eee7;"
+            "border-bottom:1px solid #d9b3a8}"
             "pre{white-space:pre-wrap;word-wrap:break-word;font:inherit;margin:0;padding:16px;max-width:46rem}"
             "mark{background:#ffe08a;color:inherit;padding:1px 0;scroll-margin-top:30vh}"
-            "@media (prefers-color-scheme: dark){body{background:#1b1c1a;color:#e8e6df}"
-            "header{background:#262724;border-color:#3a3b37}mark{background:#7a6215}}"
+            "@media (prefers-color-scheme: dark){body{background:#12141a;color:#e8e6e1}"
+            "header{background:#1a1d25;border-color:#5a3a35}mark{background:#7a6215}}"
             f"</style></head><body><header>{html.escape(name)} · the original file; the quote from Margin is "
             f"highlighted</header><pre>{body}</pre></body></html>").encode()
 

@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.2.0 (November 2026): Margin's own look
+
+A full re-styling, so Margin no longer looks like ENLENS. Nothing about how the app works changed: every page keeps
+its layout, controls, words and steps.
+
+**The look.**
+- **Colours:** ink blue (`--accent`, light `#2b4a9b`, dark `#8fa9f0`) replaces ENLENS's teal for buttons, links,
+  focus rings and selected items, on a slightly cooler paper; the dark theme is a night ink palette. A new token,
+  `--rule` (with `--rule-soft` and `--rule-text` for small text, 5:1 on the paper), is the red margin line: Margin's
+  one signature colour, kept apart from the verdict colours (supports, partly, contradicts, mixed, none are
+  unchanged, so results read as before).
+- **Type:** page and card titles (`h1`, `h2`) and the name in the sidebar are set in the book face already used for
+  quotes; the small label above each title, the sidebar group names and table headings are small spaced capitals,
+  the page labels in the margin red; each page head ends on a hairline.
+- **Shapes:** crisper corners (8 px cards, 6 px buttons and fields), lighter shadows.
+- **The sidebar:** its edge is a faint red rule, and the page you are on is marked by a red bar at its left, like a
+  note in a margin.
+- **The logo and the icon:** a page with its red margin rule and a tick in the margin on an ink-blue tile
+  (`static/logo.svg`, drawn the same by `launcher.draw_icon`; `Margin.icns` and `Margin.ico` made again with
+  `tools/make_icons.py`). This was 0.1's open item "the icon still shows ENLENS's lens picture".
+- The window that shows a document's original text with a quote highlighted, and the annotated copy you can download,
+  use the same paper, ink and rule colours.
+- All of it is in one new stylesheet, `m020.css`, plus the colour tokens of `app.css`, which every other stylesheet
+  already uses, so light and dark both follow.
+
+**Fixed on the way.**
+- At phone width, a long button label (*Open an existing Margin project folder (advanced)* on the first screen)
+  made the page wider than the screen; buttons now wrap their label below 480 px.
+- The tab title and the line under the name in the sidebar said "explore and check your documents"; they now say
+  "your writing and your sources", which covers checking a draft.
+
+**Tests:** `tests/test_m020_look.py` (6): the stylesheet is linked after every other one, the margin-rule tokens are
+defined for light and both dark settings, the accent is no longer ENLENS's teal anywhere in the page's styles, the
+logo is the new one and the icon drawing matches it, the shipped icon files are present, and the page's title. The
+pages were looked at in light and dark and at phone width (Overview, Documents, Search, Profile, Concepts, Themes,
+Check a draft, Check a hypothesis, Check several, Results, a result, Settings, Projects, the first screen), with no
+console errors.
+
+**Not yet done**
+- The new icon on a real Mac Dock and Windows Start menu: the icon files are made and installed as before, but an
+  icon pinned before the update may keep the old picture until it is pinned again.
+- The Excel downloads and the SDG report (`margin report`) keep their own styling.
+
 ## 0.1.0 (November 2026): Margin, a writing companion that checks your draft against your sources
 
 Margin is a research and paper-writing companion grown from ENLENS 0.11.1: everything ENLENS did (exploring the

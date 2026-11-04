@@ -41,24 +41,24 @@ Used Margin on another computer? Choose *Import from another computer* on the fi
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.1: check a draft
+## New in 0.2: Margin's own look
 
-- **Your draft, with its claims marked.** Paste a section, a chapter or a paper, or load it (Word, PDF, text,
-  Markdown). The AI marks the statements a reader would want a source for: numbers, causes and effects,
-  comparisons, what research found, general claims. Your own aims, methods and results are left out. Each claim
-  quotes your exact sentence, says whether you already cite a source there, and is restated as one clear sentence.
-- **You decide what is checked.** Drop a claim, reword it, or select a sentence and press *Mark as a claim*.
-- **Which documents back it, which contradict it.** Each claim is checked against the documents of your project. The
-  draft then shows every claim coloured by its answer (supported, partly, mixed, contradicted, no evidence), and each
-  claim lists the documents on each side with the quote and its page or paragraph, and what to do next ("cite
-  them", "cite both sides"). Download it for Excel as a list of what to cite.
-- **Your draft stays as private as you choose.** Like a document, a draft is *Claude may read it*, *Only a local AI*
-  or *No AI* (then rules find the likely claims and you judge the excerpts). A draft kept from Claude is never sent
-  to it, in any step; the page shows how much of a draft Claude has read.
-- **Margin, beside ENLENS.** Its own command (`margin`), data folder (`~/margin`), icon and Claude Code plugin
-  (`/margin-run`), so both can be installed; your ENLENS projects are copied over in one click.
+- **A new look, nothing moved.** Every page keeps its place, buttons and steps; it now looks like Margin instead of
+  ENLENS: ink-blue buttons and links, page titles set in a book face, small red labels above each title, and the
+  page you are on marked in the sidebar with a red margin line, like a note in a margin. Dark mode has the same
+  look in night colours.
+- **A new icon**: a page with its margin rule and a tick in the margin, in the app, the browser tab and the icon you
+  open Margin from (after the update, quit Margin and open it again; on a Mac, re-add it to the Dock if you had
+  pinned the old one).
+- On a phone, long button labels now wrap instead of widening the page.
 
-## Earlier releases (as ENLENS)
+## Earlier releases
+
+- **Margin 0.1**: check a draft: the claims of your writing that need a source, and which of your documents
+  support or contradict each; Margin gets its own name, command, data folder and icon beside ENLENS, and copies
+  your ENLENS projects over in one click.
+
+### As ENLENS
 
 - **ENLENS 0.11**: per-document AI settings (*Claude may read it*, *Only a local AI*, *No AI*), enforced in every
   feature, with a record of what Claude read; 0.11.1 a deep clean.
