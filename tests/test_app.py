@@ -594,7 +594,7 @@ def test_api_second_model_keeps_one_model_in_memory_and_shows_disagreements(api)
             job = api.wait(api("POST", "/api/projects/M/checks", {"text": text})[1]["job"]["id"])
             ids.append(job["result"]["hyp_id"])
         st, bad = api("POST", "/api/projects/M/second-opinion", {"hyp_ids": ids})
-        assert st == 400 and "second model" in bad["error"]
+        assert st == 400 and "second opinions" in bad["error"]
         api("PUT", "/api/settings", {"second_model": fake_servers.SECOND})
         assert srv.loaded[0] == fake_servers.FAKE_MODEL and srv.peak_loaded == 1
         st, r = api("POST", "/api/projects/M/second-opinion", {"hyp_ids": ids})

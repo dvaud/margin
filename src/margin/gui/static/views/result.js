@@ -468,7 +468,7 @@ export async function renderResult(view, [hypId], query) {
     const allRead = secondRead >= read && read > 0;
     if (secondRead) {
       secState = h("p", { class: "small ask-state" }, icon(disagree ? "arrows-opposed" : "check", { size: 12 }),
-        h("span", {}, `${(r.second_models || []).join(", ") || "The second model"} read ${secondRead === read ? `all ${read}` : `${secondRead} of the ${read}`} excerpts and ${disagree ? `judged ${disagree} differently${disagreeNew ? ` (${disagreeNew} not reviewed by you yet; “Next to review” goes to them first)` : ""}` : "judged every one the same way"}.`));
+        h("span", {}, `${(r.second_models || []).join(", ") || "The second opinion"} read ${secondRead === read ? `all ${read}` : `${secondRead} of the ${read}`} excerpts and ${disagree ? `judged ${disagree} differently${disagreeNew ? ` (${disagreeNew} not reviewed by you yet; “Next to review” goes to them first)` : ""}` : "judged every one the same way"}.`));
     }
     if (secondUsable && !changingSecond) {
       secBtn = h("button", { class: "btn btn-sm", type: "button", disabled: allRead || busy.some((x) => x.kind === "second-opinion") }, icon("arrows-opposed", { size: 13 }), secondRead ? (allRead ? "Every excerpt has a second opinion" : "Second opinion on the rest") : "Get a second opinion");

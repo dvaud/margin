@@ -37,12 +37,22 @@ can overrule it, every result records how it was made, and nothing about what le
 `FETCH_HEAD`, which another fetch had overwritten during the first sync, and stops if the commits it would bring in
 are already in Margin's history.
 
-**Tests:** `tests/test_0112_stronger_model.py` and `tests/test_0113_start_nudge.py` (from ENLENS);
-`tests/test_sync_enlens.py` gains two tests for the fix above.
+**"Second opinion" everywhere, finished.** ENLENS 0.11.2 renamed the second AI model *second opinion*, but a few
+places still said "second model": the job's name in the sidebar and progress panel ("Second AI model"), its progress
+lines ("The second model is reading 12 excerpts"), the line under a result ("The second model read all 6 excerpts"),
+the two error messages when none is chosen or it is the main model, and a note in Settings. They now say *second
+opinion* (or *the model for second opinions*), like the rest.
 
-**Not yet done:** as in ENLENS, tried only with the stand-in Claude Code, not a real signed-in one. Not checked in a
-browser in Margin's look yet (light and dark, 390 px). The Map does not show the stronger-model mark yet, and the
-waiting step still spins until Claude Code takes the work.
+**Tests:** `tests/test_0112_stronger_model.py` and `tests/test_0113_start_nudge.py` (from ENLENS);
+`tests/test_sync_enlens.py` gains two tests for the fix above; `tests/test_app.py` checks the new error wording.
+Checked in Chrome in Margin's look: a result a stronger model changed (the mark and its explanation on hover, the two
+choices), the Results list and Settings, in light and dark, at 1280 and 390 px, with no console errors and nothing
+wider than a phone; a check started from the page with the stand-in Claude Code chosen: *Start Claude Code* pulses in
+ink blue after about five seconds with *Nothing runs until you press it.*, and has a still ring with reduced motion.
+
+**Not yet done:** as in ENLENS, tried only with the stand-in Claude Code, not a real signed-in one. The Map does not
+show the stronger-model mark yet, and the waiting step still spins until Claude Code takes the work. The "second
+opinion" wording fixes are Margin's only; ENLENS still has the old wording in the same places.
 
 ## 0.2.1 (November 2026): Update Margin from the app, import hand-zipped projects
 

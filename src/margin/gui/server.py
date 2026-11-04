@@ -808,7 +808,7 @@ class App:
         main_be, main = self.backend()
         be, second = home.make_second_backend(s, self.api_key())
         if second == main and not getattr(be, "router", None):
-            raise ApiError(400, "The second model is the same as the main model. Choose another one in Settings.")
+            raise ApiError(400, "The model for second opinions is the same as the main model. Choose another one in Settings.")
         if str(s.get("num_ctx", "auto")).lower() == "auto" and hasattr(be, "num_ctx"):
             # just long enough for the longest set of excerpts these checks read
             system = estimate_tokens(prompts.system_prompt("second"))
