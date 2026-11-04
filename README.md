@@ -154,6 +154,12 @@ and reinstalls only when its requirements changed. Then open Margin from its ico
 quit and the new one started (ENLENS 0.10.2), and if something still runs in it, the page says to quit and reopen. Run
 it as `~/margin-app/.venv/bin/margin update` if the venv is not active.
 
+**Bringing in ENLENS's work.** Margin keeps ENLENS's history, with ENLENS as the git remote `enlens`. Run
+`python tools/sync_enlens.py --dry-run` to see what is new in ENLENS. Then run `python tools/sync_enlens.py` to
+merge it: the tool rewrites ENLENS's new commits with Margin's names and leaves the merge uncommitted, so you can
+run the tests before you `git commit`. Margin's README, changelog and version numbers stay its own; the tool lists
+ENLENS's changes to them so you can copy over what Margin needs.
+
 ## Exploring the documents (the main part of the app)
 
 | Page | What it gives | Model? |

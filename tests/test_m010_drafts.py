@@ -296,6 +296,11 @@ def _enlens(tmp_path, monkeypatch):
     src = tmp_path / "enlens-home"
     a = Workspace.create(src / "projects" / "Alpha")
     a.set_meta("from", "enlens")
+    (a.root / "uploads").mkdir()
+    (a.root / "uploads" / "n.txt").write_text("x")
+    with a.connect() as cx:
+        cx.execute("INSERT INTO documents(doc_id, path, sha1) VALUES ('d1', ?, 's1')", (str(a.root / "uploads" / "n.txt"),))
+        cx.execute("INSERT INTO documents(doc_id, path, sha1) VALUES ('d2', '/somewhere/else.pdf', 's2')")
     Workspace.create(src / "projects" / "Beta")
     elsewhere = Workspace.create(tmp_path / "elsewhere" / "Gamma")
     (src / "links.json").write_text(json.dumps({"Gamma": str(elsewhere.root)}))
@@ -314,7 +319,10 @@ def test_enlens_projects_are_copied_and_enlens_keeps_its_own(home, tmp_path, mon
     r = home.import_enlens()
     assert r["copied"] == ["Alpha", "Beta"] and r["linked"] == ["Gamma"] and r["codebooks"] == 1 and r["settings"]
     assert home.list_projects() == ["Alpha", "Beta", "Gamma"]
-    assert home.open_project("Alpha").meta("from") == "enlens"          # the database came along
+    alpha = home.open_project("Alpha")
+    assert alpha.meta("from") == "enlens"                                  # the database came along
+    paths = dict((r["doc_id"], r["path"]) for r in alpha.query("SELECT doc_id, path FROM documents"))
+    assert paths == {"d1": str((alpha.root / "uploads" / "n.txt").resolve()), "d2": "/somewhere/else.pdf"}
     assert home.project_path("Gamma") == tmp_path / "elsewhere" / "Gamma"  # linked, not copied
     s = home.load_settings()
     assert s["k"] == 13 and s["project"] == "Beta"

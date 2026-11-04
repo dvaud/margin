@@ -607,7 +607,8 @@ def enlens_projects() -> dict | None:
 
 
 def _copy_project(src: Path, target: Path) -> None:
-    """A project's folder, with a consistent copy of its database (SQLite's backup: ENLENS may have it open)."""
+    """A project's folder, with a consistent copy of its database (SQLite's backup: ENLENS may have it open); its
+    documents then point at the copied files."""
     import sqlite3
 
     shutil.copytree(src, target, symlinks=True, ignore=shutil.ignore_patterns(DB_FILE, DB_FILE + "-*"))
@@ -618,6 +619,12 @@ def _copy_project(src: Path, target: Path) -> None:
     finally:
         b.close()
         a.close()
+    # documents read from the project's own folder (its uploads) point at the copies here, not at ENLENS's folder
+    from .bundle import relocate_documents
+
+    olds = [src.parts, src.resolve().parts]
+    relocate_documents(target / DB_FILE, lambda parts: next((parts[len(o):] for o in olds if parts[:len(o)] == o),
+                                                          None), target)
 
 
 def import_enlens(names: list[str] | None = None) -> dict:

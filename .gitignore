@@ -6,3 +6,18 @@ __pycache__/
 *.egg-info/
 .venv/
 .DS_Store
+
+# Margin's data folder (MARGIN_HOME) defaults to ~/margin, which can be this checkout: keep it out of git
+/projects/
+/frameworks/
+/logs/
+/settings.json
+/credentials.json
+/links.json
+/trash/
+/claude-plugin/
+/claude-runs/
+/app.json
+/benchmarks.json
+/quicklook.json
+/local_only

@@ -946,3 +946,52 @@ def test_a_comment_alone_is_not_a_judgement_and_rereads_say_why(loaded):
     claimcheck.set_judgement(loaded, hid, pid, None, "still unsure")  # back to the AI's: the comment stays
     x = next(x for x in claimcheck.result(loaded, hid)["passages"] if x["passage_id"] == pid)
     assert x["user_note"] == "still unsure" and x["user_verdict"] is None
+
+
+def test_a_project_folder_zipped_by_hand_imports_too(loaded, tmp_path):
+    """Finder's Compress puts the project in a folder of its own and adds __MACOSX: Margin 0.2.1 takes it."""
+    from margin import bundle
+    from margin.sources import original_file
+
+    up = loaded.root / "uploads" / "batch1"
+    up.mkdir(parents=True)
+    (up / "field.txt").write_text("Field notes on hydrogen. Water stress rises near the plant in summer. " * 3)
+    ingest.ingest(loaded, [up / "field.txt"])
+    n = loaded.scalar("SELECT COUNT(*) FROM documents")
+    z = tmp_path / "Tovertafel.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in loaded.root.rglob("*"):
+            if f.is_file():
+                arc = f"{loaded.root.name}/" + f.relative_to(loaded.root).as_posix()
+                zf.write(f, arc)
+                zf.writestr("__MACOSX/" + arc.rsplit("/", 1)[0] + "/._" + f.name, b"\0\5\26\7")
+    ws2 = bundle.import_project(z, tmp_path / "copy")
+    assert ws2.scalar("SELECT COUNT(*) FROM documents") == n
+    assert not (tmp_path / "copy" / loaded.root.name).exists() and not (tmp_path / "copy" / "__MACOSX").exists()
+    doc = ws2.query("SELECT doc_id, path FROM documents WHERE path LIKE '%field.txt'")[0]
+    assert doc["path"] == str((tmp_path / "copy" / "uploads" / "batch1" / "field.txt").resolve())
+    assert original_file(ws2, doc["doc_id"])["inside"]
+
+    with zipfile.ZipFile(tmp_path / "two.zip", "w") as zf:
+        zf.write(loaded.db_path, "A/enlens.sqlite")
+        zf.write(loaded.db_path, "B/enlens.sqlite")
+    with pytest.raises(ValueError, match="holds 2 projects"):
+        bundle.import_project(tmp_path / "two.zip", tmp_path / "two")
+    with zipfile.ZipFile(tmp_path / "docs.zip", "w") as zf:
+        zf.writestr("paper.md", "# A paper")
+    with pytest.raises(ValueError, match="no Margin project.*Add documents"):
+        bundle.import_project(tmp_path / "docs.zip", tmp_path / "docs")
+
+
+def test_accented_names_in_a_finder_zip_are_read_right():
+    """Finder does not mark zip names as UTF-8: Python read "másolat" as "ma╠üsolat"."""
+    import unicodedata
+    from margin.ingest import zip_name
+
+    nfd = unicodedata.normalize("NFD", "Meadows másolat.md")
+    info = zipfile.ZipInfo(nfd.encode("utf-8").decode("cp437"))
+    info.flag_bits = 0
+    assert zip_name(info) == nfd
+    plain = zipfile.ZipInfo("Ăn ‘quoted’.md")
+    plain.flag_bits = 0x800
+    assert zip_name(plain) == "Ăn ‘quoted’.md"
