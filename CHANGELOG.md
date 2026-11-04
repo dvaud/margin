@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1 (November 2026): the 0.3 release, with a test that no longer depends on timing
+
+0.3.0's release workflow stopped on one test, so 0.3.0 was never published; 0.3.1 is the same release (see 0.3.0
+below for what it does) with that test fixed. Nothing in the app changed.
+
+**Fixed:** `test_enlens_projects_are_copied_and_enlens_keeps_its_own` checks that copying ENLENS's projects leaves
+ENLENS's folder untouched by listing its files before and after. On the Linux test machine an ENLENS project's
+database still had SQLite's temporary `-wal` and `-shm` files when the first list was made; when the copy closed the
+last connection to that database, SQLite folded them into the database and removed them, as it always does, so the
+lists differed although no data had changed. The test now leaves those two temporary files out of the lists and
+compares the database's rows before and after instead.
+
+**Not yet done:** as for 0.3.0. SQLite on macOS keeps those files in the same situation, so the failure could not be
+reproduced on the Mac; the fix was checked against the files the Linux run reported.
+
 ## 0.3.0 (November 2026): decide on each claim of a draft
 
 **Claim supported, Claim refuted, Dismiss claim.** Each claim's card on the *Check a draft* page has three buttons for

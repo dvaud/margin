@@ -54,6 +54,7 @@ instead? `margin update` pulls the new version (see *For developers*).
   underline with a small **cite here** tag where the citation goes (*cited* if your draft already gives one).
 - **The claims scroll on their own.** On a wide window, scrolling through the claims no longer moves your draft.
 - **Click anywhere on a claim's card**, not only its number, to see its sentence in the draft.
+- 0.3.1 is the same release with one test fixed (0.3.0 was never published).
 
 ## Earlier releases
 

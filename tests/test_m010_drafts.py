@@ -311,9 +311,26 @@ def _enlens(tmp_path, monkeypatch):
     return src
 
 
+def _files(root):
+    """A folder's files, without SQLite's own -wal and -shm files: they come and go as connections to a database
+    close (the last one folds them into the database), so whether they are there says nothing about its data."""
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*") if not p.name.endswith(("-wal", "-shm")))
+
+
+def _rows(db):
+    import sqlite3
+
+    cx = sqlite3.connect(db)
+    try:
+        return cx.execute("SELECT doc_id, path, sha1 FROM documents ORDER BY doc_id").fetchall()
+    finally:
+        cx.close()
+
+
 def test_enlens_projects_are_copied_and_enlens_keeps_its_own(home, tmp_path, monkeypatch):  # noqa: F811
     src = _enlens(tmp_path, monkeypatch)
-    before = sorted(str(p.relative_to(src)) for p in src.rglob("*"))
+    before = _files(src)
+    rows = _rows(src / "projects" / "Alpha" / "enlens.sqlite")
     info = home.enlens_projects()
     assert info["projects"] == ["Alpha", "Beta", "Gamma"] and info["linked"] == ["Gamma"] and info["here"] == 0
     r = home.import_enlens()
@@ -327,7 +344,8 @@ def test_enlens_projects_are_copied_and_enlens_keeps_its_own(home, tmp_path, mon
     s = home.load_settings()
     assert s["k"] == 13 and s["project"] == "Beta"
     assert (home.home() / "frameworks" / "mycodes.csv").exists()
-    assert sorted(str(p.relative_to(src)) for p in src.rglob("*")) == before  # ENLENS's folder untouched
+    assert _files(src) == before  # ENLENS's folder untouched
+    assert _rows(src / "projects" / "Alpha" / "enlens.sqlite") == rows  # and its database too
     assert home.enlens_projects()["projects"] == []
     assert home.import_enlens()["copied"] == []  # a second time: nothing new
 
