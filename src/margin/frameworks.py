@@ -228,14 +228,16 @@ def _folders(ws=None) -> list[tuple[Path, str]]:
 
 
 def available(ws=None) -> dict[str, Framework]:
-    """All frameworks a project can use: the bundled SDG targets, then home-wide, then the project's own."""
-    out = {"sdg": _sdg(), "sdg_goals": _sdg_goals()}
+    """All frameworks a project can use: home-wide, then the project's own, then the bundled SDG codebooks (Margin
+    0.8 lists them last, as built-in examples)."""
+    out = {}
     for folder, source in _folders(ws):
         if folder.is_dir():
             for p in sorted(folder.glob("*.csv")):
                 fw = _load_file(p, source)
-                if fw and NAME_RE.match(fw.name):
+                if fw and NAME_RE.match(fw.name) and fw.name not in BUNDLED:
                     out[fw.name] = fw
+    out.update({"sdg": _sdg(), "sdg_goals": _sdg_goals()})
     return out
 
 

@@ -44,6 +44,16 @@ def loaded(ws: Workspace, corpus: Path, vca_xlsx: Path) -> Workspace:
 
 
 @pytest.fixture(autouse=True)
+def _enlens_sdg_default(request, monkeypatch):
+    """Margin 0.8 has no default codebook. ENLENS's tests (every file not named test_m*) were written for its SDG
+    default, so they keep it; Margin's own tests see Margin's default."""
+    if not Path(str(request.fspath)).name.startswith("test_m"):
+        from margin import home
+
+        monkeypatch.setitem(home.DEFAULTS, "profile_framework", "sdg")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_claude_code(tmp_path, monkeypatch):
     """0.9: Margin finds and sets up Claude Code by itself. Tests never touch a real Claude Code: the `claude` program
     is "not found" unless a test points MARGIN_CLAUDE at the stand-in (tests/fake_claude_cli.py)."""

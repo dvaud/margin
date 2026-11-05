@@ -32,7 +32,7 @@ export async function renderOverview(view) {
   const pf = o.profile || {}, cs = o.concepts || {}, th = o.themes || {};
   const STATE = {
     search: [false, "Ready: type a word"],
-    profile: pf.labels ? [true, `${plural(pf.documents || 0, "document", "documents")} profiled`] : [false, "Not made yet · takes seconds"],
+    profile: pf.labels ? [true, `${plural(pf.documents || 0, "document", "documents")} profiled`] : [false, pf.framework ? "Not made yet · takes seconds" : "Choose a codebook first"],
     concepts: cs.terms ? [true, `${plural(cs.terms, "term", "terms")}${cs.concepts ? `, ${plural(cs.concepts, "concept", "concepts")}` : ""}`] : [false, "Not made yet · takes seconds"],
     themes: th.themes ? [true, `${plural(th.themes, "theme", "themes")} found`] : [false, "Not made yet · takes seconds"],
     sources: [!!o.references, o.references ? `References followed in ${plural(o.references, "document", "documents")}` : `${plural(nDocs, "document", "documents")}`],

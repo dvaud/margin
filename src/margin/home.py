@@ -55,7 +55,7 @@ DEFAULTS = {
     "ocr_lang": "eng",                 # Tesseract languages, e.g. eng+nld
     # 0.7
     "seed": 42,                        # sent with every model request, so the same input gives the same answer
-    "profile_framework": "sdg",        # the codebook of document profiles: the 169 SDG targets (or sdg_goals: 17)
+    "profile_framework": "",           # the codebook of document profiles ("": none chosen yet; Margin 0.8 dropped sdg)
     "themes_k": 20,                    # how many themes a run looks for (2 to 60; fewer in a small project)
     # 0.8
     "allow_claude_code": True,         # Claude Code (the researcher's own plan) may answer (0.9: on by default)
@@ -110,6 +110,10 @@ def load_settings() -> dict:
             if not stored.get("_version") and stored.get("num_ctx") == 16384:
                 s["num_ctx"] = "auto"
             # a 0.4 install defaulted to the Claude API; keep it only for people who had chosen it with a key
+            # Margin 0.8: the SDG targets are no longer the codebook every settings file was given by default; a
+            # file written before keeps no codebook, and the Profile page asks for one (labels stay in the projects)
+            if (stored.get("_version") or 0) < 3 and stored.get("profile_framework") == "sdg":
+                s["profile_framework"] = ""
             if stored.get("backend") == "anthropic" and "allow_cloud" not in stored:
                 s["allow_cloud"] = bool(env_key() or stored_key())
         except (json.JSONDecodeError, OSError):
@@ -188,8 +192,9 @@ def clean_settings(changes: dict) -> dict:
         raise ValueError("seed must be a whole number from 0 to 2,147,483,647.")
     if "themes_k" in out and not 2 <= out["themes_k"] <= 60:
         raise ValueError("themes_k must be between 2 and 60.")
-    if "profile_framework" in out and not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", out["profile_framework"] or ""):
-        raise ValueError("profile_framework must be the short name of a codebook, for example sdg or sdg_goals.")
+    if "profile_framework" in out and (out["profile_framework"] or "") and not re.fullmatch(
+            r"[a-z0-9][a-z0-9_-]{0,39}", out["profile_framework"]):
+        raise ValueError("profile_framework must be the short name of a codebook (or empty for none).")
     return out
 
 
@@ -204,7 +209,7 @@ def local_only() -> bool:
         return flag
 
 
-SETTINGS_VERSION = 2  # 2: written by 0.6 (num_ctx "auto" is the default)
+SETTINGS_VERSION = 3  # 2: written by 0.6 (num_ctx "auto" is the default); 3: by Margin 0.8 (no default codebook)
 
 
 def save_settings(s: dict) -> None:

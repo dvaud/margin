@@ -36,7 +36,7 @@ export async function renderCheck(view, params, query) {
   const hint = h("div", { class: "hint-row", id: "hyp-hint" }, h("span", {}, "One sentence that could be true or false. ", h("span", { class: "faint" }, h("kbd", {}, "Ctrl"), "+", h("kbd", {}, "Enter"), " checks it.")), counter);
 
   // codebook tag (optional, quiet)
-  const fwSelect = h("select", { class: "select input-sm", "aria-label": "Codebook" }, h("option", { value: "" }, "No codebook"), frameworks.map((f) => h("option", { value: f.name, selected: f.name === (draft.framework ?? "sdg") }, f.title || f.name)));
+  const fwSelect = h("select", { class: "select input-sm", "aria-label": "Codebook" }, h("option", { value: "" }, "No codebook"), frameworks.map((f) => h("option", { value: f.name, selected: f.name === (draft.framework ?? "") }, f.title || f.name)));
   let code = draft.code || "", codeDesc = draft.codeDesc || "";
   const codeBtn = h("button", { type: "button", class: "btn btn-sm code-btn", "aria-haspopup": "dialog" });
   const codeClear = h("button", { type: "button", class: "icon-btn", "aria-label": "Remove the code", hidden: !code, onClick: () => setCode("", "") }, icon("x", { size: 14 }));

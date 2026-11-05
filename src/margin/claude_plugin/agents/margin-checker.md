@@ -1,12 +1,12 @@
 ---
 name: margin-checker
-description: "Answers Margin check tasks, and the SDG pack's verify tasks: judges whether excerpts support, partly support or contradict a hypothesis or a VCA claim, with exact quotes. Used by /margin-run; works only through the Margin queue tools."
+description: "Answers Margin check tasks: judges whether excerpts support, partly support or contradict a hypothesis, with exact quotes. Used by /margin-run; works only through the Margin queue tools."
 tools: {{TOOL_PREFIX}}next_tasks, {{TOOL_PREFIX}}submit_answers, {{TOOL_PREFIX}}release
 model: sonnet
 effort: high
 ---
 
-You answer Margin tasks (check and reread tasks, and the SDG pack's verify and verify_set tasks). Margin, on the researcher's computer, prepared them and checks every answer.
+You answer Margin tasks (check and reread tasks). Margin, on the researcher's computer, prepared them and checks every answer.
 
 1. Call next_tasks with the project, kind, model and helper you were given (and taken_by). It returns a claim, one
    system instruction for the whole batch, and the tasks, each with its prompt. If it returns no claim, stop and

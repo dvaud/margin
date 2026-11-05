@@ -1,5 +1,5 @@
-// Profile (F2): a codebook profile of the project's documents. Which codes of a codebook (the 169 SDG targets, the
-// 17 goals, or a person's own) each document addresses, how much and where. Two passes: keywords and meaning (no AI,
+// Profile (F2): a codebook profile of the project's documents. Which codes of a codebook (a person's own, or a
+// built-in one such as the SDG targets) each document addresses, how much and where. Two passes: keywords and meaning (no AI,
 // seconds, a provisional profile) and, optionally, the AI reading the passages with a candidate code. Every label
 // says why it is there; a person can agree, change or reject it (in the document viewer, Codes panel).
 // The pieces shared with the document viewer (the AI-labelling card, the keyword pass, wording) are exported from here.
@@ -226,6 +226,22 @@ function calibrationBox(c) {
   return box;
 }
 
+// Margin 0.8: there is no default codebook. Until one is chosen, the Profile page, a document's Codes panel and the
+// themes' code grid show this: pick a codebook (the setting), or add one of your own.
+export function codebookChooser(project, onPick) {
+  const sel = h("select", { class: "select input-sm", "aria-label": "Codebook", style: { width: "auto", maxWidth: "100%", minWidth: "0", flex: "0 1 auto" } }, h("option", { value: "" }, "Choose a codebook…"));
+  api("GET", `/api/projects/${P(project)}/frameworks`).then((r) => {
+    for (const f of r.frameworks || []) sel.appendChild(h("option", { value: f.name }, f.source === "bundled" ? `${f.title || f.name} (built in)` : f.title || f.name));
+  }).catch(showError);
+  sel.addEventListener("change", async () => {
+    if (!sel.value) return;
+    try { await api("PUT", "/api/settings", { profile_framework: sel.value }); await App.refresh(); onPick(sel.value); } catch (e) { showError(e); }
+  });
+  return emptyState("tag", "Choose a codebook first",
+    "A codebook is a list of codes, like in NVivo or Atlas.ti. Margin then finds which codes each document addresses, how much and where. Add your own as a spreadsheet (CSV), or use a built-in one.",
+    h("div", { class: "row", style: { gap: "8px", justifyContent: "center", flexWrap: "wrap" } }, sel, h("a", { class: "btn btn-sm", href: "#/settings/frameworks" }, icon("upload", { size: 13 }), "Add your own codebook (CSV)")));
+}
+
 // ---------------------------------------------------------------------------------------------
 // the Profile page
 // ---------------------------------------------------------------------------------------------
@@ -233,7 +249,12 @@ export async function renderProfile(view, params, query) {
   const project = App.project;
   const base = `/api/projects/${P(project)}`;
   const watchers = [];
-  let framework = query.framework || App.settings().profile_framework || "sdg";
+  let framework = query.framework || App.settings().profile_framework || "";
+  if (!framework) {
+    view.append(pageHead("Profile", { eyebrow: featureEyebrow("profile"), sub: "Which codes of a codebook the documents address, how much and where." }),
+      codebookChooser(project, (fw) => navigate(`#/profile?framework=${encodeURIComponent(fw)}`)));
+    return () => {};
+  }
   let savedLevel = null;
   try { savedLevel = localStorage.getItem("margin.profile.level"); } catch (_) { /* no storage */ }
   let level = (query.level || savedLevel) === "group" ? "group" : "code";
@@ -243,8 +264,13 @@ export async function renderProfile(view, params, query) {
   const docsReq = api("GET", `${base}/documents`).then((r) => r.documents || []).catch(() => null);
   try { prof = await fetchProfile(); }
   catch (e) {
-    if (e.status === 400 && framework !== "sdg") { toast(`The codebook “${framework}” is not available: showing the SDG targets.`, "warn"); framework = "sdg"; prof = await fetchProfile(); }
-    else throw e;
+    if (e.status === 400) {
+      // a codebook that was deleted, or one of another project: choose again
+      toast(`The codebook “${framework}” is not available in this project.`, "warn");
+      view.append(pageHead("Profile", { eyebrow: featureEyebrow("profile") }), codebookChooser(project, (fw) => navigate(`#/profile?framework=${encodeURIComponent(fw)}`)));
+      return () => {};
+    }
+    throw e;
   }
   docs = await docsReq;   // both arrive before the page is drawn: one draw, not two
 
@@ -264,7 +290,7 @@ export async function renderProfile(view, params, query) {
 
   function keepUrl() {
     const s = new URLSearchParams();
-    if (framework !== (App.settings().profile_framework || "sdg")) s.set("framework", framework);
+    if (framework !== (App.settings().profile_framework || "")) s.set("framework", framework);
     if (level !== "code") s.set("level", level);
     const qs = s.toString();
     history.replaceState(null, "", "#/profile" + (qs ? "?" + qs : ""));
@@ -308,7 +334,7 @@ export async function renderProfile(view, params, query) {
     const fw = fwInfo();
     const docSel = docs && docs.length ? h("select", { class: "select input-sm", id: "pf-doc", "aria-label": "Open the profile of one document" },
       h("option", { value: "" }, "Open one document's profile…"), docs.map((d) => h("option", { value: d.doc_id }, shortTitle(d.title || d.file, 80)))) : null;
-    if (docSel) docSel.addEventListener("change", () => { if (docSel.value) navigate(`#/doc/${encodeURIComponent(docSel.value)}?tab=codes${framework !== (App.settings().profile_framework || "sdg") ? `&framework=${encodeURIComponent(framework)}` : ""}`); });
+    if (docSel) docSel.addEventListener("change", () => { if (docSel.value) navigate(`#/doc/${encodeURIComponent(docSel.value)}?tab=codes${framework !== (App.settings().profile_framework || "") ? `&framework=${encodeURIComponent(framework)}` : ""}`); });
     replace(controls,
       h("div", { class: "pf-control" }, h("label", { class: "field-label", for: "pf-fw" }, "Codebook"), sel,
         h("span", { class: "field-help" }, "New documents get this codebook's codes when they are added. ", h("a", { href: "#/settings/frameworks" }, "Add your own codebook (CSV)"))),
@@ -394,7 +420,7 @@ export async function renderProfile(view, params, query) {
       return;
     }
     const max = Math.max(1, ...Object.values(cells).flatMap((row) => Object.values(row)));
-    const docHref = (d, code) => `#/doc/${encodeURIComponent(d.doc_id)}?tab=codes${framework !== (App.settings().profile_framework || "sdg") ? `&framework=${encodeURIComponent(framework)}` : ""}${code ? `&code=${encodeURIComponent(code)}` : ""}`;
+    const docHref = (d, code) => `#/doc/${encodeURIComponent(d.doc_id)}?tab=codes${framework !== (App.settings().profile_framework || "") ? `&framework=${encodeURIComponent(framework)}` : ""}${code ? `&code=${encodeURIComponent(code)}` : ""}`;
     const table = h("table", { class: "map-table pf-grid" },
       h("caption", { class: "visually-hidden" }, `Documents by ${unit}: the number of passages`),
       h("thead", {}, h("tr", {}, h("th", { scope: "col", class: "map-hyp-head" }, "Document"),

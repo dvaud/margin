@@ -31,7 +31,7 @@ export const FEATURES = {
   },
   profile: {
     section: "explore", title: "Profile", icon: "tag", href: "#/profile", ai: "optional",
-    what: "Which codes each document addresses (the SDG targets or your own codebook), how much, and where.",
+    what: "Which codes of your codebook each document addresses, how much, and where.",
     use: "To compare documents by topic and find the passages behind each code.",
   },
   concepts: {

@@ -1,6 +1,6 @@
 ---
 name: margin-run
-description: Work through a Margin project's task queue (labels, concept links, theme names, references, search words, the claims of a draft, checks, and the SDG pack's extractions, splits, VCA checks and audits) with the Margin helper agents, each on the model Margin names for that kind of task. Use when the user types /margin-run with a project name.
+description: Work through a Margin project's task queue (labels, concept links, theme names, references, search words, the claims of a draft, and checks) with the Margin helper agents, each on the model Margin names for that kind of task. Use when the user types /margin-run with a project name.
 argument-hint: "<project> [kind] [--parallel N]"
 disable-model-invocation: true
 allowed-tools: {{TOOL_PREFIX}}queue_status Agent
@@ -17,7 +17,7 @@ Arguments: `$ARGUMENTS`
 - The first argument is the project's name (in quotes when it has spaces). If there is none, call `queue_status`
   without a project to list the projects that have work waiting, and ask which one.
 - An optional second argument is one kind of task (label, link, theme, expand, decompose, resolve, claims, check, reread,
-  second, or the SDG pack's split, extract, verify, verify_set): then work only on that kind.
+  second): then work only on that kind.
 - `--parallel N` sets how many helpers work at the same time (default 2). More is faster but uses the plan's limit
   faster.
 
@@ -28,7 +28,7 @@ Arguments: `$ARGUMENTS`
 2. Start helpers, at most N at the same time (several Agent calls in one message), in the order the groups are
    listed. For each group start the subagent named `margin-run:<helper>` (for example `margin-run:margin-labeller`).
    Pass the `model` parameter with the group's model whenever it differs from that helper's own model
-   (labeller and linker: haiku; namer, reader, extractor and checker: sonnet; auditor: opus). Give it this prompt,
+   (labeller and linker: haiku; namer, reader and checker: sonnet; auditor: opus). Give it this prompt,
    filled in:
 
    > Project: <project>. Kind: <kind>. Model: <model>. Helper: <helper>. Take batches with

@@ -44,7 +44,7 @@ export async function renderSettings(view, [section]) {
   else {
     // a local model's own settings (second model, context length) only when a local model answers
     const local = ["auto", "ollama", "openai"].includes(s.backend || "auto");
-    main.append(...[routingSection(s, servers), local ? secondModelSection(s, servers) : null, local ? contextSection(s) : null, reproSection(s), testSection(s, watchers), ledgerSection(), updatesSection(), dataSection()].filter(Boolean));
+    main.append(...[routingSection(s, servers), local ? secondModelSection(s, servers) : null, local ? contextSection(s) : null, reproSection(s), ledgerSection(), updatesSection(), dataSection()].filter(Boolean));
     if (!local) main.appendChild(h("p", { class: "muted small" }, icon("info", { size: 13 }), " The settings of a model on this computer (the model for second opinions, the context length) show here when a local model is chosen under AI."));
   }
   if (section && section !== tab) setTimeout(() => { const t = document.getElementById(`s-${section}`); if (t) t.scrollIntoView({ block: "start" }); }, 80);
@@ -589,7 +589,7 @@ function embedSection(s, servers, info = { servers }) {
 async function frameworksSection() {
   const project = App.project;
   const list = h("div", {});
-  const card = sectionCard("frameworks", "Codebooks", "Optional. A codebook is a list of codes, like in NVivo or Atlas.ti; a hypothesis can be tagged with one code, and the AI reads the code's description alongside it. The UN SDG targets are built in. Add your own as a spreadsheet (CSV) with columns code and description, and optionally group and group_name.", list);
+  const card = sectionCard("frameworks", "Codebooks", "Optional. A codebook is a list of codes, like in NVivo or Atlas.ti; a hypothesis can be tagged with one code, and the AI reads the code's description alongside it, and the Profile page counts the codes each document addresses. Add your own as a spreadsheet (CSV) with columns code and description, and optionally group and group_name.", list);
   async function reload() {
     clear(list);
     if (!project) { list.appendChild(h("p", { class: "muted" }, "Create a project first: codebooks belong to a project.")); return; }
@@ -598,7 +598,7 @@ async function frameworksSection() {
     for (const f of fws) {
       list.appendChild(h("div", { class: "fw-row" },
         h("div", { class: "grow" }, h("div", { class: "fw-title" }, f.title || f.name), h("div", { class: "fw-sub" }, `${f.codes} codes · each is called ${/^[aeiouAEIOU]|^SDG/.test(f.label) ? "an" : "a"} “${f.label}” · ${f.source === "bundled" ? "built in" : "added by you"} · short name ${f.name}`),
-          f.name === "sdg" ? h("div", { class: "fw-sub" }, "Built in: the 169 targets of the UN Sustainable Development Goals. You can ignore it or add your own.") : null),
+          f.name === "sdg" ? h("div", { class: "fw-sub" }, "Built in, as an example: the 169 targets of the UN Sustainable Development Goals (and their 17 goals below).") : null),
         h("button", { class: "btn btn-sm", type: "button", onClick: () => viewFramework(f) }, icon("eye", { size: 13 }), "View codes"),
         f.source !== "bundled" ? h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: async () => {
           const ok = await confirmDialog({ title: `Delete the codebook “${f.title || f.name}”?`, message: "Results tagged with its codes keep the code's text.", confirmText: "Delete" });
@@ -640,7 +640,7 @@ function uploadFramework(done) {
   const file = h("input", { type: "file", accept: ".csv,text/csv", class: "input" });
   file.addEventListener("change", async () => { const f = file.files && file.files[0]; if (f) { csv.value = await f.text(); if (!name.value) name.value = f.name.replace(/\.csv$/i, "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 30); } });
   const err = h("div", { class: "field-error", role: "alert" });
-  const directional = switchControl("The codes are aims a text can help or hinder", false, { help: "Like the SDG targets. Labels then also say whether a passage helps the aim, hinders it, or does not say." });
+  const directional = switchControl("The codes are aims a text can help or hinder", false, { help: "For example policy goals. Labels then also say whether a passage helps the aim, hinders it, or does not say." });
   dialog({
     title: "Add a codebook", wide: true,
     body: h("div", {}, h("div", { class: "fields-3" }, field("Short name", name, { help: "letters, digits, - and _" }), field("Title", title), field("Label", label, { help: "shown before a code" })),
@@ -660,12 +660,13 @@ function uploadFramework(done) {
 function exploreSection(s) {
   const state = h("span", { class: "save-state", "aria-live": "polite" });
   const shortFw = (f) => (f.title && /\(\d+ \w+\)/.test(f.title) ? f.title : `${f.title || f.name} (${f.codes} codes)`);
-  const fwSel = h("select", { class: "select", id: "set-profile-fw" }, h("option", { value: s.profile_framework || "sdg", selected: true }, s.profile_framework || "sdg"));
+  const none = () => h("option", { value: "", selected: !s.profile_framework }, "No codebook");
+  const fwSel = h("select", { class: "select", id: "set-profile-fw" }, none(), s.profile_framework ? h("option", { value: s.profile_framework, selected: true }, s.profile_framework) : null);
   (async () => {
     if (!App.project) return;
     try {
       const fws = (await api("GET", `/api/projects/${P(App.project)}/frameworks`)).frameworks || [];
-      replace(fwSel, ...fws.map((f) => h("option", { value: f.name, selected: f.name === (s.profile_framework || "sdg") }, shortFw(f))));
+      replace(fwSel, none(), ...fws.map((f) => h("option", { value: f.name, selected: f.name === s.profile_framework }, shortFw(f))));
     } catch (_) { /* keep the saved name */ }
   })();
   fwSel.addEventListener("change", async () => { try { await save({ profile_framework: fwSel.value }, state); } catch (_) { /* shown */ } });
@@ -673,7 +674,7 @@ function exploreSection(s) {
   k.input.addEventListener("change", async () => { try { await save({ themes_k: k.input.valueAsNumber }, state); } catch (_) { /* shown */ } });
   return sectionCard("explore", "Exploring the documents", "The defaults of the Profile and Themes pages. You can change both on those pages too.",
     h("div", { class: "stack", style: { gap: "14px" } },
-      field("Codebook of the profiles", fwSel, { help: "Which codes the Profile page and the Codes panel of a document look for, and which codes new documents get when they are added." }),
+      field("Codebook of the profiles", fwSel, { help: "Which codes the Profile page and the Codes panel of a document look for, and which codes new documents get when they are added. With no codebook, documents get no codes." }),
       h("div", {}, k, h("p", { class: "field-help" }, "How many themes a new set looks for. A small project gets fewer: about three passages a theme at least."))),
     h("div", { class: "save-row" }, h("span", { class: "muted small" }, "Saved as soon as you change something."), state));
 }

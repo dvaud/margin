@@ -41,6 +41,10 @@ KINDS = taskkinds.Names(lambda k: k.claude is not None)
 ROWS = taskkinds.Rows()
 ROW_OF = taskkinds.Table("row")
 
+# Margin 0.8: Settings' model table without the SDG pack's rows (their kinds still run for a copied ENLENS project)
+SDG_PACK_ROWS = {"extract", "split", "verify"}
+MARGIN_TITLES = {"second": "Second opinion"}
+
 ALIASES = ("haiku", "sonnet", "opus", "fable")
 # the Claude API's ids for the aliases (Models overview, October 2026); "opus" follows Settings' anthropic_model
 API_IDS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5",
@@ -183,6 +187,9 @@ class Router:
         """One row per group of kinds, for Settings and "How these results were made"."""
         out = []
         for row, kinds, title in ROWS:
+            if row in SDG_PACK_ROWS:  # Margin 0.8: the SDG pack's tasks are not offered, so not listed
+                continue
+            title = MARGIN_TITLES.get(row, title)
             k = kinds[0]
             out.append({"row": row, "kinds": list(kinds), "title": title, "model": self.first(k),
                         "step_up": self.step_up(k), "helper": self.helper(k), "chosen": self.overrides.get(row),

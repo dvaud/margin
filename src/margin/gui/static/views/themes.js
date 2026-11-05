@@ -6,6 +6,7 @@
 import { featureEyebrow } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, confirmDialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks } from "../lib.js";
 import { simpleProgress, MiniJob, jobError } from "./progress.js";
+import { codebookChooser } from "./profile.js";
 
 const PASSAGES = 30;   // passages per page on a theme's page
 const searchHref = (q) => `#/search?q=${encodeURIComponent(q)}&mode=phrase`;
@@ -119,7 +120,7 @@ async function renderRun(view, runId, info, query) {
   const latest = runs.length && runs[0].run_id === runId;
   const watchers = [];
   let tab = ["list", "docs", "codes"].includes(query.view) ? query.view : (store("themes.view") || "list");
-  let framework = App.settings().profile_framework || "sdg";
+  let framework = App.settings().profile_framework || "";
   let frameworks = [];
   const codeInfo = new Map();   // framework -> {code: description}
   let v;
@@ -266,6 +267,10 @@ async function renderRun(view, runId, info, query) {
     const choices = frameworks.length > 1 ? h("label", { class: "row th-fw", style: { gap: "8px", marginBottom: "8px" } }, h("span", { class: "muted small" }, "Codebook"),
       h("select", { class: "select input-sm", onChange: async (e) => { framework = e.target.value; await reload(); } },
         frameworks.map((f) => h("option", { value: f.name, selected: f.name === framework }, f.title || f.name)))) : null;
+    if (!framework) {  // Margin 0.8: no codebook chosen yet
+      wrap.appendChild(codebookChooser(project, async (fw) => { framework = fw; await reload(); }));
+      return wrap;
+    }
     if (choices) wrap.appendChild(choices);
     if (!cg || !(cg.codes || []).length) {
       wrap.appendChild(emptyState("tag", "No codes found in these passages yet", "Find the codes of the codebook first on the Profile page: the grid then shows which codes each theme holds.", h("a", { class: "btn", href: "#/profile" }, icon("tag", { size: 14 }), "Go to Profile")));

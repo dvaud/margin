@@ -1123,8 +1123,10 @@ class App:
             stats["glossary_error"] = str(e)
         if job.cancel.is_set():
             return
+        fw = s.get("profile_framework") or ""
+        if not fw:  # Margin 0.8: no codebook chosen, so new documents get no codes
+            return
         job.progress = {"done": 0, "total": 0, "file": "", "phase": "codes"}
-        fw = s.get("profile_framework") or "sdg"
         try:
             frameworks.get(fw, ws)
             stats["codes"] = profile.keyword_pass(ws, fw, emb, doc_ids=new_docs if profile.pass1_status(ws, fw)["done"]
@@ -1214,7 +1216,7 @@ class App:
             except Exception:  # noqa: BLE001 - an older project without the table
                 return 0
 
-        fw = self.settings().get("profile_framework") or "sdg"
+        fw = self.settings().get("profile_framework") or ""
         runs = n("SELECT COUNT(*) FROM theme_runs")
         run = ws.query("SELECT run_id FROM theme_runs ORDER BY created_at DESC LIMIT 1") if runs else []
         out = {
@@ -1317,7 +1319,7 @@ class App:
         from .. import profile
 
         ws = self.ws(name)
-        fw = str(body.get("framework") or self.settings().get("profile_framework") or "sdg")
+        fw = _codebook(body.get("framework"), self.settings())
         frameworks.get(fw, ws)
         emb = self._embedder_for(ws)
 
@@ -1331,7 +1333,7 @@ class App:
         from .. import profile, runs
 
         ws = self.ws(name)
-        fw = _str(q, "framework") or self.settings().get("profile_framework") or "sdg"
+        fw = _codebook(_str(q, "framework"), self.settings())
         frameworks.get(fw, ws)
         docs = _list(q, "docs")
         plan = profile.label_plan(ws, fw, docs, _bool(q, "all"))
@@ -1348,7 +1350,7 @@ class App:
         from .. import profile
 
         ws = self.ws(name)
-        fw = str(body.get("framework") or self.settings().get("profile_framework") or "sdg")
+        fw = _codebook(body.get("framework"), self.settings())
         frameworks.get(fw, ws)
         docs = body.get("doc_ids") or None
         if docs is not None and not (isinstance(docs, list) and all(isinstance(d, str) for d in docs)):
@@ -1366,7 +1368,7 @@ class App:
         from .. import profile
 
         ws = self.ws(name)
-        fw = str(body.get("framework") or self.settings().get("profile_framework") or "sdg")
+        fw = _codebook(body.get("framework"), self.settings())
         frameworks.get(fw, ws)  # a plain mistake is reported at once, not as a failed job (0.11.1)
         if not ws.scalar("SELECT 1 FROM labels WHERE framework=? AND source='model' LIMIT 1", (fw,)):
             raise ApiError(409, "No passage has AI labels yet in this codebook: there is nothing to compare with.")
@@ -1698,6 +1700,17 @@ def _xlsx_with_provenance(ws, sheets: list[tuple[str, list[dict]]], task_ids=Non
     claimcheck.write_xlsx(first_rows, buf, first_name,
                           extra=list(sheets[1:]) + [("How these results were made", provenance_table(ws, task_ids, kinds))])
     return buf.getvalue()
+
+
+NO_CODEBOOK = "Choose a codebook first: on the Profile page, or add your own under Settings → Codebooks."
+
+
+def _codebook(given, settings: dict) -> str:
+    """The codebook a request names, else the one chosen in Settings (Margin 0.8: there is no default codebook)."""
+    fw = str(given or settings.get("profile_framework") or "")
+    if not fw:
+        raise ApiError(409, NO_CODEBOOK)
+    return fw
 
 
 def _str(q: dict, key: str) -> str | None:
@@ -2634,8 +2647,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def get_suggest(self, name, q):
         text = _str(q, "text") or ""
-        fw = _str(q, "framework") or "sdg"
-        if len(text.strip()) < 10:
+        fw = _str(q, "framework") or self.app.settings().get("profile_framework") or ""
+        if len(text.strip()) < 10 or not fw:
             return {"codes": []}
         return {"codes": claimcheck.suggest_targets(text, int(_float(q, "n", 5)), framework=fw, ws=self.app.ws(name))}
 
@@ -3001,7 +3014,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # profiles (F2)
     def _fw(self, ws, q) -> str:
-        fw = _str(q, "framework") or self.app.settings().get("profile_framework") or "sdg"
+        fw = _codebook(_str(q, "framework"), self.app.settings())
         frameworks.get(fw, ws)
         return fw
 
@@ -3065,7 +3078,7 @@ class Handler(BaseHTTPRequestHandler):
 
         body = self._body()
         ws = self.app.ws(name)
-        lid = profile.add_label(ws, str(body.get("framework") or "sdg"), str(body.get("passage_id") or ""),
+        lid = profile.add_label(ws, _codebook(body.get("framework"), self.app.settings()), str(body.get("passage_id") or ""),
                                 str(body.get("code") or ""), body.get("quote") or None,
                                 str(body.get("relevance") or "main"), str(body.get("direction") or "not_stated"),
                                 body.get("note"))
@@ -3235,7 +3248,7 @@ class Handler(BaseHTTPRequestHandler):
         ws = self.app.ws(name)
         hyp = _list(q, "hyp")
         r = annotate.annotate_document(ws, doc_id, hyp, self._layers(q), _str(q, "framework") or
-                                       self.app.settings().get("profile_framework") or "sdg", _str(q, "concept"),
+                                       self.app.settings().get("profile_framework") or "", _str(q, "concept"),
                                        threshold=_float(q, "threshold", self.app.settings()["threshold"]))
         disp = _disposition(r["name"])
         extra = {"Content-Disposition": disp, "X-Margin-Placed": f"{r['placed']}/{r['marks']}"}

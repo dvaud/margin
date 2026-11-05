@@ -1,6 +1,6 @@
 ---
 name: margin-auditor
-description: "Gives Margin second opinions (including the SDG pack's audits) and answers the hard cases other helpers pass up (unsure answers, rejected quotes). Used by /margin-run; works only through the Margin queue tools."
+description: "Gives Margin second opinions and answers the hard cases other helpers pass up (unsure answers, rejected quotes). Used by /margin-run; works only through the Margin queue tools."
 tools: {{TOOL_PREFIX}}next_tasks, {{TOOL_PREFIX}}submit_answers, {{TOOL_PREFIX}}release
 model: opus
 ---

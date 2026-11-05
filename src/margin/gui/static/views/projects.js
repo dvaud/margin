@@ -195,9 +195,6 @@ export async function renderProjects(view) {
           h("div", { class: "btn-row" },
             !current ? h("button", { class: "btn btn-sm", type: "button", onClick: async () => { try { await api("PUT", "/api/settings", { project: p.name }); await App.refresh(); toast(`Project: ${p.name}`, "ok", { ttl: 2000 }); draw(); } catch (e) { showError(e); } } }, "Switch to") : null,
             p.ok ? projectZipLink(p.name, { text: "Download as a zip" }) : null,
-            p.ok && p.documents ? h("button", { class: "btn btn-sm", type: "button", title: "One SQLite file in the FlexiConc layout of the Cross-Doc SDG Explorer: the documents, their sentences with codes, reference chains, themes and (if set up) embeddings",
-              onClick: (e) => { const b = e.currentTarget; b.disabled = true; toast("Preparing the FlexiConc file…", "info", { small: true, ttl: 3000 }); download(`/api/projects/${P(p.name)}/flexiconc.sqlite`).catch(showError).finally(() => { b.disabled = false; }); } },
-              icon("download", { size: 13 }), "For FlexiConc / Cross-Doc") : null,
             h("button", { class: "btn btn-sm btn-outline-danger", type: "button", onClick: async () => {
               const ok = await confirmDialog({ title: `Remove project “${p.name}”?`, message: p.linked ? "The folder is no longer used by the app and is left untouched on disk." : "The project (documents, results, notes) is moved to a trash folder inside the app's data folder.", confirmText: "Remove", typeToConfirm: p.name });
               if (!ok) return;

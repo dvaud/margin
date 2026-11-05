@@ -69,7 +69,7 @@ export async function renderSearch(view, params, query) {
   const meaning = h("input", { type: "checkbox", checked: st.meaning && semantic, disabled: !semantic });
   const docSel = h("select", { class: "select input-sm", "aria-label": "In which documents" }, h("option", { value: "" }, "in all documents"),
     docs.map((d) => h("option", { value: d.doc_id, selected: d.doc_id === st.docs }, (d.title || d.file || "").slice(0, 70))));
-  const codeIn = h("input", { class: "input input-sm", type: "text", value: st.code, placeholder: "e.g. sdg:6.4", style: { width: "10em" }, "aria-label": "Only passages labelled with this code" });
+  const codeIn = h("input", { class: "input input-sm", type: "text", value: st.code, placeholder: "codebook:code", style: { width: "10em" }, "aria-label": "Only passages labelled with this code" });
   modeSel.addEventListener("change", () => { nearBox.hidden = modeSel.value !== "near"; });
   const go = h("button", { class: "btn btn-primary", type: "submit" }, icon("search", { size: 15 }), "Search");
   const form = h("form", { class: "card search-form", role: "search" },
@@ -81,7 +81,7 @@ export async function renderSearch(view, params, query) {
       h("label", { title: semantic ? "Whole passages that say the same thing in other words (uses the embedding model, on this computer; no AI model)" : "Turn on search by meaning under Settings → Documents first." }, meaning, "search by meaning")),
     h("details", { class: "fold", open: !!st.code }, h("summary", {}, "Only passages with a code"),
       h("div", { class: "search-opts", style: { marginTop: "6px" } }, h("label", {}, "Code", codeIn),
-        h("span", { class: "muted small" }, "A code of the Profile page, written as codebook:code (sdg:6.4). Only passages labelled with it are searched."))));
+        h("span", { class: "muted small" }, "A code of the Profile page, written as codebook:code (for example remote:R1). Only passages labelled with it are searched."))));
   view.appendChild(form);
   const out = h("section", { class: "section", "aria-live": "polite" });
   view.appendChild(out);

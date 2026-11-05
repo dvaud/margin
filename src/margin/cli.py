@@ -111,9 +111,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
+SDG_PACK_COMMANDS = {"load-vca", "match-sources", "reset-corpus", "coverage", "screen", "make-tasks",
+                     "export-flexiconc", "acceptance", "review-export", "review-import", "gold-export", "evaluate",
+                     "report"}
+
+
 def _main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="margin", description="Check hypotheses against your own documents, locally "
-                                 "(and the SDG / value chain assessment pipeline).")
+    ap = argparse.ArgumentParser(prog="margin", description="Explore your own documents and check hypotheses and "
+                                 "drafts against them, locally.")
     ap.add_argument("--ws", default="workspace", help="workspace folder (default: ./workspace)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -182,7 +187,7 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int)
 
     def check_args(p):
-        p.add_argument("--framework", help="codebook of --code: sdg (default with a code) or a project framework")
+        p.add_argument("--framework", help="codebook of --code: a project codebook's short name (sdg if only a code is given)")
         p.add_argument("--code", "--target", dest="code", help="framework code the hypothesis is about, e.g. 6.4")
         p.add_argument("--decompose", action="store_true", help="split the hypothesis into claims that must all hold")
         p.add_argument("--k", type=int, default=8, help="passages to read per claim (default 8)")
@@ -239,13 +244,14 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--exact", action="store_true", help="match words exactly (no stemming: prices finds prices only)")
     p.add_argument("--all-sections", action="store_true", help="also search reference lists and front matter")
     p.add_argument("--docs", nargs="*", help="only these document ids")
-    p.add_argument("--code", help="only passages labelled with this code (framework:code, e.g. sdg:6.4)")
+    p.add_argument("--code", help="only passages labelled with this code (codebook:code, e.g. remote:R1)")
     p.add_argument("--sort", choices=["doc", "left", "right"], default="doc")
     p.add_argument("--limit", type=int, default=50, help="lines to print (the CSV gets all)")
     p.add_argument("--out", help="write every line to this CSV")
     p.add_argument("--collocates", action="store_true", help="also list the words that occur near the hits")
     p = sub.add_parser("profile", help="a codebook profile: which codes each document addresses, how much and where")
-    p.add_argument("--framework", default="sdg", help="codebook: sdg (169 targets, default), sdg_goals, or a project CSV")
+    p.add_argument("--framework", help="codebook (default: the one chosen in Settings): a project CSV's short name, "
+                   "or a built-in one (sdg, sdg_goals)")
     p.add_argument("--docs", nargs="*", help="only these document ids")
     p.add_argument("--keywords-only", action="store_true", help="only the keyword-and-meaning pass (no model)")
     p.add_argument("--all-passages", action="store_true", help="the model reads every passage, not only those with a "
@@ -289,7 +295,7 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--hyp", nargs="*", help="only the judgements of these hypotheses")
     p.add_argument("--layers", nargs="*", default=["judgements"],
                    choices=["judgements", "labels", "concepts", "references"])
-    p.add_argument("--framework", default="sdg")
+    p.add_argument("--framework", help="codebook of the labels layer (default: the one chosen in Settings)")
     p.add_argument("--concept", help="term id of a concept to highlight (layer concepts)")
     p.add_argument("--no-pdfminer", action="store_true", help="line boxes from pypdf only")
     p.add_argument("--out", required=True)
@@ -345,10 +351,10 @@ def _main(argv: list[str] | None = None) -> int:
     # 0.8: the task queue for Claude Code, and the plugin's set-up
     p = sub.add_parser("prepare", help="prepare tasks in the queue for Claude Code (/margin-run), without answering them")
     p.add_argument("kind", choices=["label", "link", "theme", "resolve", "check", *tasks.SDG_PREPARE],
-                   help="the kinds of the app, or the SDG pack's (split, extract, verify-vca, verify-claims, audit-vca)")
+                   help="the kind of task: label, link, theme, resolve or check")
     p.add_argument("text", nargs="?", help="check: the hypothesis (or use --file); resolve: the document id")
     p.add_argument("--file", help="check: a text file (one hypothesis per line) or a CSV with a hypothesis column")
-    p.add_argument("--framework", default=None, help="label: the codebook (default sdg)")
+    p.add_argument("--framework", default=None, help="label: the codebook (default: the one chosen in Settings)")
     p.add_argument("--docs", nargs="*", help="label: only these document ids")
     p.add_argument("--all-passages", action="store_true", help="label: every passage, not only those with a candidate")
     p.add_argument("--all-documents", action="store_true", help="resolve: every document")
@@ -397,6 +403,9 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--open", action="store_true", help="start Margin afterwards (or show the copy already running)")
     p.add_argument("--home", help="data folder built into the icon (default: ~/margin, or MARGIN_HOME)")
 
+    # Margin 0.8: the SDG pack's commands still run (for a project copied from ENLENS), but are not listed
+    sub._choices_actions = [c for c in sub._choices_actions if c.dest not in SDG_PACK_COMMANDS]
+    sub.metavar = "{" + ",".join(c.dest for c in sub._choices_actions) + "}"
     a = ap.parse_args(argv)
     if a.cmd == "import-enlens":
         from . import home as _home
@@ -649,7 +658,12 @@ def _cmd_07(a, ws) -> int:
         _print(out)
         return 0
     if a.cmd == "profile":
-        from . import profile
+        from . import home, profile
+
+        a.framework = a.framework or home.load_settings().get("profile_framework") or ""
+        if not a.framework:
+            print("Problem: choose a codebook with --framework, or on the Profile page.", file=sys.stderr)
+            return 1
 
         emb = _embedder(a)
         r1 = profile.keyword_pass(ws, a.framework, emb, a.docs)
@@ -733,7 +747,9 @@ def _cmd_07(a, ws) -> int:
                                 for c in references.chains(ws, a.doc)]})
         return 0
     if a.cmd == "annotate":
-        from . import annotate
+        from . import annotate, home
+
+        a.framework = a.framework or home.load_settings().get("profile_framework") or ""
 
         r = annotate.annotate_document(ws, a.doc, a.hyp, tuple(a.layers), a.framework, a.concept,
                                        use_pdfminer=not a.no_pdfminer)
@@ -810,7 +826,10 @@ def _cmd_08(a, ws) -> int:
                     print(f"Problem: {e}", file=sys.stderr)
                     return 1
             elif a.kind == "label":
-                fw = a.framework or home.load_settings().get("profile_framework") or "sdg"
+                fw = a.framework or home.load_settings().get("profile_framework") or ""
+                if not fw:
+                    print("Problem: choose a codebook with --framework, or on the Profile page.", file=sys.stderr)
+                    return 1
                 profile.ensure_pass1(ws, fw)
                 plan = profile.label_plan(ws, fw, a.docs, a.all_passages, a.limit)
                 made["tasks"] = profile.make_label_tasks(ws, fw, plan["passage_ids"], r.model("label"), a.all_passages)

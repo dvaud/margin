@@ -16,7 +16,7 @@ Layout written:
     claude-plugin/.claude-plugin/marketplace.json         the marketplace "margin"
     claude-plugin/plugins/margin-run/.claude-plugin/plugin.json
     claude-plugin/plugins/margin-run/SKILL.md            /margin-run (the orchestrator)
-    claude-plugin/plugins/margin-run/agents/*.md         the seven helpers, each with its model and the queue tools only
+    claude-plugin/plugins/margin-run/agents/*.md         the six helpers, each with its model and the queue tools only
     claude-plugin/plugins/margin-run/.mcp.json           the Margin connector (margin-mcp)
     claude-plugin/plugins/margin-run/README.md
 """
@@ -42,8 +42,7 @@ SERVER = "margin"            # the connector's name inside the plugin
 # Claude Code names a plugin's MCP tools mcp__plugin_<plugin>_<server>__<tool>
 TOOL_PREFIX = f"mcp__plugin_{PLUGIN}_{SERVER}__"
 QUEUE_TOOLS = ("queue_status", "next_tasks", "submit_answers", "release")
-HELPERS = ("margin-labeller", "margin-linker", "margin-namer", "margin-reader", "margin-extractor", "margin-checker",
-           "margin-auditor")
+HELPERS = ("margin-labeller", "margin-linker", "margin-namer", "margin-reader", "margin-checker", "margin-auditor")
 SOURCE = Path(__file__).with_name("claude_plugin")
 
 

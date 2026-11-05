@@ -45,22 +45,24 @@ use the install line). *Settings → Technical → Check for updates* looks at o
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.7: remove a theme you do not need, and find a new one in its place
+## New in 0.8: Margin without ENLENS's SDG baggage
 
-- **Remove a theme.** A set of themes often has one or two that say nothing about your question: running headers,
-  reference lists, a topic outside your research. **Remove…** on a theme (on the list or on its page) takes it out of
-  the themes, the grids and the Excel file. It waits under **Removed themes** at the foot of the list, with **Bring it
-  back**, and its page still opens, so you can move a passage that matters into a theme you keep.
-- **A new theme in its place.** Choose **Remove and find a new theme**, and Margin looks on your computer, without
-  AI, for a theme it missed: it takes passages that sit closer to it than to their own theme, and never ones closer
-  to the theme you removed, so that theme does not come back under another name. The new theme is named by its key
-  terms and marked *found in place of “…”*; its page says which themes its passages came from. Not the one you
-  wanted? Remove it too and find another. *Let the AI name the other themes* names only the new one.
+- **No codebook until you choose one.** Margin no longer assumes the UN SDG targets. The Profile page, a document's
+  *Codes* panel and the themes' code grid ask you to choose a codebook: your own (a spreadsheet of codes, like in
+  NVivo or Atlas.ti) or a built-in one. Until then, adding documents skips the codes step, and *Check a hypothesis*
+  starts with *No codebook*. Upgrading? Your settings drop the SDG codebook once; choose it again on the Profile page
+  if you used it (the labels in your projects are kept).
+- **The SDG codebooks stay, as built-in examples**, listed after your own everywhere.
+- **The green-hydrogen pipeline from the ENLENS pilot is gone from what you see**: its rows in *Settings → AI model
+  per task*, the *Model test*, the *For FlexiConc / Cross-Doc* download, its commands in `margin --help`, its helper
+  in the Claude Code plugin and its chapters in the manual. A project copied from ENLENS that holds its results still
+  opens, and those commands still run when typed.
 
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.7**: remove a theme you do not need, and find a new one in its place, on your computer without AI.
 - **Margin 0.6**: check your citations against their sources: a draft's citations are found, checked against the
   cited work's own document and shown where you write; a model on this computer without a terminal, and an update
   button that shows only when there is an update (from ENLENS 0.13.6 and 0.13.7).
@@ -95,10 +97,9 @@ The full notes of every release are in `CHANGELOG.md`.
 ## What Margin does
 
 Margin reads your sources (reports, papers, policy documents, interview notes) and helps you find your way through
-them before you claim anything: every place a word occurs, the codes each document addresses (the SDG targets or
-your own codebook), a glossary of terms grouped into concepts you can follow from one document to the next, themes
-across the documents, what "it" and "they" refer to, highlighted copies, and an export in Cross-Doc's FlexiConc
-format. Most of that needs no AI at all; what the AI adds is quoted, checked against the text, and yours to overrule.
+them before you claim anything: every place a word occurs, the codes of your own codebook (or a built-in one) each
+document addresses, a glossary of terms grouped into concepts you can follow from one document to the next, themes
+across the documents, what "it" and "they" refer to, and highlighted copies. Most of that needs no AI at all; what the AI adds is quoted, checked against the text, and yours to overrule.
 
 When you write, Margin reads your draft the same way: it marks the statements that need a source and checks each one against your documents, so you see which claims they back, which they contradict, and what to cite.
 
@@ -116,8 +117,8 @@ available, and whoever installs it can switch everything off the computer off fo
 
 The app is written for researchers who do not program: plain language on every working screen; each feature says
 what it does and whether it uses the AI; technical details are kept under *Technical details* and
-*Settings → Technical*. It grew out of the Cross-Doc SDG Explorer and the ENLENS green hydrogen pilot (a Value Chain
-Assessment checked against its cited literature); that SDG pipeline is still included as an optional pack.
+*Settings → Technical*. It grew out of ENLENS, which grew out of the Cross-Doc SDG Explorer and a green hydrogen
+pilot.
 
 ## Other ways to run it
 
@@ -141,9 +142,8 @@ From the command line:
 margin --ws myproject init
 margin --ws myproject ingest ~/Reports/                    # PDFs, Word (.docx), HTML, text, Markdown, zips
 margin --ws myproject search "commuting emissions" --mode phrase --out hits.csv
-margin --ws myproject profile --keywords-only --out profile.xlsx   # SDG targets per document, no model
+margin --ws myproject profile --framework remote --keywords-only --out profile.xlsx   # codes per document, no model
 margin --ws myproject themes --k 20 --out themes.xlsx
-margin --ws myproject export-flexiconc myproject.sqlite     # for tools that read Cross-Doc's FlexiConc format
 margin --ws myproject prepare label                         # AI work for Claude Code; then /margin-run myproject
 margin --ws myproject check "Remote work lowers commuting emissions in large cities." --decompose --backend ollama
 margin --ws myproject batch hypotheses.csv --out results.csv --backend ollama
@@ -203,7 +203,7 @@ Where the parts of the Cross-Doc SDG Explorer went:
 | Global coreference (trie) across documents | Concepts: one concept followed across every document, with its wordings |
 | SciCo clusters, communities and summaries | Themes, named by the AI with checked quotes |
 | `pdf_highlight_post.py` | Highlighted copies of a document, an answer, a column of the evidence map |
-| FlexiConc SQLite | *For FlexiConc / Cross-Doc* on the Projects page, `margin export-flexiconc` |
+| FlexiConc SQLite | Not offered by Margin (ENLENS has it) |
 
 Every model answer records the model, its exact version (digest), the prompt version and the seed (42 by default,
 temperature 0); every Excel download ends with *How these results were made*. Since 0.8 it also records the route
@@ -261,7 +261,7 @@ see docs/MODEL_CHOICE.md) set them.
 
 ## Documentation
 
-- [docs/MANUAL.md](docs/MANUAL.md): the manual (app, command line, connector, models, the SDG pack).
+- [docs/MANUAL.md](docs/MANUAL.md): the manual (app, command line, connector, models).
 - [docs/API.md](docs/API.md): the local app's HTTP API.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each release (ENLENS 0.5 to 0.11.1, then Margin from 0.1.0, which takes in ENLENS 0.11.2 and later), including the defects fixed.
 - [docs/USER_TESTS.md](docs/USER_TESTS.md): the first-time user tests behind the app (0.5.1 to 0.7.0).
@@ -274,7 +274,7 @@ see docs/MODEL_CHOICE.md) set them.
 | --- | --- |
 | `claimcheck.py` | Hypotheses: decomposition, checks, statuses, a person's judgements, who says what, rounds, re-reads, second opinions, new documents, the evidence map, calibration, batches, history, Excel |
 | `search.py`, `embed.py`, `retrieve.py` | Cached keyword index, local embeddings and hybrid ranking; BM25 (inverted index) |
-| `frameworks.py`, `taxonomy.py` | Optional codebooks (SDG targets bundled, custom CSVs) |
+| `frameworks.py`, `taxonomy.py` | Optional codebooks (your CSVs; the SDG targets and goals bundled as examples) |
 | `llm.py` | Ollama, OpenAI-compatible local servers (LM Studio, llama.cpp…), server detection, Claude API, offline baseline |
 | `tasks.py`, `schema.py`, `prompts.py` | Model tasks, validation with the quote check, versioned prompts |
 | `bibliography.py` | The bibliography (ENLENS 0.13): Zotero read through its local API, BibTeX / RIS / CSL JSON / CSV files, matching works with documents, titles from the linked work |
@@ -294,9 +294,9 @@ see docs/MODEL_CHOICE.md) set them.
 | `flexiconc_export.py`, `runs.py`, `acceptance.py` | The FlexiConc export; runs and "How these results were made"; the 0.7 acceptance measures |
 | `mcp_server.py` | The connector for the Claude app and Claude Code (ENLENS 0.8: also the queue tools) |
 | `taskqueue.py`, `routing.py` | The task queue for Claude Code (claims, order, estimates, waiting) and the model of each kind of task (ENLENS 0.8) |
-| `claude_setup.py`, `claude_plugin/` | The Claude Code plugin: `/margin-run`, its seven helpers and the connector (ENLENS 0.8); finding Claude Code, adding the plugin to it and starting it for a project's queue (ENLENS 0.9) |
+| `claude_setup.py`, `claude_plugin/` | The Claude Code plugin: `/margin-run`, its six helpers and the connector (ENLENS 0.8); finding Claude Code, adding the plugin to it and starting it for a project's queue (ENLENS 0.9) |
 | `evaluation.py` | The acceptance runs per kind and model through the queue, and their scores (ENLENS 0.8, G6) |
-| `vca.py`, `sources.py`, `analysis.py`, `review.py`, `report.py`, `benchmark.py` | The SDG / value chain assessment pack |
+| `vca.py`, `sources.py`, `analysis.py`, `review.py`, `report.py`, `benchmark.py` | ENLENS's SDG pack: not offered in Margin, kept so ENLENS's work merges in and a copied ENLENS project opens; `margin benchmark` for developers |
 
 `install/install.sh` and `install/install.ps1` are the one-line install; `.github/workflows/release.yml` turns a
 tag `vX.Y.Z` into a draft GitHub Release (tests, the package, the two scripts with the version filled in,

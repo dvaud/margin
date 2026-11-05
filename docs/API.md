@@ -129,8 +129,11 @@ New in 0.7:
 - `seed` (default 42; 0–2,147,483,647): sent with every model request (Ollama and OpenAI-compatible servers), with
   temperature 0, so the same input gives the same answer where the server honours it (`POST /api/servers/repeatable`
   tests that). Recorded with every answer.
-- `profile_framework` (default `"sdg"`, the 169 targets; `"sdg_goals"` for the 17 goals, or a codebook of the
-  project): the codebook of the Profile page, the Codes panel and the keyword pass run when documents are added.
+- `profile_framework` (Margin 0.8: default `""`, no codebook; a codebook of the project, or a built-in one, `"sdg"`
+  for the 169 targets or `"sdg_goals"` for the 17 goals): the codebook of the Profile page, the Codes panel and the
+  keyword pass run when documents are added. A settings file written before 0.8 with `"sdg"` is read as `""` once.
+  With no codebook, adding documents skips the `codes` phase, and the requests below that need one and do not name
+  it answer 409 *Choose a codebook first*.
 - `themes_k` (default 20; 2–60): how many themes a new set looks for.
 - Adding documents (`POST …/ingest`) now ends with two phases, `glossary` and `codes`: the term index and the keyword
   pass of `profile_framework`. Their results are in the job's `result.glossary` and `result.codes`.
@@ -354,11 +357,11 @@ result: the `search` state plus `added` and `remaining`; 400 when no embedding m
 
 ### Frameworks (optional codebooks)
 
-`GET /api/projects/<p>/frameworks` → `{"frameworks": [info]}` (always includes `sdg`).
+`GET /api/projects/<p>/frameworks` → `{"frameworks": [info]}`: the person's own codebooks first, then the built-in `sdg` and `sdg_goals` (Margin 0.8).
 `GET /api/projects/<p>/frameworks/<name>` → `{"framework": {...info, "items": [{"code", "description", "group", "group_name"}]}}`.
 `POST /api/projects/<p>/frameworks` `{"name": "h2", "csv": "code,description\nH1,…", "title": "…", "label": "hypothesis code"}`
 → `{"framework": info}`; 400 with the row problem. `DELETE /api/projects/<p>/frameworks/<name>`.
-`GET /api/projects/<p>/suggest?text=<claim>&framework=sdg&n=5` → `{"codes": [{"code": "6.4", "group": "6",
+`GET /api/projects/<p>/suggest?text=<claim>&framework=sdg&n=5` (no `framework` and no codebook chosen: no codes) → `{"codes": [{"code": "6.4", "group": "6",
 "description": "…", "score": 16.9}]}` (keyword match; empty for texts under 10 characters).
 
 ### Checking
@@ -645,7 +648,7 @@ every answer they store records the model, its digest, the prompt version, the s
 
 #### Profiles with a codebook (F2)
 
-- `GET /api/projects/<p>/profile?framework=sdg&level=code|group&docs=` → the keyword pass status (`pass1`), the
+- `GET /api/projects/<p>/profile?framework=<codebook>&level=code|group&docs=` (409 with no codebook named or chosen) → the keyword pass status (`pass1`), the
   grid documents × codes (`grid`), counts by source (`stats`), the codebooks (`frameworks`, each with `groups`).
 - `POST /api/projects/<p>/profile/keywords {framework?}` → job: the keyword (and meaning) pass, seconds.
 - `GET /api/projects/<p>/profile/plan?framework=&docs=&all=1` → `{passages, with_candidates, already_read,
@@ -726,7 +729,7 @@ every answer they store records the model, its digest, the prompt version, the s
 - `POST /api/quicklook?name=<file>` (raw body) → `{project, job}`: a temporary project for one document, opened at
   once; `project.temporary = {created_at, expires_at, file, from}`. It goes to the trash after 7 days unless
   `POST /api/projects/<p>/keep`. Removing it (`DELETE /api/projects/<p>`) opens another project.
-- `GET /api/projects/<p>/flexiconc.sqlite?framework=` → the project in the FlexiConc layout of the Cross-Doc SDG
+- (Margin 0.8: not linked from the page, kept for ENLENS's projects) `GET /api/projects/<p>/flexiconc.sqlite?framework=` → the project in the FlexiConc layout of the Cross-Doc SDG
   Explorer: `documents`, `sentences` (with a code label, confidence and consensus), `chains`, `clusters` and, when
   the project has an embedding model, `embeddings`.
 
@@ -1039,6 +1042,9 @@ draft). Every draft's citations are listed (found when the list is asked for, fo
 Summaries (in lists) omit `progress` and `result`. Jobs live until the app is closed.
 
 ### Testing a model
+
+Margin 0.8: the page no longer offers this (it needs a reference project such as ENLENS's pilot); the endpoint stays
+for developers.
 
 `POST /api/benchmark` `{"reference": "/path/to/pilot", "kinds": ["verify_set", "extract"], "n": 10}` → job (kind
 `benchmark`): runs the chosen model on tasks a reference workspace already answered and compares. Progress

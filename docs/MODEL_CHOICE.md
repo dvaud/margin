@@ -49,32 +49,6 @@ repeatability, seconds per task, pass mark, passes) with the chosen default and 
 | resolve | Sonnet | Opus | the main model |
 | check, reread | Sonnet (high effort) | the auditor (Opus, or Fable if switched on) | the main model |
 | second | the auditor | none | the second model |
-| SDG pack: extract | Sonnet | Opus | the main model |
-| SDG pack: split | Opus | the auditor | the main model |
-| SDG pack: verify, verify_set | Opus | the auditor | the main model |
-| SDG pack: audits (audit-vca, verify-claims) | the auditor, or the model given | none | the second model |
 
-### Why these defaults for the SDG pack (0.8.1)
-
-The SDG pack's tasks reach Claude Code only when they are prepared for the queue (`margin prepare split|extract|
-verify-vca|verify-claims|audit-vca`). Its defaults follow the rule of the others, the cheapest model likely to be good
-enough, with what the pilot used as the anchor (split on Fable 5.1, extract and the VCA checks on Opus 5.5, audits
-on Fable 5.1):
-
-- **extract: Sonnet, stepping up to Opus.** It is the bulk of the pack (319 tasks on the pilot with
-  `--per-target 6`, thousands with every screened passage) and the batch's system prompt already carries the 169
-  targets. Every claim has a confidence, so a claim Sonnet is unsure of (under 0.6) sends the passage to Opus; claims
-  under `accept_confidence` (0.8) wait for a person in any case, and every quote is checked. Haiku was not chosen:
-  coding claims against 169 targets with directions and interactions is the hardest coding task Margin has.
-- **split: Opus, stepping up to the auditor.** Few tasks (61 on the pilot), but its claims become the reference that
-  every VCA check and every acceptance run is measured against, and the format has no confidence to step up on.
-  This is the one kind where a cheaper model saves little and a wrong answer costs the most.
-- **verify, verify_set: Opus, stepping up to the auditor.** They judge excerpts, as `check` does, and the pilot's
-  answers to them are the reference of the `check` acceptance run.
-- **audits: the auditor, never stepping up.** An audit is a second model's reading; with *Let the auditor use
-  Fable* off the auditor is Opus, the same model as the first reading, so give `--model fable` (or switch Fable on)
-  for a real second model, as the pilot did.
-
-The acceptance runs do not cover the SDG pack's kinds yet. Until they do, the *Model test* in Settings (which now
-works with Claude Code) or `margin benchmark` (local models, the Claude API) compares a model with the pilot's
-answers on extract and verify_set.
+ENLENS also has defaults for its SDG pack (extract, split, verify, audits); Margin 0.8 does not offer the pack, so
+they are left out here (see ENLENS's own `docs/MODEL_CHOICE.md`).

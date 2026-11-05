@@ -95,7 +95,7 @@ def collect(ws: Workspace, doc_id: str, hyp_ids: list[str] | None = None, layers
             if v["user_note"]:
                 lines.append(f"Your note: {v['user_note']}")
             marks.append(Mark(start, end, quote, e["verdict"], "\n".join(lines), "judgements", v["page"]))
-    if "labels" in layers:
+    if "labels" in layers and framework:  # Margin 0.8: no codebook chosen, no labels to mark
         from . import frameworks, profile
 
         fw = frameworks.get(framework, ws)

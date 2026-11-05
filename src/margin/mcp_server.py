@@ -26,6 +26,15 @@ from . import __version__, access, claimcheck, frameworks, ingest
 from . import home as core
 from .sources import document_overview
 
+
+def _codebook(framework: Optional[str]) -> str:
+    """The codebook named, else the one chosen in the app (Margin 0.8: there is no default codebook)."""
+    fw = framework or core.load_settings().get("profile_framework") or ""
+    if not fw:
+        raise ValueError("No codebook is chosen: name one (list_frameworks shows them), or ask the user to choose one "
+                         "on the Profile page of the app.")
+    return fw
+
 INSTRUCTIONS = """Margin checks claims and hypotheses against the user's own documents (reports and papers kept in
 local projects on this computer). Only the passages you are shown leave the computer.
 
@@ -48,7 +57,8 @@ supported; nothing found = unsupported.
 
 Looking around first (no hypothesis needed): search_corpus lists every place words occur, one line per hit, with
 the documents and pages; find_concept shows a concept's wordings, documents and related concepts; document_profile
-says which codes (by default the 169 SDG targets) a document addresses, how much and where.
+says which codes of a codebook (the one the user chose in the app, or one you name) a document addresses, how
+much and where.
 
 Adding sources: the user gives a path to a zip, a folder or files on this computer (attachments in the chat do not
 reach this connector). Call create_project or add_sources with that path. Ask the user who may read the new documents
@@ -249,15 +259,18 @@ def build_server():
                                                  "ai_access": lv.get(d["doc_id"], "none"),
                                                  "warning": d["check"] or None} for d in docs]}
 
-    @s.tool(description="Suggest codes of a framework (by default the 169 SDG targets) whose wording is close to a "
-                        "claim (keyword match, a starting point only). list_frameworks shows the project's frameworks.")
+    @s.tool(description="Suggest codes of a codebook (by default the one chosen in the app) whose wording is close "
+                        "to a claim (keyword match, a starting point only). list_frameworks shows the project's "
+                        "codebooks.")
     @_friendly
-    def suggest_targets(claim: str, framework: str = "sdg", project: Optional[str] = None) -> dict:
-        ws = _project(project)[1] if (project or framework != "sdg") else None
+    def suggest_targets(claim: str, framework: Optional[str] = None, project: Optional[str] = None) -> dict:
+        framework = _codebook(framework)
+        ws = _project(project)[1] if (project or framework not in frameworks.BUNDLED) else None
         return {"targets": [{"code": t["code"], "text": t["description"]}
                             for t in claimcheck.suggest_targets(claim, framework=framework, ws=ws)]}
 
-    @s.tool(description="List the frameworks (codebooks such as the SDG targets) a project can tag claims with.")
+    @s.tool(description="List the codebooks a project can tag claims with (the user's own, then the built-in "
+                        "SDG ones).")
     @_friendly
     def list_frameworks(project: Optional[str] = None) -> dict:
         name, ws = _project(project)
@@ -357,15 +370,16 @@ def build_server():
                                       "shown.")
         return out
 
-    @s.tool(description="Which codes of a codebook (by default the 169 SDG targets; sdg_goals for the 17 goals) a "
+    @s.tool(description="Which codes of a codebook (by default the one chosen in the app) a "
                         "document addresses, how much (passages, share of the document) and where (pages), each label "
                         "with its quote and reason. Labels by keywords and meaning are provisional until the model pass "
                         "has read the passages (in the app).")
     @_friendly
-    def document_profile(document_id: str, project: Optional[str] = None, framework: str = "sdg",
+    def document_profile(document_id: str, project: Optional[str] = None, framework: Optional[str] = None,
                          codes: int = 15) -> dict:
         from . import profile
 
+        framework = _codebook(framework)
         name, ws = _project(project)
         profile.ensure_pass1(ws, framework)
         d = profile.doc_profile(ws, framework, document_id)

@@ -6,7 +6,7 @@ import { tesseractHelp, App, api, h, icon, replace, clear, toast, showError, fmt
 import { simpleProgress, jobCard } from "./progress.js";
 import { blockNode, blockUnit, originalLink, forgetOriginals } from "./result.js";
 import { LEVEL, accessChoice, accessSelect, accessBadge, accessAskCard, accessBanner, docAccessDialog, levels as accessLevels } from "./ai-access.js";
-import { aiLabelCard, startKeywordPass, keywordLabel, SOURCE_WORDS, RELEVANCE_WORDS, DIRECTION_WORDS } from "./profile.js";
+import { aiLabelCard, codebookChooser, startKeywordPass, keywordLabel, SOURCE_WORDS, RELEVANCE_WORDS, DIRECTION_WORDS } from "./profile.js";
 
 const ACCEPT = ".pdf,.docx,.html,.htm,.txt,.md,.zip";
 const OK_EXT = ["pdf", "docx", "html", "htm", "txt", "md", "zip"];
@@ -395,7 +395,7 @@ export async function renderDocument(view, [docId], query) {
   const watchers = [];
   const cleanups = [];
   let tab = DOC_TABS.some(([k]) => k === query.tab) ? query.tab : null;
-  let framework = query.framework || App.settings().profile_framework || "sdg";
+  let framework = query.framework || App.settings().profile_framework || "";
 
   // 0.13.3: the original and the highlighted copy are two quiet links on one line, as on the result page
   const copyBtn = h("button", { class: "link-btn it", type: "button", title: "A copy of the document with its quotes and labels highlighted", onClick: () => highlightedCopy() }, icon("highlighter", { size: 13 }), "Download a highlighted copy");
@@ -658,7 +658,7 @@ export async function renderDocument(view, [docId], query) {
     const s = new URLSearchParams();
     for (const [k, v] of Object.entries(query)) if (!["tab", "code", "find", "framework"].includes(k)) s.set(k, v);
     if (tab) s.set("tab", tab);
-    if (framework !== (App.settings().profile_framework || "sdg")) s.set("framework", framework);
+    if (framework && framework !== (App.settings().profile_framework || "")) s.set("framework", framework);
     if (tab === "search" && panels.search && panels.search.query()) s.set("find", panels.search.query());
     const qs = s.toString();
     history.replaceState(null, "", `#/doc/${encodeURIComponent(docId)}${qs ? "?" + qs : ""}`);
@@ -680,6 +680,10 @@ export async function renderDocument(view, [docId], query) {
     const passages = new Map(); // passage_id -> Promise of {start, text}
 
     async function load() {
+      if (!framework) {  // Margin 0.8: no codebook chosen yet
+        clear(head); replace(listBox, codebookChooser(project, (fw) => { framework = fw; keepUrl(); load(); }));
+        return;
+      }
       listBox.setAttribute("aria-busy", "true");
       try { prof = await api("GET", `${docBase}/profile?framework=${encodeURIComponent(framework)}`); }
       catch (e) { listBox.setAttribute("aria-busy", "false"); replace(listBox, h("div", { class: "notice notice-error" }, icon("alert-circle"), h("p", {}, e.message))); return; }
@@ -1212,7 +1216,7 @@ export async function renderDocument(view, [docId], query) {
   async function highlightedCopy() {
     const isPdf = d.kind === "pdf" && d.original && d.original.available;
     const fwNow = panels.codes ? panels.codes.framework() : framework;
-    const fwTitle = panels.codes ? panels.codes.frameworkTitle() : fwNow === "sdg" ? "the SDG targets" : fwNow;
+    const fwTitle = panels.codes && fwNow ? panels.codes.frameworkTitle() : fwNow || "your codebook";
     const box = (id, label, help, checked, disabled) => h("label", { class: "dv-layer", for: id }, h("input", { type: "checkbox", id, checked, disabled }), h("span", {}, h("strong", {}, label), h("span", { class: "muted small" }, help)));
     const body = h("div", {},
       h("p", {}, isPdf ? "A copy of the original PDF with highlights and a note on each, readable in any PDF reader."
@@ -1220,7 +1224,7 @@ export async function renderDocument(view, [docId], query) {
         : "A copy of the text as a web page (HTML) with coloured highlights and notes, to open in any browser."),
       h("fieldset", { class: "dv-layers" }, h("legend", { class: "field-label" }, "What to highlight"),
         box("dv-l-j", "The AI's and your judgements", "From every result that read this document: green supports, amber partly supports, red contradicts. Always included.", true, true),
-        box("dv-l-l", "Codebook labels", `The quotes the AI or you gave for a code of ${fwTitle.startsWith("the ") ? fwTitle : `“${fwTitle}”`} (blue). Codes found by keywords alone have no quote and are left out.`, tab === "codes", false),
+        box("dv-l-l", "Codebook labels", `The quotes the AI or you gave for a code of ${fwTitle.startsWith("the ") ? fwTitle : `“${fwTitle}”`} (blue). Codes found by keywords alone have no quote and are left out.${fwNow ? "" : " Choose a codebook first (Codes panel)."}`, tab === "codes" && !!fwNow, !fwNow),
         box("dv-l-r", "References", "The mentions the AI linked to a name (grey).", tab === "refs", false)));
     await dialog({
       title: "Download a highlighted copy",

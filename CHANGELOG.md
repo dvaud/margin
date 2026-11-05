@@ -1,15 +1,70 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 (November 2026): Margin without ENLENS's SDG baggage
+
+ENLENS is built around the UN Sustainable Development Goals; Margin is a companion for writing with any sources. 0.8
+takes the SDGs out of Margin's defaults and the SDG pack (the green-hydrogen Value Chain Assessment pipeline of the
+ENLENS pilot) out of everything a Margin user sees. The SDG codebooks stay as a built-in option. The pack's code,
+prompts and tables stay where they are, unused, so ENLENS's work still comes in through `tools/sync_enlens.py` and a
+project copied from ENLENS that holds pack results still opens. The edits are in ENLENS's own files, so the next
+syncs will meet conflicts in them, accepted for now.
+
+**No codebook until you choose one.**
+- The setting `profile_framework` defaults to none (`""`) instead of `sdg`. A settings file written before 0.8 had
+  `sdg` as everyone's default, so it is read as none once (`_version` 3); choose it again if you used it. The labels
+  in your projects are kept.
+- Adding documents skips the codes step when there is no codebook (it ran an SDG keyword pass on every document).
+- The Profile page, a document's *Codes* panel and the themes' code grid show **Choose a codebook first**, with the
+  project's codebooks and *Add your own codebook (CSV)*; choosing one saves the setting. A codebook that is no longer
+  there (it fell back to the SDG targets) now asks again too. The Overview says *Choose a codebook first*.
+- *Check a hypothesis* starts with *No codebook* (it preselected the SDG targets and fetched SDG suggestions as you
+  typed). *Settings → Exploring* offers *No codebook*.
+- Requests that need a codebook and name none answer 409 *Choose a codebook first* (profile, keyword pass, AI labels,
+  comparing labels, adding a label); code suggestions return none; a highlighted copy has no labels layer.
+- The command line's `profile`, `annotate` and `prepare label`, and the connector's `suggest_targets` and
+  `document_profile`, take the codebook chosen in Settings when none is named (they defaulted to `sdg`).
+- A code given without a codebook is still read as an SDG target (`check --code 6.4`, the API), as before.
+
+**The SDG codebooks, as built-in examples.** Your own codebooks are listed first everywhere and the SDG ones last
+(`frameworks.available`). Settings → Codebooks no longer opens with "The UN SDG targets are built in"; the Profile
+card, the search code filter (`codebook:code`), the help-or-hinder switch and the fallback wording no longer name
+the SDGs. "Goal" still counts the SDG codebooks by goal when one is chosen.
+
+**The SDG pack, out of sight.**
+- *Settings → AI model per task* drops its four rows (`routing.SDG_PACK_ROWS`); "Second opinion (and audits of the
+  SDG pack)" is now "Second opinion".
+- *Settings → Technical* drops the *Model test*, which was scored against the pilot's VCA checks and needed the pilot
+  folder, which no install has. `margin benchmark` and `POST /api/benchmark` stay for developers.
+- *Projects* drops *For FlexiConc / Cross-Doc* (the Cross-Doc SDG Explorer's layout); the endpoint stays.
+- `margin --help` no longer lists `load-vca`, `match-sources`, `reset-corpus`, `coverage`, `screen`, `make-tasks`,
+  `export-flexiconc`, `acceptance`, `review-export`, `review-import`, `gold-export`, `evaluate` and `report`
+  (`cli.SDG_PACK_COMMANDS`); they still run when typed. Its description no longer mentions the VCA pipeline.
+- The Claude Code plugin loses the `margin-extractor` helper (six helpers now), and its descriptions (`plugin.json`,
+  `SKILL.md`, the checker and the auditor), which Claude Code loads in every session, no longer mention the pack.
+- *Remove all documents* is still refused for a project that holds pack results; the troubleshooting line now says
+  that means a project copied from ENLENS.
+- `docs/MANUAL.md` loses sections 9 to 14 (about 400 lines on the pack; *Limits* and *Troubleshooting* are now 9
+  and 10) and the pack's limits and troubleshooting rows; `docs/MODEL_CHOICE.md` its pack rows and their reasons;
+  the README its "optional pack" line and the FlexiConc export.
 
 **Removing themes, shared with ENLENS.** The code of 0.7's *remove a theme, and find a new one in its place* is
 offered to ENLENS as well (as ENLENS 0.14.0). So that it comes back through `tools/sync_enlens.py` without a conflict,
 Margin's copy is now the same as ENLENS's apart from the names: its rules move from `margin.css` (section `m070`) to
 the Themes page's own stylesheet, `concepts-themes.css`, unchanged; the comment on its columns in `store.py` no longer
 names an app; and its tests are ENLENS's, `tests/test_0_14_0_remove_themes.py` (was `tests/test_m0_7_0_remove_themes.py`,
-the same 7 tests, which now look for the rules in `concepts-themes.css`). Nothing changes on screen. Checked with a
-practice sync of the ENLENS commit into a copy of Margin: it merges without a conflict and changes no file; and in
-headless Chrome, the Themes page as before, light and dark, with no console errors.
+the same 7 tests, which now look for the rules in `concepts-themes.css`). Nothing changes on screen.
+
+**Tests.** `tests/test_m0_8_0_no_sdg_default.py` (9 tests): no codebook by default and an old `sdg` default dropped
+once (chosen again, it stays); own codebooks before the built-in ones; through the app, adding documents with no
+codebook (no codes step, no error), the 409s, empty suggestions, then a codebook named and chosen; the model table
+without the pack's rows; `margin --help` without the pack's commands (which still run) and `profile` asking for a
+codebook; the connector's codebook; the plugin without the extractor; the page without an SDG default, the model
+test or the FlexiConc button; the manual and README without the pack.
+
+**Not yet done.** The pack's modules, prompts, task kinds and tables are still in the code (unused); taking them out
+would conflict with every ENLENS sync. ENLENS's `pilot/` folder (38 MB, used by tests) is still in the repository. A
+code without a codebook is still read as an SDG target. Not tried with a real signed-in Claude Code: `/margin-run`
+without the extractor helper.
 
 ## 0.7.0 (November 2026): remove a theme, and find a new one in its place
 

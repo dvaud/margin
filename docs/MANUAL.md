@@ -3,7 +3,7 @@
 Margin is a research and paper-writing companion grown from ENLENS (whose releases, 0.5 to 0.11.1, the version
 numbers in brackets below refer to; Margin's own start at 0.1.0). It **checks your draft** against your documents
 (section 3, *Checking a draft*), helps you **explore** your own documents and **check hypotheses** against them. Exploring comes first: every
-place a word occurs, the codes each document addresses (the SDG targets or your own codebook), a glossary of terms
+place a word occurs, the codes of your codebook each document addresses, a glossary of terms
 grouped into concepts you follow across documents, themes, references inside a document, highlighted copies. Most of
 it needs no AI. When you have a statement that could be true or false ("Green hydrogen production increases water
 stress in arid regions", "Remote work lowers commuting emissions in large cities"), Margin finds the passages of your
@@ -16,10 +16,6 @@ Margin sets up and starts for you. Your documents, results and reviews stay on y
 inside the AI's tasks are sent to Anthropic. A model served on your own computer by Ollama, LM Studio, llama.cpp, Jan
 or vLLM keeps every word on it, and the Claude API with a team key serves a shared installation. Whoever installs the
 app can remove every cloud option for good (`--local-only`).
-
-The first application was the green hydrogen Value Chain Assessment (VCA) by Peyerl and van der Zwaan (2024,
-*Discover Sustainability* 5:199). The pipeline built for it (impact claims tagged with UN SDG targets, compared with
-an expert table, summarised in a report) is included as the **SDG pack**, sections 9 to 14.
 
 ---
 
@@ -163,7 +159,7 @@ The app speaks plain language; the command line, the API and the code use the te
 | About another group | Scope note | The AI's note that an excerpt is about another group, setting, place or period than the hypothesis names ("about fully remote workers, not hybrid"). Such an excerpt supports the hypothesis at most partly. |
 | Second opinion | Model for second opinions | Another model that reads the same excerpts on its own, to show where it differs. Its judgements never change an answer. |
 | Stronger model | Model routing (*Steps up to*) | The model a check steps up to: it reads the excerpts again and its judgements replace the first ones; the answer shows what it was at first. |
-| Codebook | Framework | An optional list of codes a hypothesis can be tagged with (like codes in NVivo or Atlas.ti). The 169 SDG targets ship with Margin; add your own as a CSV. The AI sees the code's text. |
+| Codebook | Framework | An optional list of codes a hypothesis can be tagged with (like codes in NVivo or Atlas.ti). Add your own as a CSV; the UN SDG targets and goals are built in as examples. The AI sees the code's text. |
 
 ### Answers
 
@@ -482,7 +478,7 @@ hidden from a Claude chat; for a draft Claude may read, the page says how much o
 ### Exploring the documents (0.7)
 
 Before or alongside checking hypotheses, the pages under **Explore the documents** show what the documents say and
-where. They replace the Cross-Doc SDG Explorer. Search, key terms, the keyword profile, the glossary and themes by
+where. Search, key terms, the keyword profile, the glossary and themes by
 words need no AI model; the AI only adds readings on top, and every one of them quotes the text and is checked
 against it.
 
@@ -497,12 +493,14 @@ and its flask button starts a check of what the line says. Download all lines fo
 the stretch of text the app reads as one unit, up to about 1,100 characters; the location (page, paragraph) is that
 of the original.
 
-**Profile.** Which codes of a codebook (the 169 SDG targets by default, the 17 goals, or your own CSV) each document
-addresses, how much and where. When documents are added, the app finds candidate codes in seconds by their
+**Profile.** Which codes of a codebook (your own CSV, or a built-in one: the 169 SDG targets or their 17 goals) each
+document addresses, how much and where. There is no codebook until you choose one (Margin 0.8): the Profile page,
+the Codes panel of a document and the themes' code grid ask for it, and *Settings → Exploring* can set it to none
+again. Once one is chosen, when documents are added the app finds candidate codes in seconds by their
 keywords (and by meaning, with an embedding model): a *provisional* profile. *Let the AI label the passages* has the
-AI read each passage with a candidate code and say which codes really apply (main topic or mentioned; for the SDGs,
+AI read each passage with a candidate code and say which codes really apply (main topic or mentioned; for a codebook of aims,
 whether the passage says it helps or hinders the aim), with a quote and a reason; afterwards it says how many keyword
-codes it confirmed, did not confirm, and added. Count by code or by group (the SDG goals). The grid opens the passages
+codes it confirmed, did not confirm, and added. Count by code or by group (a codebook's groups). The grid opens the passages
 behind each cell. In a document, the **Codes** panel shows every code with its passages, quotes, reasons or the
 words that found it (highlighted in the text): agree, change how it applies, reject (with Undo), or add a code of
 your own; your labels always count. *Technical details* show the model, its exact version (digest), the prompt and
@@ -548,10 +546,6 @@ give the documents with the quotes marked.
 **Quick look.** *Quick look at one document* (on the start page, *Check a hypothesis*, and on *Manage projects*) reads one file into a
 temporary project and opens it at its key terms: search it, see its codes and references at once. A banner offers
 *Keep as a project* or *Discard now*; otherwise it goes to the trash after 7 days.
-
-**For FlexiConc / Cross-Doc** (Projects page) downloads the project as one SQLite file in the FlexiConc layout of
-the Cross-Doc SDG Explorer (documents, sentences with their code, reference chains, theme clusters and, with an
-embedding model, embeddings), for tools that read that format.
 
 ### The bibliography: Zotero (0.13)
 
@@ -699,8 +693,8 @@ Settings has five tabs, each one page with nothing folded inside another (0.9):
   strictness ("When the AI was at least 70% sure, you agreed with it in 85% … *Use 70%*"); and how new checks start
   (other words, parts, how many excerpts to read and at most how many from one document).
 - **Exploring**: the codebook of the profiles, how many themes a new set looks for, and the **codebooks**: view the
-  codes, add a CSV codebook, remove one; a CSV codebook can be marked as aims a text can help or hinder, like the SDG
-  targets.
+  codes, add a CSV codebook, remove one; a CSV codebook can be marked as aims a text can help or hinder, like policy
+  goals. The built-in SDG codebooks are listed last.
 - **Documents**: **reading scanned PDFs** (on or off, and the languages) and the embedding model for **search by
   meaning**.
 - **Technical**: **AI model per task** (which model answers each kind of task, what it steps up to, the helper on
@@ -752,8 +746,7 @@ margin detect                                                       # local serv
 ```
 
 `check` (or `hypothesis`) prints the verdict, the balance, and per claim the graded passages with quotes and the
-passages read without result, as JSON. Options: `--decompose`, `--framework NAME --code CODE` (`--target` still works
-for SDG targets), `--k`, `--per-doc`, `--no-expand`, `--threshold`, `--embed-model` and `--embed-url`.
+passages read without result, as JSON. Options: `--decompose`, `--framework NAME --code CODE` (a code without `--framework` is read as an SDG target), `--k`, `--per-doc`, `--no-expand`, `--threshold`, `--embed-model` and `--embed-url`.
 
 Backends (`--backend`, every model command): `auto` (default: the first local server running, Ollama first), `ollama`
 (`--url`, `--num-ctx`, `--think on|off`), `local` (an OpenAI-compatible server, `--url http://localhost:1234/v1`),
@@ -776,12 +769,10 @@ margin --ws myproject search water --collocates                                 
 margin --ws myproject terms --rebuild                                              # the glossary; --q water filters
 margin --ws myproject concept "proton exchange membrane" --references              # a concept card as JSON
 margin --ws myproject profile --keywords-only --out profile.xlsx                   # codes by keywords, no model
-margin --ws myproject profile --framework sdg_goals --level group --limit 50       # the AI labels 50 passages
+margin --ws myproject profile --framework remote --level group --limit 50          # the AI labels 50 passages
 margin --ws myproject themes --k 20 --mode auto --name-with-model --out themes.xlsx
 margin --ws myproject resolve <doc_id> [--name "the plant"]                        # follow references
 margin --ws myproject annotate <doc_id> --hyp <hyp_id> --layers judgements labels --out highlighted.pdf
-margin --ws myproject export-flexiconc project.sqlite [--no-embeddings]
-margin --ws pilot acceptance samples|measure|search                                 # the 0.7 acceptance measures
 margin --ws pilot acceptance queue --kind label --model haiku [--again]           # 0.8: a run through the queue
 margin --ws pilot acceptance score [--apply]                                      # 0.8: score the runs (docs/MODEL_CHOICE.md)
 margin --ws myproject prepare label|link|theme|resolve|check ["hypothesis"]       # 0.8: tasks for Claude Code
@@ -834,7 +825,8 @@ the answer's JSON schema, so even small models give valid JSON; the rest depends
   With numpy installed (`.[fast]`) the comparison is instant; without it, about half a second per search on ten
   thousand passages.
 
-**Test a model before trusting it**: Settings → *Test a model*, or
+**Test a model before trusting it** (for developers; Margin 0.8 took it out of Settings, since it needs a project
+whose earlier answers serve as the reference):
 
 ```bash
 margin --ws pilot benchmark --backend ollama --model qwen3:8b --sample 30
@@ -883,7 +875,7 @@ Write in the chat as you would to a colleague:
 - "Read more passages" or "Try a different search" when nothing was found
 - "Show me my recent checks in Pilot"
 
-- "In Pilot, where do the documents talk about electrolyser imports?" or "Which SDG targets does the IEA Africa
+- "In Pilot, where do the documents talk about electrolyser imports?" or "Which codes does the IEA Africa
   outlook address?" or "What does Pilot call PEM electrolysis, and in which documents?" (0.7)
 
 The connector's tools: `list_projects`, `create_project`, `add_sources`, `use_folder_as_project`, `list_documents`,
@@ -898,8 +890,7 @@ terminal shows any start-up problem (it then waits for the app; stop it with Ctr
 ### Claude Code as the AI behind every task (0.8; the default from 0.9)
 
 With Claude Code, signed in with your own Claude plan, every AI button of Margin is answered by Claude: profile
-labels, concept links, theme names, references, checks, reading an excerpt again, second opinions, the model tests
-(*Compare a sample* of labels, the *Model test*), and the SDG pack's tasks (section 10, step 5). Margin prepares
+labels, concept links, theme names, references, checks, reading an excerpt again, second opinions and *Compare a sample* of labels. Margin prepares
 the work in a queue and checks every answer as it checks any other; Claude Code does only the reading. Margin never
 sees your Claude login (Claude Code uses its own) and never runs on anyone else's plan. For a shared installation
 that runs unattended, use the Claude API with the team's key instead (the same queue and the same models per task:
@@ -942,8 +933,8 @@ model), which used to say only which command to type.
 ```
 
 `/margin-run` hands each kind of task to a helper agent on the model Margin names for it (labels and links on
-Haiku, theme names, references, search words and checks on Sonnet; for the SDG pack, extraction on Sonnet,
-splitting the VCA and checking its claims on Opus, audits on the auditor; *AI model per task* in Settings) and
+Haiku, theme names, references, search words and checks on Sonnet, second opinions on the auditor; *AI model per task*
+in Settings) and
 reports what is done and what is left. The helpers can use only the Margin queue tools: they see nothing but the
 passages handed out and write nothing but answers. Every answer is quote-checked; a wrong quote is sent back and
 answered again. An unsure answer (certainty under 0.6), or one rejected twice, goes once to a stronger model.
@@ -972,7 +963,7 @@ seeded local model's are. Each answer records its route (Claude Code), helper, t
 prompt version, whether it stepped up, and when its batch was claimed and answered; *How these results were made*
 lists them per kind. The acceptance runs (`margin acceptance queue … --again`) measure how much two readings differ.
 
-**Model tests with Claude Code.** *Compare a sample* (profile labels) and the *Model test* (Settings) put their
+**Model tests with Claude Code.** *Compare a sample* (profile labels) and `margin benchmark` put their
 tasks in the queue of a temporary copy of the project, named on the waiting page (type `/margin-run "<that
 name>"`). The copy is removed when the test ends, so nothing is stored; the labels are read by the label model, and
 the model test answers each kind on its own model. *Test: repeatable answers?* says that Claude Code takes no seed.
@@ -995,10 +986,10 @@ claimed for 30 minutes), `submit_answers` (each answer quote-checked: stored, or
 | paragraphs, headings | Where each paragraph (with its page) and heading of a document starts, found when it was added |
 | second_opinions | A second model's grade of each excerpt it read again (never used for an answer) |
 | task_claims | 0.8: the batches of queued tasks handed out to Claude Code: who took them, when, model, helper; `tasks.queued`, `claimed_by`, `step`, `again` and `results.route`, `helper`, `step` belong with it |
-| meta | Thresholds used by the pack, and the corpus version (search indexes are rebuilt when it changes) |
+| meta | Thresholds, and the corpus version (search indexes are rebuilt when it changes) |
 | drafts, draft_claims, draft_sent | Margin 0.1: your drafts (text, AI setting), their claims (offsets in `drafts.text`, the quote, the claim checked, who found it, the hypothesis that checks it) and every time Claude read part of a draft |
 | bib_items, bib_links | 0.13: the bibliography's works (title, creators, year, DOI, web address, Zotero link, the files Zotero keeps with their checksums) and which document each is (`status`: `auto` for the same file or DOI, `probable`, `confirmed` or `rejected` by a person; `method`: `file`, `doi`, `title`, `person`); where it came from is in `meta` (`bibliography`); 0.13.3: `documents.file_title` keeps the file's own title while a linked work's title replaces it (`meta` `titles_version` rebuilds the keyword index) |
-| vca_targets, vca_refs, doc_refs, claims, claim_targets, evidence, interactions, vca_claims, reviews | The SDG pack (section 13) |
+| vca_targets, vca_refs, doc_refs, claims, claim_targets, evidence, interactions, vca_claims, reviews | ENLENS's SDG pack: empty in Margin, kept so a project copied from ENLENS opens |
 
 Open it with any SQLite tool. Offsets in `evidence` and `verifications` index into `documents.text`. Removing one
 document keeps past checks intact (each check stores the passages it showed); removing all documents also removes
@@ -1097,433 +1088,23 @@ paywalled literature, check with your library whether your licences allow text a
 service, or keep to a local model.
 
 ---
-## 9. The SDG pack: impact claims and the Value Chain Assessment
-
-The pilot's pipeline turns a set of source documents into **impact claims**: statements that an activity in a value
-chain affects a UN SDG target, in a direction, in a segment of the chain, at a place and time, under a condition,
-each with the exact words from the source. The claims are compared with an expert Value Chain Assessment (VCA) and
-summarised into a report. It asks five questions of the literature:
-
-1. Does the cited literature support the VCA's judgements? (Each justification is split into claims and checked.)
-2. Which SDG targets does green hydrogen affect, in which direction and in which segment?
-3. Where do synergies and trade-offs between targets appear?
-4. When do the effects occur, and where do they land (producer or importer, which countries)?
-5. Under which conditions do effects change, and which policy levers are named?
-
-It also measures how well evidence extracted from the sources rebuilds the VCA's own labels, so you can judge
-whether the method is good enough to extend the VCA to other value chains.
-
-The pack keeps the passage selection of 0.4 exactly (its own tokenizer), so re-running `make-tasks` on a 0.4
-workspace queues no new work. Vocabularies:
-
-- Segments: `production`, `transportation`, `end_use`, plus `whole_chain` and `unclear`.
-- Direction: `positive` (helps progress on the target), `negative` (hinders it), `mixed`, `no_effect`.
-- Influence: `direct`, `indirect`, `unclear` (VCA definitions).
-- Horizon: `short_term` (to 2030), `medium_long_term` (after 2030), `not_stated`.
-- Interaction scores between targets: Nilsson et al. (2016) scale from −3 (cancelling) to +3 (indivisible).
-- Targets: all 169 SDG targets, including lettered ones such as `7.b` and SDG 17 (`src/margin/data/sdg_targets.csv`).
-- Status of an extracted claim: `auto` (accepted automatically), `needs_review`, `accepted`, `changed`, `rejected`.
-- Task kinds: `split` (justification to VCA claims), `extract` (passage to impact claims), `verify_set` (which of up
-  to six passages from the cited sources support a VCA claim), `verify` (one passage, one claim: second checks),
-  and for hypotheses `decompose`, `expand` and `check`.
-
-### Quick start with the offline baseline
-
-The `baseline` backend is a keyword heuristic with the same output format as the models. It needs no key and no
-network, so it is the fastest way to see the whole pipeline work. Its results are a floor, not findings.
-
-```bash
-margin --ws demo init
-margin --ws demo load-vca path/to/43621_2024_374_MOESM1_ESM.xlsx
-margin --ws demo ingest path/to/sources.zip          # folders and zips are searched
-margin --ws demo match-sources
-margin --ws demo screen
-margin --ws demo make-tasks split
-margin --ws demo run split --backend baseline
-margin --ws demo make-tasks verify-vca
-margin --ws demo run verify_set --backend baseline
-margin --ws demo make-tasks extract
-margin --ws demo run extract --backend baseline
-margin --ws demo report                               # demo/report/report.html
-```
-
----
-
-## 10. The full workflow
-
-### Step 1. Load the VCA
-
-```bash
-margin --ws pilot init
-margin --ws pilot load-vca 43621_2024_374_MOESM1_ESM.xlsx
-```
-
-The loader reads sheet "(T3) SDGs & Targets - Analyses". The influence cells in that sheet are empty; the sign is the
-cell colour (red negative, green positive, bold colour direct, light colour indirect). The command prints totals.
-For the published workbook they must read 169 targets, 61 justified, 30 direct, 119 indirect, 86 positive,
-63 negative, 47 short term and 14 medium to long term, as in the paper. If they do not, the colours were not read
-correctly; see Troubleshooting.
-
-### Step 2. Add sources
-
-```bash
-margin --ws pilot ingest uploads/sources.zip more_reports/
-margin --ws pilot match-sources
-margin --ws pilot coverage
-```
-
-- Any file names work. Files are matched to the VCA references by DOI (from the file name, metadata or first pages)
-  or by the words of the reference (title, organisation, year).
-- `coverage` lists, for each justified target, how many of its cited sources are available. Targets with none are
-  reported as "source missing" everywhere, never as unsupported, and are left out of the agreement scores.
-- A `manifest.csv` next to the files (columns `file`, `reference`, `doi`; more columns are ignored) says exactly
-  which reference each file is. Several rows may point at one file when the same work is cited in different ways;
-  every row is linked. Manifest links take precedence over DOI and title matching.
-- The VCA's reference lists contain a few errors (cut-off or wrong DOIs, the same work cited twice). The loader
-  applies `src/margin/data/reference_fixes.csv` (actions `doi` and `same_as`) and then merges references
-  whose title words overlap strongly. `load-vca` reports how many were fixed and merged. Add rows to that file when
-  you find more.
-- Duplicate files (same bytes) are skipped. Scanned PDFs without a text layer come out empty; run OCR first. A file
-  that cannot be read is listed under `failed` and the others are added.
-- Notes that travel with a corpus (`problems.txt`, `README.md`, `notes.txt`) are not ingested. When a manifest is
-  present, `ingest` lists files it does not mention under `not_in_manifest`, so you can see what was added unlinked.
-- `--exclude PATTERN` leaves out files by name, for example a download that turned out to be the wrong document:
-  `margin --ws pilot ingest enlens_text.zip --exclude 'A_18_*'`. Repeat it for several patterns.
-- Text layers without a character map come out as `(cid:53)` codes or as shifted letters and control characters
-  (`5HQHZDEOH DQG` for `Renewable and`). Such passages get section `unreadable` and are never sent to a model.
-  `ingest` lists documents that are mostly unreadable, and they do not count as available sources in `coverage`.
-  Get another copy of the file (the publisher's version often has a proper text layer) or run OCR.
-- `coverage` and the report's Sources table flag very short documents: a web landing page or an event agenda saved
-  instead of the report itself still matches the reference, but holds no evidence.
-
-**Large PDF folders.** `tools/pdf_to_text.py` turns a folder of PDFs into small text files, one form-feed character
-between pages, so page numbers survive. It copies HTML files and `manifest.csv` and writes `enlens_text.zip` next
-to the folder, which `ingest` reads like the PDFs. It needs only `pypdf`:
-
-```bash
-pip install pypdf
-python3 tools/pdf_to_text.py path/to/sources path/to/manifest.csv
-```
-
-**Adding sources later.** Ingest the new files into the same workspace, then run `match-sources`, `screen` and the
-`make-tasks` commands again. Task ids are fixed by their content, so only new work is created: passages that now rank
-among the top N for a target, and VCA claims whose best passages changed (they get a further task for the new set;
-earlier answers are kept and counted together). Nothing already answered is asked again.
-
-**Starting over with another copy of the corpus.** `margin --ws pilot reset-corpus --yes` removes documents and
-everything derived from them (passages, claims, verifications and their tasks) but keeps the VCA and its split
-claims, so the split does not have to be paid for again.
-
-### Step 3. Screen passages
-
-```bash
-margin --ws pilot screen
-```
-
-A transparent heuristic marks passages that mention hydrogen (or its derivatives) and impact terms, and score
-against the SDG target texts. Only screened passages go to extraction unless you pass `--all-passages`. This step
-stands in for a fast decision model; see section 12 for replacing it. Lower `thresholds.screen_min_score` in
-`config.json` (default 2.0) to let more passages through.
-
-### Step 4. Create model tasks
-
-```bash
-margin --ws pilot make-tasks split                    # 61 justifications to VCA claims
-margin --ws pilot make-tasks extract --per-target 6   # the 6 best passages for each of the 169 targets
-```
-
-Extracting every screened passage of a large corpus is expensive (the pilot corpus has 7,600). `--per-target N`
-ranks passages against each SDG target's text and keeps the top N per target, so every target, not only the VCA's,
-gets the same chance. Only passages that name hydrogen or a derivative (or whose preceding passage does, which the
-task shows as context) are ranked; without that rule, general energy passages crowd out the value chain. Pass
-`--any-passage` to drop it, or leave out `--per-target` to extract every screened passage.
-
-After the split tasks have answers:
-
-```bash
-margin --ws pilot make-tasks verify-vca --k 6    # one task per VCA claim, with its 6 best passages from cited sources
-```
-
-Each `verify_set` task shows one VCA claim and up to `--k` passages (default `thresholds.verify_top_k`), at most
-`--per-doc` (default 2) from one document before the rest are filled by score, so one long report cannot crowd out
-the others. The model grades only the passages that bear on the claim: `supports`, `partially_supports` (a
-necessary part of the claim is stated and one inference remains: the mechanism without its effect on the target,
-the converse case, or the same effect for another segment or for renewables in general) or `refutes`. Passages it
-leaves out count as not enough information.
-
-`--pairwise` makes the older design instead: one `verify` task per claim and passage, with three verdicts. In the
-pilot, 72 of 75 pairwise checks found no support, often because the passage stated part of the claim; set-wise
-checks with a partial grade read the same text and say more.
-
-Other options: `--model` records a different model on the tasks; `--limit N` creates only N tasks (useful for a
-trial); `--beyond-cited` searches all documents, not only those the VCA cites.
-
-Second opinions with another model:
-
-```bash
-margin --ws pilot make-tasks audit-vca --sample 0.1 --model claude-fable-5-1      # 10% of answered VCA checks
-margin --ws pilot make-tasks verify-claims --sample 0.1 --model claude-fable-5-1  # 10% of extracted claims
-```
-
-Audit answers to VCA checks are stored apart (`subject_kind` `vca_claim_audit`) and never change a claim's status;
-`evaluate` and the report compare them with the first answers. `refresh KIND --model M` switches the main tasks to M
-but leaves audits and second checks with the model they were made for.
-
-### Step 5. Answer the tasks
-
-Four ways, which can be mixed per task kind:
-
-**Claude Code on your own plan** (0.8.1; the passages handed out are sent to Anthropic). `prepare` makes the tasks
-as `make-tasks` does and puts them in the queue; `/margin-run` answers them with a helper per kind:
-
-```bash
-margin --ws pilot prepare split                       # Opus (margin-extractor), one task per VCA target
-margin --ws pilot prepare verify-vca --k 6            # Opus (margin-checker), one VCA claim and its passages
-margin --ws pilot prepare extract --per-target 6      # Sonnet (margin-extractor); unsure claims go to Opus
-margin --ws pilot prepare audit-vca --sample 0.1      # the auditor (Opus, or Fable when switched on)
-margin --ws pilot prepare verify-claims --sample 0.1 --model fable   # a second check of extracted claims
-# then in Claude Code:  /margin-run pilot   (or /margin-run pilot extract)
-```
-
-`--model haiku|sonnet|opus|fable` keeps one model for those tasks instead of the routed one. The audits keep their
-model and never step up, so they stay a second model's reading. The pack's tasks enter the queue only through
-`prepare`: `make-tasks` and `run` work as before. `margin queue run --backend anthropic` answers the same queue
-unattended with the same models.
-
-**a) Claude API** (cloud: the passages are sent to Anthropic)
-
-```bash
-export ANTHROPIC_API_KEY=...
-margin --ws pilot run split --backend anthropic
-margin --ws pilot run extract --backend anthropic
-margin --ws pilot run verify_set --backend anthropic
-```
-
-The tasks record the model of `config.json` (`claude-opus-5-5` …); with the Claude API that model is used.
-
-**b) A local model** (text stays on your machine; `--backend auto` is the default):
-
-```bash
-ollama pull qwen3:8b                                        # once
-margin backend-check --backend ollama --model qwen3:8b      # is it running, is the model there?
-margin --ws pilot run verify_set --model qwen3:8b
-```
-
-Without `--model` a local backend uses the first chat model its server offers (the Claude model names stored on
-the tasks do not exist on a local server).
-
-The context length is set on every request (`--num-ctx`, default 16,384), and the answer is forced into the task's
-JSON format. `--think off` switches off the reasoning of thinking models, which is faster. Other OpenAI-compatible
-servers (LM Studio, llama.cpp, Jan, vLLM) work with `--backend local --url http://localhost:1234/v1`: the answer format
-is passed as a JSON schema where the server accepts it (json_object or none otherwise); set the context length on the
-server, because that endpoint cannot pass it.
-
-Local models are cheaper and private but weaker. Test them before trusting them (section 5).
-
-**c) File queue** (any worker, including Claude in a chat or an agent):
-
-```bash
-margin --ws pilot export-tasks extract --batch-size 25
-# the worker reads tasks/extract/SYSTEM.md and WORKER_GUIDE.md, answers each line of tasks/extract/batch_*.jsonl,
-# and writes results/extract/batch_*.jsonl lines: {"task_id": ..., "model": ..., "output": {...}}
-margin --ws pilot check-results pilot/results/extract/batch_0001.jsonl   # the worker checks its own file
-margin --ws pilot import-results pilot/results/extract
-margin --ws pilot requeue extract       # put exported tasks that got no answer back in the queue
-```
-
-`check-results` applies every check the import applies (schema, quotes, passage numbers) without storing anything,
-and lists the problems per line, so a worker can fix its file before handing it back. The worker guide asks workers
-to judge every task themselves and use code only to write and check JSON.
-
-Running several workers at once (the pilot ran up to 15 Claude agents in parallel): give each worker its own batch
-file, its own results file and its own folder for helper scripts. In the pilot, two workers that shared a scratch
-folder overwrote each other's helper scripts and one wrote lines into the other's results file. Before importing,
-check that every results file holds exactly the task ids of its batch.
-
-Whatever the route, every answer is validated before it is stored:
-
-- The JSON must match the schema; loose spellings ("end-use", "SDG 6.4") are normalised.
-- Every quote must be found in the text the model was given. Matching ignores case, typographic quotes and dashes,
-  ligatures and whitespace (PDF text often splits words), but nothing else: a paraphrase or an added number fails.
-- A claim whose main quote is not found is dropped. A task with no usable answer is retried, with the problems
-  listed in the next prompt, up to three attempts. An answer that is not accepted changes nothing stored before.
-- Claims with confidence below `thresholds.accept_confidence` (default 0.8) get status `needs_review`.
-
-Check progress at any time:
-
-```bash
-margin --ws pilot status
-```
-
-### Step 6. Review
-
-```bash
-margin --ws pilot review-export queue.csv --audit 0.05
-```
-
-The CSV holds claims that need review, a random 5% audit sample of auto-accepted claims, and VCA claims found
-unsupported or contradicted. Fill in `decision` with `accept`, `change` or `reject`. For `change`, give any of:
-
-- `corrected_targets`: `6.4:negative:direct; 2.4:negative:indirect`
-- `corrected_segment`: one of the segment values
-- `corrected_horizon`: one of the horizon values
-
-```bash
-margin --ws pilot review-import queue.csv --reviewer "initials"
-margin --ws pilot gold-export gold.jsonl
-```
-
-Rows with an invalid correction (also an unknown direction or influence) are reported and change nothing. The file
-may be saved by Excel (UTF-8 with or without byte-order mark, or Windows-1252). Reviewed items do not reappear in
-later queues. When a task is answered again (`refresh`), a reviewed claim with the same text keeps the decision;
-a claim whose text changed has its review marked superseded and comes back to the queue.
-`gold.jsonl` is the growing gold set: use it to compare prompts, models and thresholds.
-
-### Step 7. Evaluate and report
-
-```bash
-margin --ws pilot evaluate             # metrics as JSON
-margin --ws pilot report               # pilot/report/report.html plus CSVs
-margin --ws pilot report --strict      # only auto-accepted and reviewed claims
-```
-
----
-
-## 11. Reading the report
-
-The report has one section per question. Every number traces to `claims.csv`, which holds each claim with its quote,
-source and page.
-
-**1. Does the cited literature support the VCA's judgements?** Status per VCA claim:
-
-| Status | Meaning |
-| --- | --- |
-| supported | At least one passage from a cited source states the effect (grade supports, confidence at least `support_confidence`, default 0.6). |
-| partially_supported | No passage states the whole effect, but one states a necessary part of it, so one inference step remains. |
-| contradicted | A passage states the opposite and none supports it, fully or partly. |
-| unsupported | Sources were available and checked, but no passage states the effect. The judgement may rest on reasoning beyond the sources, or retrieval missed the passage. |
-| source_missing | None of the cited sources was provided, or the ones provided are unreadable. |
-| not_checked | Verification tasks have not been answered yet. |
-
-A second table shows the same statuses at other confidence thresholds. Partial grades usually carry lower
-confidence than full support, so the share of partially supported claims depends strongly on the threshold; read
-the whole table rather than one row.
-
-**Do the VCA's texts and colours agree?** Each VCA claim with a clear direction is compared with the colour of the
-VCA's own cell for its segment. Claims that point the other way are listed for the authors. Many are mitigations
-inside the justification of a negative cell ("local manufacturing reduces the risk"), some are real mismatches.
-
-**Can the method rebuild the VCA labels?** Claims extracted independently are aggregated per target and segment and
-compared with the VCA:
-
-- *Target has an effect*: over all 169 targets, so the targets the VCA leaves empty are the negatives. Precision
-  (share of targets the evidence marks that the VCA also marks), recall (share of VCA targets the evidence finds),
-  F1 and Cohen's κ (agreement beyond chance).
-- *Cell*: the same per target × segment, within the justified targets that have a source available.
-- *Sign*, *direct or indirect*, *time horizon*: agreement where both mark something.
-
-Low recall with high precision usually means the sources were incomplete or the screen was too strict. Disagreement
-on sign is the most informative: read those claims in `claims.csv`.
-
-**2. Effects.** One row per target, one column per segment: sign and the number of documents. The sign is positive or
-negative when one side has at least twice the documents of the other, otherwise mixed.
-
-**3. Synergies and trade-offs.** *Stated* interactions are those a passage states, scored on the Nilsson scale.
-*Inferred* pairs come from one document linking the same activity, segment and place to two targets: synergy (both
-helped), trade-off (one helped, one hindered), shared pressure (both hindered). Inferred pairs are candidates for
-expert scoring, not findings. The report lists only pairs found in two or more documents, because one long
-document (in the pilot, a paper that maps hydrogen to many SDGs) can link dozens of targets; all pairs are in
-`interactions.csv`.
-
-**4–6. Timing, geography, conditions.** Claims by horizon and direction; countries named and whether effects land
-with producers or importers; the conditions and policy levers that change an effect.
-
-**7. Gaps.** Target and segment cells the VCA leaves empty but two or more documents mark, and targets with no sources.
-
-**Sources.** Every document with its pages, passages, number of claims and the VCA targets that cite it, with checks
-for unreadable or very short files.
-
-**Method notes.** How the evidence was produced, and the agreement between the first answers and the second-model
-audits.
-
----
-
-## 12. Models and configuration
-
-`config.json` in the workspace:
-
-```json
-{
-  "models": {"screen": "heuristic", "split": "claude-fable-5-1", "extract": "claude-opus-5-5", "verify": "claude-opus-5-5"},
-  "thresholds": {"screen_min_score": 2.0, "accept_confidence": 0.8, "support_confidence": 0.6, "verify_top_k": 6},
-  "passages": {"max_chars": 1100, "min_chars": 200}
-}
-```
-
-Suggested split, following Anthropic's guidance that Opus 5.5 is the default and Fable 5.1 is for work where Opus
-falls short: Opus 5.5 for the high-volume extraction and verification; Fable 5.1 for the 61 justification splits,
-for resolving conflicts, and for a second check on a sample (`make-tasks verify-claims --sample 0.1 --model
-claude-fable-5-1`), which measures whether the more expensive model changes outcomes. A cheaper model (Haiku 5.5)
-or a dedicated classifier can replace the screen once it is benchmarked on reviewed passages.
-
-Every stored result records the model and the prompt version (`extract-v1`, `split-v2`, `verify-v1`,
-`verify-set-v1`; for hypotheses `decompose-v1`, `expand-v2`, `check-v2`). When you change
-a prompt in `prompts.py`, bump its version so old and new results stay distinguishable, then queue the affected tasks
-again with `margin refresh KIND` (add `--model` to switch model at the same time). Earlier answers stay in the
-`results` table.
-
-## 13. The pack's tables
-
-| Table | Holds |
-| --- | --- |
-| documents, pages, passages | Source text, page spans, passages with `section` (body, references, reference_like, unreadable) and screen score |
-| vca_targets, vca_refs, doc_refs | Gold labels, cited references, and which document matched which reference (method manifest, doi, title, or manual: rows you add by hand with method `manual` survive `match-sources`) |
-| tasks, results | Every task, its payload and status; every answer with model, prompt version, validity and errors |
-| claims, claim_targets, evidence | Extracted claims, their targets with direction and influence, and quotes with offsets and page |
-| interactions | Stated interactions (with quote) and inferred candidate pairs |
-| vca_claims, verifications | Split justifications; one row per checked passage with its grade and quote. `subject_kind` is `vca_claim`, `vca_claim_audit` (second opinion) or `claim` (second check of an extracted claim) |
-| reviews | Reviewer decisions and corrections |
-
-Open it with any SQLite tool. Offsets in `evidence` and `verifications` index into `documents.text`.
-
----
-
-## 14. Using the pack for other value chains or policy documents
-
-- **Another value chain**: you need the screen terms (`H2_RE` in `retrieve.py`), the segment definitions (`prompts.py`)
-  and, for evaluation, an expert table in the same layout, or reviewed claims as gold.
-- **Policy documents**: ingest them like any source. Policy levers and conditions are extracted from them as from papers.
-  For a policy layer, run `make-tasks extract --docs <ids>` on those documents only and read section 6 of the report.
-- **The Netherlands angle**: no VCA justification mentions the Netherlands; Dutch and EU policy documents and national
-  studies have to be added as sources first.
-
-For checking hypotheses about any subject, no pack is needed: sections 3 and 4.
-
----
-
-## 15. Limits
+## 9. Limits
 
 - Grades and claims are model output until reviewed. The quote check proves the quoted words exist; it does not prove the fields
   follow from them.
-- The corpus is what you provide. Paywalled sources you cannot or will not process leave targets as "source missing".
+- The corpus is what you provide.
 - Text comes from the PDF text layer. Tables and figures are read as text, which is often garbled; scanned pages need OCR.
 - "Nothing found" is about the passages read, not the documents: read more passages or search with other words.
-- The screen is a heuristic. Measure its recall on reviewed passages before relying on it for a new topic.
-- Inferred interactions are co-occurrence within a document, not causal statements.
 - Verification reads only the top `--k` passages per claim (a hypothesis check: `k` per claim per round; semantic search
   narrows the gap). In the pilot, a manual search of the full cited documents
   for 10 claims with no graded passage found partial support for 2 and a weak contradiction for 1; the other 7 had
   nothing anywhere in their sources. Retrieval misses some evidence, mostly where the source uses other words
   ("repurposing" for "upgrading").
-- Model confidences in the pilot were low (extraction mean 0.46), so with the default `accept_confidence` of 0.8
-  every claim went to review. Calibrate the threshold against reviewer decisions before using the auto status.
 
-## 16. Troubleshooting
+## 10. Troubleshooting
 
 | Problem | Fix |
 | --- | --- |
-| `load-vca` totals differ from the paper | The workbook layout or colours changed. Check `_fill_sign` in `vca.py`; theme colour 9 is read as green. |
-| A document did not match its reference | Put the DOI in the file name (`10.1016_j.ijhydene.2022.11.024.pdf`), use a `manifest.csv`, or add a `doc_refs` row by SQL with method `manual`. |
 | Many quotes fail | Look at `results.errors_json`. Usually the model tidied PDF text; the retry prompt tells it to copy exactly. |
 | Tasks stuck as `exported` | `margin requeue KIND`. |
 | "No Claude API key" | Export `ANTHROPIC_API_KEY` or enter it in Settings, or use a local model or the file queue. |
@@ -1531,7 +1112,7 @@ For checking hypotheses about any subject, no pack is needed: sections 3 and 4.
 | "Cloud models are switched off" / "Allow cloud models first" | The Claude API sends the passages read to Anthropic, so the app asks you to allow it first (Settings → Model service). |
 | "The local server … has no model" | Load the model in LM Studio, start llama.cpp with it, or name another with `--model` / in Settings. |
 | A semantic search error about vector sizes | The embedding model changed since the index was built: Sources → *Build semantic index*. |
-| "Remove all documents" is refused | The project also holds results of the SDG pack (extracted claims, VCA verifications). Remove documents one by one, or run `margin --ws FOLDER reset-corpus --yes` if you mean it. |
+| "Remove all documents" is refused | The project was copied from ENLENS and holds results of its SDG pack (extracted claims, VCA verifications). Remove documents one by one, or run `margin --ws FOLDER reset-corpus --yes` if you mean it. |
 | Empty document, or "Scanned: no text" | No text layer (scanned). Install Tesseract and the `ocr` extra (section 1) and add the file again, or run OCR yourself (`ocrmypdf in.pdf out.pdf`). |
 | The Margin icon is a blank square (macOS) or a plain shortcut (Windows) | It was made before 0.10.2 without Pillow. Open Margin once with 0.10.2 or later: it gives the icon its picture (macOS: if Finder still shows the blank one, `killall Finder`). Or make the icon again: `margin-gui --make-launcher`. |
 | Settings shows an older version after updating | That copy was still running. Choose *Restart now* on the notice at the top of the page (0.13.1), or *Quit Margin* and open Margin from its icon (0.10.2 does this by itself when nothing runs). |
@@ -1545,8 +1126,6 @@ For checking hypotheses about any subject, no pack is needed: sections 3 and 4.
 | Claude Code answers with the wrong Claude account | The sidebar card (hover *Claude, on your plan*) and *Settings → AI* name the account it uses. To switch, type `claude auth logout` in Terminal or PowerShell, then press *Check again* and *Set up Claude* in *Settings → AI*: it opens the sign-in window, where you sign in with the other account. |
 | *Set up Claude* keeps waiting for the sign-in | Finish signing in in the window it opened (and in the browser page that window opened), then press *I have signed in*. No window? Open Terminal or PowerShell, type `claude`, and sign in. |
 | "The original file is no longer at …" | The file was moved or renamed after it was added; the app still has its text. Put it back, or add it again. |
-| A document is listed under `mostly_unreadable` | The PDF's fonts have no character map. Get another copy (often the publisher's) or OCR it, `reset-corpus` or ingest the new copy, and run `match-sources` again. |
-| A source is flagged "very short" | It is probably a landing page or an agenda, not the cited work. Replace it, or leave it out with `--exclude`. |
 | The app says it cannot reach Ollama | Start the Ollama app (or `ollama serve`) and check the address in Settings (default `http://localhost:11434`). |
 | "Ollama has no model ..." | Download it: `ollama pull <model>`, then pick it again in Settings. |
 | Test connection warns about Ollama's cloud | The model runs on Ollama's servers, which do not support the JSON format the app needs, and the text leaves your computer. Pick a model downloaded with `ollama pull`. |
