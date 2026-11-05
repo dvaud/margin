@@ -283,7 +283,7 @@ def test_the_page_offers_it():
     reg = (STATIC / "registry.js").read_text(encoding="utf-8")
     assert '"theme-new": { icon: "shapes", text: "Finding a new theme"' in reg
     order = sections()  # its section of margin.css: before Margin's look, which comes last
-    assert order.index("m060") < order.index("unreleased") < order.index("m020")
-    css = section("unreleased")
+    assert order.index("m060") < order.index("m070") < order.index("m020")
+    css = section("m070")
     assert ".th-removed" in css and ".th-new" in css
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css)  # colour tokens only: light and dark both work

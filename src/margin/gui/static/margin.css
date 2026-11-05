@@ -1,9 +1,9 @@
 /* margin.css: all of Margin's CSS, in the local layer. ENLENS's releases never edit it.
 
    site.css (linked after every stylesheet of ENLENS in index.html) imports it, so Margin's look wins. Its sections
-   keep the order the separate sheets had (m-tokens, m010, m030, m050, then m060 for 0.6, and m020); add new rules to the
-   section of the feature they belong to, never in a new file. Colours come from the tokens (the first section,
-   over ENLENS's tokens.css), so the light and dark themes both work. */
+   keep the order the separate sheets had (m-tokens, m010, m030, m050, then m060 for 0.6, m070 for 0.7, and m020);
+   add new rules to the section of the feature they belong to, never in a new file. Colours come from the tokens (the
+   first section, over ENLENS's tokens.css), so the light and dark themes both work. */
 
 /* ==== m-tokens: Margin's colour tokens and fonts, over ENLENS's tokens.css ==== */
 /* Margin's theme tokens: paper, ink and a margin rule (the look since Margin 0.2), over ENLENS's tokens.css.
@@ -355,7 +355,7 @@ mark.dm.dm-you[data-cite="cited"]::after { background: var(--surface-2); color: 
 .dc-cite-own .dc-cite-name { font-size: inherit; }
 .chip.dcit-badge-blocked, .chip.dcit-badge-wait, .chip.dcit-badge-off { color: var(--text-2); }
 
-/* ==== unreleased: remove a theme, and find a new one in its place (until the release names it) ==== */
+/* ==== m070: remove a theme, and find a new one in its place (Margin 0.7) ==== */
 /* Colour tokens only, so the light and dark themes both work. */
 
 /* a new theme, on the list */

@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (November 2026): remove a theme, and find a new one in its place
+
+Margin 0.7 lets you take out the themes that say nothing about your question, and look for one it missed instead.
+ENLENS 0.13.8 takes *Check citations* out of ENLENS again; Margin keeps it, as part of *Check a draft* since 0.6, so
+nothing of 0.13.8 changes Margin (the add-on fix it keeps came with ENLENS 0.13.7, already in Margin 0.6).
 
 **Remove a theme you do not need, and find a new one in its place.** A set of themes often has one or two that say
 nothing about your question (running headers, reference lists, a topic outside your research). Now you can take them
@@ -27,7 +31,7 @@ out, and let Margin look for a theme it missed.
   (job `theme-new`); three new columns, added to a project when it opens: `themes.removed_at`, `themes.replaces`,
   `theme_members.found_in` (the theme a passage was in before a new theme took it).
 
-**Tests.** `tests/test_unreleased_remove_themes.py` (7 tests), on six generated topics in twelve documents: removing
+**Tests.** `tests/test_m0_7_0_remove_themes.py` (7 tests), on six generated topics in twelve documents: removing
 and bringing back (left out of the list, the grids, the counts and the Excel themes; its page opens; a passage moved
 out of it; merges and moves into it refused); the last theme and a merged one; a new theme by words (one topic, never
 the removed one's, nothing of the removed theme, where its passages came from, representatives kept right, the same

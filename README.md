@@ -45,28 +45,25 @@ use the install line). *Settings → Technical → Check for updates* looks at o
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.6: check your citations against their sources
+## New in 0.7: remove a theme you do not need, and find a new one in its place
 
-- **Does the source you cite say it?** When you add a draft, Margin also finds its citations, such as *(Verhoeven
-  & Okafor, 2025)*, *Lindqvist (2025) found that …* or *[3]* with a numbered reference list (no AI is used for
-  that). A third step on the draft page, **Check your citations against their sources**, checks each one against the
-  cited work's own document in your project, and no other: *Source accurate*, or a notice when the source says only
-  part of it, does not say it, or says otherwise, with the excerpt that shows why. You can overrule every answer.
-- **Seen where you write.** In your draft each citation is underlined by its answer (green: the source says it; wavy
-  red or amber: look at it), and the claim it stands for shows *Your citation* with its answer. So a cited claim
-  tells you both what all your documents say about it and whether your own source says it. The filter *Citation to
-  look at* gathers the ones to fix; the Excel file has *Your citations* and *What the cited source says*.
-- **Check citations** sits beside *Check a draft* under *Your writing*: every draft's citations are there, a text you
-  paste there is kept as a draft, and a citation whose work or document is missing says what it needs. Your draft's
-  AI setting applies to its citations' checks too.
-- **A model on this computer, without a terminal** (from ENLENS 0.13.7): *A model on this computer* (first screen or
-  *Settings → AI*) says how to get Ollama (free), notices when it starts, and downloads a model with one button.
-- **Updates that announce themselves:** the update button shows only when there is a new version, with its number.
+- **Remove a theme.** A set of themes often has one or two that say nothing about your question: running headers,
+  reference lists, a topic outside your research. **Remove…** on a theme (on the list or on its page) takes it out of
+  the themes, the grids and the Excel file. It waits under **Removed themes** at the foot of the list, with **Bring it
+  back**, and its page still opens, so you can move a passage that matters into a theme you keep.
+- **A new theme in its place.** Choose **Remove and find a new theme**, and Margin looks on your computer, without
+  AI, for a theme it missed: it takes passages that sit closer to it than to their own theme, and never ones closer
+  to the theme you removed, so that theme does not come back under another name. The new theme is named by its key
+  terms and marked *found in place of “…”*; its page says which themes its passages came from. Not the one you
+  wanted? Remove it too and find another. *Let the AI name the other themes* names only the new one.
 
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.6**: check your citations against their sources: a draft's citations are found, checked against the
+  cited work's own document and shown where you write; a model on this computer without a terminal, and an update
+  button that shows only when there is an update (from ENLENS 0.13.6 and 0.13.7).
 - **Margin 0.5**: APA 7 citations to paste from your draft: every document a claim would cite has its citation on a
   button that copies it, one for all of a claim's sources, as your reference list would write it.
 - **Margin 0.4**: your Zotero bibliography beside your documents (each work linked to its document, the works still
