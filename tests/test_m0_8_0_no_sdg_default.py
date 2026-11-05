@@ -35,7 +35,7 @@ def test_own_codebooks_come_before_the_built_in_ones(home):
 
     ws = home.create_project("P")
     frameworks.save(ws, "remote", CSV)
-    assert list(frameworks.available(ws)) == ["remote", "sdg", "sdg_goals"]
+    assert list(frameworks.available(ws)) == ["remote", "practice", "change_framing", "sdg", "sdg_goals"]
     assert frameworks.get("sdg", ws).codes  # still there, by name
 
 
@@ -61,7 +61,7 @@ def test_the_app_without_a_codebook(api, tmp_path):
     # a codebook named, or chosen, works as before
     assert api("POST", "/api/projects/P/frameworks", {"name": "remote", "csv": CSV})[0] == 200
     names = [x["name"] for x in api("GET", "/api/projects/P/frameworks")[1]["frameworks"]]
-    assert names == ["remote", "sdg", "sdg_goals"]
+    assert names == ["remote", "practice", "change_framing", "sdg", "sdg_goals"]
     assert api("GET", "/api/projects/P/profile?framework=remote")[0] == 200
     assert api("PUT", "/api/settings", {"profile_framework": "remote"})[0] == 200
     assert api("GET", "/api/projects/P/profile")[1]["framework"] == "remote"

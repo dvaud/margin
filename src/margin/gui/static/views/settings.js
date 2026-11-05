@@ -589,7 +589,7 @@ function embedSection(s, servers, info = { servers }) {
 async function frameworksSection() {
   const project = App.project;
   const list = h("div", {});
-  const card = sectionCard("frameworks", "Codebooks", "Optional. A codebook is a list of codes, like in NVivo or Atlas.ti; a hypothesis can be tagged with one code, and the AI reads the code's description alongside it, and the Profile page counts the codes each document addresses. Add your own as a spreadsheet (CSV) with columns code and description, and optionally group and group_name.", list);
+  const card = sectionCard("frameworks", "Codebooks", "Optional. A codebook is a list of codes, like in NVivo or Atlas.ti; a hypothesis can be tagged with one code, and the AI reads the code's description alongside it, and the Profile page counts the codes each document addresses. Add your own as a spreadsheet (CSV) with columns code and description, and optionally group, group_name, keywords (separated by ;), include, exclude and source.", list);
   async function reload() {
     clear(list);
     if (!project) { list.appendChild(h("p", { class: "muted" }, "Create a project first: codebooks belong to a project.")); return; }
@@ -598,7 +598,9 @@ async function frameworksSection() {
     for (const f of fws) {
       list.appendChild(h("div", { class: "fw-row" },
         h("div", { class: "grow" }, h("div", { class: "fw-title" }, f.title || f.name), h("div", { class: "fw-sub" }, `${f.codes} codes · each is called ${/^[aeiouAEIOU]|^SDG/.test(f.label) ? "an" : "a"} “${f.label}” · ${f.source === "bundled" ? "built in" : "added by you"} · short name ${f.name}`),
-          f.name === "sdg" ? h("div", { class: "fw-sub" }, "Built in, as an example: the 169 targets of the UN Sustainable Development Goals (and their 17 goals below).") : null),
+          f.name === "sdg" ? h("div", { class: "fw-sub" }, "Built in, as an example: the 169 targets of the UN Sustainable Development Goals (and their 17 goals below).") : null,
+          f.name === "practice" ? h("div", { class: "fw-sub" }, "Built in: social practice theory (Shove, Pantzar and Watson; Giddens; Nicolini; Spaargaren et al.). Each label also names the practice and the element, and says whether the passage holds the practice together or pulls it apart.") : null,
+          f.name === "change_framing" ? h("div", { class: "fw-sub" }, "Built in: how a text explains what people do, or why it changes (through practices, individual choice, structure or technology). For policy documents; one main framing per passage.") : null),
         h("button", { class: "btn btn-sm", type: "button", onClick: () => viewFramework(f) }, icon("eye", { size: 13 }), "View codes"),
         f.source !== "bundled" ? h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: async () => {
           const ok = await confirmDialog({ title: `Delete the codebook “${f.title || f.name}”?`, message: "Results tagged with its codes keep the code's text.", confirmText: "Delete" });
@@ -618,15 +620,27 @@ async function frameworksSection() {
       const q = input.value.trim().toLowerCase();
       let n = 0;
       for (const i of fw.items || []) {
-        if (q && !(`${i.code} ${i.description} ${i.group_name || ""}`.toLowerCase().includes(q))) continue;
+        if (q && !(`${i.code} ${i.description} ${i.group_name || ""} ${(i.keywords || []).join(" ")}`.toLowerCase().includes(q))) continue;
         n++;
-        tbl.appendChild(h("div", { class: "picker-item", style: { cursor: "default" } }, h("span", { class: "pi-code" }, i.code), h("span", { class: "pi-desc" }, i.description, i.group_name ? h("span", { class: "muted" }, ` — ${i.group_name}`) : null)));
+        // 0.9: a code's notes (when to use it, when not, keywords, source) one click away
+        const notes = [["Use when", i.include], ["Not when", i.exclude], ["Keywords", (i.keywords || []).join(", ")], ["Source", i.source]].filter(([, v]) => v);
+        tbl.appendChild(h("div", { class: "picker-item", style: { cursor: "default" } }, h("span", { class: "pi-code" }, i.code), h("span", { class: "pi-desc" }, i.description, i.group_name ? h("span", { class: "muted" }, ` — ${i.group_name}`) : null,
+          notes.length ? h("details", { class: "fold fw-notes" }, h("summary", {}, "Notes"), h("dl", { class: "ev-tech-list" }, notes.map(([k, v]) => h("div", {}, h("dt", {}, k), h("dd", {}, v))))) : null)));
         if (n > 500) break;
       }
       if (!n) tbl.appendChild(h("div", { class: "muted small", style: { padding: "8px" } }, "No code matches."));
     };
     input.addEventListener("input", draw); draw();
-    await dialog({ title: fw.title || fw.name, body: h("div", {}, h("p", { class: "muted small" }, `${fw.codes} codes · label “${fw.label}”`), input, tbl), wide: true });
+    const dw = fw.direction_words || {};
+    const about = [
+      fw.directional ? h("p", { class: "small", style: { margin: "4px 0" } }, `Directions: ${dw.helps || "helps"} or ${dw.hinders || "hinders"}.`, fw.direction_note ? ` ${fw.direction_note}` : "") : null,
+      fw.practice_and_element ? h("p", { class: "small", style: { margin: "4px 0" } }, "Each label also names the practice and the element, in the passage's words.") : null,
+      fw.one_main ? h("p", { class: "small", style: { margin: "4px 0" } }, "One main code per passage.") : null,
+      fw.send_all ? h("p", { class: "small", style: { margin: "4px 0" } }, "Small enough to go to the AI whole, with every passage.") : null,
+      fw.stance ? h("p", { class: "small", style: { margin: "4px 0" } }, h("span", { class: "muted" }, "How it is meant: "), fw.stance) : null,
+      fw.sources && fw.sources.length ? h("details", { class: "fold" }, h("summary", {}, "Sources"), h("ul", { class: "small" }, fw.sources.map((x) => h("li", {}, x)))) : null,
+    ].filter(Boolean);
+    await dialog({ title: fw.title || fw.name, body: h("div", {}, h("p", { class: "muted small" }, `${fw.codes} codes · label “${fw.label}”`), about, input, tbl), wide: true });
   }
   await reload();
   return card;

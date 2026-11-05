@@ -81,6 +81,10 @@ CREATE TABLE IF NOT EXISTS labels(
   label_id TEXT PRIMARY KEY, passage_id TEXT, doc_id TEXT, framework TEXT, code TEXT, relevance TEXT, direction TEXT,
   confidence REAL, quote TEXT, start INT, end INT, page INT, source TEXT, model TEXT, prompt_version TEXT,
   reason TEXT, matched_json TEXT, score REAL, similarity REAL, task_id TEXT, created_at TEXT);
+-- 0.9 (Margin): what a label names besides its code, in the passage's own words: the practice and the element
+-- (codebooks with practice_and_element, such as the built-in practice codebook)
+CREATE TABLE IF NOT EXISTS label_parts(label_id TEXT PRIMARY KEY, doc_id TEXT, framework TEXT, practice TEXT,
+  element TEXT);
 -- the vector of each code's text, per embedding model and framework (never mixed with passage vectors)
 CREATE TABLE IF NOT EXISTS code_vectors(model TEXT, framework TEXT, code TEXT, text_hash TEXT, vec BLOB,
   PRIMARY KEY(model, framework, code));
@@ -451,8 +455,8 @@ class Workspace:
         out = {}
         with self.connect() as cx:
             for t in ("documents", "pages", "paragraphs", "headings", "passages", "embeddings", "doc_refs", "claims",
-                      "claim_targets", "evidence", "interactions", "verifications", "labels", "terms", "term_mentions",
-                      "concepts", "concept_terms", "theme_runs", "themes", "theme_members", "mentions", "bib_links"):
+                      "claim_targets", "evidence", "interactions", "verifications", "labels", "label_parts", "terms",
+                      "term_mentions", "concepts", "concept_terms", "theme_runs", "themes", "theme_members", "mentions", "bib_links"):
                 out[t] = cx.execute(f"DELETE FROM {t}").rowcount
             kinds = ("('extract','verify','verify_set','expand','check','decompose','reread','second','label','link',"
                      "'theme','resolve')")
@@ -504,6 +508,7 @@ class Workspace:
                     cx.execute(f"DELETE FROM {tbl} WHERE kind='label' AND substr(task_id, -?) IN {own}", (n, doc_id))
             # 0.7: what was derived from the document (the term index is rebuilt when the corpus version changes)
             out["labels"] = cx.execute("DELETE FROM labels WHERE doc_id=?", (doc_id,)).rowcount
+            cx.execute("DELETE FROM label_parts WHERE doc_id=?", (doc_id,))
             out["mentions"] = cx.execute("DELETE FROM mentions WHERE doc_id=?", (doc_id,)).rowcount
             cx.execute("DELETE FROM term_mentions WHERE doc_id=?", (doc_id,))
             head = f"resolve:{doc_id}:"

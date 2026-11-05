@@ -6,7 +6,7 @@ import { tesseractHelp, App, api, h, icon, replace, clear, toast, showError, fmt
 import { simpleProgress, jobCard } from "./progress.js";
 import { blockNode, blockUnit, originalLink, forgetOriginals } from "./result.js";
 import { LEVEL, accessChoice, accessSelect, accessBadge, accessAskCard, accessBanner, docAccessDialog, levels as accessLevels } from "./ai-access.js";
-import { aiLabelCard, codebookChooser, startKeywordPass, keywordLabel, SOURCE_WORDS, RELEVANCE_WORDS, DIRECTION_WORDS } from "./profile.js";
+import { aiLabelCard, codebookChooser, startKeywordPass, keywordLabel, SOURCE_WORDS, RELEVANCE_WORDS, directionWords } from "./profile.js";
 
 const ACCEPT = ".pdf,.docx,.html,.htm,.txt,.md,.zip";
 const OK_EXT = ["pdf", "docx", "html", "htm", "txt", "md", "zip"];
@@ -779,7 +779,7 @@ export async function renderDocument(view, [docId], query) {
       if (it.provisional) chips.push(h("span", { class: "chip chip-weak", title: "Found without the AI. It counts until the AI has read this passage (or you decide)." }, "provisional"));
       if (it.source === "model" || it.source === "person" || it.decision === "change") {
         if (it.relevance) chips.push(h("span", { class: "chip" }, RELEVANCE_WORDS[it.relevance] || it.relevance));
-        if (prof.directional && it.direction && it.direction !== "not_stated") chips.push(h("span", { class: "chip" }, DIRECTION_WORDS[it.direction] || it.direction));
+        if (prof.directional && it.direction && it.direction !== "not_stated") chips.push(h("span", { class: "chip" }, directionWords(prof)[it.direction] || it.direction));
       }
       if (it.source === "model" && it.confidence !== null && it.confidence !== undefined) { const ce = certainty(it.confidence); chips.push(h("span", { class: `cert cert-${ce.word}`, title: ce.long }, `AI certainty: ${ce.word} (${Math.round(it.confidence * 100)}%)`)); }
       if (it.decision === "accept") chips.push(h("span", { class: "chip chip-yours" }, icon("check", { size: 12 }), "you agree"));
@@ -795,6 +795,11 @@ export async function renderDocument(view, [docId], query) {
         if (it.similarity !== null && it.similarity !== undefined) bits.push(h("span", {}, h("span", { class: "muted" }, bits.length ? " · close in meaning" : "Close in meaning to the code's text"), ` (similarity ${Number(it.similarity).toFixed(2)})`));
         why.push(h("p", { class: "dv-why found-words" }, it.source === "both" ? h("strong", {}, "Keywords and meaning agree. ") : null, bits));
       }
+      // 0.9: what the label names besides its code (codebooks with practice and element)
+      if (it.practice || it.element) why.push(h("p", { class: "dv-why dv-parts" },
+        it.practice ? [h("span", { class: "muted" }, "Practice: "), h("span", { class: "serif" }, it.practice)] : null,
+        it.practice && it.element ? " · " : null,
+        it.element ? [h("span", { class: "muted" }, "Element: "), h("span", { class: "serif" }, it.element)] : null));
       if (it.note && it.source !== "person") why.push(h("div", { class: "user-note" }, icon("note", { size: 13 }), h("span", {}, h("span", { class: "muted" }, "Your note: "), it.note)));
       const where = h("button", { class: "link-btn dv-loc", type: "button", title: "Show it in the text", onClick: () => jumpItem(it) }, icon("eye", { size: 12 }), cap(it.location || (it.page ? `page ${it.page}` : "show in the text")));
       return h("li", { class: "dv-item" + (it.provisional ? " dv-prov" : "") + (it.decision ? " ev-yours" : ""), dataset: { lid: it.label_id } },
@@ -833,19 +838,26 @@ export async function renderDocument(view, [docId], query) {
       }));
       const rel = radios(name, [["main", "main topic"], ["mentioned", "mentioned"]], it.relevance || "main");
       rel.setAttribute("aria-label", "How much the passage is about this code");
-      const dir = prof.directional ? radios(`${name}-d`, [["helps", "helps"], ["hinders", "hinders"], ["mixed", "mixed"], ["not_stated", "not stated"]], it.direction || "not_stated") : null;
+      const dw = directionWords(prof);
+      const dir = prof.directional ? radios(`${name}-d`, [["helps", dw.helps], ["hinders", dw.hinders], ["mixed", dw.mixed], ["not_stated", "not stated"]], it.direction || "not_stated") : null;
       if (dir) dir.setAttribute("aria-label", "Direction");
+      const named = !!prof.practice_and_element;
+      const practice = named ? h("input", { class: "input input-sm", type: "text", value: it.practice || "", placeholder: "the practice", "aria-label": "The practice" }) : null;
+      const element = named ? h("input", { class: "input input-sm", type: "text", value: it.element || "", placeholder: "the element", "aria-label": "The element" }) : null;
       const note = h("input", { class: "input input-sm", type: "text", placeholder: "Optional note", value: it.decision === "change" ? (it.note || "") : "", "aria-label": "Your note on this label" });
       const save = h("button", { class: "btn btn-sm", type: "button", onClick: () => {
         const r = rel.querySelector("input:checked"), dd = dir && dir.querySelector("input:checked");
-        put({ decision: "change", relevance: r ? r.value : undefined, direction: dd ? dd.value : undefined, note: note.value.trim() || undefined }, "Saved: your change to this label.");
+        put({ decision: "change", relevance: r ? r.value : undefined, direction: dd ? dd.value : undefined, note: note.value.trim() || undefined,
+          practice: practice && practice.value.trim() !== (it.practice || "") ? practice.value.trim() || undefined : undefined,
+          element: element && element.value.trim() !== (it.element || "") ? element.value.trim() || undefined : undefined }, "Saved: your change to this label.");
       } }, "Save the change");
       const instead = h("button", { class: "btn btn-sm btn-ghost", type: "button", title: "Reject this code here and choose the right one",
         onClick: async () => { await put({ decision: "reject" }, "This code is rejected here: choose the right one."); addForm({ passage_id: it.passage_id, where: it.location }); } },
         icon("plus", { size: 13 }), "Wrong code? Choose another instead");
       row.appendChild(h("details", { class: "fold judge-diff" }, h("summary", {}, it.decision === "change" ? "Your change · edit" : "Change how it applies"),
         h("div", { class: "judge-body" }, h("div", { class: "small muted" }, "How much is it about this code?"), rel,
-          dir ? [h("div", { class: "small muted", style: { marginTop: "6px" } }, "Does the passage say it helps or hinders the aim?"), dir] : null,
+          dir ? [h("div", { class: "small muted", style: { marginTop: "6px" } }, dw.helps === "helps" ? "Does the passage say it helps or hinders the aim?" : `Does the passage say it ${dw.helps} or ${dw.hinders}?`), dir] : null,
+          named ? [h("div", { class: "small muted", style: { marginTop: "6px" } }, "Which practice and which element, in the passage's words?"), h("div", { class: "row dv-parts-edit", style: { gap: "6px" } }, practice, element)] : null,
           h("div", { class: "row", style: { marginTop: "8px", gap: "6px" } }, note, save),
           h("div", { style: { marginTop: "8px" } }, instead))));
       row.appendChild(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => addForm({ passage_id: it.passage_id, where: it.location }) }, icon("plus", { size: 13 }), "Another code here"));
@@ -910,7 +922,11 @@ export async function renderDocument(view, [docId], query) {
       const desc = h("p", { class: "muted small", style: { margin: "4px 0 0" } });
       code.addEventListener("input", () => { const x = items.find((y) => y.code === code.value.trim()); desc.textContent = x ? x.description : ""; });
       const rel = h("select", { class: "select input-sm", "aria-label": "How much it is about the code" }, h("option", { value: "main" }, "main topic"), h("option", { value: "mentioned" }, "mentioned"));
-      const dir = prof && prof.directional ? h("select", { class: "select input-sm", "aria-label": "Direction" }, ["not_stated", "helps", "hinders", "mixed"].map((v) => h("option", { value: v }, DIRECTION_WORDS[v]))) : null;
+      const dw = directionWords(prof);
+      const dir = prof && prof.directional ? h("select", { class: "select input-sm", "aria-label": "Direction" }, ["not_stated", "helps", "hinders", "mixed"].map((v) => h("option", { value: v }, dw[v]))) : null;
+      const named = !!(prof && prof.practice_and_element);
+      const practice = named ? h("input", { class: "input input-sm", type: "text", placeholder: "The practice (optional)", "aria-label": "The practice (optional)" }) : null;
+      const element = named ? h("input", { class: "input input-sm", type: "text", placeholder: "The element (optional)", "aria-label": "The element (optional)" }) : null;
       const note = h("input", { class: "input input-sm", type: "text", placeholder: "Why (optional)", "aria-label": "Why this code (optional)" });
       const msg = h("p", { class: "field-error", role: "alert", hidden: true });
       const save = h("button", { class: "btn btn-sm btn-primary", type: "button" }, icon("plus", { size: 13 }), "Add my label");
@@ -919,7 +935,8 @@ export async function renderDocument(view, [docId], query) {
         if (!code.value.trim()) { code.focus(); return; }
         save.disabled = true;
         try {
-          await api("POST", `${base}/labels`, { framework, passage_id, code: code.value.trim(), quote: quote || undefined, relevance: rel.value, direction: dir ? dir.value : "not_stated", note: note.value.trim() || undefined });
+          await api("POST", `${base}/labels`, { framework, passage_id, code: code.value.trim(), quote: quote || undefined, relevance: rel.value, direction: dir ? dir.value : "not_stated", note: note.value.trim() || undefined,
+            practice: practice ? practice.value.trim() || undefined : undefined, element: element ? element.value.trim() || undefined : undefined });
           clear(addBox);
           toast("Your label was added. It always counts.", "ok", { small: true });
           await load();
@@ -930,6 +947,7 @@ export async function renderDocument(view, [docId], query) {
         h("p", { class: "muted small", style: { margin: "2px 0 8px" } }, quote ? ["For the selected text: ", h("q", { class: "serif" }, shortTitle(quote, 160))] : `For the passage ${where ? `in ${where}` : ""}.`),
         h("label", { class: "field-label", for: "dv-add-code" }, cap(label)), code, dl, desc,
         h("div", { class: "row", style: { marginTop: "8px", gap: "6px" } }, rel, dir, note),
+        named ? h("div", { class: "row dv-parts-edit", style: { marginTop: "6px", gap: "6px" } }, practice, element) : null,
         msg,
         h("div", { class: "btn-row", style: { marginTop: "8px" } }, save, h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => clear(addBox) }, "Cancel"))));
       addBox.scrollIntoView({ block: "nearest" });

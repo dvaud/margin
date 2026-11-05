@@ -1,0 +1,20 @@
+{
+  "title": "Social practice theory (25 codes)",
+  "label": "practice code",
+  "directional": true,
+  "direction_labels": {
+    "helps": "holds together",
+    "hinders": "pulls apart",
+    "mixed": "both",
+    "not_stated": "not stated"
+  },
+  "practice_and_element": true,
+  "direction_note": "Relative to the practice the passage is about: does what it describes make or renew the links that hold the practice together, or break them? (Shove et al. 2012: 21, 36)",
+  "sources": [
+    "Giddens 1984, The Constitution of Society, ch. 1",
+    "Nicolini 2012, Practice Theory, Work, and Organization, ch. 3.1 and ch. 9",
+    "Shove, Pantzar and Watson 2012, The Dynamics of Social Practice, ch. 2-3",
+    "Spaargaren, Lamers and Weenink 2016, Practice Theory and Research, ch. 1"
+  ],
+  "stance": "Programmatic eclecticism (Nicolini 2012: 213): Shove and Schatzki for elements and materials, Giddens for knowing, rules and resources, Nicolini for zooming in and out. Sensitising concepts, not a formula (Nicolini 2012: 240)."
+}

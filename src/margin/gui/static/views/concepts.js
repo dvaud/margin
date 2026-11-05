@@ -180,10 +180,29 @@ const GROUPS = [
   ["same", "Possibly the same", "Terms that may mean the same as this concept. If you accept, they become wordings of it."],
   ["narrower", "Broader concepts", "This concept is part of these."],
   ["broader", "Narrower concepts", "These are part of this concept."],
+  // 0.9: as elements of a practice (Shove, Pantzar and Watson 2012), seen from this concept
+  ["element_of", "An element of these practices", "A thing, skill or meaning these practices are made of. An element of two or more practices is shared by them."],
+  ["has_element", "Its elements", "The things, skills and meanings this practice is made of."],
+  ["requires", "Needs these", null],
+  ["required_by", "Needed by these", null],
+  ["shapes", "Shapes these", null],
+  ["shaped_by", "Shaped by these", null],
+  ["replaces", "Replaces these", null],
+  ["replaced_by", "Replaced by these", null],
+  ["clashes_with", "Clashes with these", null],
   ["related", "Related to it", null],
   ["different", "Judged not the same", null],
 ];
 const RELATION_CHOICES = [["same", "is the same as"], ["broader", "is broader than (includes)"], ["narrower", "is narrower than (is part of)"], ["related", "is related to"], ["different", "is different from"]];
+// 0.9: how the elements of a practice relate (offered when the chosen codebook names practices and elements)
+const ELEMENT_CHOICES = [["element_of", "is an element of the practice"], ["has_element", "is a practice with the element"], ["requires", "needs"], ["shapes", "shapes"], ["replaces", "replaces"], ["clashes_with", "clashes with"]];
+const ELEMENT_RELATIONS = new Set(ELEMENT_CHOICES.map(([v]) => v).concat(["required_by", "shaped_by", "replaced_by"]));
+// the relation choices as <option>s, with the element ones in a group of their own when they apply
+function relationOptions(withElements, selected, text = (t) => t) {
+  const opt = ([v, t]) => h("option", { value: v, selected: v === selected }, text(t));
+  if (!withElements) return RELATION_CHOICES.map(opt);
+  return [h("optgroup", { label: "As words" }, RELATION_CHOICES.map(opt)), h("optgroup", { label: "As elements of a practice" }, ELEMENT_CHOICES.map(opt))];
+}
 
 export async function renderConcept(view, [termId], query) {
   const project = App.project;
@@ -214,6 +233,13 @@ export async function renderConcept(view, [termId], query) {
   const wordJob = h("div");     // the AI proposing other wordings
   const linkJob = h("div");     // the AI judging one pair
   let jobRunning = false;
+  // 0.9: element relations are offered when the chosen codebook names practices and elements, or links have them
+  let practiceOn = false;
+  try {
+    const want = App.settings().profile_framework || "";
+    if (want) practiceOn = ((await api("GET", `${base}/frameworks`)).frameworks || []).some((f) => f.name === want && f.practice_and_element);
+  } catch (_) { /* the card still works without them */ }
+  const withElements = () => practiceOn || ((c.related || {}).links || []).some((l) => ELEMENT_RELATIONS.has(l.relation));
 
   async function reload() {
     try { c = await fetchCard(); } catch (e) { showError(e); return; }
@@ -251,7 +277,7 @@ export async function renderConcept(view, [termId], query) {
       body.appendChild(h("div", { class: "notice notice-warn", style: { marginBottom: "14px" } }, icon("alert-triangle"),
         h("div", {}, h("p", {}, "Documents were added or removed since the glossary was made, so these counts may be out of date."), btn)));
     }
-    body.append(wordingsCard(), docsSection(), relatedCard(), linesSection());
+    body.append(...[wordingsCard(), docsSection(), relatedCard(), inLabelsCard(), linesSection()].filter(Boolean));
   }
 
   // ---- wordings, and other wordings the AI proposes
@@ -348,17 +374,18 @@ export async function renderConcept(view, [termId], query) {
     } catch (e) { showError(e); if (btn) btn.disabled = false; }
   }
 
-  function judgePair(lk, btn) {
+  function judgePair(lk, btn, opts = {}) {
     btn.disabled = true;
-    api("POST", `${base}/concepts/judge`, { pairs: [[lk.a, lk.b]] }).then((r) => {
+    api("POST", `${base}/concepts/judge`, opts.body || { pairs: [[lk.a, lk.b]] }).then((r) => {
       jobRunning = true;
-      const m = new MiniJob({ title: `The AI judges “${c.label}” and “${lk.label}”` });
+      const m = new MiniJob({ title: opts.title || `The AI judges “${c.label}” and “${lk.label}”` });
       replace(linkJob, m.el);
       const w = watchJob(r.job.id, (job) => m.update(job));
       watchers.push(w);
       w.promise.then(async (job) => {
         jobRunning = false;
-        if (job.state === "done") toast(job.result && job.result.judged ? "The AI has judged the pair: see what it says below." : "The AI could not judge the pair.", job.result && job.result.judged ? "ok" : "warn");
+        if (job.state === "done" && opts.body) toast(job.result && job.result.judged ? `The AI judged ${plural(job.result.judged, "pair")}: see the links below.` : "The AI could not judge the pairs.", job.result && job.result.judged ? "ok" : "warn");
+        else if (job.state === "done") toast(job.result && job.result.judged ? "The AI has judged the pair: see what it says below." : "The AI could not judge the pair.", job.result && job.result.judged ? "ok" : "warn");
         else if (job.state === "error") showError({ message: job.error, kind: job.error_kind });
         clear(linkJob);
         await reload();
@@ -383,7 +410,7 @@ export async function renderConcept(view, [termId], query) {
     }
     // another relation (as seen from this concept)
     const sel = h("select", { class: "select input-sm", "aria-label": `How “${c.label}” relates to “${lk.label}”` },
-      RELATION_CHOICES.map(([v, t]) => h("option", { value: v, selected: v === lk.relation }, `${shortTitle(c.label, 30)} ${t} ${shortTitle(lk.label, 30)}`)));
+      relationOptions(withElements(), lk.relation, (t) => `${shortTitle(c.label, 30)} ${t} ${shortTitle(lk.label, 30)}`));
     const change = h("details", { class: "ct-change" }, h("summary", { class: "btn btn-sm btn-ghost" }, "Another relation…"),
       h("div", { class: "row", style: { marginTop: "6px", gap: "6px" } }, sel,
         h("button", { class: "btn btn-sm", type: "button", onClick: (e) => saveLink({ a: lk.this_term, b: lk.term_id, decision: "change", relation: sel.value }, e.currentTarget, "Changed.") }, "Save")));
@@ -432,7 +459,7 @@ export async function renderConcept(view, [termId], query) {
         replace(dl, (g.items || []).filter((e) => e.term_id !== termId).map((e) => h("option", { value: e.label })));
       } catch (_) { /* suggestions only */ }
     }, 250));
-    const sel = h("select", { class: "select input-sm", "aria-label": "How the two relate" }, RELATION_CHOICES.map(([v, t]) => h("option", { value: v }, t)));
+    const sel = h("select", { class: "select input-sm", "aria-label": "How the two relate" }, relationOptions(withElements(), null));
     const save = h("button", { class: "btn btn-sm", type: "button" }, icon("plus", { size: 13 }), "Add the link");
     const msg = h("p", { class: "field-error", role: "alert", hidden: true });
     save.addEventListener("click", async () => {
@@ -454,9 +481,31 @@ export async function renderConcept(view, [termId], query) {
       sec.appendChild(h("div", { class: "ct-group" },
         h("h3", {}, "Often mentioned together"),
         h("p", { class: "muted small", style: { margin: "0 0 6px" } }, "Concepts that appear in the same passages more often than chance would make them. The number is how many passages they share."),
-        h("div", { class: "colloc" }, tog.map((t) => h("a", { class: "chip chip-btn", href: conceptHref(t.term_id), title: `${plural(t.together, "passage")} together, ${t.lift} times more often than chance` }, t.label, h("span", { class: "count" }, String(t.together)))))));
+        h("div", { class: "colloc" }, tog.map((t) => h("a", { class: "chip chip-btn", href: conceptHref(t.term_id), title: `${plural(t.together, "passage")} together, ${t.lift} times more often than chance` }, t.label, h("span", { class: "count" }, String(t.together))))),
+        // 0.9: ask how they relate as elements of a practice (requires, shapes, replaces, ...)
+        withElements() ? h("div", { class: "btn-row", style: { marginTop: "8px" } },
+          h("button", { class: "btn btn-sm", type: "button", disabled: jobRunning, onClick: (e) => judgePair(null, e.currentTarget, {
+            body: { term: termId, relations: "elements" }, title: `The AI judges how “${c.label}” relates to the concepts mentioned with it, as parts of a practice` }) },
+          icon("sparkles", { size: 13 }), `Ask the AI how ${Math.min(tog.length, 8) === 1 ? "it relates" : "they relate"} in a practice`)) : null));
     }
     return sec;
+  }
+
+  // 0.9: the codebook labels that name this concept as a practice or an element (Shove et al.: follow the elements)
+  function inLabelsCard() {
+    const rows = c.in_labels || [];
+    if (!rows.length) return null;
+    // a code's short name: the words before the colon of its description ("Materials: the things…" → "Materials")
+    const short = (d) => { const i = (d || "").indexOf(":"); return i > 0 && i < 60 ? d.slice(0, i) : shortTitle(d, 60); };
+    const books = [...new Set(rows.map((r) => r.framework_title))];
+    return h("section", { class: "card section", "aria-labelledby": "ct-lab-h" },
+      h("div", { class: "card-head" }, h("h2", { id: "ct-lab-h" }, "In codebook labels")),
+      h("p", { class: "muted small", style: { marginTop: 0 } }, "Labels that name this concept as the practice a passage is about, or as the element a code is about."),
+      books.map((b) => [books.length > 1 ? h("h3", {}, b) : h("p", { class: "small muted", style: { margin: "0 0 4px" } }, b),
+        h("ul", { class: "ct-in-labels" }, rows.filter((r) => r.framework_title === b).map((r) => h("li", { title: r.description },
+          h("span", { class: "pf-top-code" }, r.code), " ", h("span", {}, short(r.description)),
+          h("span", { class: "muted small" }, ` · as ${r.role === "element" ? "an element" : "the practice"} in ${plural(r.passages, "passage")}`,
+            r.examples && r.examples.length > 1 ? ` (${r.examples.slice(0, 2).map((x) => `“${x}”`).join(", ")})` : ""))))]));
   }
 
   // ---- the passages as concordance lines

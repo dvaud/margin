@@ -275,11 +275,11 @@ def addon_helpers() -> dict[str, str]:
 # Margin's own kinds, as before 0.13.6 (tests/test_0_13_6_task_kinds.py checks every table against its 0.13.5 value).
 # Registration order follows Settings' model table.
 # ---------------------------------------------------------------------------------------------
-_core(name="label", prompt_version="label-v1", certainty="labels", claude=("haiku", "sonnet"), local="small",
+_core(name="label", prompt_version="label-v2", certainty="labels", claude=("haiku", "sonnet"), local="small",
       helper="margin-labeller", row="label", row_title="Codebook labels (profile)", batch=20, order=8,
       noun=("passage to label", "passages to label"), short="labels", title="Codebook labels",
       run_name="Codebook labels", output_cap=1500, corpus=True)
-_core(name="link", prompt_version="link-v1", certainty="relations", claude=("haiku", "sonnet"), local="small",
+_core(name="link", prompt_version="link-v2", certainty="relations", claude=("haiku", "sonnet"), local="small",
       helper="margin-linker", row="link", row_title="How concepts relate", batch=10, order=7,
       noun=("pair of terms", "pairs of terms"), short="pairs of terms", title="How concepts relate",
       run_name="How concepts relate", output_cap=700, corpus=True)

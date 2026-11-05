@@ -1336,7 +1336,8 @@ class App:
         fw = _codebook(_str(q, "framework"), self.settings())
         frameworks.get(fw, ws)
         docs = _list(q, "docs")
-        plan = profile.label_plan(ws, fw, docs, _bool(q, "all"))
+        # 0.9: without "all", the codebook's default (small codebooks: every passage)
+        plan = profile.label_plan(ws, fw, docs, _bool(q, "all") if _str(q, "all") is not None else None)
         plan.pop("passage_ids")
         try:
             be, model = self.backend(("label",))
@@ -1359,7 +1360,9 @@ class App:
             raise ApiError(409, "Find the codes by keywords first (it takes seconds): the AI reads the passages they found.")
         limit = _body_int(body, "limit", None, 1, 10 ** 7)
         job = self._model_job("label", f"The AI labels passages ({fw})", name, lambda job, be, model, prog:
-                               profile.run_labels(ws, fw, be, model, docs, bool(body.get("all_passages")), limit,
+                               profile.run_labels(ws, fw, be, model, docs,
+                                                  None if body.get("all_passages") is None else bool(body["all_passages"]),
+                                                  limit,
                                                   progress=prog, should_stop=job.cancel.is_set))
         job.scope = ",".join(docs) if docs else fw
         return job
@@ -1402,17 +1405,25 @@ class App:
 
         ws = self.ws(name)
         pairs = body.get("pairs")
+        relations = str(body.get("relations") or "words")
+        if relations not in ("words", "elements"):
+            raise ApiError(400, "relations must be words or elements.")
         if pairs:
             if not (isinstance(pairs, list) and all(isinstance(p, list) and len(p) == 2 for p in pairs)):
                 raise ApiError(400, "pairs must be a list of [term_id, term_id].")
             pairs = [tuple(p) for p in pairs][:200]
+        elif body.get("term") and relations == "elements":  # 0.9: a concept and those mentioned with it
+            try:
+                pairs = terms.element_pairs(ws, str(body["term"]))
+            except KeyError:
+                raise ApiError(404, "No such concept.")
         else:
             pairs = terms.proposed_pairs(ws)
         if not pairs:
             raise ApiError(400, "There is no pair of terms to judge.")
         return self._model_job("link", f"The AI judges {len(pairs)} {'pair' if len(pairs) == 1 else 'pairs'} of terms",
                                name, lambda job, be, model, prog: terms.judge_links(ws, pairs, be, model, prog,
-                                                                                    job.cancel.is_set))
+                                                                                    job.cancel.is_set, relations))
 
     def start_wordings(self, name: str, term: str) -> Job:
         from .. import terms
@@ -3024,8 +3035,8 @@ class Handler(BaseHTTPRequestHandler):
         ws = self.app.ws(name)
         fw = self._fw(ws, q)
         level = _str(q, "level") or "code"
-        if level not in ("code", "group"):
-            raise ApiError(400, "level must be code or group.")
+        if level not in ("code", "group", "practice"):
+            raise ApiError(400, "level must be code, group or practice.")
         out = {"framework": fw, "pass1": profile.pass1_status(ws, fw), "frameworks": [f.info() for f in
                                                                                       frameworks.available(ws).values()]}
         if out["pass1"]["done"]:
@@ -3060,8 +3071,8 @@ class Handler(BaseHTTPRequestHandler):
         ws = self.app.ws(name)
         fw = self._fw(ws, q)
         level = _str(q, "level") or "code"
-        g = profile.grid(ws, fw, _list(q, "docs"), level if level in ("code", "group") else "code")
-        sheets = [("Documents by code", profile.grid_table(g)), ("Labels", profile.labels_table(ws, fw, _list(q, "docs"))),
+        g = profile.grid(ws, fw, _list(q, "docs"), level if level in ("code", "group", "practice") else "code")
+        sheets = [("Practices by code" if level == "practice" else "Documents by code", profile.grid_table(g)), ("Labels", profile.labels_table(ws, fw, _list(q, "docs"))),
                   ("Key terms per document", key_terms_table(ws))]
         body = _xlsx_with_provenance(ws, sheets, kinds=("label",))
         fname = _filename(f"Margin profile - {name} - {fw} - {time.strftime('%Y-%m-%d')}", "xlsx")
@@ -3081,7 +3092,7 @@ class Handler(BaseHTTPRequestHandler):
         lid = profile.add_label(ws, _codebook(body.get("framework"), self.app.settings()), str(body.get("passage_id") or ""),
                                 str(body.get("code") or ""), body.get("quote") or None,
                                 str(body.get("relevance") or "main"), str(body.get("direction") or "not_stated"),
-                                body.get("note"))
+                                body.get("note"), body.get("practice") or None, body.get("element") or None)
         return {"label_id": lid}
 
     def put_label(self, name, label_id, q):
@@ -3089,7 +3100,8 @@ class Handler(BaseHTTPRequestHandler):
 
         body = self._body()
         profile.set_label(self.app.ws(name), label_id, str(body.get("decision") or ""), body.get("relevance") or None,
-                          body.get("direction") or None, body.get("note"))
+                          body.get("direction") or None, body.get("note"), practice=body.get("practice") or None,
+                          element=body.get("element") or None)
         return {"saved": True}
 
     # concepts (F3) and key terms (F6)
@@ -3116,8 +3128,15 @@ class Handler(BaseHTTPRequestHandler):
     def get_concept(self, name, term, q):
         from .. import terms
 
-        return terms.card(self.app.ws(name), term, _int(q, "offset", 0, 0, 10 ** 7), _int(q, "limit", 50, 1, 500),
-                          with_references=_bool(q, "refs"))
+        from .. import profile
+
+        ws = self.app.ws(name)
+        out = terms.card(ws, term, _int(q, "offset", 0, 0, 10 ** 7), _int(q, "limit", 50, 1, 500),
+                         with_references=_bool(q, "refs"))
+        # 0.9: the codebook labels that name this concept as a practice or an element
+        out["in_labels"] = profile.labels_naming(ws, [w.get("label") or "" for w in out.get("wordings") or []]
+                                                 or [out.get("label") or ""])
+        return out
 
     def put_concept_link(self, name, q):
         from .. import terms

@@ -45,23 +45,26 @@ use the install line). *Settings → Technical → Check for updates* looks at o
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.8: Margin without ENLENS's SDG baggage
+## New in 0.9: social practice theory as a codebook
 
-- **No codebook until you choose one.** Margin no longer assumes the UN SDG targets. The Profile page, a document's
-  *Codes* panel and the themes' code grid ask you to choose a codebook: your own (a spreadsheet of codes, like in
-  NVivo or Atlas.ti) or a built-in one. Until then, adding documents skips the codes step, and *Check a hypothesis*
-  starts with *No codebook*. Upgrading? Your settings drop the SDG codebook once; choose it again on the Profile page
-  if you used it (the labels in your projects are kept).
-- **The SDG codebooks stay, as built-in examples**, listed after your own everywhere.
-- **The green-hydrogen pipeline from the ENLENS pilot is gone from what you see**: its rows in *Settings → AI model
-  per task*, the *Model test*, the *For FlexiConc / Cross-Doc* download, its commands in `margin --help`, its helper
-  in the Claude Code plugin and its chapters in the manual. A project copied from ENLENS that holds its results still
-  opens, and those commands still run when typed.
+- **Two built-in codebooks from social practice theory.** *Social practice theory* (25 codes) follows practices
+  rather than topics: their materials, competences and meanings, how they are performed, known, ruled, and how links
+  are made, kept and broken. *Framings of conduct and change* (4 codes) says how a text explains what people do:
+  through practices, individual choice, structure, or technology by itself. Use it on policy documents.
+- **Labels that say more.** With the practice codebook, each label names the practice and the element in the
+  passage's own words, and says whether the passage **holds the practice together** or **pulls it apart**.
+  *Profile → Count by → Practice* shows practices by code, each with its elements. A concept's page lists the labels
+  that name it, and its links can say how elements relate (needs, shapes, replaces, is an element of, clashes with).
+- **Codebooks of ideas, not just words.** Any codebook may now give each code keywords, when to use it, when not to,
+  and its source; small codebooks (30 codes or fewer) go to the AI whole with every passage, since a keyword search
+  misses codes whose words are not in the text. A codebook can name its own directions.
 
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.8**: no codebook until you choose one; the SDG codebooks stay as built-in examples, and the
+  green-hydrogen pipeline of the ENLENS pilot is gone from what you see.
 - **Margin 0.7**: remove a theme you do not need, and find a new one in its place, on your computer without AI.
 - **Margin 0.6**: check your citations against their sources: a draft's citations are found, checked against the
   cited work's own document and shown where you write; a model on this computer without a terminal, and an update
@@ -274,7 +277,7 @@ see docs/MODEL_CHOICE.md) set them.
 | --- | --- |
 | `claimcheck.py` | Hypotheses: decomposition, checks, statuses, a person's judgements, who says what, rounds, re-reads, second opinions, new documents, the evidence map, calibration, batches, history, Excel |
 | `search.py`, `embed.py`, `retrieve.py` | Cached keyword index, local embeddings and hybrid ranking; BM25 (inverted index) |
-| `frameworks.py`, `taxonomy.py` | Optional codebooks (your CSVs; the SDG targets and goals bundled as examples) |
+| `frameworks.py`, `taxonomy.py`, `data/codebooks/` | Optional codebooks (your CSVs; built in: social practice theory and framings of change, written by `tools/make_practice_codebooks.py`, and the SDG targets and goals as examples) |
 | `llm.py` | Ollama, OpenAI-compatible local servers (LM Studio, llama.cpp…), server detection, Claude API, offline baseline |
 | `tasks.py`, `schema.py`, `prompts.py` | Model tasks, validation with the quote check, versioned prompts |
 | `bibliography.py` | The bibliography (ENLENS 0.13): Zotero read through its local API, BibTeX / RIS / CSL JSON / CSV files, matching works with documents, titles from the linked work |
@@ -286,7 +289,7 @@ see docs/MODEL_CHOICE.md) set them.
 | `home.py` | Settings, projects, the optional cloud key |
 | `gui/` | The local app: `server.py` (API and jobs), `static/` (the page), `progress.py`, `launcher.py` (the Margin icon), `icons/` (its picture, drawn by `tools/make_icons.py`) |
 | `concordance.py` | Search (ENLENS 0.7): concordance lines, modes, other forms, collocates |
-| `profile.py` | Codebook profiles: the keyword and meaning pass, the AI's labels, grids, a person's labels |
+| `profile.py` | Codebook profiles: the keyword and meaning pass, the AI's labels (with practice and element), grids by document or practice, a person's labels |
 | `terms.py` | The glossary (C-value terms, abbreviations), concepts and their links, key terms |
 | `themes.py` | Themes: spherical k-means (numpy or pure Python), c-TF-IDF names, a person's edits |
 | `references.py` | References inside a document (chains), and what a quote's "it" refers to |

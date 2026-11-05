@@ -648,24 +648,33 @@ every answer they store records the model, its digest, the prompt version, the s
 
 #### Profiles with a codebook (F2)
 
-- `GET /api/projects/<p>/profile?framework=<codebook>&level=code|group&docs=` (409 with no codebook named or chosen) → the keyword pass status (`pass1`), the
+- `GET /api/projects/<p>/profile?framework=<codebook>&level=code|group|practice&docs=` (409 with no codebook named or chosen) → the keyword pass status (`pass1`), the
   grid documents × codes (`grid`), counts by source (`stats`), the codebooks (`frameworks`, each with `groups`).
+  0.9: `level=practice` (codebooks with `practice_and_element`): `grid.rows` is `"practices"`, `grid.documents` are
+  the practices (`doc_id` is the practice's key, `title` its most frequent wording, with `in_documents` and
+  `elements`), `grid.directions` counts helps and hinders per cell, `grid.unnamed` the labels naming no practice.
+- `GET /api/projects/<p>/frameworks` and `…/frameworks/<name>` (0.9): each codebook also has `direction_words`,
+  `direction_note`, `one_main`, `practice_and_element`, `send_all` (30 codes or fewer: sent whole to the AI),
+  `stance` and `sources`; with its codes (`items`), each also has `keywords`, `include`, `exclude` and `source`.
 - `POST /api/projects/<p>/profile/keywords {framework?}` → job: the keyword (and meaning) pass, seconds.
-- `GET /api/projects/<p>/profile/plan?framework=&docs=&all=1` → `{passages, with_candidates, already_read,
-  to_read, estimate_seconds, run: {now, last, changed}}`; `changed` lists what differs from the last run (model,
-  digest, prompt, seed, settings).
+- `GET /api/projects/<p>/profile/plan?framework=&docs=&all=1|0` → `{all_passages, whole_codebook, codes, passages,
+  with_candidates, already_read, to_read, estimate_seconds, run: {now, last, changed}}`; `changed` lists what differs
+  from the last run (model, digest, prompt, seed, settings). Without `all` (0.9), the codebook's default: every
+  passage for a small codebook without a lexicon (the practice codebooks), else those with a candidate.
 - `POST /api/projects/<p>/profile/label {framework?, doc_ids?, all_passages?, limit?}` → job: the AI reads the
-  passages (task `label`, prompt `label-v1`). Its result: `{read, failed, planned, stopped, changes: {confirmed,
+  passages (task `label`, prompt `label-v2`; `all_passages` left out: the codebook's default, as for the plan). Its result: `{read, failed, planned, stopped, changes: {confirmed,
   not_confirmed, added}}`.
 - `POST /api/projects/<p>/profile/compare {…}` → job: a second model labels the same sample (`benchmark` measure).
 - `GET /api/projects/<p>/profile/calibration?framework=` → how often people agreed with the AI per certainty.
-- `GET /api/projects/<p>/profile.xlsx?framework=&level=` → *Documents by code*, every label with its quote, reason
+- `GET /api/projects/<p>/profile.xlsx?framework=&level=` → *Documents by code* (*Practices by code* with
+  `level=practice`; *Practice* and *Element* columns in the labels for such codebooks), every label with its quote, reason
   or matched words, and *Key terms per document*.
 - `GET /api/projects/<p>/documents/<id>/profile?framework=` → the codes of one document, each with its passages,
-  locations, quotes, reasons, matched words and who labelled them.
-- `POST /api/projects/<p>/labels {framework, passage_id, code, quote?, relevance?, direction?, note?}` → a label
-  of a person's own. `PUT /api/projects/<p>/labels/<label_id> {decision: accept|change|reject|clear, relevance?,
-  direction?, note?}`.
+  locations, quotes, reasons, matched words and who labelled them; 0.9: `direction_words`, `practice_and_element`,
+  `one_main`, and each item's `practice` and `element`.
+- `POST /api/projects/<p>/labels {framework, passage_id, code, quote?, relevance?, direction?, note?, practice?,
+  element?}` → a label of a person's own. `PUT /api/projects/<p>/labels/<label_id> {decision:
+  accept|change|reject|clear, relevance?, direction?, note?, practice?, element?}` (practice and element: 0.9).
 
 #### Terms and concepts (F3) and key terms (F6)
 
@@ -673,10 +682,16 @@ every answer they store records the model, its digest, the prompt version, the s
   `POST /api/projects/<p>/terms/build` → job: rebuild it (seconds; also run after documents are added).
 - `GET /api/projects/<p>/concepts?name=…` → the concept a wording belongs to. `GET /api/projects/<p>/concepts/<term_id>?refs=1&offset=&limit=`
   → the card: `wordings` (with `joined_by` and `joins`), `documents` (with `first`, `first_end`,
-  `first_location`), `lines`, `related`, `suggested_wordings`.
-- `PUT /api/projects/<p>/concepts/links {a, b, decision: accept|reject|change|add, relation?: same|broader|narrower|related|different, note?}`.
+  `first_location`), `lines`, `related`, `suggested_wordings`, and (0.9) `in_labels`: the codebook labels whose
+  practice or element contains a wording of the concept, `[{framework, framework_title, code, description, role:
+  practice|element, passages, examples}]`.
+- `PUT /api/projects/<p>/concepts/links {a, b, decision: accept|reject|change|add, relation?, note?}`; `relation`:
+  same, broader, narrower, related, different, or (0.9) an element relation: requires, required_by, shapes,
+  shaped_by, replaces, replaced_by, element_of, has_element, clashes_with (as seen from `a`).
   A person's `different` keeps a wording from being proposed again.
-- `POST /api/projects/<p>/concepts/judge {pairs?}` → job: the AI judges proposed pairs (task `link`).
+- `POST /api/projects/<p>/concepts/judge {pairs?, relations?: words|elements, term?}` → job: the AI judges proposed
+  pairs (task `link`, prompt `link-v2`). 0.9: `relations: "elements"` asks how they relate as elements of a practice;
+  with `term` and no `pairs`, the pairs are that concept and up to 8 concepts often mentioned with it.
   `POST /api/projects/<p>/concepts/<term_id>/wordings` → job: the AI proposes other wordings the documents use.
 - `GET /api/projects/<p>/documents/<id>/terms?n=15` → key terms with their places (`spans`) for underlining;
   `GET /api/projects/<p>/passages/<id>/terms` → the key terms of one passage.

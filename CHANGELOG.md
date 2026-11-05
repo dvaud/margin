@@ -1,5 +1,87 @@
 # Changelog
 
+## 0.9.0 (November 2026): social practice theory as a codebook
+
+Margin 0.9 adds two built-in codebooks from social practice theory, and what a codebook of *analytical* codes needs
+to work. The SDG targets are topics whose words appear in a report ("water stress"); a code like *practical
+consciousness* is an analyst's reading of "I just plug it in, I don't think about it". Its words are not in the text,
+so a keyword search alone misses it, and a label needs to say more than its code: which practice, which element.
+
+**Two built-in codebooks.** Listed after your own and before the SDG ones.
+- **Social practice theory** (`practice`, 25 codes in 6 groups): elements (materials, competences, meanings),
+  performing (sayings and doings, bodies, timing, practical concerns, emotions, breakdown), knowing (practical
+  consciousness, accounts), rules, resources and power, dynamics (links made, sustained and broken, mutual shaping,
+  circulation, careers) and connections between practices. Each code has a definition, keywords, when to use it,
+  when not to (naming the code to use instead) and its source pages (Shove, Pantzar and Watson 2012; Giddens 1984;
+  Nicolini 2012; Spaargaren, Lamers and Weenink 2016). Its stance, Nicolini's "programmatic eclecticism", and its
+  sources are shown with it in *Settings → Codebooks → View codes*.
+- **Framings of conduct and change** (`change_framing`, 4 codes): how a text explains what people do or why it
+  changes: through practices, individual choice, structure or system, or technology by itself. One main framing per
+  passage. Meant for policy documents.
+- They are written by `tools/make_practice_codebooks.py` into `src/margin/data/codebooks/` (edit the codes there).
+
+**Codebooks say more** (`frameworks.py`; for your own codebooks too).
+- The CSV may have the columns `keywords` (separated by `;`), `include`, `exclude` and `source`. Keywords found in a
+  passage as whole words make a code a candidate (certainty 0.45, so on their own they do not count in the
+  provisional profile); keywords and the include text are matched with the description. The AI gets include,
+  exclude and source with each code. *View codes* shows them under *Notes*.
+- The codebook's JSON file may set `direction_labels` (the words for helps, hinders and mixed), `direction_note`,
+  `one_main`, `practice_and_element`, `stance` and `sources`. The practice codebook says **holds together** and
+  **pulls apart** (Shove et al. 2012: 36) instead of helps and hinders, on the document's *Codes* panel, in the
+  forms and in the Excel table. A JSON file changed on its own is now read again (it was cached with its CSV).
+- **Small codebooks go to the AI whole.** A codebook of 30 codes or fewer is sent complete with every passage (the
+  codes the search found are marked), and the AI reads every passage by default, not only those with a candidate.
+  The 17 SDGs are small too but keep reading only passages with a candidate: their keyword search is strong.
+  *Options → Read every passage* still switches it either way.
+
+**The practice and the element.** For the practice codebook, each label also names the practice the passage is
+about and the element the code is about, copied from the passage ("switched the table on", "the games"). They are
+checked like the quote: words the passage does not have are sent back. You can correct them (*Change how it
+applies*) or give them with a label of your own. They are kept in a new table, `label_parts`.
+- **Profile → Count by → Practice**: practices by code, like Shove et al.'s snapshot of car-driving (Fig. 2.2): the
+  practices the labels name (namings that differ only in capitals or "the" are one row), each with its elements, and
+  in each cell the passages, with how many hold the practice together or pull it apart. In the Excel download too.
+- **A concept's page** lists *In codebook labels*: the codes whose labels name it as a practice or an element
+  ("follow the elements of practice", Shove et al. 2012: 22).
+
+**How elements relate.** Links between concepts can now be element relations: *needs*, *shapes*, *replaces*, *is an
+element of* and *clashes with* (an element of two or more practices is shared by them). When the chosen codebook
+names practices, a concept's page offers them under *Add a link yourself* and *Another relation*, and *Ask the AI how
+they relate in a practice* under *Often mentioned together* (up to 8 pairs). The link task asks for them when told
+(`link-v2`); the word relations (same, broader, narrower, related, different) are unchanged.
+
+**Prompts.** `label-v2`: the whole codebook or the candidates, each code's notes, the codebook's direction words and
+note, one main code, practice and element. `link-v2`: the element relations. Labels and links made before keep
+their prompt version; the Profile page's *Something changed since the last labelling* says the instructions changed.
+
+**Tests.** `tests/test_m0_9_0_practice_codebook.py` (13 tests): the built-in codebooks, their order and protected
+names; the shipped files equal what the builder writes; the new columns, keywords as whole words, malformed JSON;
+the whole codebook and every passage for small codebooks, not the 17 SDGs; keyword candidates; the label task and
+its prompt; practice and element checked against the passage, corrected and shown; one main framing; the grid by
+practice and labels of your own (and removing a document removes their parts); the concept's labels; element
+relations in the link task (turned round with the pair, a word relation refused); the app's routes; the page's
+words. Updated: the codebook order in `test_m0_8_0_no_sdg_default.py`, the prompt versions in
+`test_0_13_6_task_kinds.py`, and the second wheel in `test_0100_setup_and_moving.py` (it was named 0.9.0, now
+Margin's own version, so it no longer made a second wheel).
+
+**Cautions** (from the readings, also in the manual). These concepts are sensitising, "not meant to be applied
+formulaically" (Nicolini 2012: 240). AI labels on interview transcripts record *accounts* of practice; fieldnotes
+code better, and KN1 (practical consciousness) only where a speaker marks their knowing as tacit. Concepts that show
+only across a body of material (duality of structure, a practice's trajectory, proto- and ex-practices) are left out
+of the codebook on purpose: check them as hypotheses.
+
+**Not yet done.**
+- Not tried with a real model: how well the AI codes with the whole codebook, names practices and elements, and
+  judges element relations. Coding 50 to 100 passages by hand (from *Ethnographies* or *Tovertafel*) and comparing
+  them with the AI's labels is the next step.
+- The source pages in the codebook come from reading the texts, not from a check run against them (a theory
+  project with the five readings would verify them).
+- Not in the codebook: Bourdieu (habitus, field, capital), Schatzki at first hand, carriers, recruitment and
+  defection (Shove et al. ch. 4), and the critique of attitude-behaviour-choice models.
+- The codes are listed in natural order (DY before EL), not in the codebook's own order of groups.
+- An element relation judged for a pair replaces an earlier word relation the AI gave the same pair.
+- Not tried with a real signed-in Claude Code.
+
 ## 0.8.0 (November 2026): Margin without ENLENS's SDG baggage
 
 ENLENS is built around the UN Sustainable Development Goals; Margin is a companion for writing with any sources. 0.8

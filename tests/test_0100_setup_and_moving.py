@@ -318,7 +318,7 @@ def test_release_check_notes_and_assets(tmp_path):
     for line in (dist / "SHA256SUMS").read_text().splitlines():
         digest, name = line.split("  ")
         assert hashlib.sha256((dist / name).read_bytes()).hexdigest() == digest
-    (dist / "margin-0.9.0-py3-none-any.whl").write_bytes(b"PK")
+    (dist / "margin-0.0.1-py3-none-any.whl").write_bytes(b"PK")  # another version (it was 0.9.0, Margin's own since 0.9)
     with pytest.raises(release.ReleaseError, match="exactly"):
         release.assets(dist)
 

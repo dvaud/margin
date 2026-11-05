@@ -493,7 +493,8 @@ and its flask button starts a check of what the line says. Download all lines fo
 the stretch of text the app reads as one unit, up to about 1,100 characters; the location (page, paragraph) is that
 of the original.
 
-**Profile.** Which codes of a codebook (your own CSV, or a built-in one: the 169 SDG targets or their 17 goals) each
+**Profile.** Which codes of a codebook (your own CSV, or a built-in one: social practice theory, framings of
+conduct and change, the 169 SDG targets or their 17 goals) each
 document addresses, how much and where. There is no codebook until you choose one (Margin 0.8): the Profile page,
 the Codes panel of a document and the themes' code grid ask for it, and *Settings → Exploring* can set it to none
 again. Once one is chosen, when documents are added the app finds candidate codes in seconds by their
@@ -505,6 +506,35 @@ behind each cell. In a document, the **Codes** panel shows every code with its p
 words that found it (highlighted in the text): agree, change how it applies, reject (with Undo), or add a code of
 your own; your labels always count. *Technical details* show the model, its exact version (digest), the prompt and
 the seed, and warn when they differ from the last run.
+
+**Codebooks with more to say (Margin 0.9).** Besides `code` and `description` (and `group`, `group_name`), a
+codebook's CSV may have `keywords` (words and phrases separated by `;`, found as whole words), `include` (when to use
+the code), `exclude` (when not to, and which code to use instead) and `source` (where its definition comes from).
+The AI reads include, exclude and source with each code. A JSON file next to the CSV (same name, `.json`) may give
+`title`, `label`, `directional`, `direction_labels` (your words for helps, hinders and mixed), `direction_note` (what
+the direction is relative to), `one_main` (at most one main code per passage), `practice_and_element` (each label
+also names the practice and the element), `stance` and `sources`. A codebook of 30 codes or fewer is sent to the AI
+whole with every passage, and the AI reads every passage by default (*Options* switches it), since a keyword search
+misses codes whose words are not in the text. *Settings → Codebooks → View codes* shows all of it.
+
+**Social practice theory.** Two built-in codebooks follow practices rather than topics:
+- *Social practice theory* (25 codes): elements (EL: materials, competences, meanings), performing the practice (PF),
+  knowing (KN), rules, resources and power (RP), dynamics of links made, sustained and broken (DY), and connections
+  between practices (NX). A label says whether the passage **holds the practice together** or **pulls it apart**,
+  and names the practice and the element in the passage's words: "When the night nurse left, nobody switched the
+  table on again and the games stayed in the cupboard" is DY3 *Breaking links*, DY6 *Learning and careers* and EL1
+  *Materials* (the games), all pulling apart. *Count by → Practice* shows practices by code, each with its elements.
+  A concept's page lists the labels that name it (*In codebook labels*), and its links can say how elements relate:
+  needs, shapes, replaces, is an element of, clashes with (*Ask the AI how they relate in a practice* under *Often
+  mentioned together*).
+- *Framings of conduct and change* (4 codes, one main code per passage): whether a text explains what people do
+  through practices, individual choice, structure or system, or technology by itself. Run it on policy documents.
+
+Use them with care: these concepts are sensitising, not a formula (Nicolini 2012: 240). Labels on interview
+transcripts record what people say about their practice; fieldnotes code better, and *practical consciousness* (KN1)
+only where a speaker marks their knowing as tacit. Concepts that show only across a body of material (a practice's
+trajectory, proto- and ex-practices, the duality of structure) are not codes: check them as hypotheses, tagged with
+a code ("Use of the table lasted only where a staff member made it part of the daily care routine", DY2).
 
 **Concepts.** A glossary of the terms the documents use (one or more words, found by the C-value method; running
 heads and page furniture are left out), grouped into concepts: abbreviations and their long forms ("proton exchange

@@ -13,6 +13,15 @@ const pct = (x) => `${Math.round((x || 0) * 100)}%`;
 export const SOURCE_WORDS = { keywords: "found by keywords", meaning: "found by meaning", both: "keywords and meaning agree", model: "labelled by the AI", person: "added by you" };
 export const RELEVANCE_WORDS = { main: "main topic", mentioned: "mentioned" };
 export const DIRECTION_WORDS = { helps: "helps", hinders: "hinders", mixed: "mixed", not_stated: "direction not stated" };
+// 0.9: a codebook may name its directions in its own words ("holds together", "pulls apart"); `info` is a codebook's
+// info or a document profile (both carry direction_words)
+export function directionWords(info) {
+  const own = (info && info.direction_words) || {};
+  const out = { ...DIRECTION_WORDS };
+  for (const k of ["helps", "hinders", "mixed"]) if (own[k]) out[k] = own[k];
+  if (own.not_stated && own.not_stated !== "not stated") out.not_stated = own.not_stated;
+  return out;
+}
 
 // "about 12 minutes" from seconds (null when unknown)
 export function aboutTime(sec) {
@@ -67,7 +76,7 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
   const el = h("section", { class: "pf-ai" + (compact ? " pf-ai-compact" : " card section"), "aria-labelledby": hid });
   const jobBox = h("div", { hidden: true });
   const body = h("div", {}, h("p", { class: "muted small", style: { margin: 0 } }, "Looking at what the AI would read…"));
-  let all = false;
+  let all = null;   // null: the codebook's default (0.9: a small codebook is read passage by passage, all of them)
   let limit = "";
   let compareResult = null;
   let running = false;
@@ -78,7 +87,7 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
     if (running) return;
     const qs = new URLSearchParams({ framework });
     if (docIds) qs.set("docs", docIds.join(","));
-    if (all) qs.set("all", "1");
+    if (all !== null) qs.set("all", all ? "1" : "0");
     let plan;
     try { plan = await api("GET", `${base}/profile/plan?${qs}`); }
     catch (e) { replace(body, h("div", { class: "notice notice-error" }, icon("alert-circle"), h("p", {}, e.message || "Could not see what the AI would read."))); return; }
@@ -89,15 +98,16 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
     const run = plan.run || {};
     const where = App.privacy();
     const toRead = plan.to_read || 0;
+    const every = !!plan.all_passages;
     const lim = Number(limit) > 0 ? Math.min(Number(limit), toRead) : toRead;
     const est = plan.estimate_seconds && toRead ? Math.round((plan.estimate_seconds * lim) / toRead) : null;
     const bits = [];
     bits.push(h("p", { class: compact ? "small" : "", style: { margin: "6px 0" } },
       toRead === 0 && plan.already_read ? "The AI has read all these passages. " : plan.already_read ? "Passages the AI has not read yet count with their keyword codes (provisional). " : "The keyword profile is provisional. ",
-      "The AI reads ", all ? "every passage" : "each passage with a candidate code", " and says which codes really apply, with a quote and a reason.",
+      "The AI reads ", every ? "every passage" : "each passage with a candidate code", plan.whole_codebook ? ` with all ${plan.codes} codes of the codebook` : "", " and says which codes really apply, with a quote and a reason.",
       // 0.13.3: the details are one step away, in a help mark
-      helpMark("How the AI labels passages", "The AI says for each code whether it is the passage's main topic or a mention, and gives a quote and a reason for each. It resumes where it stopped and never reads a passage twice.")));
-    const counts = all
+      helpMark("How the AI labels passages", "The AI says for each code whether it is the passage's main topic or a mention, and gives a quote and a reason for each. It resumes where it stopped and never reads a passage twice." + (plan.whole_codebook ? " A codebook of 30 codes or fewer goes to the AI whole, with its notes on when to use each code: its codes are often ideas a text does not name, so a keyword search would miss them." : ""))));
+    const counts = every
       ? `${plural(plan.passages || 0, "passage")}${one ? " in this document" : ""}: ${fmt.num(plan.already_read || 0)} already read, ${fmt.num(toRead)} to read.`
       : `${plural(plan.with_candidates || 0, "passage")} of ${fmt.num(plan.passages || 0)}${one ? " in this document" : ""} ${plan.with_candidates === 1 ? "has" : "have"} a candidate code: ${fmt.num(plan.already_read || 0)} already read, ${fmt.num(toRead)} to read.`;
     bits.push(h("p", { class: "pf-ai-counts", style: { margin: "0 0 6px" } }, counts, est ? ` ${cap(aboutTime(est))} with this model.` : toRead ? " How long it takes is not known yet: it is measured on the first passages." : ""));
@@ -109,12 +119,12 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
       return;
     }
     // options
-    const sw = switchControl("Read every passage, not only those with a candidate code", all, { help: "Slower. Finds codes the keywords missed." });
+    const sw = switchControl("Read every passage, not only those with a candidate code", every, { help: plan.whole_codebook ? "On for a small codebook: its codes are rarely in the words of the text. Off is quicker but misses more." : "Slower. Finds codes the keywords missed." });
     sw.input.addEventListener("change", () => { all = sw.input.checked; load(); });
     const limIn = h("input", { class: "input input-sm pf-limit", type: "number", min: "1", step: "1", inputmode: "numeric", value: limit, placeholder: "all", "aria-describedby": hid + "-lim" });
     limIn.addEventListener("change", () => { limit = limIn.value.trim(); draw(plan); const again = el.querySelector(".pf-limit"); if (again) again.focus(); });
     const limRow = h("label", { class: "row pf-limit-row" }, h("span", { class: "small" }, "Read at most"), limIn, h("span", { class: "small" }, "passages this time"));
-    const opts = h("details", { class: "fold pf-ai-opts", open: all || !!limit }, h("summary", {}, "Options"), h("div", { style: { marginTop: "6px" } }, sw, limRow,
+    const opts = h("details", { class: "fold pf-ai-opts", open: all !== null || !!limit }, h("summary", {}, "Options"), h("div", { style: { marginTop: "6px" } }, sw, limRow,
       h("p", { class: "field-help", id: hid + "-lim" }, "To try the AI on a few passages first. Leave it empty to read them all; you can stop at any time.")));
     // what changed since the last run
     const changed = run.changed || [];
@@ -137,7 +147,7 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
           h("tbody", {}, changed.map((c) => h("tr", {}, h("td", {}, c.field), h("td", { class: "mono small" }, shown(c.was)), h("td", { class: "mono small" }, shown(c.now))))))))));
     }
     if (toRead) bits.push(h("div", { class: "btn-row", style: { marginTop: "8px" } }, startBtn));
-    else bits.push(h("p", { class: "it", style: { margin: "4px 0" } }, icon("circle-check", { size: 14 }), all ? " The AI has read every passage." : " The AI has read every passage with a candidate code."));
+    else bits.push(h("p", { class: "it", style: { margin: "4px 0" } }, icon("circle-check", { size: 14 }), every ? " The AI has read every passage." : " The AI has read every passage with a candidate code."));
     bits.push(opts);
     bits.push(h("details", { class: "fold" }, h("summary", {}, "Technical details"), h("dl", { class: "ev-tech-list" },
       h("div", {}, h("dt", {}, "AI model"), h("dd", {}, shown(run.now && run.now.model))),
@@ -173,7 +183,8 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
   async function start(btn) {
     btn.disabled = true;
     const lim = Number(limit) > 0 ? Math.floor(Number(limit)) : undefined;
-    const payload = { framework, all_passages: all };
+    const payload = { framework };
+    if (all !== null) payload.all_passages = all;
     if (docIds) payload.doc_ids = docIds;
     if (lim) payload.limit = lim;
     let r;
@@ -257,7 +268,7 @@ export async function renderProfile(view, params, query) {
   }
   let savedLevel = null;
   try { savedLevel = localStorage.getItem("margin.profile.level"); } catch (_) { /* no storage */ }
-  let level = (query.level || savedLevel) === "group" ? "group" : "code";
+  let level = ["group", "practice"].includes(query.level || savedLevel) ? (query.level || savedLevel) : "code";
   let prof;
   const fetchProfile = () => api("GET", `${base}/profile?framework=${encodeURIComponent(framework)}&level=${level}`);
   let docs = null;   // the project's documents, for "open one document's profile"
@@ -299,7 +310,7 @@ export async function renderProfile(view, params, query) {
   async function reload() {
     try {
       prof = await fetchProfile();
-      if (level === "group" && fwInfo().groups === 0) { level = "code"; prof = await fetchProfile(); }  // a codebook without groups
+      if ((level === "group" && fwInfo().groups === 0) || (level === "practice" && !fwInfo().practice_and_element)) { level = "code"; prof = await fetchProfile(); }  // a codebook without groups or practices
     } catch (e) { showError(e); return; }
     draw();
   }
@@ -338,8 +349,9 @@ export async function renderProfile(view, params, query) {
     replace(controls,
       h("div", { class: "pf-control" }, h("label", { class: "field-label", for: "pf-fw" }, "Codebook"), sel,
         h("span", { class: "field-help" }, "New documents get this codebook's codes when they are added. ", h("a", { href: "#/settings/frameworks" }, "Add your own codebook (CSV)"))),
-      fw.groups === 0 ? null : h("div", { class: "pf-control" }, h("span", { class: "field-label", id: "pf-level-l" }, "Count by"),
-        h("div", { class: "btn-row pf-seg", role: "group", "aria-labelledby": "pf-level-l" }, seg("code", fw.label ? cap(fw.label) : "Code"), seg("group", /^sdg/.test(framework) ? "Goal" : "Group"))),
+      fw.groups === 0 && !fw.practice_and_element ? null : h("div", { class: "pf-control" }, h("span", { class: "field-label", id: "pf-level-l" }, "Count by"),
+        h("div", { class: "btn-row pf-seg", role: "group", "aria-labelledby": "pf-level-l" }, seg("code", fw.label ? cap(fw.label) : "Code"), fw.groups === 0 ? null : seg("group", /^sdg/.test(framework) ? "Goal" : "Group"),
+          fw.practice_and_element ? seg("practice", "Practice") : null)),
       docSel ? h("div", { class: "pf-control" }, h("label", { class: "field-label", for: "pf-doc" }, "Show the profile of"), docSel) : null);
   }
 
@@ -409,6 +421,7 @@ export async function renderProfile(view, params, query) {
   function drawGrid() {
     clear(gridBox);
     if (!prof.pass1.done) return;
+    if (level === "practice") { drawPracticeGrid(); return; }
     const g = prof.grid || {};
     const fw = fwInfo();
     const unit = level === "group" ? groupWord() : (fw.label || "code");
@@ -438,6 +451,49 @@ export async function renderProfile(view, params, query) {
       h("span", {}, "The darker the cell, the more passages. Hover over a column for its text; click a cell to see those passages in the document.")));
     gridBox.appendChild(h("p", { class: "muted small map-scroll-hint", style: { margin: "0 0 6px" } }, icon("arrow-right", { size: 12 }), ` The grid scrolls sideways: drag or swipe it to see every ${unit}.`));
     gridBox.appendChild(h("div", { class: "map-wrap", tabindex: "0", role: "region", "aria-label": `Documents by ${unit} (scrolls sideways)` }, table));
+  }
+
+  // 0.9: practices by code, like Shove, Pantzar and Watson's snapshot of car-driving (2012: Fig. 2.2): the practices the
+  // labels name, in the documents' words, and how many passages name each with each code
+  function drawPracticeGrid() {
+    const g = prof.grid || {};
+    const fw = fwInfo();
+    const words = directionWords(fw);
+    const unit = fw.label || "code";
+    gridBox.appendChild(h("div", { class: "section-title" }, h("h2", { id: "pf-grid-h" }, "Practices by code"),
+      h("span", { class: "muted" }, "The practices the labels name, in the documents' own words, and how many passages name each with each code.")));
+    const codes = g.codes || [], rows = g.documents || [], cells = g.cells || {}, dirs = g.directions || {};
+    if (!codes.length || !rows.length) {
+      gridBox.appendChild(emptyState("tag", "No practice named yet", g.unnamed
+        ? `${plural(g.unnamed, "label")} ${g.unnamed === 1 ? "names" : "name"} no practice. The AI names the practice and the element of each label when it reads the passages with this codebook; keyword labels name none.`
+        : "The AI names the practice and the element of each label when it reads the passages with this codebook."));
+      return;
+    }
+    const max = Math.max(1, ...Object.values(cells).flatMap((row) => Object.values(row)));
+    const dirText = (d) => [["helps", d && d.helps], ["hinders", d && d.hinders]].filter(([, n]) => n).map(([k, n]) => `${n} ${words[k]}`).join(", ");
+    const table = h("table", { class: "map-table pf-grid" },
+      h("caption", { class: "visually-hidden" }, `Practices by ${unit}: the number of passages`),
+      h("thead", {}, h("tr", {}, h("th", { scope: "col", class: "map-hyp-head" }, "Practice"),
+        codes.map((c) => h("th", { scope: "col", class: "pf-code-head", title: `${cap(unit)} ${c.code}: ${c.description || ""} · ${plural(c.passages, "passage")}` },
+          h("span", { "aria-hidden": "true" }, c.code), h("span", { class: "visually-hidden" }, `${unit} ${c.code}: ${shortTitle(c.description, 60)}`))))),
+      h("tbody", {}, rows.map((r) => {
+        const row = cells[r.doc_id] || {};
+        const d = dirs[r.doc_id] || {};
+        return h("tr", {},
+          h("th", { scope: "row", class: "map-hyp pf-doc" }, h("span", { class: "serif" }, shortTitle(r.title, 90)),
+            h("div", { class: "map-hyp-meta muted small" }, `${plural(r.passages, "passage")} · ${plural(r.in_documents || 0, "document")}`,
+              r.elements && r.elements.length ? h("span", { class: "pf-elements" }, ` · Elements: ${r.elements.join(", ")}`) : null)),
+          codes.map((c) => {
+            const extra = dirText(d[c.code]);
+            return heatCell(row[c.code] || 0, max, `${shortTitle(r.title, 50)}, ${unit} ${c.code}${extra ? ` (${extra})` : ""}`, "pf", null);
+          }));
+      })));
+    gridBox.appendChild(h("div", { class: "pf-grid-key muted small" },
+      h("span", {}, g.provisional ? h("span", { class: "chip chip-weak" }, "provisional") : null, g.provisional ? " Includes labels the AI has not checked yet. " : ""),
+      h("span", {}, `The darker the cell, the more passages. Hover over a cell to see how many say the practice ${words.helps} or ${words.hinders}. Namings that differ only in capitals or “the” are one row.`),
+      g.unnamed ? h("span", {}, ` ${plural(g.unnamed, "label")} ${g.unnamed === 1 ? "names no practice and is" : "name no practice and are"} left out.`) : null));
+    gridBox.appendChild(h("p", { class: "muted small map-scroll-hint", style: { margin: "0 0 6px" } }, icon("arrow-right", { size: 12 }), ` The grid scrolls sideways: drag or swipe it to see every ${unit}.`));
+    gridBox.appendChild(h("div", { class: "map-wrap", tabindex: "0", role: "region", "aria-label": `Practices by ${unit} (scrolls sideways)` }, table));
   }
 
   async function drawCalibration() {

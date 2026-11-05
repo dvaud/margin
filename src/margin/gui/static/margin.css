@@ -423,3 +423,14 @@ h2 { font-size: 1.22rem; line-height: 1.3; }
 @media (max-width: 480px) {
   .btn { white-space: normal; text-align: center; }
 }
+
+/* ---- 0.9: the practice codebooks (practice and element of a label, the grid by practice, a concept's labels) */
+.pf-elements { font-style: italic; }
+.dv-parts { font-size: .9rem; }
+.dv-parts-edit .input { flex: 1 1 10rem; min-width: 0; }
+.ct-in-labels { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ct-in-labels li { line-height: 1.45; }
+.fw-notes { margin-top: 4px; font-size: .85rem; }
+.fw-notes .ev-tech-list { margin: 4px 0 0; }
+.picker-item:has(.fw-notes) { align-items: flex-start; }
+.fw-notes .ev-tech-list > div { display: grid; grid-template-columns: 6rem 1fr; gap: 0 8px; }

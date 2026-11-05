@@ -254,7 +254,7 @@ def _main(argv: list[str] | None = None) -> int:
                    "or a built-in one (sdg, sdg_goals)")
     p.add_argument("--docs", nargs="*", help="only these document ids")
     p.add_argument("--keywords-only", action="store_true", help="only the keyword-and-meaning pass (no model)")
-    p.add_argument("--all-passages", action="store_true", help="the model reads every passage, not only those with a "
+    p.add_argument("--all-passages", action="store_true", default=None, help="the model reads every passage, not only those with a "
                                                                "candidate code")
     p.add_argument("--limit", type=int, help="the model reads at most this many passages (it resumes later)")
     p.add_argument("--level", choices=["code", "group"], default="code", help="group: add codes up by goal")
@@ -356,7 +356,7 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--file", help="check: a text file (one hypothesis per line) or a CSV with a hypothesis column")
     p.add_argument("--framework", default=None, help="label: the codebook (default: the one chosen in Settings)")
     p.add_argument("--docs", nargs="*", help="label: only these document ids")
-    p.add_argument("--all-passages", action="store_true", help="label: every passage, not only those with a candidate")
+    p.add_argument("--all-passages", action="store_true", default=None, help="label: every passage, not only those with a candidate")
     p.add_argument("--all-documents", action="store_true", help="resolve: every document")
     p.add_argument("--name", help="resolve: only the passages where this name occurs")
     p.add_argument("--run", help="theme: the set of themes to name (default: the latest)")

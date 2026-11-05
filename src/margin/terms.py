@@ -35,8 +35,15 @@ MAX_TERMS = 6000
 MEANING_TERMS = 3000      # terms embedded for "possibly the same"
 MEANING_MIN = 0.85        # cosine from which two mutual nearest neighbours are proposed
 _JOIN = re.compile(r"[\s\-‐‑]*")   # what may stand between two words of a term
-LINK_RELATIONS = ("same", "broader", "narrower", "related", "different")
-_INVERSE = {"broader": "narrower", "narrower": "broader"}
+WORD_RELATIONS = ("same", "broader", "narrower", "related", "different")
+# 0.9 (Margin): how elements of a practice relate (Shove, Pantzar and Watson 2012: 21-41). The model answers with
+# the first five, related or different; each is stored from the term with the lower id, so its inverse may be stored
+# instead. An element shared by practices is one with element_of links to two or more of them.
+ELEMENT_RELATIONS = ("requires", "shapes", "replaces", "element_of", "clashes_with")
+_INVERSE = {"broader": "narrower", "narrower": "broader", "requires": "required_by", "required_by": "requires",
+            "shapes": "shaped_by", "shaped_by": "shapes", "replaces": "replaced_by", "replaced_by": "replaces",
+            "element_of": "has_element", "has_element": "element_of"}
+LINK_RELATIONS = WORD_RELATIONS + ELEMENT_RELATIONS + ("required_by", "shaped_by", "replaced_by", "has_element")
 
 
 def term_id(stems: str) -> str:
@@ -989,13 +996,14 @@ def snippets(ws: Workspace, term: str, n: int = 3, width: int = 150, allowed: se
 
 
 def make_link_task(ws: Workspace, a: str, b: str, model: str, allowed: set[str] | None = None,
-                   local_reader: bool = False) -> str | None:
+                   local_reader: bool = False, relations: str = "words") -> str | None:
     """A `link` task for two terms (each with up to three passages where it occurs); returns its id.
 
     0.11: the passages come from documents of the `allowed` settings (those the reader may read; default: every
     document an AI may read). When a term occurs only in documents the reader may not read, the pair is read by the
     local model with those passages (`local_reader`), or not at all: returns None then (a term is words of the
-    documents, so its wording is not sent either)."""
+    documents, so its wording is not sent either). `relations` "elements" (0.9): ask how the two relate as
+    elements of a practice (ELEMENT_RELATIONS) instead of as words."""
     from .tasks import replace_task
 
     a, b = sorted((a, b))
@@ -1011,7 +1019,9 @@ def make_link_task(ws: Workspace, a: str, b: str, model: str, allowed: set[str] 
         if not all(sn.values()):
             return None
     payload = {"terms": [{"n": i, "term_id": t, "label": info[t], "snippets": sn[t]} for i, t in enumerate((a, b), 1)]}
-    tid = f"link:{a}|{b}"
+    if relations == "elements":
+        payload["relations"] = "elements"
+    tid = f"link:{a}|{b}" + (":elements" if relations == "elements" else "")
     with ws.connect() as cx:
         replace_task(cx, tid, "link", model, payload)
     return tid
@@ -1028,9 +1038,21 @@ def proposed_pairs(ws: Workspace, limit: int = 200) -> list[tuple[str, str]]:
     return out
 
 
+def element_pairs(ws: Workspace, term: str, n: int = 8) -> list[tuple[str, str]]:
+    """0.9: the pairs to ask about as elements of a practice: this concept and the concepts most often mentioned in
+    the same passages (those not joined to it as the same concept)."""
+    ids = concept_of(ws, term)
+    if not ids:
+        raise KeyError(term)
+    together = _related(ws, ids, links(ws))["together"][:n]
+    return [tuple(sorted((term, t["term_id"]))) for t in together]
+
+
 def judge_links(ws: Workspace, pairs: list[tuple[str, str]], backend, model: str,
-                progress: Callable | None = None, should_stop: Callable[[], bool] | None = None) -> dict:
-    """Ask the model how each pair of terms relates (one `link` task per pair, quotes checked)."""
+                progress: Callable | None = None, should_stop: Callable[[], bool] | None = None,
+                relations: str = "words") -> dict:
+    """Ask the model how each pair of terms relates (one `link` task per pair, quotes checked); `relations`
+    "elements" (0.9): as elements of a practice."""
     from . import tasks
 
     from . import access
@@ -1038,7 +1060,8 @@ def judge_links(ws: Workspace, pairs: list[tuple[str, str]], backend, model: str
     done = failed = 0
     readers = access.Readers(backend, model)
     # every task first (0.8): with Claude Code they all wait in the queue at once, to be answered in batches
-    made = [make_link_task(ws, a, b, model, readers.main_levels, readers.local_configured()) for a, b in pairs]
+    made = [make_link_task(ws, a, b, model, readers.main_levels, readers.local_configured(), relations)
+            for a, b in pairs]
     ids = [t for t in made if t]
     kept = len(made) - len(ids)  # pairs whose terms occur only in documents no model here may read
     try:

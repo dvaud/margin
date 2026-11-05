@@ -292,6 +292,14 @@ class CodeLabel(BaseModel):
     confidence: float = Field(ge=0, le=1)
     quote: str = Field(min_length=3)
     reason: str = Field("", max_length=200)
+    practice: Optional[str] = None   # label-v2 (0.9): the practice, in the passage's words
+    element: Optional[str] = None    # ... and the element (the thing, skill or meaning)
+
+    @field_validator("practice", "element", mode="before")
+    @classmethod
+    def _words(cls, v):
+        v = " ".join(str(v or "").split()).strip(" .\"'")[:120]
+        return v or None
 
     @field_validator("code", mode="before")
     @classmethod
@@ -324,12 +332,13 @@ class LabelOut(BaseModel):
 
 
 LINK_RELATIONS = ("same", "broader", "narrower", "related", "different")
+ELEMENT_RELATIONS = ("requires", "shapes", "replaces", "element_of", "clashes_with")  # 0.9 (link-v2)
 
 
 class TermLink(BaseModel):
     a: int = Field(ge=1)
     b: int = Field(ge=1)
-    relation: Literal[LINK_RELATIONS]
+    relation: Literal[LINK_RELATIONS + ELEMENT_RELATIONS]
     confidence: float = Field(ge=0, le=1)
     quote_a: str = Field(min_length=3)
     quote_b: str = Field(min_length=3)
@@ -340,7 +349,9 @@ class TermLink(BaseModel):
         v = _norm_enum(v)
         return {"synonym": "same", "equivalent": "same", "identical": "same", "parent": "broader",
                 "child": "narrower", "hypernym": "broader", "hyponym": "narrower", "unrelated": "different",
-                "co_occurs": "related"}.get(v, v)
+                "co_occurs": "related", "needs": "requires", "depends_on": "requires", "part_of": "element_of",
+                "clashes": "clashes_with", "conflicts_with": "clashes_with", "none": "different",
+                "no_relation": "different"}.get(v, v)
 
 
 class LinkOut(BaseModel):

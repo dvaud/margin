@@ -867,16 +867,22 @@ def _store_label(cx, t, payload, obj, model):
 
 
 def _store_link(cx, t, payload, obj, model) -> tuple[bool, list[str]]:
-    """How two (or more) terms relate (link-v1): each quote must come from the passages shown for its term."""
-    from .schema import LinkOut
+    """How two (or more) terms relate (link-v2): each quote must come from the passages shown for its term. 0.9: as
+    words (same, broader, ...) or, when the task asks, as elements of a practice (requires, shapes, ...)."""
+    from .schema import ELEMENT_RELATIONS, LINK_RELATIONS, LinkOut
+    from .terms import _INVERSE as inverse
 
     out = LinkOut.model_validate(obj)
     terms = {x["n"]: x for x in payload["terms"]}
     errors, rows = [], []
-    inverse = {"broader": "narrower", "narrower": "broader"}
+    allowed = (set(ELEMENT_RELATIONS) | {"related", "different"}) if payload.get("relations") == "elements" \
+        else set(LINK_RELATIONS)
     for i, r in enumerate(out.relations):
         if r.a not in terms or r.b not in terms or r.a == r.b:
             errors.append(f"relations[{i}]: a and b must be two different term numbers shown (1 to {len(terms)})")
+            continue
+        if r.relation not in allowed:
+            errors.append(f"relations[{i}]: use one of the relations asked for: {', '.join(sorted(allowed))}")
             continue
         qa = next((find_quote(sn["text"], r.quote_a) for sn in terms[r.a]["snippets"] if find_quote(sn["text"], r.quote_a)), None)
         qb = next((find_quote(sn["text"], r.quote_b) for sn in terms[r.b]["snippets"] if find_quote(sn["text"], r.quote_b)), None)

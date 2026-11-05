@@ -9,12 +9,17 @@ Two passes, the second optional:
      are embedded once per framework and model (`code_vectors`). A code is a meaning candidate for a passage when
      the passage is unusually close to it (MEANING_Z standard deviations above the code's mean over the corpus)
      and among the passage's closest codes.
-   A code found both ways is marked "keywords and meaning agree". The strongest candidates form the provisional
-   profile at once; up to MAX_CANDIDATES go to the model pass.
-2. The model pass (`label` tasks, prompt label-v1): one passage (with the passage before it as context) and its
+   A code found both ways is marked "keywords and meaning agree". 0.9: a code whose keywords (the codebook's
+   `keywords` column) occur in the passage as whole words is a candidate too (confidence KEYWORD_HIT). The strongest
+   candidates form the provisional profile at once; up to MAX_CANDIDATES go to the model pass, or the whole codebook
+   when it is small (`Framework.send_all`).
+2. The model pass (`label` tasks, prompt label-v2): one passage (with the passage before it as context) and its
    candidates. The model says which codes apply, as the main topic or a mention, in which direction where the
    codebook has one, with a quote checked against the passage and a reason of at most 200 characters.
    Task ids are `label:<framework>:<passage_id>`, so a stopped job resumes and a re-run reads nothing twice.
+   0.9 (label-v2): the codes come with their include and exclude notes and sources, the direction with the
+   codebook's own words, and, for a codebook with practice_and_element, each label names the practice and the
+   element in the passage's own words (checked like the quote, kept in `label_parts`).
 
 What counts for a passage (`effective`): the model's labels once the passage was read by the model, otherwise the
 provisional ones of pass 1; a person's decisions (reviews, item_kind 'label') and labels of their own always win.
@@ -39,6 +44,7 @@ MEANING_TOP = 5           # ... and the code among the passage's closest codes
 SOURCES = ("keywords", "meaning", "both", "model", "person")
 RELEVANCE = ("main", "mentioned")
 DIRECTIONS = ("helps", "hinders", "mixed", "not_stated")
+KEYWORD_HIT = 0.45        # confidence of a candidate found by the codebook's own keywords (below PROVISIONAL)
 
 
 def _h(*parts: str) -> str:
@@ -161,25 +167,31 @@ def keyword_pass(ws: Workspace, framework: str = "sdg", embedder=None, doc_ids: 
         toks = tokens(r["text"])
         have = set(toks)
         lex_hits = fw.lexicon_hits(r["text"]) if fw.lexicon else set()
+        kw_hits = fw.keyword_hits(r["text"])  # 0.9: the codebook's own keywords, as whole words
         scores = fw.scores(r["text"], toks, lex_hits)  # the phrasings matched once, not twice (0.11.1)
         cands: dict[str, dict] = {}
         for code, sc in sorted(scores.items(), key=lambda x: -x[1])[:MAX_CANDIDATES * 3]:
             cov, shared = _coverage(fw, code, have, idf, totals)
             lexicon = code in lex_hits
-            if cov < KEYWORD_FLOOR and not lexicon:
+            if cov < KEYWORD_FLOOR and not lexicon and code not in kw_hits:
                 continue
             cands[code] = {"score": round(sc, 3), "coverage": round(cov, 3), "matched": shared, "lexicon": lexicon}
+        for code, found in kw_hits.items():
+            cands.setdefault(code, {"score": round(scores.get(code, 0.0), 3), "coverage": 0.0, "matched": [],
+                                    "lexicon": False})["keywords"] = found
         for code, sim in meaning.get(r["passage_id"], []):
             cands.setdefault(code, {"score": 0.0, "coverage": 0.0, "matched": [], "lexicon": False})["similarity"] = sim
-        ranked = sorted(cands.items(), key=lambda x: (-(("similarity" in x[1]) and (x[1]["coverage"] > 0 or
-                                                                                   x[1]["lexicon"])),
-                                                      -max(x[1]["coverage"], 0.6 if x[1]["lexicon"] else 0),
-                                                      -x[1].get("similarity", 0), x[0]))[:MAX_CANDIDATES]
+
+        def strength(c: dict) -> float:
+            return max(c["coverage"], 0.6 if c["lexicon"] else 0, KEYWORD_HIT if c.get("keywords") else 0)
+
+        ranked = sorted(cands.items(), key=lambda x: (-(("similarity" in x[1]) and strength(x[1]) > 0),
+                                                      -strength(x[1]), -x[1].get("similarity", 0), x[0]))[:MAX_CANDIDATES]
         surface = surface_words(r["text"]) if ranked else {}
         for code, c in ranked:
-            kw = c["coverage"] > 0 or c["lexicon"]
+            kw = strength(c) > 0
             source = "both" if kw and "similarity" in c else "keywords" if kw else "meaning"
-            conf = max(c["coverage"], 0.6 if c["lexicon"] else 0.0)
+            conf = strength(c)
             if source == "both":
                 conf = max(conf, 0.7)
             elif source == "meaning":
@@ -187,6 +199,9 @@ def keyword_pass(ws: Workspace, framework: str = "sdg", embedder=None, doc_ids: 
             matched = [surface.get(s, s) for s in c["matched"]]
             reason = (("matched words: " + ", ".join(matched)) if matched else
                       ("a common phrasing of this code" if c["lexicon"] else ""))
+            if c.get("keywords"):
+                reason = (reason + "; " if reason else "") + "keywords of this code: " + ", ".join(c["keywords"])
+                matched += [k for k in c["keywords"] if k not in matched]
             if "similarity" in c:
                 reason = (reason + "; " if reason else "") + f"close in meaning (similarity {c['similarity']:.2f})"
             out_rows.append((label_id(fw.name, r["passage_id"], code, source), r["passage_id"], r["doc_id"], fw.name,
@@ -233,10 +248,21 @@ def candidates_of(ws: Workspace, framework: str, passage_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def label_plan(ws: Workspace, framework: str = "sdg", doc_ids: list[str] | None = None, all_passages: bool = False,
-               limit: int | None = None) -> dict:
+def reads_every_passage(fw: frameworks.Framework) -> bool:
+    """0.9: the AI reads every passage, not only those with a candidate, when the whole codebook goes with each
+    passage and its keyword search is weak: a small codebook without a lexicon of common phrasings (the practice
+    codebooks, a person's own; not the 17 SDGs)."""
+    return fw.send_all and not fw.lexicon
+
+
+def label_plan(ws: Workspace, framework: str = "sdg", doc_ids: list[str] | None = None,
+               all_passages: bool | None = None, limit: int | None = None) -> dict:
     """What a model pass would read: the passages (with at least one candidate unless `all_passages`) not read yet,
-    and how long it is likely to take (from this project's recent label tasks, or the model test)."""
+    and how long it is likely to take (from this project's recent label tasks, or the model test). `all_passages`
+    None: the codebook's default (`reads_every_passage`)."""
+    fw = frameworks.get(framework, ws)
+    if all_passages is None:
+        all_passages = reads_every_passage(fw)
     st = pass1_status(ws, framework)
     sql = ("SELECT p.passage_id FROM passages p WHERE p.section='body'" +
            (f" AND p.doc_id IN ({','.join('?' * len(doc_ids))})" if doc_ids else "") + " ORDER BY p.doc_id, p.seq")
@@ -260,14 +286,43 @@ def label_plan(ws: Workspace, framework: str = "sdg", doc_ids: list[str] | None 
     todo = [p for p in todo if p not in set(no_ai)]
     if limit:
         todo = todo[:int(limit)]
-    return {"framework": framework, "passages": len(pids), "with_candidates": len([p for p in pids if p in with_cands]),
+    return {"framework": framework, "all_passages": bool(all_passages), "whole_codebook": fw.send_all,
+            "codes": len(fw.codes), "passages": len(pids),
+            "with_candidates": len([p for p in pids if p in with_cands]),
             "already_read": len([p for p in chosen if p in done]), "to_read": len(todo), "passage_ids": todo,
             "pass1": st, "no_ai": len(no_ai), "local": len(set(local) & set(todo))}
 
 
+def _code_entry(c: frameworks.Code, found: bool | None = None) -> dict:
+    out = {"code": c.code, "description": c.description}
+    for k, v in (("include", c.include), ("exclude", c.exclude), ("source", c.ref)):
+        if v:
+            out[k] = v
+    if found is not None:
+        out["found"] = found
+    return out
+
+
+def codebook_payload(fw: frameworks.Framework) -> dict:
+    """What a `label` task says about its codebook besides the codes (0.9)."""
+    out = {"framework": fw.name, "framework_title": fw.title, "code_label": fw.label, "directional": fw.directional}
+    if fw.directional and fw.direction_words != frameworks.DIRECTION_WORDS:
+        out["direction_words"] = fw.direction_words
+    if fw.directional and fw.direction_note:
+        out["direction_note"] = fw.direction_note
+    if fw.one_main:
+        out["one_main"] = True
+    if fw.practice_and_element:
+        out["practice_and_element"] = True
+    if fw.stance:
+        out["stance"] = fw.stance
+    return out
+
+
 def make_label_tasks(ws: Workspace, framework: str, passage_ids: list[str], model: str,
-                     all_passages: bool = False) -> int:
-    """`label` tasks for these passages (each with its candidates, up to MAX_CANDIDATES)."""
+                     all_passages: bool | None = False) -> int:
+    """`label` tasks for these passages, each with its candidates (up to MAX_CANDIDATES), or with the whole
+    codebook when it is small (0.9: `Framework.send_all`; the codes the search found are marked)."""
     from .tasks import _insert_task
 
     fw = frameworks.get(framework, ws)
@@ -280,12 +335,16 @@ def make_label_tasks(ws: Workspace, framework: str, passage_ids: list[str], mode
             if r is None:
                 continue
             cands = [c["code"] for c in candidates_of(ws, fw.name, pid)][:MAX_CANDIDATES]
-            if not cands and all_passages:
-                cands = [c["code"] for c in fw.suggest(r["text"], MAX_CANDIDATES)]
-            payload = {"framework": fw.name, "framework_title": fw.title, "code_label": fw.label,
-                       "directional": fw.directional, "passage_id": pid, "doc_id": r["doc_id"], "title": r["title"],
+            if fw.send_all:
+                found = set(cands)
+                entries = [_code_entry(c, c.code in found) for c in fw.sorted_codes()]
+            else:
+                if not cands and all_passages:
+                    cands = [c["code"] for c in fw.suggest(r["text"], MAX_CANDIDATES)]
+                entries = [_code_entry(fw.codes[c]) for c in cands if c in fw.codes]
+            payload = {**codebook_payload(fw), "passage_id": pid, "doc_id": r["doc_id"], "title": r["title"],
                        "page": r["page"], "text": r["text"], "context": (r["prev"] or "")[-500:],
-                       "candidates": [{"code": c, "description": fw.codes[c].description} for c in cands if c in fw.codes]}
+                       "candidates": entries, **({"whole_codebook": True} if fw.send_all else {})}
             n += _insert_task(cx, f"label:{fw.name}:{pid}", "label", model, payload)
     return n
 
@@ -301,7 +360,9 @@ def store_labels(cx, t, payload: dict, obj: dict, model: str) -> tuple[bool, lis
     text = payload["text"]
     errors: list[str] = []
     rows = []
+    parts = []
     seen = set()
+    named = bool(payload.get("practice_and_element"))
     base = cx.execute("SELECT start, page FROM passages WHERE passage_id=?", (payload["passage_id"],)).fetchone()
     p_start, p_page = (base["start"], base["page"]) if base else (None, payload.get("page"))
     for i, lb in enumerate(out.labels):
@@ -318,15 +379,35 @@ def store_labels(cx, t, payload: dict, obj: dict, model: str) -> tuple[bool, lis
             errors.append(f"labels[{i}]: quote not found in the passage: {lb.quote[:80]!r}")
             continue
         direction = lb.direction if payload.get("directional") else "not_stated"
+        if named:  # 0.9: the practice and the element, in the passage's own words (or the context's, for "it")
+            words = {}
+            for k in ("practice", "element"):
+                v = getattr(lb, k)
+                if not v:
+                    continue
+                if not (find_quote(text, v) or find_quote(payload.get("context") or "", v)):
+                    errors.append(f"labels[{i}]: the {k} must be words of the passage, copied exactly: {v[:80]!r}")
+                    continue
+                words[k] = v
+            if words:
+                parts.append((label_id(fw.name, payload["passage_id"], code, "model"), payload["doc_id"], fw.name,
+                              words.get("practice"), words.get("element")))
         rows.append((label_id(fw.name, payload["passage_id"], code, "model"), payload["passage_id"], payload["doc_id"],
                      fw.name, code, lb.relevance, direction, lb.confidence, text[hit[0]:hit[1]],
                      (p_start + hit[0]) if p_start is not None else None,
                      (p_start + hit[1]) if p_start is not None else None, p_page, "model", model, t["prompt_version"],
                      lb.reason, None, None, None, t["task_id"], now()))
+    if payload.get("one_main") and sum(1 for r in rows if r[5] == "main") > 1:
+        errors.append("this codebook takes one main code per passage: mark only the best one as main, the others "
+                      "as mentioned")
     if errors:
         return False, errors
+    old = [r[0] for r in cx.execute("SELECT label_id FROM labels WHERE task_id=? AND source='model'", (t["task_id"],))]
     cx.execute("DELETE FROM labels WHERE task_id=? AND source='model'", (t["task_id"],))
+    cx.executemany("DELETE FROM label_parts WHERE label_id=?", [(x,) for x in old])
     cx.executemany("INSERT OR REPLACE INTO labels VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    cx.executemany("INSERT OR REPLACE INTO label_parts(label_id, doc_id, framework, practice, element) "
+                   "VALUES (?,?,?,?,?)", parts)
     return True, []
 
 
@@ -434,6 +515,7 @@ def effective(ws: Workspace, framework: str, doc_ids: list[str] | None = None, p
         "SELECT task_id FROM tasks WHERE kind='label' AND status='done' AND substr(task_id, 1, ?) = ?",
         (len(f"label:{framework}:"), f"label:{framework}:"))}
     dec = _decisions(ws)
+    parts = _parts(ws, framework)
     out = []
     for r in rows:
         d = dec.get(r["label_id"])
@@ -441,8 +523,10 @@ def effective(ws: Workspace, framework: str, doc_ids: list[str] | None = None, p
         r["person_note"] = d["note"] if d else None
         if d and d["decision"] == "reject":
             continue
+        got = parts.get(r["label_id"]) or {}
+        r["practice"], r["element"] = got.get("practice"), got.get("element")
         if d and d["decision"] == "change" and d["corrected"]:
-            for k in ("relevance", "direction"):
+            for k in ("relevance", "direction", "practice", "element"):
                 if d["corrected"].get(k):
                     r[k] = d["corrected"][k]
         if r["source"] == "person":
@@ -462,6 +546,54 @@ def effective(ws: Workspace, framework: str, doc_ids: list[str] | None = None, p
         if k not in best or rank[r["source"]] < rank[best[k]["source"]]:
             best[k] = r
     return list(best.values())
+
+
+def _parts(ws: Workspace, framework: str) -> dict[str, dict]:
+    """label_id -> {practice, element} (0.9): what a label names besides its code."""
+    return {r["label_id"]: {"practice": r["practice"], "element": r["element"]}
+            for r in ws.query("SELECT label_id, practice, element FROM label_parts WHERE framework=?", (framework,))}
+
+
+def labels_naming(ws: Workspace, wordings: list[str], limit: int = 12) -> list[dict]:
+    """0.9: the codebook labels whose practice or element contains one of these wordings (a concept's), word for
+    word as the glossary compares them (stems, without small words: "working from home" contains "work from
+    home"): [{framework, framework_title, code, description, role: practice|element, passages, examples}], most
+    passages first. A label a person rejected does not count."""
+    pats = [t for t in {tuple(tokens(w)) for w in wordings if w and w.strip()} if t]
+
+    def contains(text: str) -> bool:
+        have = tokens(text)
+        return any(have[i:i + len(t)] == list(t) for t in pats for i in range(len(have) - len(t) + 1))
+
+    if not pats or not ws.scalar("SELECT 1 FROM label_parts LIMIT 1"):
+        return []
+    rejected = {k for k, d in _decisions(ws).items() if d["decision"] == "reject"}
+    groups: dict[tuple, dict] = {}
+    for r in ws.query("SELECT lp.label_id, lp.framework, lp.practice, lp.element, l.code, l.passage_id FROM "
+                      "label_parts lp JOIN labels l ON l.label_id=lp.label_id"):
+        if r["label_id"] in rejected:
+            continue
+        for role in ("element", "practice"):
+            v = r[role]
+            if v and contains(v):
+                g = groups.setdefault((r["framework"], r["code"], role),
+                                      {"passages": set(), "examples": Counter(), "shown": {}})
+                g["passages"].add(r["passage_id"])
+                key = " ".join(v.lower().split())  # one example per wording, whatever its capitals
+                g["examples"][key] += 1
+                g["shown"].setdefault(key, " ".join(v.split()))
+    out = []
+    for (fwn, code, role), g in groups.items():
+        try:
+            fw = frameworks.get(fwn, ws)
+        except ValueError:
+            continue
+        out.append({"framework": fwn, "framework_title": fw.title if fw else fwn, "code": code,
+                    "description": fw.codes[code].description if fw and code in fw.codes else "", "role": role,
+                    "passages": len(g["passages"]),
+                    "examples": [g["shown"][e] for e, _n in g["examples"].most_common(3)]})
+    out.sort(key=lambda x: (-x["passages"], x["framework"], frameworks._natural(x["code"])))
+    return out[:limit]
 
 
 def passages_with_code(ws: Workspace, framework: str, code: str) -> set[str]:
@@ -498,7 +630,8 @@ def doc_profile(ws: Workspace, framework: str, doc_id: str) -> dict:
                           "direction": r["direction"], "confidence": r["confidence"], "quote": r["quote"],
                           "start": r["start"], "end": r["end"], "reason": r["reason"],
                           "matched": json.loads(r["matched_json"] or "[]"), "similarity": r["similarity"],
-                          "model": r["model"], "decision": r.get("decision"), "note": r.get("person_note")})
+                          "model": r["model"], "decision": r.get("decision"), "note": r.get("person_note"),
+                          "practice": r.get("practice"), "element": r.get("element")})
         codes.append({"code": code, "description": fw.codes[code].description if code in fw.codes else "",
                       "group": fw.codes[code].group if code in fw.codes else "",
                       "group_name": fw.codes[code].group_name if code in fw.codes else "",
@@ -512,13 +645,26 @@ def doc_profile(ws: Workspace, framework: str, doc_id: str) -> dict:
                          "AND json_extract(payload_json, '$.doc_id') = ?",
                          (len(f"label:{framework}:"), f"label:{framework}:", doc_id)) or 0)
     return {"doc_id": doc_id, "title": d["title"], "framework": fw.name, "framework_title": fw.title,
-            "code_label": fw.label, "directional": fw.directional, "n_pages": d["n_pages"], "passages": n_body,
+            "code_label": fw.label, "directional": fw.directional, "direction_words": fw.direction_words,
+            "practice_and_element": fw.practice_and_element, "one_main": fw.one_main,
+            "n_pages": d["n_pages"], "passages": n_body,
             "read_by_model": read, "codes": codes, "pass1": pass1_status(ws, framework)}
+
+
+def practice_key(text: str | None) -> str:
+    """How two namings of a practice are taken to be the same: case, spaces and a leading article ignored."""
+    t = " ".join((text or "").lower().replace("’", "'").split()).strip(" .,;:\"'")
+    for art in ("the ", "a ", "an "):
+        if t.startswith(art):
+            t = t[len(art):]
+    return t
 
 
 def grid(ws: Workspace, framework: str, doc_ids: list[str] | None = None, level: str = "code") -> dict:
     """Documents × codes: in each cell the number of passages of the document with that code (`level` "group":
-    codes added up by their group, the 17 goals for the SDG targets)."""
+    codes added up by their group, the 17 goals for the SDG targets; 0.9 "practice": practices × codes, below)."""
+    if level == "practice":
+        return practice_grid(ws, framework, doc_ids)
     fw = frameworks.get(framework, ws)
     labs = effective(ws, framework, doc_ids=doc_ids)
     titles = {r["doc_id"]: r["title"] or "" for r in ws.query("SELECT doc_id, title FROM documents")}
@@ -549,10 +695,53 @@ def grid(ws: Workspace, framework: str, doc_ids: list[str] | None = None, level:
             "provisional": any(r.get("provisional") for r in labs), "labels": len(labs)}
 
 
+def practice_grid(ws: Workspace, framework: str, doc_ids: list[str] | None = None) -> dict:
+    """0.9: practices × codes, like Shove, Pantzar and Watson's snapshot of car-driving (2012: Fig. 2.2): the
+    practices the labels name (in the passages' words; namings that differ only in case or an article are one row,
+    shown with their most frequent wording), and in each cell the number of passages naming that practice with that
+    code. Each cell also counts how many say the practice is held together or pulled apart (helps, hinders)."""
+    fw = frameworks.get(framework, ws)
+    labs = effective(ws, framework, doc_ids=doc_ids)
+    cells: dict[str, dict[str, set]] = defaultdict(lambda: defaultdict(set))
+    dirs: dict[str, dict[str, Counter]] = defaultdict(lambda: defaultdict(Counter))
+    words: dict[str, Counter] = defaultdict(Counter)
+    elements: dict[str, Counter] = defaultdict(Counter)
+    docs: dict[str, set] = defaultdict(set)
+    unnamed = 0
+    for r in labs:
+        key = practice_key(r.get("practice"))
+        if not key:
+            unnamed += 1
+            continue
+        words[key][" ".join(r["practice"].split())] += 1
+        cells[key][r["code"]].add(r["passage_id"])
+        docs[key].add(r["doc_id"])
+        if r.get("direction") in ("helps", "hinders"):
+            dirs[key][r["code"]][r["direction"]] += 1
+        if r.get("element"):
+            elements[key][" ".join(r["element"].split())] += 1
+    order = [c.code for c in fw.sorted_codes()]
+    cols = sorted({c for row in cells.values() for c in row}, key=lambda c: order.index(c) if c in order else 10 ** 6)
+    rows = sorted(cells, key=lambda k: (-len({p for v in cells[k].values() for p in v}), k))
+    totals = {c: sum(len(cells[k].get(c, ())) for k in rows) for c in cols}
+    return {"framework": fw.name, "framework_title": fw.title, "code_label": fw.label, "level": "practice",
+            "codes": [{"code": c, "description": fw.codes[c].description if c in fw.codes else c,
+                       "passages": totals[c], "documents": sum(1 for k in rows if cells[k].get(c))} for c in cols],
+            # rows are practices; they keep the documents' keys so the page and the Excel table read them alike
+            "documents": [{"doc_id": k, "title": words[k].most_common(1)[0][0],
+                           "passages": len({p for v in cells[k].values() for p in v}), "in_documents": len(docs[k]),
+                           "elements": [e for e, _n in elements[k].most_common(8)]} for k in rows],
+            "cells": {k: {c: len(v) for c, v in row.items()} for k, row in cells.items()},
+            "directions": {k: {c: dict(v) for c, v in row.items()} for k, row in dirs.items()},
+            "rows": "practices", "unnamed": unnamed,
+            "provisional": any(r.get("provisional") for r in labs), "labels": len(labs)}
+
+
 def grid_table(g: dict) -> list[dict]:
     rows = []
+    first = "Practice" if g.get("rows") == "practices" else "Document"
     for d in g["documents"]:
-        row = {"Document": d["title"] or d["doc_id"]}
+        row = {first: d["title"] or d["doc_id"]}
         for c in g["codes"]:
             desc = " ".join((c.get("description") or "").split())
             head = f'{c["code"]} {desc[:40].rstrip()}{"…" if len(desc) > 40 else ""}'.strip()
@@ -577,8 +766,9 @@ def labels_table(ws: Workspace, framework: str, doc_ids: list[str] | None = None
         out.append({"Document": titles.get(r["doc_id"], ""), "Where": (where.get(r["label_id"]) or {}).get("location", ""),
                     "Code": r["code"], "Code text": fw.codes[r["code"]].description if r["code"] in fw.codes else "",
                     "Relevance": {"main": "main topic", "mentioned": "mentioned"}.get(r["relevance"] or "", ""),
-                    "Direction": {"helps": "helps", "hinders": "hinders", "mixed": "mixed",
-                                  "not_stated": "not stated"}.get(r["direction"] or "", ""),
+                    "Direction": fw.direction_words.get(r["direction"] or "", "") if fw.directional else "",
+                    **({"Practice": r.get("practice") or "", "Element": r.get("element") or ""}
+                       if fw.practice_and_element else {}),
                     "Labelled by": src.get(r["source"], r["source"]) + (" (provisional)" if r.get("provisional") else ""),
                     "Certainty": r["confidence"] if r["confidence"] is not None else "",
                     "Quote": r["quote"] or "", "Reason": r["reason"] or "",
@@ -589,8 +779,10 @@ def labels_table(ws: Workspace, framework: str, doc_ids: list[str] | None = None
 
 
 def set_label(ws: Workspace, label_id_: str, decision: str, relevance: str | None = None,
-              direction: str | None = None, note: str | None = None, reviewer: str = "") -> None:
-    """A person's verdict on a label: agree (accept), change its relevance or direction, or reject it."""
+              direction: str | None = None, note: str | None = None, reviewer: str = "",
+              practice: str | None = None, element: str | None = None) -> None:
+    """A person's verdict on a label: agree (accept), change its relevance, direction, practice or element (0.9),
+    or reject it."""
     if decision not in ("accept", "reject", "change", "clear"):
         raise ValueError("decision must be accept, change, reject or clear.")
     if relevance is not None and relevance not in RELEVANCE:
@@ -604,8 +796,9 @@ def set_label(ws: Workspace, label_id_: str, decision: str, relevance: str | Non
         if decision == "clear":
             cx.execute("DELETE FROM reviews WHERE item_kind='label' AND item_id=?", (label_id_,))
             return
-        corrected = json.dumps({k: v for k, v in (("relevance", relevance), ("direction", direction)) if v}) \
-            if decision == "change" else None
+        words = {k: " ".join(str(v).split())[:120] for k, v in (("practice", practice), ("element", element)) if v}
+        corrected = json.dumps({**{k: v for k, v in (("relevance", relevance), ("direction", direction)) if v},
+                                **words}, ensure_ascii=False) if decision == "change" else None
         proposed = json.dumps({"code": row["code"], "relevance": row["relevance"], "direction": row["direction"],
                                "confidence": row["confidence"], "source": row["source"]})
         cx.execute("INSERT INTO reviews(item_kind, item_id, field, proposed, decision, corrected, reviewer, note, "
@@ -614,8 +807,10 @@ def set_label(ws: Workspace, label_id_: str, decision: str, relevance: str | Non
 
 
 def add_label(ws: Workspace, framework: str, passage_id: str, code: str, quote: str | None = None,
-              relevance: str = "main", direction: str = "not_stated", note: str | None = None) -> str:
-    """A label of a person's own (it always counts)."""
+              relevance: str = "main", direction: str = "not_stated", note: str | None = None,
+              practice: str | None = None, element: str | None = None) -> str:
+    """A label of a person's own (it always counts). `practice` and `element` (0.9): what it names besides the code,
+    in the person's words (kept for codebooks with practice_and_element)."""
     from .textutil import find_quote
 
     fw = frameworks.get(framework, ws)
@@ -638,6 +833,11 @@ def add_label(ws: Workspace, framework: str, passage_id: str, code: str, quote: 
                    (lid, passage_id, p["doc_id"], fw.name, c, relevance, direction if fw.directional else "not_stated",
                     1.0, q, s, e, p["page"], "person", None, None, (note or "").strip()[:200] or "added by you", None,
                     None, None, None, now()))
+        words = [" ".join(str(v or "").split())[:120] or None for v in (practice, element)]
+        cx.execute("DELETE FROM label_parts WHERE label_id=?", (lid,))
+        if fw.practice_and_element and any(words):
+            cx.execute("INSERT INTO label_parts(label_id, doc_id, framework, practice, element) VALUES (?,?,?,?,?)",
+                       (lid, p["doc_id"], fw.name, *words))
     return lid
 
 

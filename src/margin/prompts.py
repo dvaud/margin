@@ -164,19 +164,29 @@ and candidate codes found by a keyword and meaning search. The candidates are on
 when the PASSAGE itself addresses it. You may add another code of the same codebook if the passage clearly addresses
 it better; write its code exactly as the codebook does.
 
+When the whole codebook is given instead of candidates, consider every code; those marked "found by the search"
+are only where the search looked first. A code may come with notes: "use when" and "not when" (which may name the
+code to use instead) bound it; follow them.
+
 For every code that applies:
-- relevance: main = the passage is about this code's subject; mentioned = the passage touches it in passing.
-- direction (only when the codebook's codes are aims a text can help or hinder, as it says below; otherwise
-  not_stated): helps = the passage says something advances the aim; hinders = something works against it;
-  mixed = both; not_stated = the passage does not say.
+- relevance: main = the passage is about this code's subject; mentioned = the passage touches it in passing. When
+  the codebook says one main code per passage, mark at most one code as main.
+- direction (only when the codebook says directions apply; otherwise not_stated): helps = the passage says
+  something advances the aim; hinders = something works against it; mixed = both; not_stated = the passage does not
+  say. A codebook may name the directions in its own words and say what they are relative to: then helps and
+  hinders mean what those words say.
 - confidence: your probability that the label is right.
 - quote: the shortest span of the PASSAGE that shows why the code applies, copied exactly.
 - reason: why the code applies, in at most 200 characters.
+- practice and element: only when the codebook asks for them; otherwise null. practice = the activity the passage
+  is about, element = the thing, skill or meaning the code is about, each copied exactly from the passage, a few
+  words long; null when the passage does not name it.
 Label nothing when no code applies; an empty list is a valid answer. Do not use outside knowledge.
 
 Output format
 {{"labels": [{{"code": "6.4", "relevance": "main|mentioned", "direction": "helps|hinders|mixed|not_stated",
-  "confidence": 0.0-1.0, "quote": "exact words from the passage", "reason": "at most 200 characters"}}],
+  "confidence": 0.0-1.0, "quote": "exact words from the passage", "reason": "at most 200 characters",
+  "practice": null, "element": null}}],
  "note": null}}
 {_JSON_RULE}"""
     if kind == "link":
@@ -188,6 +198,13 @@ Each term comes with short passages where it occurs. For each pair of terms, giv
 - narrower: the first term (a) is a kind or part of the second (b);
 - related: different things that are discussed together or depend on each other;
 - different: unrelated, or different things that share words.
+When the request asks how the terms relate as elements of a practice, use these relations instead:
+- requires: doing or using the first (a) needs the second (b), such as a skill that needs a device;
+- shapes: a changes how b is done, what it takes or what it means;
+- replaces: a takes the place of b in what people do;
+- element_of: a is a thing, skill or meaning that the practice b is made of;
+- clashes_with: a and b get in each other's way (rhythms, rules or meanings that do not fit);
+- related: discussed together, but none of the above is shown; different: unrelated.
 Judge from the passages, not from outside knowledge. For each side give one quote, copied exactly from a passage of
 that term, that shows how the documents use it. confidence: your probability that the relation is right.
 
@@ -318,10 +335,35 @@ def user_prompt(kind: str, payload: dict) -> str:
         parts = [f"CODEBOOK: {payload.get('framework_title') or payload['framework']} (a code is called a "
                  f"{payload.get('code_label') or 'code'}). Directions apply: "
                  f"{'yes' if payload.get('directional') else 'no (use not_stated)'}."]
+        dw = payload.get("direction_words") if payload.get("directional") else None
+        if dw:  # 0.9: the codebook's own words for the directions
+            parts[0] += (f" In this codebook, helps = {dw.get('helps')}, hinders = {dw.get('hinders')}, "
+                         f"mixed = {dw.get('mixed')}; answer with helps, hinders, mixed or not_stated.")
+        if payload.get("directional") and payload.get("direction_note"):
+            parts[0] += f" The direction is judged {payload['direction_note'][0].lower()}{payload['direction_note'][1:]}"
+        if payload.get("one_main"):
+            parts[0] += " One main code per passage: mark at most one code as main."
+        if payload.get("stance"):
+            parts.append(f"HOW THE CODEBOOK IS MEANT: {payload['stance']}")
+        if payload.get("practice_and_element"):
+            parts.append("This codebook asks for practice and element: for each label, give the practice the passage "
+                         "is about and the element the code is about, each copied exactly from the passage (null "
+                         "when it does not name one).")
         cands = payload.get("candidates") or []
-        parts.append("CANDIDATE CODES:\n" + ("\n".join(f"{c['code']}: {c['description']}" for c in cands)
-                                              if cands else "(none found by the search: name codes only if the passage "
-                                                            "clearly addresses them)"))
+
+        def entry(c: dict) -> str:
+            line = f"{c['code']}: {c['description']}"
+            if c.get("found"):
+                line += " [found by the search]"
+            for k, word in (("include", "Use when"), ("exclude", "Not when"), ("source", "Source")):
+                if c.get(k):
+                    line += f"\n    {word}: {c[k]}"
+            return line
+
+        head = "THE WHOLE CODEBOOK" if payload.get("whole_codebook") else "CANDIDATE CODES"
+        parts.append(f"{head}:\n" + ("\n".join(entry(c) for c in cands)
+                                      if cands else "(none found by the search: name codes only if the passage "
+                                                    "clearly addresses them)"))
         parts.append(f"DOCUMENT: {payload.get('title') or 'untitled'}" + (f", page {payload['page']}" if payload.get("page") else ""))
         if payload.get("context"):
             parts.append(f"CONTEXT (not to be labelled or quoted):\n…{payload['context']}")
@@ -336,6 +378,9 @@ def user_prompt(kind: str, payload: dict) -> str:
             parts.append("\n".join(lines))
         n = len(payload["terms"])
         pairs = ", ".join(f"({a}, {b})" for a in range(1, n + 1) for b in range(a + 1, n + 1))
+        if payload.get("relations") == "elements":  # 0.9
+            parts.append("Judge how the terms relate as elements of a practice: requires, shapes, replaces, "
+                         "element_of, clashes_with, related or different.")
         parts.append(f"Give the relation for each pair: {pairs}.")
         return "\n\n".join(parts)
     if kind == "theme":
