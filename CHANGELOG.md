@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-From ENLENS 0.12.0 to 0.13.3: a Zotero bibliography beside your documents, a rebuilt result page, a calmer look on
-every page, and checks on Sonnet. Margin keeps its own look, its drafts and its *second opinion* wording on top.
+From ENLENS 0.12.0 to 0.13.4: a Zotero bibliography beside your documents, a rebuilt result page, a calmer look on
+every page, the Claude account that answers, and checks on Sonnet. Margin keeps its own look, its drafts and its *second opinion* wording on top.
 Every answer still goes through the quote check and a person can overrule it.
 
 **Your Zotero bibliography next to your documents (from ENLENS 0.13.0).** A new **Bibliography** page brings in a
@@ -41,6 +41,14 @@ line win where the two differ.
 now says *1 task not running · Waiting for Claude Code to start*, with *Start Claude Code* in its panel, instead of
 *1 task running*. This covers Margin's own draft jobs too (finding a draft's claims, checking them).
 
+**Which Claude account answers (from ENLENS 0.13.4).** Hovering the sidebar's *Claude, on your plan* line (or
+reaching it with the Tab key) opens a small card: *Signed in to Claude Code as you@university.nl*, the plan (and the
+organisation on Team or Enterprise), where the text goes and where to change it; Escape closes it. Signed out or not
+installed, it says so and points to *Settings → AI*, which names the account too (also on a phone), as does `margin
+claude-setup`. The address comes from `claude auth status` and is only shown: it is not written into Margin's files,
+`/api/state` or the queue, and with `--local-only` Claude Code is not asked. The sidebar, *Overview* and *Settings*
+share one answer from Claude Code.
+
 **Checks on Sonnet (from ENLENS 0.13.3).** Judging excerpts (a check, reading one excerpt again, a draft's claims)
 goes to Sonnet at high effort instead of Opus. An unsure judgement, two rejected answers and *Ask a stronger model*
 still go to the auditor (Opus, or Fable when switched on), and second opinions stay on the auditor. *Settings →
@@ -59,14 +67,16 @@ sides; Margin's wording stays, `docs/API.md` and `docs/MANUAL.md` now describe i
 for it (`tests/test_0131_update_button.py`) run beside Margin's.
 
 **Tests:** from ENLENS, `tests/test_0120_results_page.py`, `test_0130_bibliography.py`, `test_0131_update_button.py`,
-`test_0132_result_page_polish.py`, `test_0133_app_wide_polish.py` and `test_0133_zotero_titles.py`, with the stand-in
-Zotero `tests/fake_zotero.py` (also `tools/dev_server.py --zotero`). `test_0133_app_wide_polish.py` now checks that
-only Margin's own stylesheets come after ENLENS's last one (ENLENS wants its own last). New:
+`test_0132_result_page_polish.py`, `test_0133_app_wide_polish.py`, `test_0133_zotero_titles.py` and
+`test_0134_claude_account.py`, with the stand-in
+Zotero `tests/fake_zotero.py` (also `tools/dev_server.py --zotero`). `test_0133_app_wide_polish.py` and
+`test_0134_claude_account.py` now check that only Margin's own stylesheets come after ENLENS's last one (ENLENS wants
+its own last). New:
 `tests/test_unreleased_draft_jobs_on_hold.py`: finding and checking a draft's claims are *not running* while nothing
 answers and running once Claude Code takes a batch. Checked in Chrome with the dev server (the social corpus, the
 stand-in Claude Code and Zotero): the result page (a mixed answer and a claim of a draft), *Bibliography*, a draft,
-*Overview*, *Documents*, *Search*, *Results*, *Profile*, *Themes* and *Settings*, light and dark, 1280 and 390 px; no
-console errors.
+*Overview*, *Documents*, *Search*, *Results*, *Profile*, *Themes* and *Settings*, light and dark, 1280 and 390 px, and
+the account card on hover with the stand-in Claude Code; no console errors.
 
 **Not yet done.** Not tried with a real Zotero 7 (only the stand-in) nor with a real signed-in Claude Code (the
 *not running* state and checks on Sonnet were tried with stand-ins). Checked in Chrome only.
