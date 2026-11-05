@@ -1139,3 +1139,159 @@ def to_find_rows(ws: Workspace) -> list[dict]:
                      "DOI link": f"https://doi.org/{w['doi']}" if w["doi"] else "", "Web address": w["url"] or "",
                      "Open in Zotero": w["link"] or "", "File in Zotero": w["file"] or ""})
     return rows
+
+
+# ------------------------------------------------------------------------------------------
+# Margin: APA 7 in-text citations, to paste into a draft
+# ------------------------------------------------------------------------------------------
+# Who an in-text citation names: the authors; without them the editors (APA leaves "Ed." out of the citation); else
+# whoever is named. A work without anyone is cited by the first words of its title: in quotation marks for a part of
+# something (an article, a chapter, a web page), in italics for a whole (a book, a report).
+AUTHOR_ROLES = (None, "author", "programmer", "artist", "director", "presenter", "inventor", "interviewee")
+QUOTED = {"Journal article", "Book chapter", "Conference paper", "Web page", "News article", "Magazine article",
+          "Encyclopedia entry", "Preprint"}
+_MINOR = {"a", "an", "the", "and", "as", "but", "for", "if", "nor", "or", "so", "yet", "at", "by", "in", "of", "off",
+          "on", "per", "to", "up", "via"}
+
+
+def _apa_names(creators: list[dict]) -> list[str]:
+    for pick in (lambda r: r in AUTHOR_ROLES, lambda r: r in ("editor", "seriesEditor"), lambda r: True):
+        names = [n for c in creators if pick(c.get("role")) and (n := (c.get("last") or c.get("name") or "").strip())]
+        if names:
+            return names
+    return []
+
+
+def _apa_title(title: str) -> str:
+    """The first words of a title (up to five, before any subtitle), in title case as APA writes it in the text."""
+    main = re.split(r"(?<=[:?!.])\s", title.strip(), maxsplit=1)[0].rstrip(":.")
+    words = main.split()[:5]
+    return " ".join(w if (i and w.lower() in _MINOR) or not w[:1].isalpha() else w[:1].upper() + w[1:]
+                    for i, w in enumerate(words))
+
+
+def _esc(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _who(names: list[str], k: int, amp: str) -> str:
+    """The names shown, `k` of them: all of them (with `amp` before the last), or the first k and "et al."."""
+    if k >= len(names):
+        return names[0] if len(names) == 1 else (f"{names[0]} {amp} {names[1]}" if len(names) == 2
+                                                 else ", ".join(names[:-1]) + f", {amp} {names[-1]}")
+    return f"{names[0]} et al." if k == 1 else ", ".join(names[:k]) + ", et al."
+
+
+def _sort_title(t: str) -> str:
+    return re.sub(r"^(a|an|the)\s+", "", _fold(t))
+
+
+def apa_parts(works: list[dict]) -> dict[str, dict]:
+    """The APA 7 in-text citation of each work (`key`, `creators`, `year`, `title`, `type`), as its reference list
+    would make it: two works with the same authors and year get 2020a and 2020b (in the order of their titles), and
+    two works whose "et al." would read the same name as many authors as tell them apart."""
+    ws_ = []
+    for w in works:
+        names = _apa_names(w.get("creators") or [])
+        title = (w.get("title") or "").strip()
+        if not names and not title:
+            continue
+        year = str(w.get("year") or "").strip() or "n.d."
+        ws_.append({"key": w["key"], "names": names, "year": year, "title": title, "type": w.get("type"),
+                    "k": 1 if len(names) >= 3 else len(names)})
+    # "et al." that would stand for different authors: name as many as tell the works apart (APA 8.18)
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for w in ws_:
+        if len(w["names"]) >= 3:
+            groups[(_fold(w["names"][0]), w["year"])].append(w)
+    for group in groups.values():
+        for w in group:
+            others = [v for v in group if [_fold(n) for n in v["names"]] != [_fold(n) for n in w["names"]]]
+            while w["k"] < len(w["names"]) and any([_fold(n) for n in v["names"][:w["k"]]]
+                                                   == [_fold(n) for n in w["names"][:w["k"]]] for v in others):
+                w["k"] += 1
+            if w["k"] == len(w["names"]) - 1:  # "et al." for one name: write it
+                w["k"] = len(w["names"])
+    out: dict[str, dict] = {}
+    for w in ws_:
+        if w["names"]:
+            who, narr = _who(w["names"], w["k"], "&"), _who(w["names"], w["k"], "and")
+            e = {"kind": "names", "who": who, "who_html": _esc(who), "narr": narr, "narr_html": _esc(narr),
+                 "sort": _fold(" ".join(w["names"]))}
+        else:
+            t = _apa_title(w["title"])
+            quoted = TYPE_TEXT.get(w["type"] or "") in QUOTED
+            e = ({"kind": "quoted", "who": f"“{t}”", "who_html": f"“{_esc(t)}”"} if quoted
+                 else {"kind": "italic", "who": t, "who_html": f"<i>{_esc(t)}</i>"})
+            e.update(narr=e["who"], narr_html=e["who_html"], sort=_sort_title(t))
+        e.update(year=w["year"], title=w["title"])
+        out[w["key"]] = e
+    # the same authors (or title) and year: a, b, c in the order of the titles
+    same: dict[tuple, list[str]] = defaultdict(list)
+    for key, e in out.items():
+        same[(_fold(e["who"]), e["year"])].append(key)
+    for keys in same.values():
+        if len(keys) > 1:
+            keys.sort(key=lambda k: (_sort_title(out[k]["title"]), k))
+            for i, k in enumerate(keys[:26]):
+                y = out[k]["year"]
+                out[k]["year"] = f"{y}-{chr(97 + i)}" if y == "n.d." else f"{y}{chr(97 + i)}"
+    for e in out.values():
+        _finish(e)
+    return out
+
+
+def _paren(e: dict, html: bool) -> str:
+    who = e["who_html" if html else "who"]
+    if e["kind"] == "quoted":  # ("Study Finds," 2020): the comma inside the quotation marks
+        return f"{who[:-1]},” {e['year']}"
+    return f"{who}, {e['year']}"
+
+
+def _finish(e: dict) -> None:
+    e["text"] = f"({_paren(e, False)})"
+    e["html"] = f"({_paren(e, True)})"
+    e["narrative"] = f"{e['narr']} ({e['year']})"
+    e["narrative_html"] = f"{e['narr_html']} ({e['year']})"
+
+
+def apa_citations(ws: Workspace) -> dict[str, dict]:
+    """The APA 7 in-text citation of each document linked to a work of the bibliography (linked or confirmed):
+    `text` "(Verhoeven & Okafor, 2025)", `narrative` "Verhoeven and Okafor (2025)", both also as `html` (a title in
+    italics), and what `apa_together` needs to cite several in one."""
+    rows = ws.query("SELECT item_key, item_type, title, creators_json, year FROM bib_items ORDER BY seq")
+    if not rows:
+        return {}
+    parts = apa_parts([{"key": r["item_key"], "type": r["item_type"], "title": r["title"], "year": r["year"],
+                        "creators": json.loads(r["creators_json"] or "[]")} for r in rows])
+    out: dict[str, dict] = {}
+    for r in ws.query("SELECT l.doc_id, l.item_key FROM bib_links l JOIN bib_items b ON b.item_key=l.item_key "
+                      "WHERE l.status IN ('auto', 'confirmed') ORDER BY b.seq"):
+        if r["doc_id"] not in out and r["item_key"] in parts:
+            e = parts[r["item_key"]]
+            out[r["doc_id"]] = {k: e[k] for k in ("text", "html", "narrative", "narrative_html", "kind", "who",
+                                                  "who_html", "year", "sort")}
+    return out
+
+
+def apa_together(cites: list[dict]) -> dict | None:
+    """Several works in one parenthesis, as APA orders them: by author (then year), the years of the same authors
+    after one name, separated by semicolons: "(Haugen, 2023, 2024; Verhoeven & Okafor, 2025)"."""
+    cites = [c for c in cites if c]
+    if not cites:
+        return None
+    seen, uniq = set(), []
+    for c in sorted(cites, key=lambda c: (c["sort"], c["year"].replace("n.d.", "0000"))):
+        if (c["who"], c["year"]) not in seen:
+            seen.add((c["who"], c["year"]))
+            uniq.append(c)
+    text, html, last = [], [], None
+    for c in uniq:
+        if last and c["kind"] == "names" and last["kind"] == "names" and last["who"] == c["who"]:
+            text[-1] += f", {c['year']}"
+            html[-1] += f", {c['year']}"
+        else:
+            text.append(_paren(c, False))
+            html.append(_paren(c, True))
+        last = c
+    return {"text": f"({'; '.join(text)})", "html": f"({'; '.join(html)})", "count": len(uniq)}

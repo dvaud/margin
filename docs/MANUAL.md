@@ -426,12 +426,26 @@ used as evidence.
    above the claims add *To decide*, *You: supported* and *You: refuted*. Claims you decided on are left out of
    *Check N claims*; open the card and press *Check this one* to check one anyway.
 
+**Citations to paste (Margin, unreleased).** With a bibliography on the *Bibliography* page (your Zotero library or
+a collection, or a file exported from a reference manager), every document a claim would cite that is linked to a
+work of the bibliography has its APA 7 in-text citation next to it, such as **(Verhoeven & Okafor, 2025)**. Click it
+to copy it, then paste it into your text; Alt-click (Option-click on a Mac) copies the narrative form, *Verhoeven and
+Okafor (2025)*. A folded card has one button for all the documents to cite, in one parenthesis and in APA's order:
+*(Adeyemi & Brandt, 2024; Verhoeven & Okafor, 2025)*. The citations follow APA 7 as your reference list would: one
+or two authors by name, three or more as *et al.*, editors when there are no authors, *n.d.* without a year,
+*2024a* and *2024b* for two works of the same authors and year, and as many names as needed when two *et al.* would
+read the same. A work without an author is cited by the first words of its title (in quotation marks for an article,
+a chapter or a web page; in italics for a book or a report, which come along when pasted into Word). A document not
+linked to a work has no citation; the card says so and links to *Bibliography*, where you can link it. The
+citation is made from what Zotero holds: an author or year missing there is missing in the citation too.
+
 On a wide window the draft and the claims scroll on their own: scroll through the claims and the draft stays where
 it is. Click anywhere on a claim's card (not on its buttons or links) to show its sentence in the draft, and click a
 sentence in the draft to bring its card into view.
 
 *Excel* and *CSV* download one row per claim: the sentence, the claim checked, whether it is cited, the answer, your
-decision and the documents on each side, as a list of what to cite. The checks are also under *Results*, as a set. A draft marked
+decision and the documents on each side, as a list of what to cite, with their APA 7 citation when you have a
+bibliography. The checks are also under *Results*, as a set. A draft marked
 *Only a local AI* or *No AI* is never sent to Claude, in finding its claims or in any task of their checks, and is
 hidden from a Claude chat; for a draft Claude may read, the page says how much of it Claude has read and when.
 

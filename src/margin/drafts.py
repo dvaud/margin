@@ -24,7 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import access, claimcheck, tasks
+from . import access, bibliography, claimcheck, tasks
 from .schema import ClaimsOut
 from .store import Workspace, now
 from .textutil import find_quote, normalise, split_sentences
@@ -566,8 +566,9 @@ def queue_checks(ws: Workspace, draft_id: str, router, claim_ids: list[str] | No
 SIDES = (("supports", "supports"), ("partly", "partially_supports"), ("refutes", "refutes"))
 
 
-def _evidence(res: dict) -> dict[str, list[dict]]:
-    """The documents on each side of a claim's answer (as the result page counts them), each with its best quote."""
+def _evidence(res: dict, cites: dict[str, dict] | None = None) -> dict[str, list[dict]]:
+    """The documents on each side of a claim's answer (as the result page counts them), each with its best quote and,
+    for a document linked to a work of the bibliography, its APA 7 in-text citation (`apa`, Margin)."""
     items = [x for p in res["parts"] for x in p["passages"] if x.get("counted")]
     out: dict[str, list[dict]] = {"supports": [], "partly": [], "refutes": []}
     for w in res.get("who") or []:
@@ -579,7 +580,18 @@ def _evidence(res: dict) -> dict[str, list[dict]]:
                                "quote": best["quote"] if best else None,
                                "location": best["location"] if best else None,
                                "passage_id": best["passage_id"] if best else None,
-                               "quote_by": best["quote_by"] if best else None})
+                               "quote_by": best["quote_by"] if best else None,
+                               "apa": (cites or {}).get(w["doc_id"])})
+    return out
+
+
+def _cite_sides(ev: dict[str, list[dict]]) -> dict[str, dict]:
+    """Margin: the documents of each side in one APA 7 citation, "(Haugen, 2024; Verhoeven & Okafor, 2025)"."""
+    out = {}
+    for side, docs in ev.items():
+        both = bibliography.apa_together([e["apa"] for e in docs if e.get("apa")])
+        if both:
+            out[side] = {**both, "missing": sum(1 for e in docs if not e.get("apa"))}
     return out
 
 
@@ -590,6 +602,8 @@ def view(ws: Workspace, draft_id: str, threshold: float | None = None) -> dict:
     thr = claimcheck._threshold(ws, threshold)
     lv = level(ws, draft_id)
     cache = claimcheck.ResultCache(ws, thr)
+    has_bib = bibliography.has(ws)
+    cites = bibliography.apa_citations(ws) if has_bib else {}
     claims = []
     counts: dict[str, int] = {}
     for r in ws.query("SELECT * FROM draft_claims WHERE draft_id=? ORDER BY start, end", (draft_id,)):
@@ -598,14 +612,15 @@ def view(ws: Workspace, draft_id: str, threshold: float | None = None) -> dict:
         c.update(cited=bool(r["cited"]), skip=bool(r["skip"]), edited=bool(r["edited"]),
                  decision=r["decision"] or ("dismissed" if r["skip"] else None), decided_at=r["decided_at"],
                  kind_text=KIND_TEXT.get(r["kind"] or "other", "A claim"),
-                 source_text=SOURCE_TEXT.get(r["source"], r["source"]), status=None, evidence=None)
+                 source_text=SOURCE_TEXT.get(r["source"], r["source"]), status=None, evidence=None, cite=None)
         if r["hyp_id"]:
             try:
                 res = cache.result(r["hyp_id"])
             except KeyError:
                 res = None
             if res is not None:
-                c.update(status=res["status"], status_text=res["status_text"], evidence=_evidence(res),
+                ev = _evidence(res, cites)
+                c.update(status=res["status"], status_text=res["status_text"], evidence=ev, cite=_cite_sides(ev),
                          excerpts_read=res["excerpts_read"], to_review=res["to_review_relevant"],
                          waiting_for_you=res["waiting_for_you"], balance=res["balance"],
                          checked_at=res["created_at"])
@@ -615,7 +630,7 @@ def view(ws: Workspace, draft_id: str, threshold: float | None = None) -> dict:
                       "created_at": d["created_at"], "chars": len(d["text"]), "words": len(d["text"].split()),
                       "ai_access": lv, "own_setting": d["ai_access"] is not None, "ai_label": access.LABEL[lv],
                       "batch_id": d["batch_id"], "found_by": d["found_by"], "found_at": d["found_at"]},
-            "text": d["text"], "claims": claims, "threshold": thr,
+            "text": d["text"], "claims": claims, "threshold": thr, "bibliography": has_bib,
             "counts": {"claims": len(claims), "kept": sum(1 for c in claims if not c["skip"]),
                        "checked": sum(1 for c in claims if c["hyp_id"]),
                        "to_check": sum(1 for c in claims if not c["skip"] and not c["hyp_id"] and not c["decision"]),
@@ -642,5 +657,7 @@ def export_rows(ws: Workspace, draft_id: str, threshold: float | None = None) ->
                      "Your decision": DECISION_TEXT.get(c["decision"] or "", ""),
                      "Supporting documents": docs(c, "supports"), "Partly supporting": docs(c, "partly"),
                      "Contradicting documents": docs(c, "refutes"),
+                     "Citation (APA 7)": ((c.get("cite") or {}).get("refutes" if c["decision"] == "refuted"
+                                                                     else "supports") or {}).get("text", ""),
                      "Position in the draft": f"characters {c['start']}–{c['end']}"})
     return rows

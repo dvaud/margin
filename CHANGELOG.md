@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+**Citations to paste from a draft.** With a bibliography (your Zotero library or a collection, or an exported file),
+every document a draft's claim would cite now has its APA 7 in-text citation beside it, such as **(Verhoeven &
+Okafor, 2025)**: one click copies it, ready to paste into your text, and Alt-click (Option-click on a Mac) copies the
+narrative form, *Verhoeven and Okafor (2025)*. A claim you marked *supported* or *refuted* has one button for all the
+documents to cite, in one parenthesis and in APA's order: *(Adeyemi & Brandt, 2024; Verhoeven & Okafor, 2025)*. The
+citations follow APA 7 as your reference list would: *et al.* from three authors, editors when there are no authors,
+*n.d.*, *2024a*/*2024b* for the same authors and year, as many names as needed when two *et al.* would read the same,
+and the first words of the title for a work without an author (in quotation marks for an article or web page, in
+italics for a book or report; the italics come along when pasted into Word). Documents not linked to a work are
+named, with a link to *Bibliography*. Nothing is sent anywhere and no AI is used: the citation is made from what
+Zotero holds. The draft's Excel and CSV files have a new column, *Citation (APA 7)*.
+
+**Tests:** `tests/test_unreleased_apa_citations.py` (one, two and more authors, group authors, editors, no date, a
+and b, *et al.* told apart, works without an author, several works in one parenthesis, a checked draft with a Zotero
+library from the stand-in Zotero, the API, the page). `test_0133_app_wide_polish.py` and `test_0134_claude_account.py`
+count `unreleased.css` as one of Margin's own stylesheets. Checked in Chrome with the dev server (the social corpus,
+the stand-in Zotero): a draft's cards folded and open, a document not linked, copying (the combined citation and the
+narrative form, read back from the clipboard), light and dark, 1280 and 390 px; no console errors.
+
+**Not yet done:** pasting into Word and Google Docs was not tried by hand (the browser's clipboard was read back
+instead). Page numbers for a direct quote (*p. 12*) are not added: the citations are for paraphrase. Only APA 7;
+other styles (Chicago, Harvard, Vancouver) would come from Zotero's own citation styles.
+
 ## 0.4.0 (November 2026): your Zotero bibliography, and a calmer result page
 
 From ENLENS 0.12.0 to 0.13.4: a Zotero bibliography beside your documents, a rebuilt result page, a calmer look on

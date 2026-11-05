@@ -150,7 +150,7 @@ def test_the_card_stylesheet():
     index = (STATIC / "index.html").read_text()
     sheets = re.findall(r'<link rel="stylesheet" href="([^"]+)"', index)
     # Margin: the last of ENLENS's sheets, right after v0133.css; only Margin's own (m*.css) come after it
-    ours = [x for x in sheets if re.fullmatch(r"/static/m\d+\.css", x)]
+    ours = [x for x in sheets if re.fullmatch(r"/static/(m\d+|unreleased)\.css", x)]
     assert ours and sheets[-len(ours):] == ours
     enlens = sheets[:-len(ours)]
     assert enlens[-1] == "/static/v0134.css" and enlens.index("/static/v0133.css") == len(enlens) - 2

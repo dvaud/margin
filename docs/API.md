@@ -805,10 +805,18 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
   "kind_text", "why", "cited", "source": "ai" | "rules" | "person", "skip", "edited", "decision": "supported" |
   "refuted" | "dismissed" | null, "decided_at", "hyp_id", "status",
   "status_text", "evidence": {"supports" | "partly" | "refutes": [{"doc_id", "title", "excerpts", "locations",
-  "quote", "location", "passage_id"}]}, "to_review", "waiting_for_you"}], "counts": {"claims", "kept", "checked",
+  "quote", "location", "passage_id", "apa"}]}, "cite": {side: {"text", "html", "count", "missing"}}, "to_review",
+  "waiting_for_you"}], "bibliography": bool, "counts": {"claims", "kept", "checked",
   "to_check", "cited", "status": {status: n}, "decided": {decision: n}}, "finding": {"total", "waiting", "done", "failed", "queued",
   "errors"?}, "sent": {"times", "routes", "parts_read", "claims_read", "first", "last"}, "documents",
   "queue_command", "default", "labels", "local_only"}`.
+  Margin (unreleased): `apa` is the APA 7 in-text citation of a document linked to a work of the bibliography
+  (`null` otherwise): `{"text": "(Verhoeven & Okafor, 2025)", "narrative": "Verhoeven and Okafor (2025)", "html",
+  "narrative_html"` (a title in `<i>` for a book or report without an author)`, "kind": "names" | "quoted" | "italic",
+  "who", "who_html", "year", "sort"}`, made as the bibliography's reference list would make it (2025a and 2025b, as
+  many names as tell two "et al." apart). `cite` puts the documents of each side with a citation in one parenthesis,
+  ordered by author ("(Haugen, 2023, 2024; Verhoeven & Okafor, 2025)"); `missing` counts that side's documents
+  without one. `bibliography`: the project has one.
 - `PUT /api/projects/<p>/drafts/<d>` `{"title"?, "ai_access"?}` (`""`: the project's default) → `{"draft"}`. A changed
   setting applies at once to the tasks not answered yet that hold the draft's text.
 - `DELETE /api/projects/<p>/drafts/<d>` → `{"deleted", "claims", "checks"}`: the draft, its claims and their checks.
@@ -828,7 +836,8 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
   400 for another value. A decision belongs to the draft: the answer of the claim's check does not change.
 - `DELETE /api/projects/<p>/drafts/<d>/claims/<c>`: the claim and its check.
 - `GET /api/projects/<p>/drafts/<d>/export.xlsx|csv`: one row per claim (sentence, claim checked, kind, cited, found
-  by, answer, the person's decision, supporting, partly supporting and contradicting documents with their places); the Excel file ends with
+  by, answer, the person's decision, supporting, partly supporting and contradicting documents with their places, and
+  *Citation (APA 7)*: the contradicting documents' citation for a claim decided *refuted*, else the supporting ones'); the Excel file ends with
   *How these results were made*.
 - `GET /api/projects/<p>/hypotheses/<h>` and the Results list carry `draft_id`; `GET /api/projects/<p>/overview`
   carries `drafts`.

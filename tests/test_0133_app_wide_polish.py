@@ -33,9 +33,9 @@ def test_the_stylesheet_is_linked_last_and_uses_the_colour_tokens_only(api):  # 
     sheets = re.findall(r'<link rel="stylesheet" href="([^"]+)"', index)
     # after it only a later ENLENS release's own sheet (0.13.4: v0134.css), then Margin's own (m*.css), so Margin's
     # look wins
-    later = [x for x in sheets[sheets.index("/static/v0133.css") + 1:] if not re.fullmatch(r"/static/m\d+\.css", x)]
+    later = [x for x in sheets[sheets.index("/static/v0133.css") + 1:] if not re.fullmatch(r"/static/(m\d+|unreleased)\.css", x)]
     assert all(re.fullmatch(r"/static/v01(3[4-9]|[4-9]\d?)\.css", x) for x in later), later
-    ours = [i for i, x in enumerate(sheets) if re.fullmatch(r"/static/m\d+\.css", x)]
+    ours = [i for i, x in enumerate(sheets) if re.fullmatch(r"/static/(m\d+|unreleased)\.css", x)]
     assert ours and ours == list(range(len(sheets) - len(ours), len(sheets)))
     # light and dark both work: no colour of its own, only the tokens of app.css
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", CSS)

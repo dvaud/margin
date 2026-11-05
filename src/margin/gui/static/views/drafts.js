@@ -5,6 +5,8 @@
 // Margin 0.3: the person decides on each claim (supported, refuted, dismissed): its card folds to what matters and its
 // highlight in the draft says a source should be cited there; the claims scroll on their own beside the draft, and a
 // click anywhere on a card shows its sentence in the draft.
+// Margin (unreleased): with a bibliography (Zotero, or an exported file), each document to cite has its APA 7 in-text
+// citation on a button that copies it, "(Verhoeven & Okafor, 2025)", ready to paste into the text; several in one.
 import { featureEyebrow } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, statusBadge, confirmDialog, dialog, download, TERMINAL, runningJob, plural, session, queueNotice, navigate } from "../lib.js";
 import { ProgressPanel, jobCard } from "./progress.js";
@@ -35,6 +37,8 @@ const DECIDE = {
   refuted: { label: "Claim refuted", short: "You: refuted", icon: "circle-x", side: "refutes", cite: "Cite or revise here", none: "Cite the source that contradicts it, or revise the sentence." },
   dismissed: { label: "Dismiss claim", short: "Dismissed", icon: "x", title: "Not a claim that needs a source" },
 };
+
+const ALT_CLICK = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "Option-click" : "Alt-click";
 
 const statusOf = (c) => (c.skip ? "skip" : c.status || "unchecked");
 const decided = (c) => c.decision === "supported" || c.decision === "refuted";
@@ -401,6 +405,29 @@ export async function renderDraft(view, [draftId], query) {
   const differs = (c) => norm(c.claim) !== norm(c.quote);
   const norm = (s) => (s || "").replace(/\s+/g, " ").replace(/\s*[([]\w[^)\]]*[)\]]/g, "").trim().toLowerCase();
 
+  // The APA 7 in-text citation of a document (or of several, `all`) on a button that copies it; Alt-click copies the
+  // narrative form, "Verhoeven and Okafor (2025)".
+  function apaButton(cite, opts = {}) {
+    const narrative = !opts.all && cite.narrative;
+    const btn = h("button", { class: `dc-apa${opts.all ? " dc-apa-all" : ""}`, type: "button",
+      title: `Copy ${cite.text} to paste into your text${narrative ? `. ${ALT_CLICK}: ${cite.narrative}` : ""}`,
+      "aria-label": `Copy the APA citation ${cite.text}` }, icon("copy", { size: 12 }), h("span", { class: "dc-apa-text" }, cite.text));
+    btn.addEventListener("click", async (e) => {
+      const alt = e.altKey && narrative;
+      const text = alt ? cite.narrative : cite.text, html = alt ? cite.narrative_html : cite.html;
+      if (await copyCitation(text, html)) toast(`Copied ${text}. Paste it into your text.`, "ok", { ttl: 2500 });
+      else toast("Could not copy: select the citation and copy it with Ctrl+C (or Cmd+C).", "warn");
+    });
+    return btn;
+  }
+
+  // Documents of the side that are not linked to a work of the bibliography have no citation to copy.
+  function notLinked(n, total) {
+    if (!n || !data.bibliography) return null;
+    return h("p", { class: "dc-cite-line dc-cite-docs muted" }, n === total ? `${n === 1 ? "This document is" : "These documents are"} not linked to a work of your bibliography, so there is no citation to copy. `
+      : `${plural(n, "document is", "documents are")} not linked to a work of your bibliography. `, h("a", { href: "#/bibliography" }, "Bibliography"));
+  }
+
   function claimCard(c) {
     const st = statusOf(c);
     const card = h("article", { class: `dc-card dc-${st}${c.decision ? ` dc-you-${c.decision}` : ""}${picked === c.claim_id ? " dc-picked" : ""}`, "data-id": c.claim_id },
@@ -423,12 +450,17 @@ export async function renderDraft(view, [draftId], query) {
   function foldedCard(c) {
     const st = statusOf(c), you = DECIDE[c.decision];
     const docs = you.side ? ((c.evidence || {})[you.side] || []) : [];
+    const all = you.side ? (c.cite || {})[you.side] : null;  // the documents to cite, in one APA citation
+    const copyAll = all ? apaButton(all, { all: true }) : null;
     const cite = !you.side ? null
-      : c.cited ? h("p", { class: "dc-cite small" }, icon("quote", { size: 12 }), "Your draft cites a source here.")
-      : h("p", { class: "dc-cite small" }, icon("quote", { size: 12 }), docs.length
-        ? [h("span", {}, "Cite: "), ...docs.slice(0, 3).flatMap((e, i) => [i ? h("span", { class: "muted" }, " · ") : null, h("a", { href: `#/doc/${encodeURIComponent(e.doc_id)}`, class: "dc-doc" }, e.title)].filter(Boolean)),
-          docs.length > 3 ? h("span", { class: "muted" }, ` and ${docs.length - 3} more`) : null].filter(Boolean)
-        : you.none);
+      : c.cited ? h("p", { class: "dc-cite small" }, icon("quote", { size: 12 }), "Your draft cites a source here.", copyAll)
+      : h("div", { class: "dc-cite small" }, docs.length
+        ? [copyAll ? h("p", { class: "dc-cite-line" }, icon("quote", { size: 12 }), h("span", {}, "Cite: "), copyAll) : null,
+          h("p", { class: `dc-cite-line${copyAll ? " dc-cite-docs" : ""}` }, copyAll ? null : icon("quote", { size: 12 }), copyAll ? null : h("span", {}, "Cite: "),
+            ...docs.slice(0, 3).flatMap((e, i) => [i ? h("span", { class: "muted" }, " · ") : null, h("a", { href: `#/doc/${encodeURIComponent(e.doc_id)}`, class: "dc-doc" }, e.title)].filter(Boolean)),
+            docs.length > 3 ? h("span", { class: "muted" }, ` and ${docs.length - 3} more`) : null),
+          notLinked(all ? all.missing : data.bibliography ? docs.length : 0, docs.length)].filter(Boolean)
+        : h("p", { class: "dc-cite-line" }, icon("quote", { size: 12 }), you.none));
     const card = h("article", { class: `dc-card dc-folded dc-${st} dc-you-${c.decision}${picked === c.claim_id ? " dc-picked" : ""}`, "data-id": c.claim_id },
       h("div", { class: "dc-head" },
         h("button", { class: `dc-n dm-${st} dm-you-${c.decision}`, type: "button", title: "Show it in the draft", "aria-label": `Show claim ${c.n} in the draft`, onClick: () => pick(c.claim_id, "text") }, String(c.n)),
@@ -462,6 +494,7 @@ export async function renderDraft(view, [draftId], query) {
       h("div", { class: "dc-side-label" }, icon(ic, { size: 13 }), label),
       h("ul", { class: "dc-docs" }, ev[k].map((e) => h("li", {},
         h("a", { href: `#/doc/${encodeURIComponent(e.doc_id)}`, class: "dc-doc" }, e.title),
+        e.apa ? apaButton(e.apa) : null,
         e.location ? h("span", { class: "muted small" }, ` · ${e.location}`) : null,
         e.excerpts > 1 ? h("span", { class: "muted small" }, ` · ${e.excerpts} excerpts`) : null,
         e.quote ? h("blockquote", { class: "dc-q" }, e.quote) : null)))));
@@ -567,4 +600,24 @@ export async function renderDraft(view, [draftId], query) {
     clearInterval(refreshTimer);
     document.removeEventListener("selectionchange", selListener);
   };
+}
+
+// Copy a citation. Plain text, which takes the font of the text it is pasted into; also as HTML only when it has a
+// title in italics (a book or report without an author), so the italics come along.
+async function copyCitation(text, html) {
+  try {
+    if (html && html.includes("<i>") && window.ClipboardItem && navigator.clipboard.write) {
+      await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([text], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]);
+    } else await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    const ta = h("textarea", { class: "visually-hidden", "aria-hidden": "true" });
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+    ta.remove();
+    return ok;
+  }
 }
