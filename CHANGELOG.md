@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+**From ENLENS 0.13.6 and 0.13.7: check your citations, updates that announce themselves, and a local model without a
+terminal.**
+- **Check citations** (ENLENS 0.13.7): a text's citations, *(Smith, 2020)*, *Smith et al. (2020) found that …* and
+  *[3]* with a numbered reference list, are found without AI; each is matched with a work of the bibliography and its
+  claim is checked against that work's own document, and no other: *Source accurate*, or a notice (only partly
+  supported, not found in the source, the source says otherwise). Every answer goes through the quote check and can
+  be overruled on the result page. How it works together with *Check a draft* is in the next entry.
+- **Updates that announce themselves** (ENLENS 0.13.6): the *Update Margin* button shows only when there is
+  something to install, with the version (*Update to 0.6.0*); the page looks when it opens and every two minutes, and
+  a new version pops up once in the corner (*Update and restart*, *Later*). *Settings → Technical → Check for updates*
+  looks at once and says why when it cannot.
+- **A model on this computer, without a terminal** (ENLENS 0.13.7): with Ollama running, *A model on this computer*
+  (first screen and *Settings → AI*) downloads qwen3:8b with one button and a progress bar, and chooses it when the
+  download ends; without Ollama, three plain steps. *Local model for restricted documents* and *Search by meaning*
+  offer the same download. Fixed: *Use a local model* on the first screen no longer skips the model step.
+- **Version numbers.** ENLENS withdrew its 0.14.0, 0.15.0 and 0.15.1 (their changes are in its 0.13.6). Those were
+  never Margin's numbers, so Margin withdraws none (`update.WITHDRAWN` is empty) and its own 0.14.0 will count as a
+  later version. `test_0_13_6_version_numbers.py` checks the order of Margin's own releases only (ENLENS's history
+  follows Margin 0.1.0 in this changelog), and `test_0_13_7_local_model.py` reads this changelog, not the README.
+- **Fixed on the way:** reading an excerpt again (*Read again* on the result page) now keeps the AI setting of the
+  text a claim comes from, a citation's text as well as a draft (`access.text_floor`). ENLENS's tests renamed
+  `test_0140_addons.py`, `test_0150_task_kinds.py` and `test_0151_page_extensions.py` to `test_0_13_6_*`.
+
 **From ENLENS 0.13.5 to 0.15.1: room for apps built on ENLENS, and Margin moved into it.** ENLENS now gives an app
 built on it extension points, so Margin can add its features in files of its own instead of editing ENLENS's, and
 each sync clashes less. Nothing changes on screen.

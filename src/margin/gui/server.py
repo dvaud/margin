@@ -33,8 +33,9 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .. import __version__, access, addons, bibliography, claimcheck, drafts, embed, frameworks, home, ingest, taskqueue
+from .. import __version__, access, addons, bibliography, citations, claimcheck, drafts, embed, frameworks, home, ingest, taskqueue
 from .. import tasks as tasks_mod
+from .. import llm
 from ..llm import BackendError, detect_local
 from ..claude_setup import setup_info as claude_setup_info
 from ..store import now as _now
@@ -177,6 +178,8 @@ class App:
         self.stop = None           # stops the server ("Quit Margin"); set by serve()
         self.restart = None        # stops the server and starts the version on disk in its place; set by serve()
         self.updating = threading.Lock()  # one "Update and restart" at a time
+        self.update_seen: dict | None = None  # 0.13.6: the last look for a newer version (GET /api/update)
+        self.update_looking = threading.Lock()  # one look at a time: the tabs that ask together share it
 
     # -- helpers ---------------------------------------------------------------------------------
     def settings(self) -> dict:
@@ -206,7 +209,7 @@ class App:
         """0.8: Claude Code (the researcher's own plan) answers: the AI buttons prepare tasks and wait for them."""
         return self.settings().get("backend") == "claude_code"
 
-    # -- 0.14: the public interface for add-ons (docs/EXTENDING.md). The old private names keep working. -----------
+    # -- 0.13.6: the public interface for add-ons (docs/EXTENDING.md). The old private names keep working. -----------
     def start_job(self, kind: str, title: str, name: str | None, fn, uses_model: bool = True,
                   withdraw: tuple[str, ...] = (), ws=None) -> Job:
         """A job; by queue (Claude Code) its tasks wait in the queue and it does not hold the model's turn. Stopping
@@ -230,7 +233,7 @@ class App:
         job.queue = q
         return job
 
-    _job = start_job  # the name before 0.14
+    _job = start_job  # the name before 0.13.6
 
     def job_views(self, active_only: bool = False) -> list[dict]:
         """The jobs for the page, each with `on_hold` (0.12): its work waits in the queue for Claude Code and nothing
@@ -287,7 +290,7 @@ class App:
             home.update_settings({"project": current})
         out = {"version": __version__, "installed_version": _installed_version(), "home": str(home.home()), "settings": s,
                "brand": addons.brand(),   # 0.13.5: the app's name and words (static/brand.json and add-ons)
-               "addon_pages": addons.page_modules(),   # 0.15.1: add-on packages' page modules
+               "addon_pages": addons.page_modules(),   # 0.13.6: add-on packages' page modules
                "backend_label": home.backend_label(s), "backend_labels": home.BACKEND_LABELS,
                "projects": projects, "project": current, "local_only": home.local_only(),
                "launcher": self.launcher, "can_quit": self.stop is not None,
@@ -302,7 +305,7 @@ class App:
                "jobs": self.job_views(active_only=True),
                "queue": self._queue_summary(current),
                "enlens": _enlens_info()}  # Margin 0.1: ENLENS's projects that could come over
-        out.update(addons.state(self, set(out)))  # 0.14: an add-on's keys, never in place of Margin's
+        out.update(addons.state(self, set(out)))  # 0.13.6: an add-on's keys, never in place of Margin's
         return out
 
     def _queue_summary(self, name: str | None) -> dict | None:
@@ -323,7 +326,61 @@ class App:
         for srv in found:
             srv["chat_models"] = [m for m in srv["models"] if not re.search(r"embed|bge-|e5-|minilm|rerank", m, re.I)]
             srv["embedding_models"] = [m for m in srv["models"] if re.search(r"embed|bge-|e5-|minilm", m, re.I)]
-        return {"servers": found}
+        # 0.13.7: the models the page offers to download into Ollama with one button
+        return {"servers": found, "suggested": [dict(m) for m in llm.SUGGESTED_MODELS]}
+
+    # 0.13.7: what a downloaded model is for, and the settings that choose it (applied when the download is done)
+    PULL_USES = {"ai": ("backend", "ollama_url", "ollama_model", "embed_backend", "embed_model", "embed_url"),
+                 "restricted": ("restricted_server", "restricted_model"),
+                 "embed": ("embed_backend", "embed_model", "embed_url")}
+
+    def pull_models(self, models: list[str], url: str, use: str = "") -> Job:
+        """0.13.7: download models into the Ollama on this computer, one after the other (a job that can be stopped).
+        Ollama fetches them from ollama.com itself; nothing of the person's is sent. With `use` ("ai": the AI that
+        reads the documents; "restricted": the local model for documents marked Only a local AI; "embed": search by
+        meaning) the downloaded models are chosen when the download is done, even if the page was closed meanwhile,
+        unless those settings were changed in the meantime."""
+        running = [j for j in self.jobs.all() if j.kind == "model-pull" and j.state in ("queued", "running")]
+        if running:
+            return running[0]
+        keys = self.PULL_USES.get(use, ())
+        before = {k: self.settings().get(k) for k in keys}
+
+        def choose(listed: dict) -> dict | None:
+            is_embed = lambda m: bool(re.search(r"embed|bge-|e5-|minilm", m, re.I))  # noqa: E731 - as servers() sorts
+            chat = next((v for v in listed.values() if not is_embed(v)), "")
+            emb = next((v for v in listed.values() if is_embed(v)), "")
+            changes: dict = {}
+            if use == "ai" and chat:
+                changes = {"backend": "ollama", "ollama_url": url, "ollama_model": chat}
+            elif use == "restricted" and chat:
+                changes = {"restricted_server": "ollama", "restricted_model": chat}
+            if emb and use in ("ai", "embed"):
+                changes.update({"embed_backend": "ollama", "embed_model": emb, "embed_url": ""})
+            now = self.settings()
+            if not changes or any(now.get(k) != before.get(k) for k in keys):
+                return None   # nothing to choose, or the person chose something else meanwhile: theirs stands
+            home.update_settings(changes)
+            return changes
+
+        def run(job: Job):
+            be = llm.OllamaBackend(base_url=url, stall_timeout=600)
+            got: list[str] = []
+            for i, model in enumerate(models):
+                job.progress = {"model": model, "index": i, "count": len(models), "status": "", "done": 0, "total": 0}
+
+                def tick(info, model=model, i=i):
+                    job.progress = {"model": model, "index": i, "count": len(models), **info}
+
+                if be.pull(model, on_progress=tick, should_stop=job.cancel.is_set) == "stopped":
+                    return None
+                got.append(model)
+                llm._DETECTED.clear()   # the next look at the servers lists it
+            # the names as Ollama lists them (a name without a tag gets ":latest"), to choose them in Settings
+            listed = {m: m if ":" in m.rsplit("/", 1)[-1] else f"{m}:latest" for m in got}
+            return {"url": url, "models": got, "listed": listed, "chosen": choose(listed) if use else None}
+
+        return self.jobs.start("model-pull", "Downloading " + " and ".join(models), None, run, uses_model=False)
 
     def test_backend(self) -> dict:
         s = self.settings()
@@ -338,7 +395,8 @@ class App:
             out["message"] = (f"Ollama {info.get('version', '')} is running. {model}: "
                               f"{(info.get('model') or {}).get('parameters') or '?'} parameters, "
                               f"{(info.get('model') or {}).get('quantization') or '?'}." if out["model_available"]
-                              else f"Ollama is running, but {model} is not installed. Run: ollama pull {model}")
+                              else f"Ollama is running, but {model} is not installed. Choose one of its models in Settings → AI, "
+                                   f"or download one there.")
         elif out["backend"] == "local":
             out["message"] = (f"The server at {info.get('url')} answers and offers {model}." if out["model_available"]
                               else f"The server answers, but does not list {model}.")
@@ -488,13 +546,13 @@ class App:
 
     # -- jobs ------------------------------------------------------------------------------------
     def wire(self, job: Job, be, tracker: Tracker | None = None) -> None:
-        """Let the backend `be` see the job's Stop and report its progress (0.14: public; `_wire` before)."""
+        """Let the backend `be` see the job's Stop and report its progress (0.13.6: public; `_wire` before)."""
         if hasattr(be, "should_stop"):
             be.should_stop = job.cancel.is_set
         if tracker is not None and hasattr(be, "progress"):
             be.progress = tracker.model_report
 
-    _wire = wire  # the name before 0.14
+    _wire = wire  # the name before 0.13.6
 
     def start_check(self, name: str, body: dict) -> Job:
         ws = self.ws(name)
@@ -543,7 +601,7 @@ class App:
 
     def follow_queued(self, job: Job, ws, hyp_ids: list[str], tracker: Tracker, poll: float = 2.0) -> None:
         """Follow checks by queue until Claude Code has answered their steps; their steps are taken as the answers
-        arrive (here, or in the connector). Stop withdraws the checks that are still waiting. (0.14: public;
+        arrive (here, or in the connector). Stop withdraws the checks that are still waiting. (0.13.6: public;
         `_follow_queued` before.)"""
         shown: dict[str, str] = {}
         t0 = time.time()
@@ -623,8 +681,9 @@ class App:
         be, model = self.backend()
         doc = ws.scalar("SELECT doc_id FROM passages WHERE passage_id=?", (passage_id,))
         level = access.levels(ws, [doc]).get(doc, "none") if doc else "none"
-        with ws.connect() as cx:  # Margin 0.1: the claim of a draft keeps the draft's setting
-            level = access.most([level, access.draft_floor(cx, {"subject_kind": "user_claim", "subject_id": claim_id})])
+        with ws.connect() as cx:  # Margin: the claim of a draft, or of a citation, keeps its text's setting
+            level = access.most([level, access.text_floor(cx, {"subject_kind": "user_claim", "subject_id": claim_id,
+                                                               **claimcheck._citing(ws, claim_id)})])
         if level == "none" or (level == "local" and not access.Readers(be, model).local_configured()):
             raise ApiError(409, "This excerpt's document is marked No AI: no model may read it. Give your own "
                                 "judgement instead." if level == "none" else
@@ -952,6 +1011,53 @@ class App:
         return self.jobs.start("ingest", title, name, run, uses_model=False)
 
     # -- 0.13: the bibliography (Zotero, or an exported file) -----------------------------------------------------
+    # -- 0.13.7: checking citations ----------------------------------------------------------------------
+    def start_citations(self, name: str, text_id: str, body: dict) -> Job:
+        """Check the citations of a text that are ready (a work with its document), or `ref_ids` among them
+        (`again`: check those again), each against its work's documents only. By queue every check is prepared at
+        once and Claude Code reads them in turn."""
+        ws = self.ws(name)
+        s = self.settings()
+        ids = body.get("ref_ids")
+        if ids is not None and not (isinstance(ids, list) and all(isinstance(i, str) for i in ids)):
+            raise ApiError(400, "ref_ids must be a list of citation ids.")
+        try:
+            items = citations.plan(ws, text_id, ids, again=bool(body.get("again")))
+        except KeyError:
+            raise ApiError(404, "No such text.") from None
+        if not items:
+            raise ApiError(400, "No citation is ready to be checked: each needs a work of your bibliography whose "
+                                "document is in the project.")
+        opts = _check_options({}, s)
+        expand, semantic = opts.pop("expand"), opts.pop("semantic", True)
+        opts.pop("decompose", None)
+        opts.pop("doc_ids", None)
+        be, model = self.backend(k=opts["k"])
+        emb = home.make_embedder(s) if semantic else None
+        title = f"{len(items)} {'citation' if len(items) == 1 else 'citations'}"
+        if self.queue_mode():
+            def qrun(job: Job):
+                tracker = Tracker(expand=expand)
+                job.tracker = tracker
+                done, errors = citations.queue(ws, items, getattr(be, "router", None), expand=expand,
+                                               embed_model=getattr(_usable_embedder(ws, emb), "model", None), **opts)
+                self.follow_queued(job, ws, done, tracker)
+                return {"text_id": text_id, "checked": done, "errors": errors, "stopped": None, "total": len(items)}
+
+            job = self.start_job("citations", title, name, qrun)
+        else:
+            def run(job: Job):
+                tracker = Tracker(expand=expand)
+                job.tracker = tracker
+                self.wire(job, be, tracker)
+                return {"text_id": text_id, **citations.check(ws, items, be, model, progress=tracker.step,
+                                                              should_stop=job.cancel.is_set, expand=expand,
+                                                              embedder=_usable_embedder(ws, emb), **opts)}
+
+            job = self.jobs.start("citations", title, name, run, uses_model=True)
+        job.scope = text_id  # the sidebar's row links to the text
+        return job
+
     def start_bibliography(self, name: str, body: dict) -> Job:
         ws = self.ws(name)
         z, f = body.get("zotero"), body.get("file")
@@ -1030,7 +1136,7 @@ class App:
         ws = self.ws(name)
         emb = home.make_embedder(self.settings())
         if emb is None:
-            raise ApiError(400, "Choose an embedding model in Settings first (for example: ollama pull nomic-embed-text).")
+            raise ApiError(400, "Choose a model for search by meaning first (Settings → Documents, where Ollama can download nomic-embed-text).")
 
         def run(job: Job):
             job.progress = {"done": 0, "total": 0}
@@ -1059,7 +1165,7 @@ class App:
         the progress also says what waits for Claude Code, and the job is "not running" while nothing answers.
 
         `fn(job, backend, model, progress)` does the work; `progress(done, total)` updates the bar. Stop takes the
-        tasks of the kinds in `withdraw` that wait in the queue back out (0.14: public; `_model_job` before)."""
+        tasks of the kinds in `withdraw` that wait in the queue back out (0.13.6: public; `_model_job` before)."""
         be, model = self.backend()  # one context length for every kind: Ollama never reloads the model
 
         def run(job: Job):
@@ -1074,7 +1180,7 @@ class App:
                               withdraw=self.MODEL_JOB_KINDS.get(kind, ()) if withdraw is None else tuple(withdraw),
                               ws=self._ws_or_none(name))
 
-    _model_job = start_queued_job  # the name before 0.14
+    _model_job = start_queued_job  # the name before 0.13.6
 
     def _ws_or_none(self, name: str | None):
         try:
@@ -1122,11 +1228,12 @@ class App:
                        "themes": n("SELECT COUNT(*) FROM themes WHERE run_id=?", (run[0]["run_id"],)) if run else 0,
                        "latest": run[0]["run_id"] if run else None},
             "references": n("SELECT COUNT(DISTINCT doc_id) FROM mentions"),
-            "hypotheses": n("SELECT COUNT(*) FROM hypotheses"),
+            "hypotheses": n("SELECT COUNT(*) FROM hypotheses WHERE COALESCE(origin, '') != 'citation'"),
             "drafts": n("SELECT COUNT(*) FROM drafts"),  # Margin 0.1
+            "citations": citations.counts(ws),
             "waiting": (self._queue_summary(name) or {}).get("waiting", 0),
         }
-        out.update(addons.overview(ws, set(out)))  # 0.14: an add-on's counts, never in place of Margin's
+        out.update(addons.overview(ws, set(out)))  # 0.13.6: an add-on's counts, never in place of Margin's
         return out
 
     def start_stronger(self, name: str, task_id: str) -> Job:
@@ -1636,6 +1743,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", r"/api/update", "post_update"),
     ("GET", r"/api/servers", "get_servers"),
     ("POST", r"/api/servers/test", "post_test"),
+    ("POST", r"/api/servers/pull", "post_pull"),
     ("GET", r"/api/projects", "get_projects"),
     ("POST", r"/api/projects", "post_project"),
     ("POST", r"/api/projects/link", "post_link"),
@@ -1764,10 +1872,19 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", rf"/api/projects/{P}/bibliography/confirm-all", "post_bibliography_confirm_all"),
     ("POST", rf"/api/projects/{P}/bibliography/files", "post_bibliography_files"),
     ("GET", rf"/api/projects/{P}/bibliography/to-find\.(csv|xlsx)", "get_bibliography_export"),
+    # 0.13.7: checking citations
+    ("GET", rf"/api/projects/{P}/citations", "get_citations"),
+    ("POST", rf"/api/projects/{P}/citations", "post_citations"),
+    ("GET", rf"/api/projects/{P}/citations/{P}", "get_citation_text"),
+    ("PUT", rf"/api/projects/{P}/citations/{P}", "put_citation_text"),
+    ("DELETE", rf"/api/projects/{P}/citations/{P}", "delete_citation_text"),
+    ("POST", rf"/api/projects/{P}/citations/{P}/check", "post_citation_check"),
+    ("PUT", rf"/api/projects/{P}/citations/{P}/refs/{P}", "put_citation_ref"),
+    ("GET", rf"/api/projects/{P}/citations/{P}/export\.xlsx", "get_citation_export"),
 ]]
 DOWNLOADS = {"get_hypothesis_export", "get_export", "get_document_file", "get_project_zip", "get_annotated", "get_flexiconc",
              "get_annotated_zip", "get_search_export", "get_profile_export", "get_themes_export", "get_move_zip",
-             "get_ai_sent_csv", "get_draft_export", "get_bibliography_export"}
+             "get_ai_sent_csv", "get_draft_export", "get_bibliography_export", "get_citation_export"}
 # (these may take the token as ?token=, for plain links)
 
 
@@ -1904,7 +2021,7 @@ class Handler(BaseHTTPRequestHandler):
             origin = self.headers.get("Origin")
             if origin and urlparse(origin).netloc.lower() != (self.headers.get("Host") or "").lower():
                 raise ApiError(403, "Requests from other web sites are not accepted.")
-            routes = ROUTES + addons.routes()  # 0.14: an add-on's routes come after Margin's own
+            routes = ROUTES + addons.routes()  # 0.13.6: an add-on's routes come after Margin's own
             downloads = DOWNLOADS | addons.downloads()
             for m, rx, name in routes:
                 mt = rx.match(path)
@@ -2028,20 +2145,31 @@ class Handler(BaseHTTPRequestHandler):
 
     def get_update(self, q):
         """Margin 0.2.1: whether a newer Margin waits: the latest GitHub release (the one-line install), or new commits
-        on the branch a git copy follows. A newer version already on disk (updated while this copy ran) counts."""
+        on the branch a git copy follows. A newer version already on disk (updated while this copy ran) counts.
+        ENLENS 0.13.6: the page asks every two minutes; the answer (or the reason there is none) is kept for
+        UPDATE_LOOK_EVERY seconds, so the open tabs share one look. `?fresh=1` (Settings → Check for updates) looks
+        again now."""
         from .. import update as upd
 
         installed = _installed_version()
         if upd.version_tuple(installed) > upd.version_tuple(__version__):
             return {"available": True, "on_disk": True, "version": __version__, "latest": installed}
-        try:
-            r = upd.update(check_only=True)
-        except upd.UpdateError as e:
-            raise ApiError(409, str(e)) from e
-        waiting = r.get("waiting")
-        return {"available": bool(waiting), "on_disk": False, "version": __version__,
-                "latest": waiting if isinstance(waiting, str) else None,
-                "changes": waiting if isinstance(waiting, int) else None}
+        with self.app.update_looking:
+            seen = self.app.update_seen
+            if _bool(q, "fresh") or not seen or time.time() - seen["at"] >= UPDATE_LOOK_EVERY:
+                try:
+                    r = upd.update(check_only=True, quick=True)
+                    waiting = r.get("waiting")
+                    seen = {"at": time.time(), "answer": {
+                        "available": bool(waiting), "on_disk": False, "version": __version__,
+                        "latest": waiting if isinstance(waiting, str) else None,
+                        "changes": waiting if isinstance(waiting, int) else None}}
+                except upd.UpdateError as e:
+                    seen = {"at": time.time(), "error": str(e)}
+                self.app.update_seen = seen
+        if "error" in seen:
+            raise ApiError(409, seen["error"])
+        return dict(seen["answer"])
 
     def post_update(self, q):
         """Margin 0.2.1: "Update and restart": install the newest Margin the way this one was installed (update.py),
@@ -2054,6 +2182,7 @@ class Handler(BaseHTTPRequestHandler):
                                 "terminal, then start Margin again.")
         if not self.app.updating.acquire(blocking=False):
             raise ApiError(409, "Margin is already being updated.")
+        self.app.update_seen = None  # 0.13.6: whatever happens, the next GET /api/update looks again
         restarting = False
         try:
             installed = _installed_version()
@@ -2079,6 +2208,28 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_test(self, q):
         return self.app.test_backend()
+
+    def post_pull(self, q):
+        """0.13.7: download models into the Ollama running on this computer (a job). Body: {"models": [names]}
+        (or {"model": name}), optionally {"url": the Ollama's address, as GET /api/servers lists it} and {"use":
+        "ai" | "restricted" | "embed"}: what to choose them for when the download is done."""
+        body = self._body()
+        use = str(body.get("use") or "")
+        if use and use not in App.PULL_USES:
+            raise ApiError(400, "use must be ai, restricted or embed.")
+        models = body.get("models") if body.get("models") is not None else [body.get("model")]
+        if (not isinstance(models, list) or not 1 <= len(models) <= 4
+                or not all(isinstance(m, str) and llm.valid_model_name(m.strip()) for m in models)):
+            raise ApiError(400, "Name the model to download, as Ollama's library writes it (for example qwen3:8b).")
+        models = list(dict.fromkeys(m.strip() for m in models))
+        url = str(body.get("url") or "").rstrip("/")
+        s = self.app.settings()
+        found = [x for x in detect_local(ollama_url=s.get("ollama_url"), cache_seconds=0) if x["kind"] == "ollama"]
+        srv = next((x for x in found if not url or x["url"].rstrip("/") == url), None)
+        if srv is None:  # only an Ollama that answers on this computer (or at the address in Settings) is asked
+            raise ApiError(409, "No Ollama is running on this computer just now. Open the Ollama app (ollama.com) "
+                                "and try again.")
+        return {"job": self.app.pull_models(models, srv["url"], use).view()}
 
     def get_projects(self, q):
         return {"projects": [self.app.project_summary(n) for n in home.list_projects()]}
@@ -2305,6 +2456,106 @@ class Handler(BaseHTTPRequestHandler):
             claimcheck.write_xlsx(rows, buf, "Works to find")
             return self._send(200, buf.getvalue(), XLSX, {"Content-Disposition": _disposition(stem)})
         return self._send(200, _csv(rows), "text/csv; charset=utf-8", {"Content-Disposition": _disposition(stem)})
+
+    # -- 0.13.7: checking citations ----------------------------------------------------------------------
+    def _threshold(self, q) -> float:
+        return _float(q, "threshold", self.app.settings()["threshold"])
+
+    def _citation_view(self, ws, text_id: str, q) -> dict:
+        try:
+            return citations.view(ws, text_id, self._threshold(q))
+        except KeyError:
+            raise ApiError(404, "No such text.") from None
+
+    def get_citations(self, name, q):
+        ws = self.app.ws(name)
+        return {"texts": citations.texts(ws, self._threshold(q)), "has_bibliography": bibliography.has(ws),
+                "ai_access": access.project_info(ws)}
+
+    def post_citations(self, name, q):
+        """A text to check: {text, title, ai_access} (pasted), {upload: {batch, name}, ai_access} (a file sent to
+        /uploads first; read, then deleted: it never becomes a document) or {doc_id} (a document of the project)."""
+        ws = self.app.ws(name)
+        body = self._body()
+        title = str(body.get("title") or "").strip() or None
+        try:
+            if body.get("doc_id"):
+                tid = citations.add_text(ws, doc_id=str(body["doc_id"]), title=title)
+            elif isinstance(body.get("upload"), dict):
+                up = body["upload"]
+                batch = re.sub(r"[^A-Za-z0-9_-]", "", str(up.get("batch") or ""))
+                folder = ws.root / "uploads" / batch
+                path = folder / re.split(r"[/\\]", str(up.get("name") or ""))[-1]
+                if not batch or not path.is_file() or not path.resolve().is_relative_to(folder.resolve()):
+                    raise ApiError(400, "The file was not received. Choose it again.")
+                try:
+                    text, pages, file_title = citations.read_draft(path)
+                finally:
+                    import shutil
+
+                    shutil.rmtree(folder, ignore_errors=True)
+                tid = citations.add_text(ws, text, title=title or file_title, ai_access=body.get("ai_access"),
+                                         file_name=path.name, page_starts=pages)
+            else:
+                tid = citations.add_text(ws, str(body.get("text") or ""), title=title,
+                                         ai_access=body.get("ai_access"))
+        except KeyError:
+            raise ApiError(404, "No such document.") from None
+        except ValueError as e:  # CitationError, or an AI setting that is none of the three
+            raise ApiError(400, str(e)) from None
+        return self._citation_view(ws, tid, q)
+
+    def get_citation_text(self, name, text_id, q):
+        return self._citation_view(self.app.ws(name), text_id, q)
+
+    def put_citation_text(self, name, text_id, q):
+        ws = self.app.ws(name)
+        body = self._body()
+        try:
+            citations.set_text(ws, text_id, title=body.get("title"), ai_access=body.get("ai_access"))
+        except KeyError:
+            raise ApiError(404, "No such text.") from None
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
+        return self._citation_view(ws, text_id, q)
+
+    def delete_citation_text(self, name, text_id, q):
+        self._body()
+        try:
+            citations.remove_text(self.app.ws(name), text_id)
+        except KeyError:
+            raise ApiError(404, "No such text.") from None
+        return {"deleted": text_id}
+
+    def post_citation_check(self, name, text_id, q):
+        return {"job": self.app.start_citations(name, text_id, self._body()).view()}
+
+    def put_citation_ref(self, name, text_id, ref_id, q):
+        """A person's word on one cited work: {item_key} (the work it is; null: back to the matching) or
+        {ignored} (not a citation; false puts it back)."""
+        ws = self.app.ws(name)
+        body = self._body()
+        if not ws.scalar("SELECT 1 FROM cite_refs WHERE ref_id=? AND text_id=?", (ref_id, text_id)):
+            raise ApiError(404, "No such citation.")
+        try:
+            if "item_key" in body:
+                key = body["item_key"]
+                if key is not None and not isinstance(key, str):
+                    raise ApiError(400, "item_key must be a work's key, or null.")
+                citations.choose_work(ws, ref_id, key or None)
+            if "ignored" in body:
+                citations.set_ignored(ws, ref_id, bool(body["ignored"]))
+        except KeyError as e:
+            raise ApiError(404, str(e).strip("'\"")) from None
+        return self._citation_view(ws, text_id, q)
+
+    def get_citation_export(self, name, text_id, q):
+        ws = self.app.ws(name)
+        v = self._citation_view(ws, text_id, q)
+        buf = io.BytesIO()
+        claimcheck.write_xlsx(citations.export_rows(ws, text_id, self._threshold(q)), buf, "Citations")
+        stem = _filename(f"Margin citations - {v['text']['title'][:60]} - {time.strftime('%Y-%m-%d')}", "xlsx")
+        return self._send(200, buf.getvalue(), XLSX, {"Content-Disposition": _disposition(stem)})
 
     def post_index(self, name, q):
         return {"job": self.app.start_index(name).view()}
@@ -3137,6 +3388,10 @@ class Handler(BaseHTTPRequestHandler):
             self._stream(out, "application/zip", {"Content-Disposition": _disposition(fname)})
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+# 0.13.6: how long a look for a newer version is kept (the page asks every 120 s; a little less, so each ask looks)
+UPDATE_LOOK_EVERY = 100
 
 
 def _installed_version() -> str:

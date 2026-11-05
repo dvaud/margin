@@ -93,6 +93,16 @@ Margin*, and the dialog says so. If the update fails, the reason is shown and no
 install on Windows it says to quit Margin and run the install line again (a running program cannot replace itself
 there).
 
+**Only when there is an update (0.13.6).** The button is not in the sidebar all the time any more. Margin looks for a
+new version when the page opens, every two minutes after, and when you come back to a tab that was in the
+background. When it finds one, a pop-up in the corner says which version (*Margin 0.13.7 is available*), with *Update
+and restart* and *Later*, and the button appears at the bottom of the sidebar as *Update to 0.13.7*. *Later* puts the
+pop-up away for that version; the button stays until you update. A look that fails (offline, files of a git copy
+edited by hand) stays quiet. To look yourself, or to read why a look failed, use **Check for updates** in *Settings
+→ Technical → Updates* (the version at the top right of every Settings tab opens it). For the one-line install,
+Margin reads the newest version from GitHub's release page, which GitHub's limit of 60 questions an hour does not
+count, so several computers in one office can look every two minutes.
+
 **An icon instead of the terminal.** The one-line install makes it. From a git copy, run once, as the person who will
 use the app:
 
@@ -122,10 +132,11 @@ Check the install with the tests (about 15 seconds, no network):
 pytest
 ```
 
-A local model server: install [Ollama](https://ollama.com) and pull a chat model (`ollama pull qwen3:8b`), or start
-the server of [LM Studio](https://lmstudio.ai) (Developer → Start server) with a model loaded. Optionally pull an
-embedding model for search by meaning: `ollama pull nomic-embed-text` (English) or `ollama pull bge-m3` (many
-languages, so an English hypothesis also finds Dutch or French passages). Section 5 helps choose.
+A local model server: install [Ollama](https://ollama.com) and open it; the app then downloads a chat model with one
+button (*Download qwen3:8b*, about 5 GB, 0.13.7), and with it, if you like, an embedding model for search by meaning
+(nomic-embed-text). In a terminal it is `ollama pull qwen3:8b` and `ollama pull nomic-embed-text` (English) or
+`ollama pull bge-m3` (many languages, so an English hypothesis also finds Dutch or French passages). Or start the
+server of [LM Studio](https://lmstudio.ai) (Developer → Start server) with a model loaded. Section 5 helps choose.
 
 The commands are `margin-gui` (the app), `margin` (or `python -m margin`; every command takes `--ws FOLDER`,
 default `./workspace`) and `margin-mcp` (the connector).
@@ -210,10 +221,10 @@ is for.
 
 **The sidebar (0.9).** *Overview* (the start page of a project), *Documents*, *Bibliography* (0.13), then **Explore the documents**
 (Search, Profile, Concepts, Themes) and **Check hypotheses** (Check a hypothesis, Check several, Results). At the
-bottom, under the line that says where text goes, *Settings*, *Theme*, *Update Margin* (0.13.1) and *Quit Margin*
-sit together (0.10.1); every
-*Settings* tab shows the version of Margin at the top right, and clicking it opens *Technical → Where your data is*
-(how this copy was installed and how to update it). The *Overview* shows every feature with one line on what it does, whether it uses the AI and what is
+bottom, under the line that says where text goes, *Settings*, *Theme*, *Update to …* (0.13.1; since 0.13.6 only when
+there is an update) and *Quit Margin* sit together (0.10.1); every
+*Settings* tab shows the version of Margin at the top right, and clicking it opens *Technical → Updates* (0.13.6:
+*Check for updates*, then how this copy was installed under *Where your data is*). The *Overview* shows every feature with one line on what it does, whether it uses the AI and what is
 already made in the project (a profile, a glossary, a set of themes, results), and the AI in use with what is left
 to set up. *Quick look at one document* is there too.
 
@@ -234,7 +245,12 @@ Claude** (0.10), that does every step still open, in order:
 3. The plugin is not added: Margin adds it (as in 0.9).
 
 *Set it up yourself instead* keeps the lines to type. *No Claude plan? Other options* offers a model on this computer
-or no AI for now. When whoever installed the app chose a local model, this step is skipped. Then name a **project**
+or no AI for now. **A model on this computer needs no terminal (0.13.7):** with no model server running, the step says
+how to get Ollama (free, from ollama.com) and notices by itself when it starts; with Ollama running but no model yet,
+*Download qwen3:8b* (about 5 GB) downloads one, with *Also nomic-embed-text* for search by meaning, a progress bar
+and *Stop* (Ollama keeps what it has and goes on from there). Ollama fetches the model from ollama.com; none of your
+documents are sent. The downloaded model becomes the AI and is tested at once. When whoever installed the app chose a
+local model that answers, this step is skipped. Then name a **project**
 (one per set of documents); used Margin on another computer before? *Import from another computer* brings every
 project and the settings in one go (section 7). Then **add documents**: choose
 files (PDF, Word .docx, HTML, text, Markdown, zip) or a folder. A Word file keeps its paragraphs, headings and the pages
@@ -565,6 +581,75 @@ title; when both are close, both pairs are shown for you to choose. A book and o
 are at best proposed. A document that only cites a work is not taken for it: the title must stand on its first pages
 as a title, not as words spread over them.
 
+### Checking citations (0.13.7)
+
+*Check citations* (in the sidebar, under *Check hypotheses*) reads a text for its citations and checks each one
+against the source it cites: does the source say what the sentence says? It needs the project's bibliography (the
+page above): a citation is matched with a work of the bibliography, and checked against that work's document in the
+project, and against no other document.
+
+**A text to check.** Paste your draft, choose its file (Word, PDF, text, Markdown or a saved web page; it is read on
+this computer and does not become one of the project's documents, so it never turns up as evidence in another
+check), or pick a document of the project (a report whose citations you want to check). For a draft, say who may read
+it with AI, as for documents: *Claude may read it*, *Only a local AI* or *No AI* (the project's choice is
+preselected; you can change it later at the bottom of the summary). A document keeps its own setting. *Find the
+citations* reads the text at once; no AI is used for that, and nothing is checked yet.
+
+**What it finds.** Citations with an author and a year, in brackets or in the sentence: *(Smith, 2020)*, *(Smith &
+Jones 2019; Lee et al., 2021a, p. 4)*, *(e.g., WHO, 2021)*, *Smith (2020) found that …*, *According to Lindqvist et
+al. (2025), …*, *The World Health Organization [WHO] (2019) warned …*. Numbered citations (*[3]*, *[2, 4–5]*) when
+the text ends with its numbered reference list; without the list, the page says how many it could not read. The
+reference list itself is never read as citations, nor are *(Figure 3, 2020)* and the like.
+
+For each citation Margin takes **the claim** it stands for: the words before a citation in brackets (from the start
+of the sentence, or from the citation before it in the same sentence: *X rose (A, 2020), while Y fell (B, 2021)*
+gives *X rose* to A and *Y fell* to B), or what follows a citation in the sentence (*Smith (2020) found that X*: X).
+The claim is highlighted in its sentence on the page. The sentences before it go along as **context**, so the AI
+understands *it* and *this effect*; the context is never graded or quoted as evidence.
+
+**Which work it is.** A citation is matched with the bibliography by its first author's surname and the year: the
+second author decides between two works of one author in one year, *2020a* and *2020b* follow the order of their
+titles, *van der Berg* and *Berg* are the same name, *Müller* and *Muller* too, and *WHO* is found for the World
+Health Organization. A work cited with another year is not taken, but offered (a wrong year in the draft is worth a
+look). A citation introduced by *but see* or *contra* is cited for another view: it is left out of the checks
+(*Left out*, at the bottom, with *Put it back*).
+
+**The answers.** Four tiles count them; the main button, *Check 12 citations*, checks every citation that is ready,
+one after the other (by Claude Code, through the queue, as any check; you can leave the page). Each cited work gets
+its own check: a sentence citing three works gets three, one per source.
+
+- **Source accurate**: an excerpt of the source says what the sentence says, and none says the opposite.
+- **To look at**, with a notice:
+  - *Only partly supported by the source*: it says part of it (a narrower finding, another group or period, a weaker
+    version). Reword the sentence, or add a source for the rest.
+  - *Not found in the source*: none of the excerpts read says it. The source may say it in other words: open the
+    excerpts and *Look for more evidence*, or check that the right work is cited.
+  - *The source says otherwise*, *The source says both*, *Unsure*, and *The check did not work* (with *Check again*).
+  Each shows the sentence, the cited work, and the excerpt that shows the answer best, with its page.
+- **Cannot be checked yet**: *Not in your bibliography* (choose the work from your bibliography, or *Not a
+  citation*), *Which work is it?* (several works match: choose one), *Its source is not in the project* (add its
+  document on the Bibliography page, *To find*), *Its document waits for your confirmation* (on the Bibliography
+  page). Once that is done, the citation is ready: works and documents added later are used without adding the text
+  again.
+
+*See the excerpts and judge them* opens the check on the result page, with *In your text:* and the sentence at the
+top, and every excerpt to agree with, mark as not about it, or judge differently: your judgement changes the answer
+on the Citations page too. *Download: Excel (.xlsx)* gives one row per cited work (the sentence, the claim checked, the
+citation, the work, the answer, the quote and its page). *Remove this text* removes the text, its citations and their
+checks; your file and your documents are not touched. Checks of citations are kept apart from your hypotheses: they
+are not in *Results*, the evidence map or its downloads.
+
+**What it sends.** Each check sends what a check of a hypothesis sends: the claim (with its sentences as context) and
+excerpts of the cited source, to the AI of *Settings*. A draft marked *Only a local AI* is read by the model on this
+computer only (also when Claude Code is your AI), one marked *No AI* is judged by you (every excerpt waits for your
+judgement), and a document keeps its own setting. The search words a check asks the AI for are asked only when the
+text may go to that AI. Checks of a text Claude may not read are never shown to a Claude chat through the connector.
+
+**What it does not do yet.** Footnote citations (*Chicago* notes), superscript numbers and citations inside a Word
+file's footnotes are not read; a numbered citation needs its reference list in the same text. The claim is cut from
+the sentence by rules, not by the AI: when it starts with *it* or *they*, the context says what they are, and the
+answer is yours to overrule. A text that changed is added again (remove the old one).
+
 ### Settings
 
 Settings has five tabs, each one page with nothing folded inside another (0.9):
@@ -574,7 +659,10 @@ Settings has five tabs, each one page with nothing folded inside another (0.9):
   address, model and reasoning switch), **No AI (demo)**, and the **Claude API (team key)** for a shared
   installation, behind a confirmation and *Allow cloud models*. With Claude Code: the set-up checklist and *Set up
   Claude Code* (section 6) and *Let the auditor use Fable*. *Save and test* says whether the AI answers (with Claude
-  Code: whether it is set up).
+  Code: whether it is set up). With a model on this computer chosen but none installed, the same steps as on the
+  first screen: get Ollama, then *Download qwen3:8b* (0.13.7). *Local model for restricted documents* offers the
+  download too, and *Settings → Documents* downloads nomic-embed-text for search by meaning when Ollama has no
+  embedding model.
 - **Checking**: the **strictness** (how sure the AI must be before a judgement counts; it saves at once, applies to
   every result, and reports which answers and counts changed; *Back to normal (60%)*), with **how often you agreed
   with the AI, by its certainty**: a small chart from the excerpts you judged; after 20 judgements it may suggest a
@@ -600,7 +688,8 @@ in memory (so nothing extra is loaded), else the most recently downloaded one, a
 ### For whoever installs the app
 
 - A new installation uses Claude Code on the researcher's own plan (0.9). To use a model on this computer instead,
-  choose it once in *Settings → AI* (or let *automatic* find Ollama or LM Studio) and press *Save and test*; an
+  choose it once in *Settings → AI* (or let *automatic* find Ollama or LM Studio) and press *Save and test*; with
+  Ollama running, *Download qwen3:8b* there gets a model without a terminal (0.13.7); an
   installation that already chose a local model keeps it when it is updated. With an embedding model set
   (*Settings → Documents*), new documents are indexed for search by meaning right away.
 - To make sure nothing can ever be sent to a cloud model, start the app with `margin-gui --local-only`, set
@@ -1416,7 +1505,8 @@ For checking hypotheses about any subject, no pack is needed: sections 3 and 4.
 | Empty document, or "Scanned: no text" | No text layer (scanned). Install Tesseract and the `ocr` extra (section 1) and add the file again, or run OCR yourself (`ocrmypdf in.pdf out.pdf`). |
 | The Margin icon is a blank square (macOS) or a plain shortcut (Windows) | It was made before 0.10.2 without Pillow. Open Margin once with 0.10.2 or later: it gives the icon its picture (macOS: if Finder still shows the blank one, `killall Finder`). Or make the icon again: `margin-gui --make-launcher`. |
 | Settings shows an older version after updating | That copy was still running. Choose *Restart now* on the notice at the top of the page (0.13.1), or *Quit Margin* and open Margin from its icon (0.10.2 does this by itself when nothing runs). |
-| *Update Margin* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows: choose *Quit Margin* and run the install line again in PowerShell. |
+| There is no *Update* button in the sidebar | It shows only when there is an update (0.13.6). To look now, or to see why a look failed: *Settings → Technical → Check for updates*. |
+| *Update* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows: choose *Quit Margin* and run the install line again in PowerShell. |
 | The page keeps saying *Starting Margin …* | After 90 seconds it says Margin did not come back: open it again from its icon (or with `margin-gui`), and look at `logs/margin.log` in the data folder for the reason. |
 | Double-clicking the Margin icon does nothing | Look at `logs/margin.log` in the data folder. Run the install line again (one-line install), or `margin-gui --make-launcher` again after moving or reinstalling Python (git copy). On macOS, if the icon was copied from another computer, right-click it and choose *Open* once. |
 | The install line stops with "does not match the release's checksum" | The download was cut off or changed on the way; nothing was installed. Run the line again later. |

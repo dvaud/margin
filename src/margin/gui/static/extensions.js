@@ -1,4 +1,4 @@
-// extensions.js: Margin's own page module, in the local layer (ENLENS 0.15.1). ENLENS's releases never edit it.
+// extensions.js: Margin's own page module, in the local layer (ENLENS 0.13.6). ENLENS's releases never edit it.
 //
 // What Margin adds to ENLENS's page through registry.js: the names and links of its draft jobs in the sidebar, and
 // the result page's link back to the draft a claim comes from. See docs/EXTENDING.md.

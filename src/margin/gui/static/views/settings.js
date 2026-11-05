@@ -1,22 +1,25 @@
 // Settings: model service, embeddings, check defaults, frameworks, model test, data folder.
-import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, field, switchControl, rangeControl, confirmDialog, dialog, download, VERSION, TERMINAL, strictness, statusBadge, copyLine, tesseractHelp, auditorName, helpMark, rememberClaude, claudeAccount } from "../lib.js";
+import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, field, switchControl, rangeControl, confirmDialog, dialog, download, VERSION, TERMINAL, strictness, statusBadge, copyLine, tesseractHelp, auditorName, helpMark, rememberClaude, claudeAccount, appName, Updates, checkUpdate } from "../lib.js";
 import { forgetFrameworks, loadFramework } from "./options.js";
 import { simpleProgress } from "./progress.js";
 import { restrictedModelCard, termsPanel } from "./ai-access.js";
+import { localModelHelp } from "./local-model.js";
+
+const rerender = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 
 // 0.9: Settings as five flat tabs (no section folded inside another). Old links to a section (#/settings/second,
 // #/settings/calibration…) open its tab and scroll to it.
 const TABS = [["model", "AI", "cpu"], ["basics", "Checking", "flask"], ["explore", "Exploring", "network"], ["documents", "Documents", "book-open"], ["advanced", "Technical", "sliders"]];
 const TAB_OF = { model: "model", ai: "model", basics: "basics", calibration: "basics", explore: "explore", frameworks: "explore", documents: "documents", ocr: "documents", embeddings: "documents",
-  advanced: "advanced", routing: "advanced", second: "advanced", context: "advanced", repeatable: "advanced", test: "advanced", data: "advanced" };
+  advanced: "advanced", routing: "advanced", second: "advanced", context: "advanced", repeatable: "advanced", test: "advanced", updates: "advanced", data: "advanced" };
 
 export async function renderSettings(view, [section]) {
   const s = { ...App.settings() };
   const tab = TAB_OF[section] || "model";
   const watchers = [];   // the jobs this page follows (the model test, installing Claude Code): stopped when it is left
-  let servers = [];
+  let servers = [], info = { servers: [], suggested: [] };
   if (tab === "model" || tab === "advanced" || tab === "documents") {
-    try { servers = (await api("GET", "/api/servers")).servers || []; } catch (_) { servers = []; }
+    try { info = await api("GET", "/api/servers"); servers = info.servers || []; } catch (_) { servers = []; }
   }
   view.appendChild(pageHead("Settings", { actions: versionTag(), sub: {
     model: "Which AI reads your documents: Claude Code on your own Claude plan, a model on this computer, or none.",
@@ -30,18 +33,18 @@ export async function renderSettings(view, [section]) {
   const main = h("div", { class: "stack", style: { gap: "20px" } });
   view.appendChild(main);
   if (tab === "model") {
-    main.append(modelSection(s, servers, watchers));
+    main.append(modelSection(s, servers, watchers, info));
     // 0.11: who reads the documents marked Only a local AI, and what happens to the text Claude reads
-    if (!(App.state && App.state.local_only)) main.append(restrictedModelCard(s, servers, save));
+    if (!(App.state && App.state.local_only)) main.append(restrictedModelCard(s, servers, save, info));
     if (s.backend === "anthropic") main.append(sectionCard("terms", "Your Claude account and your documents", "", termsPanel({ account: "commercial" })));
   }
   else if (tab === "basics") main.append(basicsSection(s));
   else if (tab === "explore") main.append(exploreSection(s), await frameworksSection());
-  else if (tab === "documents") main.append(sectionCard("ocr", "Reading scanned PDFs", "", ocrBlock(s)), embedSection(s, servers));
+  else if (tab === "documents") main.append(sectionCard("ocr", "Reading scanned PDFs", "", ocrBlock(s)), embedSection(s, servers, info));
   else {
     // a local model's own settings (second model, context length) only when a local model answers
     const local = ["auto", "ollama", "openai"].includes(s.backend || "auto");
-    main.append(...[routingSection(s, servers), local ? secondModelSection(s, servers) : null, local ? contextSection(s) : null, reproSection(s), testSection(s, watchers), ledgerSection(), dataSection()].filter(Boolean));
+    main.append(...[routingSection(s, servers), local ? secondModelSection(s, servers) : null, local ? contextSection(s) : null, reproSection(s), testSection(s, watchers), ledgerSection(), updatesSection(), dataSection()].filter(Boolean));
     if (!local) main.appendChild(h("p", { class: "muted small" }, icon("info", { size: 13 }), " The settings of a model on this computer (the model for second opinions, the context length) show here when a local model is chosen under AI."));
   }
   if (section && section !== tab) setTimeout(() => { const t = document.getElementById(`s-${section}`); if (t) t.scrollIntoView({ block: "start" }); }, 80);
@@ -223,7 +226,7 @@ async function save(changes, stateEl) {
 }
 
 // ---------------------------------------------------------------------------------------------
-function modelSection(s, servers, watchers) {
+function modelSection(s, servers, watchers, info = { servers }) {
   const localOnly = !!(App.state && App.state.local_only);
   let allowCC = !!s.allow_claude_code;
   const state = h("span", { class: "save-state", "aria-live": "polite" });
@@ -309,11 +312,20 @@ function modelSection(s, servers, watchers) {
   };
 
   function serverList() {
-    if (!servers.length) return h("div", { class: "notice notice-warn" }, icon("alert-triangle"), h("div", {}, h("p", {}, "No local model server answered. Start Ollama (ollama.com), then download a model, for example ", h("code", {}, "ollama pull qwen3:8b"), ". Or start LM Studio / llama.cpp with a model loaded."),
-      h("button", { class: "btn btn-sm", type: "button", style: { marginTop: "6px" }, onClick: () => location.reload() }, icon("refresh", { size: 13 }), "Scan again")));
-    return h("div", { class: "server-list" }, servers.map((sv) => h("div", { class: "server" }, icon("circle-check", { size: 14 }),
+    // 0.13.7: no model yet: how to get Ollama (noticed when it starts), or one button that downloads a model into it
+    const help = localModelHelp(info, {
+      use: "ai",   // chosen by the app when the download is done
+      onFound: rerender,
+      onReady: async (r) => {
+        try { await App.refresh(); } catch (_) { /* shown on the page */ }
+        toast(r.chosen ? `${r.chat} reads your documents now, on this computer.` : `${r.chat} is downloaded: choose it below.`, "ok");
+        rerender();
+      },
+    });
+    const list = servers.length ? h("div", { class: "server-list" }, servers.map((sv) => h("div", { class: "server" }, icon("circle-check", { size: 14 }),
       h("div", {}, h("strong", {}, sv.kind === "ollama" ? `Ollama ${sv.version || ""}` : `OpenAI-compatible server`), h("span", { class: "muted" }, ` at ${sv.url}`),
-        h("div", { class: "sv-models" }, `Chat: ${(sv.chat_models || []).join(", ") || "none"} · Embedding: ${(sv.embedding_models || []).join(", ") || "none"}`)))));
+        h("div", { class: "sv-models" }, `Chat: ${(sv.chat_models || []).join(", ") || "none"} · Embedding: ${(sv.embedding_models || []).join(", ") || "none"}`))))) : null;
+    return help ? h("div", { class: "stack" }, list, help) : list;
   }
 
   function drawDetail() {
@@ -413,7 +425,7 @@ function modelSection(s, servers, watchers) {
       const r = await api("POST", "/api/servers/test");
       replace(testOut, testResult(r));
     } catch (e) {
-      replace(testOut, h("div", { class: "notice notice-error" }, icon("alert-circle"), h("div", {}, h("p", {}, e.message), e.kind === "backend" ? h("p", { class: "small" }, "Is the server running? For Ollama: start it, then ", h("code", {}, "ollama pull <model>"), ".") : null)));
+      replace(testOut, h("div", { class: "notice notice-error" }, icon("alert-circle"), h("div", {}, h("p", {}, e.message), e.kind === "backend" ? h("p", { class: "small" }, "Is the server running? For Ollama: open the Ollama app; a model can be downloaded above.") : null)));
     }
     testBtn.disabled = false;
   });
@@ -551,18 +563,24 @@ function contextSection(s) {
 }
 
 // ---------------------------------------------------------------------------------------------
-function embedSection(s, servers) {
+function embedSection(s, servers, info = { servers }) {
   const state = h("span", { class: "save-state", "aria-live": "polite" });
   const kind = h("select", { class: "select" }, [["ollama", "Ollama"], ["openai", "OpenAI-compatible server"], ["off", "Off (keywords only)"]].map(([v, t]) => h("option", { value: v, selected: (s.embed_backend || "ollama") === v }, t)));
   const all = [...new Set(servers.flatMap((x) => x.embedding_models || []))];
   const model = h("input", { class: "input input-mono", type: "text", value: s.embed_model || "", placeholder: "e.g. nomic-embed-text", list: "embed-models" });
   const datalist = h("datalist", { id: "embed-models" }, all.map((m) => h("option", { value: m })));
   const url = h("input", { class: "input input-mono", type: "url", value: s.embed_url || "", placeholder: "optional" });
-  const row = h("div", { class: "fields-3" }, field("Server kind", kind), field("Embedding model", model, { help: all.length ? `Installed: ${all.join(", ")}` : "For Ollama: ollama pull nomic-embed-text" }), field("Address (optional)", url, { help: "Leave empty to use the chat server's address." }));
+  const row = h("div", { class: "fields-3" }, field("Server kind", kind), field("Embedding model", model, { help: all.length ? `Installed: ${all.join(", ")}` : "None installed yet." }), field("Address (optional)", url, { help: "Leave empty to use the chat server's address." }));
+  // 0.13.7: Ollama without an embedding model: one button downloads one, and it is chosen here
+  const pull = localModelHelp(info, { only: "embed", use: "embed", onReady: async (r) => {
+    try { await App.refresh(); } catch (_) { /* shown on the page */ }
+    toast(r.chosen ? `${r.embed} is chosen for search by meaning. Set it up per project under Documents.` : `${r.embed} is downloaded.`, "ok");
+    rerender();
+  } });
   const toggle = () => { row.querySelectorAll(".field")[1].hidden = row.querySelectorAll(".field")[2].hidden = kind.value === "off"; };
   kind.addEventListener("change", toggle); toggle();
   const form = h("form", { onSubmit: async (e) => { e.preventDefault(); try { await save({ embed_backend: kind.value, embed_model: model.value.trim(), embed_url: url.value.trim() }, state); toast("Saved. Set up search by meaning under Documents if needed.", "ok"); } catch (_) { /* shown */ } } },
-    row, datalist, h("div", { class: "save-row" }, h("button", { class: "btn btn-primary", type: "submit" }, icon("check", { size: 14 }), "Save"), state));
+    row, datalist, pull, h("div", { class: "save-row" }, h("button", { class: "btn btn-primary", type: "submit" }, icon("check", { size: 14 }), "Save"), state));
   return sectionCard("embeddings", "Search by meaning (embeddings)", "With an embedding model, excerpts are found by meaning as well as by shared words. It is set up per project under Documents.", form);
 }
 
@@ -752,8 +770,8 @@ function versionTag() {
   if (!v) return null;
   // 0.10.2: updated while it ran: the newer version waits for a restart (the banner above the page says how)
   const now = st.installed_version && st.installed_version !== v ? st.installed_version : null;
-  return h("a", { class: `version-tag${now ? " version-tag-stale" : ""}`, href: "#/settings/data",
-    title: now ? `Margin ${now} is installed: quit Margin and open it again to use it` : "How Margin was installed and how to update it (Technical)" },
+  return h("a", { class: `version-tag${now ? " version-tag-stale" : ""}`, href: "#/settings/updates",
+    title: now ? `Margin ${now} is installed: restart Margin to use it` : "Check for updates, and how Margin was installed (Technical)" },
     icon(now ? "alert-circle" : "info", { size: 14 }), h("span", {}, "Version ", h("strong", {}, v)), now ? h("span", {}, ` · ${now} installed`) : null);
 }
 
@@ -763,6 +781,48 @@ function installedWith(inst) {
   const how = { git: ["from a git copy", "Update: margin update"], script: ["with the one-line install", "Update: run the install line again (or margin update)"],
     package: ["from the download for this system", "Update: download the newest version"], pip: ["with pip", "Update: pip install --upgrade, or switch to the one-line install"] }[inst.kind];
   return h("div", { class: "muted small", style: { fontWeight: 400 } }, `Installed ${how[0]}. ${how[1]}.`);
+}
+
+// 0.13.6: Check for updates. The sidebar's Update button shows only when there is one (the page looks every two
+// minutes); here the person can look now, and read why a look failed (offline, a git copy edited by hand).
+function updatesSection() {
+  const st = App.state || {};
+  const name = appName();
+  const out = h("div", { "aria-live": "polite" });
+  const btn = h("button", { class: "btn", type: "button" }, icon("refresh", { size: 14 }), "Check for updates");
+  const at = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const show = (info, err, when) => {
+    if (err) {
+      replace(out, h("div", { class: "notice notice-warn" }, icon("alert-triangle"),
+        h("div", {}, h("p", {}, h("strong", {}, "Could not look for updates.")), h("p", { class: "small" }, err.message || String(err)))));
+      return;
+    }
+    if (!info) { clear(out); return; }
+    if (!info.available) {
+      replace(out, h("p", { class: "small" }, icon("circle-check", { size: 14 }), ` ${name} ${info.version} is the newest version.`,
+        when ? h("span", { class: "muted" }, ` Looked at ${at(when)}.`) : null));
+      return;
+    }
+    const what = info.on_disk ? `${name} ${info.latest} is installed, but ${info.version} is still running.`
+      : info.latest ? `${name} ${info.latest} is available (you have ${info.version}).`
+      : `${info.changes} new change${info.changes === 1 ? " is" : "s are"} waiting for this copy of ${name} (version ${info.version}).`;
+    replace(out, h("div", { class: "notice notice-info" }, icon("arrow-up"),
+      h("div", {}, h("p", {}, h("strong", {}, what)),
+        st.can_restart
+          ? h("p", {}, h("button", { class: "btn btn-sm btn-primary", type: "button", onClick: () => Updates.install() }, icon("arrow-up", { size: 13 }), info.on_disk ? "Restart now" : "Update and restart"))
+          : h("p", { class: "small" }, "This copy cannot restart itself (it was not started from its icon or with margin-gui): run ", h("code", {}, "margin update"), ` in a terminal, then start ${name} again.`))));
+  };
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    replace(out, h("p", { class: "muted small" }, "Looking for a newer version…"));
+    try { show(await checkUpdate(true), null, Date.now()); } catch (e) { show(null, e); }
+    btn.disabled = false;
+  });
+  if (Updates.info || Updates.error) show(Updates.info, Updates.error, Updates.at);  // what the last look found
+  return sectionCard("updates", "Updates", st.can_restart
+    ? `${name} looks for a new version when it opens and every two minutes after. When there is one, it says so in a pop-up, and an Update button appears at the bottom of the sidebar until you install it. Your projects and results are kept.`
+    : `Look for a new version of ${name}. Your projects and results are kept when you update.`,
+    h("div", { class: "save-row" }, btn), out);
 }
 
 // 0.11: every passage sent to Claude, as a table for records such as a data management plan

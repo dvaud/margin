@@ -96,7 +96,7 @@ when nothing was graded. `who` lists the same documents by side (see the hypothe
            "description": "…", "logo": "/static/logo.svg"}}
 ```
 `brand` (0.13.5): the app's name and words, from `static/brand.json` and any add-on's `BRAND` (docs/EXTENDING.md).
-0.14: an add-on may add keys of its own (its `state(app)`); they never replace one of these. Its routes are documented
+0.13.6: an add-on may add keys of its own (its `state(app)`); they never replace one of these. Its routes are documented
 in `docs/ADDON_API.md` and come after Margin's own (docs/EXTENDING.md). `GET /api/projects/<p>/overview` may carry an
 add-on's counts the same way, and a hypothesis's result and history rows carry `origin` and `origin_id` (where it
 comes from: `batch`, an add-on's own kind, or none).
@@ -153,13 +153,19 @@ kept in memory for this run only. `DELETE /api/settings/key` forgets both. 403 w
 running jobs have stopped (at most 20 s); 409 when this copy was not started in a way that can be stopped from here.
 
 "Update Margin" in the sidebar (Margin 0.2.1). `GET /api/state` says `can_quit` and `can_restart`: whether this copy
-can stop itself, and restart itself (started with `margin-gui` or from the Margin icon; the button is shown only then).
+can stop itself, and restart itself (started with `margin-gui` or from the Margin icon; the button is shown only then,
+and since ENLENS 0.13.6 only when there is an update).
 
 - `GET /api/update` → `{"available": bool, "on_disk": bool, "version": running, "latest": "0.2.2" | null,
   "changes": n | null}`: whether a newer Margin waits, the way this copy was installed (the latest GitHub Release
   for the one-line install: `latest`; new commits on the branch a git copy follows: `changes`), or is installed
   already while this copy kept running (`on_disk`, `latest` is that version). 409 with the reason when it cannot be
   updated from here (files of a git copy edited by hand, a download package, no network).
+  0.13.6: the page asks when it opens and every two minutes, and shows the button only when `available`. The answer
+  (or the 409 and its reason) is kept for 100 seconds, so the open tabs share one look; `GET /api/update?fresh=1`
+  (*Check for updates* in Settings) looks again now. A version already on disk is seen at once. The one-line install
+  reads the newest version from where `github.com/…/releases/latest` redirects to, which GitHub's API limit does not
+  count; the API is asked only when that page does not say. `POST /api/update` forgets the kept answer.
 - `POST /api/update` `{}` → `{"updated": true, "restarting": true, "from", "version", "jobs_stopped": n}`: installs it
   as `margin update` does, then restarts on the same address and port (running jobs are stopped first, as for Quit;
   at most 20 s); `{"updated": false, "restarting": false, "version"}` when nothing newer waits. 409 when the update
@@ -178,8 +184,27 @@ as the icon starts it (`--launcher`, output to `logs/margin.log`), without openi
 {"servers": [{"kind": "ollama", "url": "http://localhost:11434", "version": "0.12.3",
               "models": ["bge-m3:latest", "qwen3:8b"], "chat_models": ["qwen3:8b"], "embedding_models": ["bge-m3:latest"],
               "loaded": ["qwen3:8b"], "modified": {"qwen3:8b": "2026-09-30T08:12:00Z", "bge-m3:latest": "…"}},
-             {"kind": "openai", "url": "http://localhost:1234/v1", "models": […], "chat_models": […], "embedding_models": […]}]}
+             {"kind": "openai", "url": "http://localhost:1234/v1", "models": […], "chat_models": […], "embedding_models": […]}],
+ "suggested": [{"name": "qwen3:8b", "use": "chat", "size": "about 5 GB"},
+               {"name": "nomic-embed-text", "use": "embed", "size": "about 0.3 GB"}]}
 ```
+`suggested` (0.13.7): the models the page offers to download into Ollama with one button.
+
+`POST /api/servers/pull` (0.13.7) → downloads models into the Ollama running on this computer, so a local model needs
+no terminal. Body `{"models": ["qwen3:8b", "nomic-embed-text"]}` (one to four names as Ollama's library writes them;
+or `{"model": "qwen3:8b"}`), optionally `"url"`, an Ollama address as `GET /api/servers` lists it, and `"use"`: `ai`
+(the AI that reads the documents: `backend` ollama and its model, plus the embedding model if one was downloaded),
+`restricted` (the local model for documents marked *Only a local AI*) or `embed` (search by meaning). With `use` the
+app chooses the downloaded models itself when the download is done, so closing the page does not lose the choice,
+unless those settings were changed meanwhile (then the person's choice stands and `chosen` is null). Ollama fetches
+the models from ollama.com itself; nothing of the person's is sent, so it is allowed with `--local-only` too. Returns
+`{"job": …}` of kind `model-pull` (one at a time: while one runs, its job is returned). Its `progress` is
+`{"model", "index", "count", "status", "done", "total"}` (bytes of the model being downloaded, as Ollama reports
+them); its `result` `{"url", "models", "listed": {name: the name Ollama lists, e.g. "nomic-embed-text:latest"}, "chosen":
+{the settings it chose} | null}`.
+`POST /api/jobs/<id>/cancel` stops it (Ollama keeps what it has and goes on from there next time). 400 for a name that
+is not one, 409 when no Ollama answers on this computer (or at the address in Settings). A failed download is a job
+`error` in plain words (no such model, not enough disk space, offline).
 
 `POST /api/servers/test` → tests the configured chat model (and embedding model if set):
 `{"ok": true, "backend": "ollama", "model": "qwen3:8b", "model_available": true, "message": "Ollama 0.12.3 is running. …",
@@ -912,13 +937,68 @@ from a reference manager (BibTeX, RIS, CSL JSON, Zotero's CSV). Nothing goes ove
 - `GET /api/projects/<p>/documents` adds `"bib"` per document (`{"cite", "title", "doi", "link", "url", "type",
   "container"}` of its linked work, or null); `GET /api/projects/<p>/documents/<id>` adds the same `"bib"`.
 
+### Checking citations (0.13.7)
+
+A text (the person's draft, pasted or read from a file, or a document of the project) is read for its citations:
+author-year ones in brackets and in the sentence, and numbered ones (`[3]`, `[2–4]`) when the text ends with its
+numbered reference list. Each gets the claim in front of it (`claim`, and `claim_at`, where it stands in `sentence`)
+and the sentences before it (`before`). Each cited work is looked up in the bibliography; a work whose document is in
+the project gets a check of its own (a hypothesis with `origin` `"citation"` and the reference's id as `origin_id`),
+against that document only, with the claim's sentences in its payload as `claim_context` (shown to the AI as context,
+never as evidence; the prompt version stays `check-v4`) and `citing` (`{"text_id", "ref_id"}`). Checks of citations
+are left out of `GET /api/projects/<p>/hypotheses`, the evidence map, the Results downloads and the Overview's
+`hypotheses`; `GET /api/projects/<p>/hypotheses/<id>` opens them as any other (`options.citation` holds the sentence
+and the work). Finding citations uses no AI.
+
+- `GET /api/projects/<p>/citations` → `{"texts": [text summary, newest first], "has_bibliography": bool,
+  "ai_access": {...the project's AI settings}}`. A summary: the view's `text` with `citations`, `works`, `counts`,
+  `notices`, `ready`, `accurate`, `checking`.
+- `POST /api/projects/<p>/citations` → the view of the new text. One of `{"text", "title"?, "ai_access"?}` (pasted),
+  `{"upload": {"batch", "name"}, "title"?, "ai_access"?}` (a file sent to `POST /api/projects/<p>/uploads` first: read
+  as documents are read, then deleted; it never becomes a document) or `{"doc_id", "title"?}` (a document of the
+  project, which keeps its own AI setting). `ai_access` (`cloud`, `local`, `none`; the project's default when left
+  out) says who may read the draft's claims with AI. 400 for a text without citations or an unknown setting; 404 for
+  an unknown document.
+- `GET /api/projects/<p>/citations/<text>` → the view: `{"text": {"text_id", "title", "source": "paste" | "file" |
+  "document", "source_text", "doc_id", "file_name", "ai_access", "level" (the setting that applies now; local-only
+  turns cloud into local), "created_at", "numeric_unread" (numbered citations without a reference list), "cut"},
+  "refs": [...], "counts": {group: n}, "notices", "citations", "works", "ready", "accurate", "checking",
+  "has_bibliography", "bibliography_works": [{"key", "cite", "title"}]}`. A ref (one cited work of one citation):
+  `{"ref_id", "cite_id", "n", "raw", "marker", "kind": "paren" | "narrative" | "numeric", "page" (of the text),
+  "sentence", "claim", "claim_at": [start, end] | null, "before", "state", "state_text", "work": {...the bibliography
+  view of the work} | null, "how": "auto" | "ambiguous" | "none" | "person", "candidates": [work], "documents":
+  [{"doc_id", "title"}], "proposed" (documents waiting for confirmation), "hyp_id", "status" (the check's),
+  "verdict": "accurate" | "partly" | "contradicted" | "mixed" | "not_found" | "unsure" | "failed" | "checking" | null,
+  "verdict_text", "verdict_help", "quote": {"verdict", "quote", "page", "doc_id", "title"} | null, "reviewed",
+  "corrected"}`. `state`: `ready` (a work with its document, not checked), `checked`, `no_work` (not in the
+  bibliography; `candidates` are the same author's other years), `ambiguous` (several works match), `no_document`,
+  `to_confirm` (its document waits on the Bibliography page), `same_document`, `ignored`, `contrast` (cited for
+  another view: "but see", "contra"; left out until put back). References not checked and not decided by a person are
+  matched again on every read, so a work or document added later is used.
+- `PUT /api/projects/<p>/citations/<text>` `{"title"?, "ai_access"?}` → the view. A document's text keeps the
+  document's setting (400). Tasks not answered yet take the new setting at once.
+- `DELETE /api/projects/<p>/citations/<text>` `{}` → `{"deleted": id}`: the text, its citations and their checks.
+- `POST /api/projects/<p>/citations/<text>/check` `{"ref_ids"?: [...], "again"?: bool}` → job (kind `citations`,
+  `scope` the text's id; by queue when Claude Code is the AI): every ready reference (or those of `ref_ids`; with
+  `again`, checked ones are checked anew), one check each, as *Check several* does. `result`: `{"text_id",
+  "checked": [hyp_id], "errors", "stopped", "total"}`. 400 when none is ready. Search words are asked of the AI
+  only when the text's claims may go to the model that proposes them; the excerpts are split by the most restricted
+  of their document's setting and the text's (`access.text_floor`).
+- `PUT /api/projects/<p>/citations/<text>/refs/<ref>` `{"item_key": key | null}` (the work it is; null: back to the
+  matching; a check against another work is removed) or `{"ignored": bool}` (not a citation) → the view.
+- `GET /api/projects/<p>/citations/<text>/export.xlsx` (a download; `?token=` allowed): one row per cited work: #,
+  Page of your text, Sentence, Claim checked, Citation, Work, Title, Answer, Quote from the source, Page in the
+  source, Document.
+- `GET /api/projects/<p>/overview` adds `"citations": {"texts", "refs", "checked"}`; its `hypotheses` leaves the
+  checks of citations out.
+
 ### Jobs
 
 `GET /api/jobs` → `{"jobs": [Job summary]}` newest first. `GET /api/jobs/<id>` → full Job:
 ```json
 {"id": "fdd6a426a6f0", "kind": "check" | "prepare" | "batch" | "more" | "reread" | "read-new" | "second-opinion" |
          "ingest" | "index" | "benchmark" | "label" | "link" | "theme-names" | "resolve" | "stronger" | "queue-run" |
-         "claude-install" | "draft-find" | "draft-check" | "bibliography" | …,
+         "claude-install" | "draft-find" | "draft-check" | "bibliography" | "citations" | …,
  "title": "…", "queue": false,
  "project": "Demo" | null, "state": "queued" | "running" | "done" | "error" | "cancelled",
  "created_at": 1793136448.87, "started_at": … | null, "finished_at": … | null, "seconds": 19.9,

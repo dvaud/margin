@@ -1,4 +1,4 @@
-// 0.15.1: the page's extension points (docs/EXTENDING.md). An add-on's page module (static/extensions.js in a fork,
+// 0.13.6: the page's extension points (docs/EXTENDING.md). An add-on's page module (static/extensions.js in a fork,
 // static/addons/<add-on>/extensions.js in a package) adds to these lists with applyExtensions(); Margin's own entries
 // are here too, so the sidebar's jobs, the Overview and the result page read one list each.
 // No imports: the tests load this file in Node.
@@ -29,7 +29,11 @@ export const JOB_KINDS = {
   resolve: { icon: "link", text: "Following references", link: "#/sources" },
   quicklook: { icon: "eye", text: "Quick look", link: "#/sources" },
   "claude-install": { icon: "download", text: "Installing Claude Code", link: "#/settings/model" },
+  "model-pull": { icon: "download", text: "Downloading a model", link: "#/settings/model" },   // 0.13.7
   bibliography: { icon: "library", text: "Bringing in the bibliography", link: "#/bibliography" },
+  // 0.13.7: a job's scope is its text
+  citations: { icon: "quote", text: "Checking citations", withJob: true, tooltip: true,
+    link: (j) => (j.scope ? `#/citations/${encodeURIComponent(j.scope)}` : "#/citations"), label: (j, t) => `${t}${j.title ? ` (${j.title})` : ""}` },
 };
 
 // A job's row: {href, icon, text, tooltip}. A kind no one registered shows its own title (an add-on's job).
@@ -52,9 +56,12 @@ export const WELCOME_CARDS = [];
 // hypothesis (in place of "All results"); `meta`: the words in the line under it; `href(id)`.
 export const ORIGINS = {
   batch: { meta: "part of a set", href: (id) => `#/history?batch=${encodeURIComponent(id)}` },
+  // 0.13.7: a citation's check; its id is "<text>-<citation>-<work>"
+  citation: { eyebrow: "Back to the citations", meta: "a citation in your text",
+    href: (id) => `#/citations/${encodeURIComponent(String(id).split("-")[0])}?ref=${encodeURIComponent(id)}` },
 };
 
-// The back-link of a result: {eyebrow, meta, href} or null. A batch from before 0.14 has a batch id and no origin.
+// The back-link of a result: {eyebrow, meta, href} or null. A batch from before 0.13.6 has a batch id and no origin.
 export function originLink(r) {
   const key = r.origin && ORIGINS[r.origin] ? r.origin : (r.batch_id ? "batch" : null);
   if (!key) return null;
@@ -81,7 +88,7 @@ export function overviewSections(FEATURES, SECTIONS) {
 //   sections: {key: {title, short, sub, compact}}            new parts of the app (sidebar group, Overview section)
 //   features: {key: {section, title, icon, href, ai, what, use, nav, overview, state(o)}}
 //   routes:   [[RegExp, featureKey, render(view, groups, query)]]
-//   jobKinds: {kind: {icon, text, link, withJob, tooltip, label(j, text)}}
+//   jobKinds: {kind: {icon, text, link (a hash, or link(j) from the job), withJob, tooltip, label(j, text)}}
 //   welcome:  [{icon, title, text}]
 //   origins:  {origin: {eyebrow, meta, href(id)}}
 // It never replaces one of Margin's entries; returns the keys it added, by list.

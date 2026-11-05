@@ -312,7 +312,7 @@ def task_tokens(kind: str, k: int = 8, thinks: bool = False, max_chars: int = 11
         user = 300 + 3 * (max_chars + 40) + retry
     elif kind in ("expand", "decompose"):
         user = 4000 + retry
-    else:  # 0.15: an add-on's kind says how long its prompt can be
+    else:  # 0.13.6: an add-on's kind says how long its prompt can be
         k_ = taskkinds.get(kind)
         user = (k_.size(k, max_chars) if k_ is not None and k_.size else 4000) + retry
     room = (2 * budget + 64 if budget else THINK_ALLOWANCE) if thinks else 0
@@ -426,7 +426,7 @@ def _make_backend(settings: dict, api_key: str = "", kinds: tuple[str, ...] = ("
                 note = f"{chosen} is not installed; {model} is used instead."
         if not model:
             raise BackendError("Choose an Ollama model in Settings." if inv is None or inv["models"] else
-                               "Ollama has no chat model yet. Install one, for example: ollama pull qwen3:8b")
+                               "Ollama has no chat model yet. Download one in Settings → AI (one button).")
         be = _ollama(settings, settings["ollama_url"], model, think, kinds)
         be.model_note = note
         return be, model
@@ -460,10 +460,10 @@ def _make_backend(settings: dict, api_key: str = "", kinds: tuple[str, ...] = ("
                 if model:
                     return LocalBackend(base_url=srv["url"], seed=_seed(settings)), model
         if found:
-            raise BackendError("A local model server is running but has no chat model. With Ollama: "
-                               "ollama pull qwen3:8b (or another model), then try again.")
-        raise BackendError("No local model server is running. Start Ollama (ollama.com) or LM Studio (lmstudio.ai), "
-                           "or choose the offline demo in Settings.")
+            raise BackendError("A local model server is running but has no chat model. With Ollama, download one "
+                               "in Settings → AI (one button); with another server, load a model in it.")
+        raise BackendError("No local model server is running. Open Ollama (free, from ollama.com) or LM Studio, "
+                           "then download a model in Settings → AI; or choose the offline demo in Settings.")
     return BaselineBackend(), "baseline"
 
 

@@ -1,4 +1,4 @@
-"""0.15.1: the page's extension points (registry.js, static/extensions.js, docs/EXTENDING.md).
+"""0.13.6: the page's extension points (registry.js, static/extensions.js, docs/EXTENDING.md).
 
 The stand-in add-on's page module (tests/fake_extension/margin_fake_addon/static/extensions.js) adds a page, a sidebar
 entry with its AI mark, an Overview section and card, a job kind, a welcome card and a result's link back to its
@@ -61,11 +61,12 @@ out.batch = [reg.originLink({ batch_id: "b1" }), reg.originLink({ origin: "batch
     # Margin's own page module (the local layer) names its draft jobs and links a claim back to its draft
     assert out["local"] == {"sections": [], "features": [], "routes": 0, "jobKinds": ["draft-find", "draft-check"],
                             "welcome": 0, "origins": ["draft"]}
-    # the Overview as 0.15.0 drew it: explore (four cards and "Read one document"), then check (compact)
+    # the Overview as 0.13.5 drew it: explore (four cards and "Read one document"), then check (compact); 0.13.7 adds
+    # Check citations before Results
     assert [(s["key"], s["features"], s["compact"]) for s in out["sections"]] == [
         ("explore", ["search", "profile", "concepts", "themes", "sources"], False),
         ("write", ["drafts"], True),  # Margin: your writing, between exploring and checking
-        ("check", ["check", "batch", "history"], True)]
+        ("check", ["check", "batch", "citations", "history"], True)]
     assert out["sections"][0]["sub"] == "Start here: no hypothesis needed."
     check, second, ingest, prepare, unknown = out["rows"]
     assert check == {"href": "#/check?job=j1", "icon": "flask", "text": "Water use rises", "tooltip": "Water use rises"}
@@ -90,6 +91,8 @@ out.route = reg.PAGE_ROUTES.map(([rx, nav]) => [rx.source, nav, rx.test("/fake/n
 out.job = reg.jobRow({ id: "j9", kind: "fake-labels", title: "Stand-in labels" });
 out.welcome = reg.WELCOME_CARDS;
 out.origin = reg.originLink({ origin: "fake-note", origin_id: "n 1" });
+reg.JOB_KINDS["per-note"] = { icon: "tag", text: "A note's job", link: (j) => `#/fake/notes/${j.scope}`, withJob: true };
+out.scoped = reg.jobRow({ id: "j8", kind: "per-note", scope: "n2" });
 """, tmp_path)
     assert out["added"]["sections"] == ["notes"] and out["added"]["features"] == ["notes"]
     assert out["added"]["routes"] == 1 and out["added"]["jobKinds"] == ["fake-labels"]
@@ -103,6 +106,7 @@ out.origin = reg.originLink({ origin: "fake-note", origin_id: "n 1" });
     assert out["route"][0][1:] == ["notes", True]
     assert out["job"] == {"href": "#/fake/notes?job=j9", "icon": "tag", "text": "Stand-in labels", "tooltip": None}
     assert out["welcome"][0]["title"] == "Bring your field notes"
+    assert out["scoped"]["href"] == "#/fake/notes/n2?job=j8"  # a link made from the job
     assert out["origin"] == {"eyebrow": "Back to the note", "meta": "from a note", "href": "#/fake/notes?note=n%201"}
 
 
