@@ -187,8 +187,12 @@ def test_a_launched_copy_restarts_in_place(home, tmp_path):  # noqa: F811
         live = launcher.running(timeout=0.5)
         if not live:
             return None
-        page = urllib.request.urlopen(live["url"], timeout=5).read().decode()
-        return live["url"].rstrip("/"), page.split('name="margin-token" content="')[1].split('"')[0]
+        # Margin: the copy can go down between the two requests (a restart starting), so that is "not answering"
+        try:
+            page = urllib.request.urlopen(live["url"], timeout=5).read().decode()
+            return live["url"].rstrip("/"), page.split('name="margin-token" content="')[1].split('"')[0]
+        except (OSError, IndexError):
+            return None
 
     try:
         assert _wait(lambda: token_now() is not None, timeout=15), "Margin did not start"

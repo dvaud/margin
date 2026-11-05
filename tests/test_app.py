@@ -76,7 +76,8 @@ def test_make_backend(home):
     s.update(backend="anthropic")
     with pytest.raises(BackendError, match="Cloud models are switched off"):
         home.make_backend(s)
-    s.update(backend="ollama")
+    # an address nothing answers on, so an Ollama running on this computer is never asked
+    s.update(backend="ollama", ollama_url="http://127.0.0.1:9")
     with pytest.raises(BackendError, match="Choose an Ollama model"):
         home.make_backend(s)
     s.update(ollama_model="qwen3:8b", num_ctx=32768, think="off")

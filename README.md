@@ -24,7 +24,7 @@ a local model. It grew out of ENLENS, and can sit beside it on the same computer
 3. **Bring your ENLENS projects, or start a new one.** If ENLENS is on this computer, the first screen offers to copy
    its projects into Margin (ENLENS keeps its own). Otherwise name a project and add your documents (PDF, Word, web
    pages, text, or a zip of them); Margin asks who may read them with AI: *Claude may read them*, *Only a local AI*,
-   or *No AI*.
+   or *No AI*. Using Zotero? The *Bibliography* page brings in a collection and the PDFs Zotero keeps.
 4. **Check a draft, explore, check.** Where AI work waits, press **Start Claude Code**; the results appear as they
    come in.
 
@@ -44,20 +44,33 @@ restarts by itself (on Windows it says to use the install line). Or do it by han
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.3: decide on each claim of your draft
+## New in 0.4: your Zotero bibliography, and a calmer result page
 
-- **Claim supported, Claim refuted, Dismiss claim.** On *Check a draft*, each claim's card has three buttons for
-  your own decision, before or after a check. The card then folds to what is left to do: the claim, your decision
-  and what to cite (the documents that support it, or the ones that contradict it). *More* opens it again; *Undo*
-  takes the decision back. Your decision stays on the draft page: a claim's result page does not change.
-- **The draft shows where to cite.** A sentence you decided on loses its colour fill and gets a green or red
-  underline with a small **cite here** tag where the citation goes (*cited* if your draft already gives one).
-- **The claims scroll on their own.** On a wide window, scrolling through the claims no longer moves your draft.
-- **Click anywhere on a claim's card**, not only its number, to see its sentence in the draft.
-- 0.3.1 is the same release with one test fixed (0.3.0 was never published).
+- **Bibliography.** A new page brings in a Zotero collection (or your whole library) from the Zotero app on your
+  computer, or a file exported from Zotero, Mendeley or EndNote. Margin links each work to the document you already
+  have (by itself when it is the same file or DOI; with one click, *Same work*, when only the title matches), lists
+  the works you still need to find, with a spreadsheet to download, and adds the PDFs Zotero already keeps in one
+  go. A linked document takes the work's proper title, so "download (3).pdf" becomes the report's real name.
+  Nothing goes over the internet, and Zotero is only read. Zotero 7 or later; tick *Settings → Advanced → Allow
+  other applications on this computer to communicate with Zotero* once.
+- **A result page you can read at a glance.** The answer first, with who says what and one *Next to review*
+  button; then each excerpt as a short card with the quote in its sentence, and the same buttons on every card
+  (*Agree*, *Not about this*, *Judge differently…*). A claim of your draft still links back to the draft.
+- **Calmer pages everywhere:** fewer type sizes, colour only where it means something, one-line subtitles, help marks
+  instead of paragraphs, downloads as plain links, in Margin's own look.
+- **"Not running" when nothing runs.** Work that waits for Claude Code says so in the sidebar, with *Start Claude
+  Code* beside it, instead of *1 task running*.
+- **Which Claude account answers.** Hover *Claude, on your plan* in the sidebar to see the account Claude Code is
+  signed in to (and its plan); *Settings → AI* says it too.
+- **Checks on Sonnet.** Judging excerpts goes to Sonnet; unsure judgements, *Ask a stronger model* and second
+  opinions still go to Opus (or Fable). *Settings → Technical* can set checks back to Opus.
+
+All of this comes from ENLENS 0.12 and 0.13. Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.3**: decide on each claim of your draft (*Claim supported*, *Claim refuted*, *Dismiss claim*); the
+  draft shows where to cite, and the claims scroll on their own.
 - **Margin 0.2**: Margin's own look (ink blue, a book face for titles, a red margin line for the page you are on)
   and icon; *Update Margin* from the sidebar and hand-zipped project imports (0.2.1); a stronger model's answer
   becomes the answer, *second opinion* everywhere, and a *Start Claude Code* button you cannot miss (0.2.2, from
@@ -94,12 +107,12 @@ evidence, with the exact words of each source, where they are (page or paragraph
 character against the source text. You review the AI's judgements like a co-coder's; your judgements count and are
 kept next to the AI's in the Excel download.
 
-The AI is Claude, through Claude Code signed in with your own Claude plan (Pro, Max, Team or Enterprise). Margin sets
-Claude Code up by itself and starts it when you press *Start Claude Code*; each kind of task goes to the right model
-(labels on Haiku, theme names on Sonnet, checks on Opus). Your documents, results and reviews stay on your computer:
-only the passages inside the AI's tasks, from documents Claude may read, are sent to Anthropic. A model on your own
-computer (Ollama, LM Studio…) and a shared installation on the Claude API remain available, and whoever installs it
-can switch everything off the computer off for good (`--local-only`).
+The AI is Claude, through Claude Code signed in with your own Claude plan (Pro, Max, Team or Enterprise). Margin
+sets Claude Code up by itself and starts it when you press *Start Claude Code*; each kind of task goes to the right
+model (labels on Haiku, theme names and checks on Sonnet, second opinions on Opus). Your documents, results and
+reviews stay on your computer: only the passages inside the AI's tasks, from documents Claude may read, are sent to
+Anthropic. A model on your own computer (Ollama, LM Studio…) and a shared installation on the Claude API remain
+available, and whoever installs it can switch everything off the computer off for good (`--local-only`).
 
 The app is written for researchers who do not program: plain language on every working screen; each feature says
 what it does and whether it uses the AI; technical details are kept under *Technical details* and
@@ -226,7 +239,7 @@ whole project to a colleague as one zip.
 | --- | --- | --- | --- |
 | Codebook labels, concept links | Haiku | Sonnet | the small model (if chosen) |
 | Search words, splitting, theme names, references | Sonnet | Opus | the main model |
-| Judging excerpts, reading one again | Opus | the auditor | the main model |
+| Judging excerpts, reading one again | Sonnet (high effort) | the auditor | the main model |
 | Second opinion | the auditor (Opus, or Fable if switched on) | | the second model |
 
 A task steps up once: when its answer's certainty is under 0.6, after two rejected answers, or when you press *Ask a
@@ -267,6 +280,7 @@ see docs/MODEL_CHOICE.md) set them.
 | `frameworks.py`, `taxonomy.py` | Optional codebooks (SDG targets bundled, custom CSVs) |
 | `llm.py` | Ollama, OpenAI-compatible local servers (LM Studio, llama.cpp…), server detection, Claude API, offline baseline |
 | `tasks.py`, `schema.py`, `prompts.py` | Model tasks, validation with the quote check, versioned prompts |
+| `bibliography.py` | The bibliography (ENLENS 0.13): Zotero read through its local API, BibTeX / RIS / CSL JSON / CSV files, matching works with documents, titles from the linked work |
 | `drafts.py` | Check a draft (Margin 0.1): drafts kept apart from the documents, the claims that need a source (the AI with the quote check, or rules), the person's changes, their checks as hypotheses, the draft page's view and the export |
 | `access.py` | Who may read each document with AI (ENLENS 0.11): the settings, the guard on every task, which model reads what, the ledger of what was sent to Claude, the cap |
 | `ingest.py`, `textutil.py`, `store.py` | Documents and passages with page offsets, layout (paragraphs, headings), local OCR, text normalisation, the workspace database |
@@ -293,7 +307,8 @@ tag `vX.Y.Z` into a draft GitHub Release (tests, the package, the two scripts wi
 `tools/dev_server.py` runs the app against fake local models (for interface work; `--fresh-user` shows the app as a
 new user would find it, with the remote-work demo documents in `tools/demo_corpus/`; `--claude-code` with a fake
 Claude Code answering the queue; `--claude-cli` with a stand-in `claude` program the app sets up and starts, 0.9;
-`--claude-install` with Claude Code still to be installed and signed in to, `--no-tesseract` without Tesseract, 0.10);
+`--claude-install` with Claude Code still to be installed and signed in to, `--no-tesseract` without Tesseract, 0.10;
+`--zotero` with a stand-in Zotero, `--update` with a stand-in update, ENLENS 0.13);
 `tools/pdf_to_text.py` turns a
 folder of PDFs into page-preserving text files; `tools/eval_second_pass.py` measures the second sorting pass on the
 pilot. The green hydrogen pilot (workspace, report, run notes) is in

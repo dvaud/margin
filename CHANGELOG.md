@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (November 2026): your Zotero bibliography, and a calmer result page
 
 From ENLENS 0.12.0 to 0.13.4: a Zotero bibliography beside your documents, a rebuilt result page, a calmer look on
-every page, the Claude account that answers, and checks on Sonnet. Margin keeps its own look, its drafts and its *second opinion* wording on top.
-Every answer still goes through the quote check and a person can overrule it.
+every page, the Claude account that answers, and checks on Sonnet. Margin keeps its own look, its drafts and its
+*second opinion* wording on top. Every answer still goes through the quote check and a person can overrule it.
 
 **Your Zotero bibliography next to your documents (from ENLENS 0.13.0).** A new **Bibliography** page brings in a
 Zotero collection (or the whole library, or a group library) from the Zotero app on this computer: Zotero 7 or later,
@@ -72,11 +72,18 @@ for it (`tests/test_0131_update_button.py`) run beside Margin's.
 Zotero `tests/fake_zotero.py` (also `tools/dev_server.py --zotero`). `test_0133_app_wide_polish.py` and
 `test_0134_claude_account.py` now check that only Margin's own stylesheets come after ENLENS's last one (ENLENS wants
 its own last). New:
-`tests/test_unreleased_draft_jobs_on_hold.py`: finding and checking a draft's claims are *not running* while nothing
+`tests/test_m040_draft_jobs_on_hold.py`: finding and checking a draft's claims are *not running* while nothing
 answers and running once Claude Code takes a batch. Checked in Chrome with the dev server (the social corpus, the
 stand-in Claude Code and Zotero): the result page (a mixed answer and a claim of a draft), *Bibliography*, a draft,
 *Overview*, *Documents*, *Search*, *Results*, *Profile*, *Themes* and *Settings*, light and dark, 1280 and 390 px, and
 the account card on hover with the stand-in Claude Code; no console errors.
+
+**Fixed:** `test_make_backend` (`tests/test_app.py`) asked the default Ollama address on the computer, so it failed
+when an Ollama with a model was running there; it now asks an address nothing answers on.
+`test_a_launched_copy_restarts_in_place` could fail on a busy computer: it asked whether Margin answers and then read
+its page, and a restart starting between the two raised an error instead of counting as "not answering yet". It
+now waits. ENLENS's `tests/test_0131_update_button.py` is Margin's `test_m021_update_button.py` with one test more,
+so Margin's copy is gone and the real restart runs once.
 
 **Not yet done.** Not tried with a real Zotero 7 (only the stand-in) nor with a real signed-in Claude Code (the
 *not running* state and checks on Sonnet were tried with stand-ins). Checked in Chrome only.
