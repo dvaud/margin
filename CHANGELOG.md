@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (November 2026): APA citations to paste from your draft
 
 **Citations to paste from a draft.** With a bibliography (your Zotero library or a collection, or an exported file),
 every document a draft's claim would cite now has its APA 7 in-text citation beside it, such as **(Verhoeven &
@@ -14,10 +14,11 @@ italics for a book or report; the italics come along when pasted into Word). Doc
 named, with a link to *Bibliography*. Nothing is sent anywhere and no AI is used: the citation is made from what
 Zotero holds. The draft's Excel and CSV files have a new column, *Citation (APA 7)*.
 
-**Tests:** `tests/test_unreleased_apa_citations.py` (one, two and more authors, group authors, editors, no date, a
+**Tests:** `tests/test_m050_apa_citations.py` (one, two and more authors, group authors, editors, no date, a
 and b, *et al.* told apart, works without an author, several works in one parenthesis, a checked draft with a Zotero
 library from the stand-in Zotero, the API, the page). `test_0133_app_wide_polish.py` and `test_0134_claude_account.py`
-count `unreleased.css` as one of Margin's own stylesheets. Checked in Chrome with the dev server (the social corpus,
+count `unreleased.css` (a feature's stylesheet before its release) as one of Margin's own; the new look is in
+`m050.css`, linked before `m020.css`. Checked in Chrome with the dev server (the social corpus,
 the stand-in Zotero): a draft's cards folded and open, a document not linked, copying (the combined citation and the
 narrative form, read back from the clipboard), light and dark, 1280 and 390 px; no console errors.
 

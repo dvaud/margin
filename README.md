@@ -44,31 +44,24 @@ restarts by itself (on Windows it says to use the install line). Or do it by han
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.4: your Zotero bibliography, and a calmer result page
+## New in 0.5: APA citations to paste from your draft
 
-- **Bibliography.** A new page brings in a Zotero collection (or your whole library) from the Zotero app on your
-  computer, or a file exported from Zotero, Mendeley or EndNote. Margin links each work to the document you already
-  have (by itself when it is the same file or DOI; with one click, *Same work*, when only the title matches), lists
-  the works you still need to find, with a spreadsheet to download, and adds the PDFs Zotero already keeps in one
-  go. A linked document takes the work's proper title, so "download (3).pdf" becomes the report's real name.
-  Nothing goes over the internet, and Zotero is only read. Zotero 7 or later; tick *Settings → Advanced → Allow
-  other applications on this computer to communicate with Zotero* once.
-- **A result page you can read at a glance.** The answer first, with who says what and one *Next to review*
-  button; then each excerpt as a short card with the quote in its sentence, and the same buttons on every card
-  (*Agree*, *Not about this*, *Judge differently…*). A claim of your draft still links back to the draft.
-- **Calmer pages everywhere:** fewer type sizes, colour only where it means something, one-line subtitles, help marks
-  instead of paragraphs, downloads as plain links, in Margin's own look.
-- **"Not running" when nothing runs.** Work that waits for Claude Code says so in the sidebar, with *Start Claude
-  Code* beside it, instead of *1 task running*.
-- **Which Claude account answers.** Hover *Claude, on your plan* in the sidebar to see the account Claude Code is
-  signed in to (and its plan); *Settings → AI* says it too.
-- **Checks on Sonnet.** Judging excerpts goes to Sonnet; unsure judgements, *Ask a stronger model* and second
-  opinions still go to Opus (or Fable). *Settings → Technical* can set checks back to Opus.
+- **Copy a citation, paste it into your text.** With your Zotero bibliography on the *Bibliography* page, every
+  document a claim of your draft would cite has its APA 7 citation beside it, such as **(Verhoeven & Okafor, 2025)**.
+  Click it to copy it and paste it where the claim stands; Alt-click (Option-click on a Mac) copies *Verhoeven and
+  Okafor (2025)*. A claim you marked *supported* or *refuted* has one button for all its sources at once:
+  *(Adeyemi & Brandt, 2024; Verhoeven & Okafor, 2025)*.
+- **APA 7 as your reference list would write it:** *et al.* from three authors, *2024a* and *2024b* for the same
+  authors and year, *n.d.* without a year, and the title for a work without an author. The draft's Excel file has a
+  *Citation (APA 7)* column too. No AI and nothing sent anywhere: the citation is made from what Zotero holds.
 
-All of this comes from ENLENS 0.12 and 0.13. Full notes: `CHANGELOG.md`.
+Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.4**: your Zotero bibliography beside your documents (each work linked to its document, the works still
+  to find, the PDFs Zotero keeps added in one go, proper titles); a result page you read at a glance and calmer
+  pages everywhere; which Claude account answers; checks on Sonnet (from ENLENS 0.12 and 0.13).
 - **Margin 0.3**: decide on each claim of your draft (*Claim supported*, *Claim refuted*, *Dismiss claim*); the
   draft shows where to cite, and the claims scroll on their own.
 - **Margin 0.2**: Margin's own look (ink blue, a book face for titles, a red margin line for the page you are on)

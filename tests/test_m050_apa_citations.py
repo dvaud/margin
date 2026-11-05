@@ -1,4 +1,4 @@
-"""Margin (unreleased): with a bibliography (Zotero, or an exported file), each document a draft's claim would cite
+"""Margin 0.5: with a bibliography (Zotero, or an exported file), each document a draft's claim would cite
 has its APA 7 in-text citation, ready to paste into the text: "(Verhoeven & Okafor, 2025)", the narrative form
 "Verhoeven and Okafor (2025)", several works in one parenthesis, a and b for the same authors and year, as many names
 as tell two "et al." apart, and the first words of the title for a work without an author. The tests never touch a
@@ -165,6 +165,6 @@ def test_the_page_copies_the_citation():
     # documents of the side without a work of the bibliography are named, with the way to link them
     assert 'h("a", { href: "#/bibliography" }, "Bibliography")' in js
     index = (STATIC / "index.html").read_text()
-    assert index.index("/static/unreleased.css") < index.index("/static/m020.css")
-    css = (STATIC / "unreleased.css").read_text()
+    assert index.index("/static/m050.css") < index.index("/static/m020.css")
+    css = (STATIC / "m050.css").read_text()
     assert ".dc-apa:hover" in css and not __import__("re").search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css)

@@ -1142,7 +1142,7 @@ def to_find_rows(ws: Workspace) -> list[dict]:
 
 
 # ------------------------------------------------------------------------------------------
-# Margin: APA 7 in-text citations, to paste into a draft
+# Margin 0.5: APA 7 in-text citations, to paste into a draft
 # ------------------------------------------------------------------------------------------
 # Who an in-text citation names: the authors; without them the editors (APA leaves "Ed." out of the citation); else
 # whoever is named. A work without anyone is cited by the first words of its title: in quotation marks for a part of

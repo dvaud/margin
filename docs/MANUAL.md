@@ -426,7 +426,7 @@ used as evidence.
    above the claims add *To decide*, *You: supported* and *You: refuted*. Claims you decided on are left out of
    *Check N claims*; open the card and press *Check this one* to check one anyway.
 
-**Citations to paste (Margin, unreleased).** With a bibliography on the *Bibliography* page (your Zotero library or
+**Citations to paste (Margin 0.5).** With a bibliography on the *Bibliography* page (your Zotero library or
 a collection, or a file exported from a reference manager), every document a claim would cite that is linked to a
 work of the bibliography has its APA 7 in-text citation next to it, such as **(Verhoeven & Okafor, 2025)**. Click it
 to copy it, then paste it into your text; Alt-click (Option-click on a Mac) copies the narrative form, *Verhoeven and

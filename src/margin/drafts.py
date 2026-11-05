@@ -568,7 +568,7 @@ SIDES = (("supports", "supports"), ("partly", "partially_supports"), ("refutes",
 
 def _evidence(res: dict, cites: dict[str, dict] | None = None) -> dict[str, list[dict]]:
     """The documents on each side of a claim's answer (as the result page counts them), each with its best quote and,
-    for a document linked to a work of the bibliography, its APA 7 in-text citation (`apa`, Margin)."""
+    for a document linked to a work of the bibliography, its APA 7 in-text citation (`apa`, Margin 0.5)."""
     items = [x for p in res["parts"] for x in p["passages"] if x.get("counted")]
     out: dict[str, list[dict]] = {"supports": [], "partly": [], "refutes": []}
     for w in res.get("who") or []:
@@ -586,7 +586,7 @@ def _evidence(res: dict, cites: dict[str, dict] | None = None) -> dict[str, list
 
 
 def _cite_sides(ev: dict[str, list[dict]]) -> dict[str, dict]:
-    """Margin: the documents of each side in one APA 7 citation, "(Haugen, 2024; Verhoeven & Okafor, 2025)"."""
+    """Margin 0.5: the documents of each side in one APA 7 citation, "(Haugen, 2024; Verhoeven & Okafor, 2025)"."""
     out = {}
     for side, docs in ev.items():
         both = bibliography.apa_together([e["apa"] for e in docs if e.get("apa")])

@@ -1,4 +1,4 @@
-/* Margin (unreleased): the APA 7 citation of a document to cite, on a button that copies it (views/drafts.js) */
+/* Margin 0.5: the APA 7 citation of a document to cite, on a button that copies it (views/drafts.js) */
 .dc-apa { display: inline-flex; align-items: center; gap: 5px; margin-left: 6px; padding: 1px 8px 1px 6px;
   font: inherit; font-size: .8rem; line-height: 1.5; color: var(--accent-text); background: var(--accent-soft);
   border: 1px solid transparent; border-radius: 6px; cursor: pointer; vertical-align: 1px; max-width: 100%; }

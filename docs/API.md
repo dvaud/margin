@@ -810,7 +810,7 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
   "to_check", "cited", "status": {status: n}, "decided": {decision: n}}, "finding": {"total", "waiting", "done", "failed", "queued",
   "errors"?}, "sent": {"times", "routes", "parts_read", "claims_read", "first", "last"}, "documents",
   "queue_command", "default", "labels", "local_only"}`.
-  Margin (unreleased): `apa` is the APA 7 in-text citation of a document linked to a work of the bibliography
+  Margin 0.5: `apa` is the APA 7 in-text citation of a document linked to a work of the bibliography
   (`null` otherwise): `{"text": "(Verhoeven & Okafor, 2025)", "narrative": "Verhoeven and Okafor (2025)", "html",
   "narrative_html"` (a title in `<i>` for a book or report without an author)`, "kind": "names" | "quoted" | "italic",
   "who", "who_html", "year", "sort"}`, made as the bibliography's reference list would make it (2025a and 2025b, as

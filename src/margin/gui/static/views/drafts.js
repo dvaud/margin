@@ -5,7 +5,7 @@
 // Margin 0.3: the person decides on each claim (supported, refuted, dismissed): its card folds to what matters and its
 // highlight in the draft says a source should be cited there; the claims scroll on their own beside the draft, and a
 // click anywhere on a card shows its sentence in the draft.
-// Margin (unreleased): with a bibliography (Zotero, or an exported file), each document to cite has its APA 7 in-text
+// Margin 0.5: with a bibliography (Zotero, or an exported file), each document to cite has its APA 7 in-text
 // citation on a button that copies it, "(Verhoeven & Okafor, 2025)", ready to paste into the text; several in one.
 import { featureEyebrow } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, statusBadge, confirmDialog, dialog, download, TERMINAL, runningJob, plural, session, queueNotice, navigate } from "../lib.js";
