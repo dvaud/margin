@@ -2,6 +2,8 @@
 // citations; each cited work of the bibliography whose document is in the project is checked against that document
 // only, with the claim's sentences as context. "Source accurate", or a notice: only partly supported, not found in
 // the source, the source says otherwise. Each answer opens on the result page, where a person can overrule it.
+// Margin: a text you paste or choose is kept as a draft (Check a draft), and every draft's citations are listed here;
+// a draft's text links back to its draft, and its name and AI setting are the draft's.
 import { featureEyebrow } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, confirmDialog, emptyState,
   session, download, plural, statusBadge, helpMark, downloadLinks, navigate, runningJob, TERMINAL } from "../lib.js";
@@ -58,10 +60,10 @@ function textCard(t) {
   const c = t.counts || {};
   const notices = NOTICES.reduce((n, k) => n + (c[k] || 0), 0);
   return h("a", { class: "cite-text-card", href: `#/citations/${encodeURIComponent(t.text_id)}` },
-    h("span", { class: "cite-text-icon" }, icon(t.source === "document" ? "book-open" : "file-text", { size: 18 })),
+    h("span", { class: "cite-text-icon" }, icon(t.draft_id ? "file-pen" : t.source === "document" ? "book-open" : "file-text", { size: 18 })),
     h("span", { class: "grow" },
       h("span", { class: "cite-text-title" }, t.title),
-      h("span", { class: "muted small" }, `${t.source_text}${t.file_name ? ` (${t.file_name})` : ""} · added ${fmt.dateShort(t.created_at)}`),
+      h("span", { class: "muted small" }, `${t.draft_id ? "Your draft" : t.source_text}${t.file_name ? ` (${t.file_name})` : ""} · added ${fmt.dateShort(t.created_at)}`),
       h("span", { class: "small cite-text-counts" }, countsLine(c, t))),
     notices ? h("span", { class: "badge status-partially_supported" }, icon("alert-triangle", { size: 13 }), h("span", {}, plural(notices, "notice", "notices"))) : null,
     icon("chevron-right", { size: 16 }));
@@ -92,7 +94,7 @@ function addCard(project, base, data, open) {
     file: h("div", { class: "cite-pane" }, h("div", { class: "field" }, h("span", { class: "field-label" }, "Your file"),
       h("div", { class: "row", style: { gap: "10px", flexWrap: "wrap" } },
         h("label", { class: "btn btn-sm", for: "cite-file", tabindex: "0", onKeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileIn.click(); } } }, icon("upload", { size: 13 }), "Choose a file", fileIn), fileName),
-      h("p", { class: "muted small", style: { margin: "6px 0 0" } }, "Word, PDF, text or Markdown. Read on this computer; it is not added to your documents."))),
+      h("p", { class: "muted small", style: { margin: "6px 0 0" } }, "Word, PDF, text or Markdown. Read on this computer and kept as a draft; it is not added to your documents."))),
     document: h("div", { class: "cite-pane" }, h("div", { class: "field" }, h("label", { class: "field-label", for: "cite-doc" }, "A document of this project"), docSel)),
   };
   const tabs = h("div", { class: "btn-row cite-seg", role: "group", "aria-label": "Where the text is" },
@@ -105,7 +107,8 @@ function addCard(project, base, data, open) {
     h("div", { class: "btn-row" }, go, note));
   const fold = h("details", { class: "fold cite-add-fold", open: open || null }, h("summary", {}, open ? "Check a text" : "Check another text"), form);
   card.append(h("div", { class: "card-head" }, h("h2", {}, "A text to check")), h("p", { class: "muted", style: { margin: "0 0 10px" } },
-    "Paste your draft, choose its file, or pick a document of this project. Margin finds citations such as (Smith, 2020), Smith et al. (2020) and [3] with a numbered reference list, and the claim each one stands for."), fold);
+    "Paste your draft, choose its file, or pick a document of this project. Margin finds citations such as (Smith, 2020), Smith et al. (2020) and [3] with a numbered reference list, and the claim each one stands for. ",
+    "Your text is kept as a draft, so ", h("a", { href: "#/drafts" }, "Check a draft"), " can also show which of its statements still need a source; the citations of every draft are listed above."), fold);
 
   function show() {
     for (const [k, el] of Object.entries(panes)) el.hidden = k !== mode;
@@ -142,7 +145,7 @@ function addCard(project, base, data, open) {
       }
       const v = await api("POST", base, body);
       if (mode === "paste") session("cite-draft", null);
-      toast(`${plural(v.citations, "citation", "citations")} found.`, "ok", { ttl: 2500 });
+      toast(`${plural(v.citations, "citation", "citations")} found.${v.draft ? " Your text is kept as a draft." : ""}`, "ok", { ttl: 3000 });
       navigate(`#/citations/${encodeURIComponent(v.text.text_id)}`);
     } catch (e) {
       showError(e);
@@ -178,9 +181,11 @@ async function renderText(view, textId, query) {
 
   function draw() {
     const t = data.text;
+    const draft = data.draft;  // Margin: the citations of one of your drafts
     replace(head, pageHead(t.title, {
-      eyebrow: h("a", { href: "#/citations", class: "it" }, icon("arrow-left", { size: 12 }), "All texts"),
-      sub: `${t.source_text}${t.file_name ? ` (${t.file_name})` : ""} · ${plural(data.citations, "citation", "citations")} of ${plural(data.works, "work", "works")} from your bibliography`,
+      eyebrow: draft ? h("a", { href: `#/drafts/${encodeURIComponent(draft.draft_id)}`, class: "it" }, icon("arrow-left", { size: 12 }), "Back to your draft")
+        : h("a", { href: "#/citations", class: "it" }, icon("arrow-left", { size: 12 }), "All texts"),
+      sub: `${draft ? "Your draft" : t.source_text}${t.file_name ? ` (${t.file_name})` : ""} · ${plural(data.citations, "citation", "citations")} of ${plural(data.works, "work", "works")} from your bibliography`,
     }));
     replace(top, summaryCard());
     drawGroups();
@@ -203,7 +208,7 @@ async function renderText(view, textId, query) {
     ];
     const run = ready ? h("button", { class: "btn btn-primary", type: "button", onClick: () => start({}) }, icon("play", { size: 14 }), `Check ${ready === 1 ? "this citation" : `${ready} citations`}`) : null;
     const levelSel = t.doc_id ? null : h("select", { class: "select select-sm", id: "cite-level", "aria-label": "Who may read this text with AI" },
-      levels().map((lv) => h("option", { value: lv, selected: lv === t.ai_access }, LEVEL[lv].title)));
+      levels().map((lv) => h("option", { value: lv, selected: lv === (data.draft ? t.level : t.ai_access) }, LEVEL[lv].title)));
     if (levelSel) levelSel.addEventListener("change", async () => {
       try { data = await api("PUT", base, { ai_access: levelSel.value }); toast("Saved.", "ok", { ttl: 1500 }); draw(); } catch (e) { showError(e); }
     });
@@ -218,7 +223,8 @@ async function renderText(view, textId, query) {
       h("div", { class: "cite-foot small" },
         h("span", { class: "it" }, icon("shield", { size: 12 }), "Your text: ", t.doc_id ? [accessBadge(t.level, { long: true }), h("span", { class: "muted" }, " (the document’s own setting)")] : levelSel),
         downloadLinks([{ text: "Excel (.xlsx)", onClick: () => download(`${base}/export.xlsx`, `citations.xlsx`) }]),
-        h("button", { class: "link-btn link-danger it", type: "button", onClick: remove }, icon("trash", { size: 12 }), "Remove this text")),
+        data.draft ? h("a", { class: "it", href: `#/drafts/${encodeURIComponent(data.draft.draft_id)}` }, icon("file-pen", { size: 12 }), "Open your draft")
+          : h("button", { class: "link-btn link-danger it", type: "button", onClick: remove }, icon("trash", { size: 12 }), "Remove this text")),
       data.text.numeric_unread ? h("div", { class: "notice notice-warn", style: { marginTop: "10px" } }, icon("info"), h("p", {}, `${plural(data.text.numeric_unread, "numbered citation", "numbered citations")} ([1], [2]…) could not be read: the text has no numbered reference list. Paste the text with its reference list.`)) : null,
       data.text.cut ? h("div", { class: "notice notice-warn", style: { marginTop: "10px" } }, icon("info"), h("p", {}, "Only the first 500 citations were read. Split a longer text into parts.")) : null);
   }

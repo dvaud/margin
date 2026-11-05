@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+**Check a draft checks your citations too.** ENLENS 0.13.7's *Check citations* now works with *Check a draft*.
+Your own writing has one home, and a cited claim shows both what your documents say about it and whether the source
+you cite says it.
+- **Your citations are found when you add a draft**, without AI: *(Smith, 2020)*, *Smith et al. (2020) found that
+  …*, *[3]* with a numbered reference list. A third step on the draft page, **Check your citations against their
+  sources**, counts them (*5 not checked yet, 4 cannot be checked yet*), and **Check N citations** checks each cited
+  work whose document is in the project against that document only. *Review every citation* opens them on *Check
+  citations*, where you choose the work of a citation or leave one out.
+- **In the draft**, each citation is underlined by its answer: solid green when the source says it, wavy red when it
+  says otherwise or both, wavy amber when it says only part of it or the excerpts read do not say it, dotted while it
+  waits or cannot be checked yet. Hovering names the work and its answer.
+- **On the claim it stands for** (the citation inside the claim, right after it, or before it in the same sentence:
+  *According to Lindqvist (2025), …*; never the sentence before's), **Your citation** names the work and its answer,
+  with *See the excerpts*, *Check this citation* or *What it needs*. A notice says what it means and shows the
+  source's excerpt. A folded card names your citation and its answer. A new filter shows the claims with a *Citation
+  to look at*. A found citation also marks its claim *cited in your draft*, whatever the AI guessed.
+- **Check citations sits under Your writing**, beside *Check a draft*, in the sidebar and on the Overview. A text you
+  paste or choose there is kept as a draft, with its name and AI setting, so its claims can be found too. Every
+  draft's citations are listed there, and drafts from before are linked when the list or their page opens. A draft's
+  citations lead *Back to your draft*. Their name and AI setting are the draft's, changed from either page, and they
+  are removed with the draft (removing them on their own is refused). A pasted text without citations is not kept,
+  and the message points to *Check a draft*.
+- **Privacy.** The checks of a draft's citations keep the draft's AI setting, as its claims' checks do. Every task of
+  them counts as the draft's text (`access.draft_of` follows a citation to its draft), so a draft marked *Only a local
+  AI* never reaches Claude, its checks are hidden from a Claude chat, and what Claude reads of it is recorded with
+  the draft. A new setting reaches the tasks not answered yet at once.
+- **Excel and CSV** of a draft gain *Your citations* and *What the cited source says*.
+- `tools/dev_server.py --citations` makes its demo text a draft (claims found by rules), so the page shows both.
+
+**Tests.** `tests/test_unreleased_draft_citations.py` (9 tests): a new draft's citations found at once, with the
+draft's name and setting kept in step (and the project's default); a draft without citations; drafts from before
+linked; each citation on the claim it stands for (after, before in the same sentence, inside; never across a
+sentence's end) with its place in the draft; checking a draft's citations (answers on the claims, the export, what
+Claude read recorded, removed with the draft); a draft for *Only a local AI* (nothing reaches the stand-in Claude,
+hidden from the connector, every task the draft's); a new setting reaching queued tasks; through the app (a draft's
+citations on its page and in the list, checked, renamed and set from Check citations, removal refused, a pasted text
+kept as a draft, one without citations not kept); the page files and `unreleased.css` (colour tokens only). ENLENS's
+`test_0_13_7_citations.py` and `test_0_13_6_page_extensions.py` expect Check citations under *Your writing*, and
+removing a pasted text through its draft. Checked in headless Chrome with `tools/dev_server.py --citations`: the
+draft page before and after checking (step 3, the underlines, *Your citation*, the filter), the drafts list, Check
+citations (the list and a draft's text), the Overview, in light and dark and at 390 px, with no console errors.
+
+**Not yet done.** A draft has no pages, so its citations show no *page 3 of your text*, as a file given to ENLENS's
+Check citations would. Checking the claims and checking the citations are two buttons, and two jobs. A claim with a
+citation is checked against all the documents *and* against its cited source, which costs one more AI check per
+citation. Not tried with a real signed-in Claude Code (the stand-in Claude Code and models were used).
+
 **From ENLENS 0.13.6 and 0.13.7: check your citations, updates that announce themselves, and a local model without a
 terminal.**
 - **Check citations** (ENLENS 0.13.7): a text's citations, *(Smith, 2020)*, *Smith et al. (2020) found that …* and

@@ -250,15 +250,17 @@ def main() -> int:
         os.environ["MARGIN_ZOTERO_URL"] = url
         print(f"stand-in Zotero: {url} ({a.zotero})")
         if a.citations and "Demo" in home.list_projects():
-            from margin import bibliography, citations
+            from margin import bibliography, drafts
 
             ws = home.open_project("Demo")
             works, src = bibliography.pull_zotero("user", "RWCOLL01", True)
             src["library_name"] = "My Library"
             bibliography.save(ws, works, src)
             bibliography.confirm_all(ws)
-            citations.add_text(ws, CITING_DRAFT, title="Chapter 2: remote work and wellbeing (draft)")
-            print("citations: the Zotero library is in the Demo project, with a draft to check")
+            # Margin: a draft (Check a draft), whose citations are found as it is added; its claims found by rules
+            did = drafts.new_draft(ws, CITING_DRAFT, title="Chapter 2: remote work and wellbeing (draft)")
+            drafts.find_by_rules(ws, did)
+            print("citations: the Zotero library is in the Demo project, with a draft to check (its claims and citations)")
     if a.update:
         stand_in_update(a.update)
     port = a.port

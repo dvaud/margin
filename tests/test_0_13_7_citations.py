@@ -580,8 +580,11 @@ def test_citations_through_the_app(api, tmp_path):  # noqa: F811
     assert st == 400 and "No citations were found" in v3["error"]
     texts = api("GET", "/api/projects/P/citations")[1]["texts"]
     assert [t["text_id"] for t in texts] == [v2["text"]["text_id"], tid]
-    # removing a text removes its checks
-    assert api("DELETE", f"/api/projects/P/citations/{tid}", {})[0] == 200
+    # removing a text removes its checks. Margin: a pasted text is a draft, removed with the draft (its page)
+    st, r = api("DELETE", f"/api/projects/P/citations/{tid}", {})
+    assert st == 409 and "remove the draft" in r["error"]
+    draft = api("GET", f"/api/projects/P/citations/{tid}")[1]["draft"]
+    assert api("DELETE", f"/api/projects/P/drafts/{draft['draft_id']}", {})[0] == 200
     assert ws.scalar("SELECT COUNT(*) FROM hypotheses WHERE origin='citation'") == 0
     assert api("DELETE", f"/api/projects/P/citations/{tid}", {})[0] == 404
 
@@ -631,11 +634,12 @@ def test_the_page_files():
 
     features = (STATIC / "features.js").read_text(encoding="utf-8")
     assert 'citations: {  // 0.13.7' in features and 'href: "#/citations", ai: "uses"' in features
-    assert features.index("citations: {") < features.index("history: {")  # before Results, after Check several
+    # Margin: with your writing, right after Check a draft (ENLENS has it before Results, after Check several)
+    assert 'section: "write", title: "Check citations"' in features
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     assert 'import { renderCitations } from "./views/citations.js";' in app and '"citations", renderCitations]' in app
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert html.index('data-route="batch"') < html.index('data-route="citations"') < html.index('data-route="history"')
+    assert html.index('data-route="drafts"') < html.index('data-route="citations"') < html.index('data-route="check"')
     registry = (STATIC / "registry.js").read_text(encoding="utf-8")
     assert "citation: {" in registry and 'citations: { icon: "quote"' in registry
     view = (STATIC / "views" / "citations.js").read_text(encoding="utf-8")

@@ -347,13 +347,30 @@ def draft_levels(cx_or_ws, draft_ids: Iterable[str] | None = None, dflt: str | N
     return out
 
 
+def _draft_of_text(cx, text_id: Any) -> str | None:
+    """Margin: the draft a text of Check citations was made from (its citations are the draft's own)."""
+    if not isinstance(text_id, str) or not text_id:
+        return None
+    try:
+        row = cx.execute("SELECT draft_id FROM drafts WHERE cite_text_id=?", (text_id,)).fetchone()
+    except sqlite3.OperationalError:  # a database from before Margin read a draft's citations
+        return None
+    return row[0] if row else None
+
+
 def draft_of(cx, payload: Any) -> str | None:
     """The draft whose text a task's payload holds: named (`draft_id`), or through the claim or hypothesis it is
-    about (the check of a claim of a draft, its search words, a second reading)."""
+    about (the check of a claim of a draft, its search words, a second reading), or (Margin, with ENLENS 0.13.7) the
+    citation of a draft it checks (`citing`, or a hypothesis whose origin is a citation of the draft's text)."""
     if not isinstance(payload, dict):
         return None
     if isinstance(payload.get("draft_id"), str):
         return payload["draft_id"]
+    citing = payload.get("citing")
+    if isinstance(citing, dict):
+        d = _draft_of_text(cx, citing.get("text_id"))
+        if d:
+            return d
     hyp = payload.get("hyp_id") if isinstance(payload.get("hyp_id"), str) else None
     if hyp is None:
         cid = payload.get("claim_id") if isinstance(payload.get("claim_id"), str) else None
@@ -366,9 +383,11 @@ def draft_of(cx, payload: Any) -> str | None:
     if hyp is None:
         return None
     try:
-        row = cx.execute("SELECT draft_id FROM hypotheses WHERE hyp_id=?", (hyp,)).fetchone()
+        row = cx.execute("SELECT draft_id, origin, origin_id FROM hypotheses WHERE hyp_id=?", (hyp,)).fetchone()
     except sqlite3.OperationalError:  # a database from before Margin 0.1 that was not opened through Workspace
         return None
+    if row and not row[0] and row[1] == "citation" and isinstance(row[2], str):
+        return _draft_of_text(cx, row[2].split("-")[0])  # a citation's id is "<text>-<citation>-<work>"
     return row[0] if row and row[0] else None
 
 

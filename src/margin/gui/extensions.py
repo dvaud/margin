@@ -10,3 +10,7 @@ from .. import drafts  # noqa: F401  (registers Margin's kind of AI task, "claim
 SCHEMA = """
 UPDATE hypotheses SET origin='draft', origin_id=draft_id WHERE draft_id IS NOT NULL AND origin IS NULL;
 """
+
+# Margin: a draft's citations are checked as ENLENS checks a text's (citations.py, ENLENS 0.13.7): `cite_text_id` is
+# the text made from the draft (NULL: not looked for yet; "": the draft cites nothing Margin can read).
+MIGRATIONS = [("drafts", "cite_text_id", "TEXT")]

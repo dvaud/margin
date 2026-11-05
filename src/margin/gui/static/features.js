@@ -6,8 +6,8 @@ import { h, icon, plural } from "./lib.js";
 // 0.13.6: `sub` and `compact`: the section's line and card size on the Overview (registry.js builds it from these)
 export const SECTIONS = {
   explore: { title: "Explore the documents", short: "Explore", sub: "Start here: no hypothesis needed." },
-  write: { title: "Your writing", short: "Write", sub: "Which claims of your draft the documents back, and which they contradict.", compact: true },
-  check: { title: "Check hypotheses", short: "Check", sub: "When you have a statement, or a text with citations, to test against the documents.", compact: true },
+  write: { title: "Your writing", short: "Write", sub: "Which claims of your draft the documents back, and whether the sources you cite say what you say.", compact: true },
+  check: { title: "Check hypotheses", short: "Check", sub: "When you have a statement to test against the documents.", compact: true },
   project: { title: "Your project", short: "Project" },
 };
 
@@ -58,9 +58,10 @@ export const FEATURES = {
     section: "check", title: "Check several", icon: "list-checks", href: "#/batch", ai: "uses",
     what: "A list of hypotheses (pasted or from a spreadsheet), checked one after the other.",
   },
-  citations: {  // 0.13.7
-    section: "check", title: "Check citations", icon: "quote", href: "#/citations", ai: "uses",
-    what: "Whether each source your text cites says what the text says it does, with the excerpt that shows it.",
+  citations: {  // 0.13.7; Margin: with your writing, beside Check a draft (a draft's citations are checked there too)
+    section: "write", title: "Check citations", icon: "quote", href: "#/citations", ai: "uses",
+    what: "Whether each source your draft cites says what your sentence says, with the excerpt that shows it.",
+    use: "Before you submit: to catch a citation that does not back its sentence.",
   },
   history: {
     section: "check", title: "Results", icon: "history", href: "#/history", ai: "optional",

@@ -7,6 +7,9 @@
 // click anywhere on a card shows its sentence in the draft.
 // Margin 0.5: with a bibliography (Zotero, or an exported file), each document to cite has its APA 7 in-text
 // citation on a button that copies it, "(Verhoeven & Okafor, 2025)", ready to paste into the text; several in one.
+// With ENLENS 0.13.7's Check citations: the draft's own citations are found when it is added (no AI), and a third
+// step checks each against the cited work's document only. A citation is underlined in the draft by its answer, and
+// the claim it stands for shows it: what the documents say (step 2) and whether your own source says it (step 3).
 import { featureEyebrow } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, statusBadge, confirmDialog, dialog, download, TERMINAL, runningJob, plural, session, queueNotice, navigate } from "../lib.js";
 import { ProgressPanel, jobCard } from "./progress.js";
@@ -30,7 +33,7 @@ const ADVICE = {
   not_checked: "",
 };
 const SIDES = [["supports", "Supports it", "circle-check", "ok"], ["partly", "Partly supports it", "circle-half", "partly"], ["refutes", "Contradicts it", "circle-x", "bad"]];
-const FILTERS = [["all", "All"], ["open", "To decide"], ["you_supported", "You: supported"], ["you_refuted", "You: refuted"], ["unchecked", "Not checked"], ["supported", "Supported"], ["partially_supported", "Partly supported"], ["contested", "Mixed evidence"], ["contradicted", "Contradicted"], ["unsupported", "No evidence"], ["no_passages", "Nothing matched"], ["uncertain", "Uncertain"], ["waiting", "Waiting"], ["skip", "Dismissed"]];
+const FILTERS = [["all", "All"], ["open", "To decide"], ["you_supported", "You: supported"], ["you_refuted", "You: refuted"], ["cite_notice", "Citation to look at"], ["unchecked", "Not checked"], ["supported", "Supported"], ["partially_supported", "Partly supported"], ["contested", "Mixed evidence"], ["contradicted", "Contradicted"], ["unsupported", "No evidence"], ["no_passages", "Nothing matched"], ["uncertain", "Uncertain"], ["waiting", "Waiting"], ["skip", "Dismissed"]];
 // the person's decisions on a claim (Margin 0.3); `side` is the evidence the folded card names as what to cite
 const DECIDE = {
   supported: { label: "Claim supported", short: "You: supported", icon: "circle-check", side: "supports", cite: "Cite a source here", none: "Cite the source that supports it here." },
@@ -43,7 +46,17 @@ const ALT_CLICK = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "Option-cli
 const statusOf = (c) => (c.skip ? "skip" : c.status || "unchecked");
 const decided = (c) => c.decision === "supported" || c.decision === "refuted";
 const matches = (c, k) => (k === "all" ? true : k === "open" ? !c.decision : k === "you_supported" ? c.decision === "supported"
-  : k === "you_refuted" ? c.decision === "refuted" : statusOf(c) === k);
+  : k === "you_refuted" ? c.decision === "refuted" : k === "cite_notice" ? citeNotice(c) : statusOf(c) === k);
+
+// the draft's citations (step 3): the answer of each cited work, in Check citations' groups, as a look in the draft
+const CITE_NOTICES = ["contradicted", "mixed", "partly", "not_found", "unsure", "failed"];
+const CITE_LOOK = { accurate: "ok", contradicted: "bad", mixed: "bad", partly: "partly", not_found: "partly", unsure: "partly", failed: "partly",
+  checking: "wait", ready: "wait", ignored: "off", contrast: "off" };  // anything else cannot be checked yet: "blocked"
+const CITE_ORDER = ["contradicted", "mixed", "partly", "not_found", "failed", "unsure", "checking", "ready", "accurate"];
+const citeLook = (g) => CITE_LOOK[g] || "blocked";
+const citesOf = (c) => (c.citations || []).filter((r) => !r.ignored);
+const citeNotice = (c) => citesOf(c).some((r) => CITE_NOTICES.includes(r.group));
+const citeName = (r) => r.work || (r.raw.length > 60 ? `${r.raw.slice(0, 57)}…` : r.raw);
 
 // ---------------------------------------------------------------------------------------------
 // the list of drafts, and a new one
@@ -59,7 +72,8 @@ export async function renderDrafts(view) {
   view.appendChild(h("ol", { class: "draft-steps-intro" },
     h("li", {}, h("strong", {}, "Find the claims. "), "Numbers, causes and effects, comparisons, what research found: each marked in your text, with the exact sentence."),
     h("li", {}, h("strong", {}, "Keep the ones you want checked. "), "Drop, reword, or select a sentence to add one."),
-    h("li", {}, h("strong", {}, "Check them. "), "Each gets the documents that support or contradict it, with quotes checked against the source.")));
+    h("li", {}, h("strong", {}, "Check them. "), "Each gets the documents that support or contradict it, with quotes checked against the source."),
+    h("li", {}, h("strong", {}, "Check your citations. "), "Each source your draft cites, such as (Smith, 2020), is checked against its own document: does it say what your sentence says?")));
 
   let level = res.default && levels().includes(res.default) ? res.default : levels()[0];
   const choice = accessChoice({ value: level, name: "draft-access", many: false, onChange: (v) => { level = v; } });
@@ -117,7 +131,8 @@ export async function renderDrafts(view) {
         icon("file-pen", { size: 16 }),
         h("span", { class: "grow" }, h("span", { class: "draft-row-title" }, d.title),
           h("span", { class: "muted small" }, [fmt.dateShort(d.created_at), d.file_name, `${fmt.num(Math.round(d.chars / 6))} words`].filter(Boolean).join(" · "))),
-        h("span", { class: "muted small draft-row-counts" }, d.claims ? `${plural(d.claims, "claim", "claims")} · ${d.checked} checked` : d.found_at ? "no claims found" : "not read yet"),
+        h("span", { class: "muted small draft-row-counts" }, [d.claims ? `${plural(d.claims, "claim", "claims")} · ${d.checked} checked` : d.found_at ? "no claims found" : "not read yet",
+          d.citations ? plural(d.citations, "citation", "citations") : null].filter(Boolean).join(" · ")),
         accessBadge(d.ai_access)))))
       : emptyState("file-pen", "No draft yet", "Paste a section of what you are writing above: it takes a minute to see which claims your documents back.")));
 }
@@ -256,7 +271,39 @@ export async function renderDraft(view, [draftId], query) {
           : c.to_check ? `${plural(c.to_check, "claim waits", "claims wait")} to be checked; ${c.checked} checked so far. Each is checked like a hypothesis, against all ${plural(docs, "document", "documents")}.`
           : doneText(c))),
       c.to_check || !c.checked ? checkBtn : null);
-    replace(stepsBody, step1, step2);
+    replace(stepsBody, step1, step2, citeStep(running));
+  }
+
+  // Step 3: the draft's own citations, each checked against the document of the work it cites (Check citations).
+  function citeStep(running) {
+    const ct = data.citations;
+    if (!ct) return null;
+    const done = !ct.ready && !ct.checking && (ct.accurate || ct.notices);
+    const said = [ct.accurate ? `${ct.accurate} source accurate` : null, ct.notices ? `${ct.notices} to look at` : null,
+      ct.checking ? `${ct.checking} being checked` : null, ct.ready ? `${ct.ready} not checked yet` : null,
+      ct.blocked ? `${ct.blocked} cannot be checked yet` : null].filter(Boolean);
+    const line = `${plural(ct.citations, "citation", "citations")} in your draft${ct.works ? `, of ${plural(ct.works, "work", "works")} in your bibliography` : ""}${said.length ? `: ${said.join(", ")}` : ""}.`;
+    const help = !ct.has_bibliography ? h("span", {}, " Bring in your ", h("a", { href: "#/bibliography" }, "bibliography"), " first: each citation is matched with its work, and checked against that work’s document.")
+      : ct.ready ? " Each is checked against its own source’s document only: does it say what your sentence says?"
+      : !ct.accurate && !ct.notices && ct.blocked ? " Each needs a work of your bibliography whose document is in this project." : null;
+    const btn = h("button", { class: "btn btn-primary", type: "button", disabled: running }, icon("play", { size: 14 }), ct.ready === 1 ? "Check this citation" : `Check ${ct.ready} citations`);
+    btn.addEventListener("click", () => startCitations({}));
+    return h("div", { class: "draft-step draft-step-cite" },
+      h("span", { class: `draft-step-n ${done ? "done" : ""}` }, done ? icon("check", { size: 14 }) : "3"),
+      h("div", { class: "grow" },
+        h("h3", {}, "Check your citations against their sources"),
+        h("p", { class: "muted small" }, line, help),
+        ct.numeric_unread ? h("p", { class: "muted small" }, icon("info", { size: 12 }), ` ${plural(ct.numeric_unread, "numbered citation", "numbered citations")} ([1], [2]…) could not be read: the draft has no numbered reference list at its end.`) : null,
+        h("p", { class: "small draft-cite-link" }, h("a", { class: "it", href: `#/citations/${encodeURIComponent(ct.text_id)}` }, "Review every citation", icon("arrow-right", { size: 12 })),
+          h("span", { class: "muted" }, " · choose the work of a citation, or leave one out"))),
+      ct.ready ? btn : null);
+  }
+
+  async function startCitations(body) {
+    try {
+      const r = await api("POST", `/api/projects/${P(project)}/citations/${P(data.citations.text_id)}/check`, body);
+      follow(r.job);
+    } catch (e) { showError(e); }
   }
 
   function doneText(c) {
@@ -281,6 +328,7 @@ export async function renderDraft(view, [draftId], query) {
       if (j.state === "done") {
         const r = j.result || {};
         if (j.kind === "draft-find") toast(r.note ? r.note : `Found ${plural(r.found || 0, "claim", "claims")}${r.failed ? `; ${plural(r.failed, "part", "parts")} could not be read` : ""}.`, r.failed ? "warn" : "ok", { ttl: r.note ? 7000 : 3500 });
+        else if (j.kind === "citations") toast(`Checked ${plural((r.checked || []).length, "citation", "citations")}${(r.errors || []).length ? `; ${r.errors.length} could not be checked` : ""}.`, (r.errors || []).length ? "warn" : "ok");
         else toast(`Checked ${plural((r.checked || []).length, "claim", "claims")}${(r.errors || []).length ? `; ${r.errors.length} could not be checked` : ""}.`, (r.errors || []).length ? "warn" : "ok");
         jobBox.hidden = true;
       }
@@ -289,7 +337,9 @@ export async function renderDraft(view, [draftId], query) {
     if (job.kind === "draft-find") {
       watcher = jobCard(jobBox, job.id, "Finding the claims", (p, j) => (p.total ? `${p.message || "Reading your draft"} (${Math.min(p.done + 1, p.total)} of ${p.total})` : p.message || (j.queue ? "Waiting for Claude Code" : "Reading your draft…")), done, { small: true, plain: true, stoppedText: "Stopped. The claims found so far are kept." });
     } else {
-      const panel = new ProgressPanel({ title: "Checking the claims", batchWords: { doing: "checking claim", done: "claims checked" } });
+      const panel = job.kind === "citations"
+        ? new ProgressPanel({ title: "Checking the citations", batchWords: { doing: "checking citation", done: "citations checked" } })
+        : new ProgressPanel({ title: "Checking the claims", batchWords: { doing: "checking claim", done: "claims checked" } });
       replace(jobBox, panel.el);
       jobBox.hidden = false;
       watcher = watchJob(job.id, (j) => panel.update(j));
@@ -317,27 +367,58 @@ export async function renderDraft(view, [draftId], query) {
     drawList(claims);
   }
 
+  // The citations of the draft, one per place (a citation of two works takes the answer that needs a look first).
+  function citeMarks() {
+    const by = new Map();
+    for (const r of (data.citations || {}).refs || []) {
+      if (r.start == null) continue;
+      const m = by.get(r.cite_id) || { start: r.start, end: r.end, refs: [] };
+      m.refs.push(r);
+      by.set(r.cite_id, m);
+    }
+    const rank = (g) => { const i = CITE_ORDER.indexOf(g); return i < 0 ? CITE_ORDER.length : i; };
+    return [...by.values()].map((m) => ({ ...m, group: m.refs.map((r) => r.group).sort((a, b) => rank(a) - rank(b))[0] }))
+      .sort((a, b) => a.start - b.start);
+  }
+
+  // text[a:b] with its citations underlined by their answer (the claim's mark stays around them)
+  function pieces(a, b, marks) {
+    const text = data.text;
+    const out = [];
+    let pos = a;
+    for (const m of marks) {
+      if (m.end <= pos || m.start >= b) continue;
+      const s = Math.max(m.start, pos), e = Math.min(m.end, b);
+      if (s > pos) out.push(document.createTextNode(text.slice(pos, s)));
+      out.push(h("span", { class: `dcit dcit-${citeLook(m.group)}`, title: m.refs.map((r) => `${citeName(r)}: ${r.text}`).join("\n") }, text.slice(s, e)));
+      pos = e;
+    }
+    if (pos < b) out.push(document.createTextNode(text.slice(pos, b)));
+    return out;
+  }
+
   function drawText(claims) {
     clear(textBox);
     const text = data.text;
+    const marks = citeMarks();
     let pos = 0;
     for (const c of claims) {
       const s = Math.max(c.start, pos);
       if (s >= c.end) continue;
-      if (s > pos) textBox.append(document.createTextNode(text.slice(pos, s)));
+      if (s > pos) textBox.append(...pieces(pos, s, marks));
       const st = statusOf(c);
       const you = decided(c) ? DECIDE[c.decision] : null;
       const cite = you ? (c.cited ? "cited" : "cite here") : null;
       const said = st === "unchecked" ? "not checked yet" : st === "skip" ? "dismissed" : App.statusText(st) || st;
       const m = h("mark", { class: `dm dm-${st}${you ? ` dm-you dm-you-${c.decision}` : ""}${picked === c.claim_id ? " dm-picked" : ""}`, "data-n": String(c.n), "data-id": c.claim_id, "data-cite": cite, tabindex: "0", role: "button",
         "aria-label": you ? `Claim ${c.n}: ${c.decision === "supported" ? "you marked it supported" : "you marked it refuted"}; ${c.cited ? "your draft cites a source here" : "a source should be cited here"}` : `Claim ${c.n}: ${said}`,
-        title: you ? `Claim ${c.n}: ${c.cited ? "your draft cites a source here" : you.cite.toLowerCase()}` : `Claim ${c.n}` }, text.slice(s, c.end));
+        title: you ? `Claim ${c.n}: ${c.cited ? "your draft cites a source here" : you.cite.toLowerCase()}` : `Claim ${c.n}` }, ...pieces(s, c.end, marks));
       m.addEventListener("click", () => pick(c.claim_id, "card"));
       m.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(c.claim_id, "card"); } });
       textBox.append(m);
       pos = c.end;
     }
-    if (pos < text.length) textBox.append(document.createTextNode(text.slice(pos)));
+    if (pos < text.length) textBox.append(...pieces(pos, text.length, marks));
   }
 
   function drawChips(claims) {
@@ -441,6 +522,7 @@ export async function renderDraft(view, [draftId], query) {
       h("p", { class: "dc-claim" }, c.claim),
       differs(c) ? h("p", { class: "dc-quote muted small" }, "In your draft: ", h("q", {}, c.quote.replace(/\s+/g, " "))) : null,
       c.status ? evidence(c) : c.why && !c.skip ? h("p", { class: "muted small dc-why" }, c.why) : null,
+      citeBlock(c),
       decide(c),
       foot(c));
     return clickToShow(card, c);
@@ -452,7 +534,10 @@ export async function renderDraft(view, [draftId], query) {
     const docs = you.side ? ((c.evidence || {})[you.side] || []) : [];
     const all = you.side ? (c.cite || {})[you.side] : null;  // the documents to cite, in one APA citation
     const copyAll = all ? apaButton(all, { all: true }) : null;
+    const own = citesOf(c);
     const cite = !you.side ? null
+      : own.length ? h("p", { class: "dc-cite small dc-cite-own" }, icon("quote", { size: 12 }), "Your draft cites ",
+        ...own.flatMap((r, i) => [i ? h("span", { class: "muted" }, " · ") : null, h("span", { class: "dc-cite-name" }, citeName(r)), " ", citeBadge(r)].filter(Boolean)))
       : c.cited ? h("p", { class: "dc-cite small" }, icon("quote", { size: 12 }), "Your draft cites a source here.", copyAll)
       : h("div", { class: "dc-cite small" }, docs.length
         ? [copyAll ? h("p", { class: "dc-cite-line" }, icon("quote", { size: 12 }), h("span", {}, "Cite: "), copyAll) : null,
@@ -472,6 +557,31 @@ export async function renderDraft(view, [draftId], query) {
       h("p", { class: "dc-claim" }, c.claim),
       cite);
     return clickToShow(card, c);
+  }
+
+  // What the claim's own citations say (step 3): for each cited work, whether its source says it, and the way on.
+  function citeBadge(r) {
+    return r.status ? h("span", { class: `dc-cite-badge dcit-badge-${citeLook(r.group)}` }, statusBadge(r.status, { text: r.text }))
+      : h("span", { class: `chip dc-chip dcit-badge-${citeLook(r.group)}` }, r.text);
+  }
+
+  function citeBlock(c) {
+    const own = citesOf(c);
+    if (!own.length) return null;
+    const tid = data.citations.text_id;
+    const running = watchers.length > 0;
+    return h("div", { class: "dc-cites" },
+      h("div", { class: "dc-side-label" }, icon("quote", { size: 13 }), own.length === 1 ? "Your citation" : "Your citations",
+        h("span", { class: "muted dc-cites-sub" }, "· does the source you cite say it?")),
+      h("ul", { class: "dc-cite-list" }, own.map((r) => h("li", { class: `dc-cite-item dcit-item-${citeLook(r.group)}` },
+        h("div", { class: "dc-cite-row" },
+          h("span", { class: "dc-cite-name", title: r.raw }, citeName(r)), citeBadge(r),
+          r.help && CITE_NOTICES.includes(r.group) ? h("p", { class: "muted small dc-cite-help" }, r.help) : null),
+        r.quote && r.group !== "accurate" ? h("blockquote", { class: "dc-q" }, r.quote) : null,
+        h("div", { class: "dc-cite-actions small" },
+          r.hyp_id ? h("a", { class: "it", href: `#/h/${encodeURIComponent(r.hyp_id)}` }, CITE_NOTICES.includes(r.group) ? "See the excerpts and judge them" : "See the excerpts", icon("arrow-right", { size: 12 }))
+            : r.state === "ready" ? h("button", { class: "link-btn", type: "button", disabled: running, onClick: () => startCitations({ ref_ids: [r.ref_id] }) }, icon("play", { size: 12 }), "Check this citation")
+            : h("a", { class: "it", href: `#/citations/${encodeURIComponent(tid)}?ref=${encodeURIComponent(r.ref_id)}` }, "What it needs", icon("arrow-right", { size: 12 })))))));
   }
 
   // The person's decision: three buttons; the one chosen is pressed, and pressing it again takes it back.
@@ -591,7 +701,9 @@ export async function renderDraft(view, [draftId], query) {
 
   // a job of this draft that is running (or the one this page was opened with)
   const active = query.job ? await api("GET", `/api/jobs/${P(query.job)}`).catch(() => null) : null;
-  const running = active && !TERMINAL.has(active.state) ? active : await runningJob(project, ["draft-find", "draft-check"], (j) => j.scope === draftId);
+  const citeText = data.citations && data.citations.text_id;
+  const running = active && !TERMINAL.has(active.state) ? active
+    : await runningJob(project, ["draft-find", "draft-check", "citations"], (j) => j.scope === draftId || (!!citeText && j.scope === citeText));
   if (running && alive) follow(running);
 
   return () => {

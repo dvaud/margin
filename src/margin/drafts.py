@@ -12,9 +12,15 @@ documents: it is never searched as evidence. Checking it has two steps:
    drops, rewords or adds claims (by selecting a sentence).
 2. **Check them.** Each claim kept is checked against the documents as a hypothesis of its own (claimcheck), in one
    set per draft, so every result, review, export and the evidence map work as for any other check.
+3. **Check its citations** (with ENLENS 0.13.7's Check citations, citations.py). The draft's own citations, "(Smith,
+   2020)", "Smith et al. (2020) found that …", "[3]" with a numbered reference list, are found without AI when the
+   draft is added; each cited work of the bibliography whose document is in the project is checked against that
+   document only: does the source say what the sentence says? The claims of step 1 that carry a citation show its
+   answer, so a cited claim says both what the documents say and whether its own source says it.
 
 The draft has an AI setting of its own, as a document has (access.py): the tasks that hold its text, the finding of
-its claims and every task of their checks, keep it, and each time a cloud model reads part of it is recorded.
+its claims and every task of their checks and of its citations' checks, keep it, and each time a cloud model reads
+part of it is recorded.
 """
 from __future__ import annotations
 
@@ -24,7 +30,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import access, bibliography, claimcheck, taskkinds, tasks
+from . import access, bibliography, citations, claimcheck, taskkinds, tasks
 from .schema import ClaimsOut
 from .store import Workspace, now
 from .textutil import find_quote, normalise, split_sentences
@@ -80,6 +86,10 @@ def new_draft(ws: Workspace, text: str, title: str | None = None, file_name: str
     with ws.connect() as cx:
         cx.execute("INSERT INTO drafts(draft_id, title, text, file_name, ai_access, batch_id, created_at, updated_at) "
                    "VALUES (?,?,?,?,?,?,?,?)", (did, title, text, file_name, lv, "b" + did, now(), now()))
+    try:
+        citation_text(ws, did)  # its citations, found at once (no AI)
+    except Exception:  # noqa: BLE001 - never lose a draft over its citations: they are looked for again on its page
+        pass
     return did
 
 
@@ -126,13 +136,18 @@ def update(ws: Workspace, draft_id: str, title: str | None = None, ai_access: An
             if lv == "cloud" and access._local_only():
                 raise ValueError("Cloud models are switched off on this computer: choose Only a local AI or No AI.")
             cx.execute("UPDATE drafts SET ai_access=?, updated_at=? WHERE draft_id=?", (lv, now(), draft_id))
+        _mirror(cx, draft_id)  # its citations' text keeps the same name and setting
+        if ai_access is not None:
             access.relabel(cx)
     return summary(ws, draft_id)
 
 
 def delete(ws: Workspace, draft_id: str) -> dict:
-    """Remove a draft, its claims and their checks. What Claude read of it stays in the record (`draft_sent`)."""
-    _row(ws, draft_id)
+    """Remove a draft, its claims, its citations and their checks. What Claude read of it stays in the record
+    (`draft_sent`)."""
+    tid = _row(ws, draft_id).get("cite_text_id")
+    if tid and ws.scalar("SELECT 1 FROM cite_texts WHERE text_id=?", (tid,)):
+        citations.remove_text(ws, tid)
     hyps = [r[0] for r in ws.query("SELECT hyp_id FROM hypotheses WHERE draft_id=?", (draft_id,))]
     for hid in hyps:
         claimcheck.delete_hypothesis(ws, hid)
@@ -149,14 +164,16 @@ def list_drafts(ws: Workspace) -> list[dict]:
         "SELECT draft_id, COUNT(*), SUM(CASE WHEN skip=0 THEN 1 ELSE 0 END), SUM(CASE WHEN hyp_id IS NOT NULL THEN 1 "
         "ELSE 0 END) FROM draft_claims GROUP BY draft_id")}
     lv = access.draft_levels(ws)
+    cites = {r[0]: r[1] for r in ws.query("SELECT text_id, COUNT(*) FROM cite_refs WHERE ignored=0 GROUP BY text_id")}
     out = []
-    for r in ws.query("SELECT draft_id, title, file_name, ai_access, created_at, found_at, LENGTH(text) AS chars FROM "
-                      "drafts ORDER BY created_at DESC, rowid DESC"):
+    for r in ws.query("SELECT draft_id, title, file_name, ai_access, created_at, found_at, cite_text_id, "
+                      "LENGTH(text) AS chars FROM drafts ORDER BY created_at DESC, rowid DESC"):
         n, kept, checked = counts.get(r["draft_id"], (0, 0, 0))
         out.append({"draft_id": r["draft_id"], "title": r["title"], "file_name": r["file_name"],
                     "created_at": r["created_at"], "found_at": r["found_at"], "chars": r["chars"],
                     "ai_access": lv.get(r["draft_id"], "none"), "own_setting": r["ai_access"] is not None,
-                    "claims": n or 0, "kept": kept or 0, "checked": checked or 0})
+                    "claims": n or 0, "kept": kept or 0, "checked": checked or 0,
+                    "cite_text_id": r["cite_text_id"] or None, "citations": cites.get(r["cite_text_id"], 0)})
     return out
 
 
@@ -561,9 +578,119 @@ def queue_checks(ws: Workspace, draft_id: str, router, claim_ids: list[str] | No
 
 
 # ---------------------------------------------------------------------------------------------
+# step 3: the draft's own citations, checked against the sources they cite (ENLENS's citations.py)
+# ---------------------------------------------------------------------------------------------
+# A draft's citations are an ENLENS "text" (cite_texts) made from the draft's text, so the Check citations page, its
+# checks, its jobs and its result-page links work for it unchanged. The draft keeps the text's name and AI setting in
+# step with its own (`_mirror`), and its claims' and citations' tasks keep the draft's setting (access.draft_of).
+def citation_text(ws: Workspace, draft_id: str, create: bool = True) -> str | None:
+    """The id of the text whose citations are checked for this draft, made from it the first time (no AI is used);
+    None when the draft cites nothing Margin can read."""
+    d = _row(ws, draft_id)
+    tid = d.get("cite_text_id")
+    if tid and ws.scalar("SELECT 1 FROM cite_texts WHERE text_id=?", (tid,)):
+        return tid
+    if tid == "" or not create:
+        return None  # looked for already: the draft's text never changes
+    try:
+        tid = citations.add_text(ws, d["text"], title=d["title"], file_name=d["file_name"])
+    except citations.CitationError:
+        tid = ""
+    with ws.connect() as cx:
+        cx.execute("UPDATE drafts SET cite_text_id=? WHERE draft_id=?", (tid, draft_id))
+        if tid:
+            _mirror(cx, draft_id)
+    return tid or None
+
+
+def link_all(ws: Workspace) -> None:
+    """Every draft's citations looked for (drafts added before Margin read citations), for the Check citations list."""
+    for (did,) in ws.query("SELECT draft_id FROM drafts WHERE cite_text_id IS NULL"):
+        try:
+            citation_text(ws, did)
+        except Exception:  # noqa: BLE001 - one draft that cannot be read must not hide the others
+            continue
+
+
+def _mirror(cx, draft_id: str) -> None:
+    """The draft's citations' text takes its name and its AI setting (its own, or NULL: the project's default)."""
+    cx.execute("UPDATE cite_texts SET title=(SELECT title FROM drafts WHERE draft_id=?), "
+               "ai_access=(SELECT ai_access FROM drafts WHERE draft_id=?) "
+               "WHERE text_id=(SELECT cite_text_id FROM drafts WHERE draft_id=?)", (draft_id, draft_id, draft_id))
+
+
+def of_text(ws: Workspace, text_id: str) -> dict | None:
+    """The draft a text of Check citations was made from: {draft_id, title}, or None."""
+    r = ws.query("SELECT draft_id, title FROM drafts WHERE cite_text_id=?", (text_id,))
+    return {"draft_id": r[0]["draft_id"], "title": r[0]["title"]} if r else None
+
+
+def new_cited_draft(ws: Workspace, text: str, title: str | None = None, file_name: str | None = None,
+                    ai_access: str | None = None) -> str:
+    """A text given to Check citations (pasted, or read from a file) is kept as a draft, so it can also be checked
+    for the claims that need a source; returns its citations' text id. A text without citations is not kept."""
+    did = new_draft(ws, text, title, file_name, ai_access)
+    tid = citation_text(ws, did)
+    if not tid:
+        delete(ws, did)
+        raise citations.CitationError(
+            "No citations were found in this text. Margin reads author-year citations such as (Smith, 2020) and "
+            "Smith et al. (2020), and numbered ones such as [3] when the text ends with its numbered reference list. "
+            "To see which of its statements need a source, use Check a draft.")
+    return tid
+
+
+# the answer about a citation, in the groups of Check citations (citations.VERDICT, STATE_TEXT)
+CITE_NOTICES = citations.NOTICE_GROUPS
+CITE_BLOCKED = ("ambiguous", "no_work", "no_document", "to_confirm", "same_document")
+
+
+def _citations(ws: Workspace, draft_id: str, threshold: float) -> dict | None:
+    """The draft's citations for its page: each cited work with its place in the draft, its answer or what it needs,
+    and the counts of Check citations."""
+    tid = citation_text(ws, draft_id)
+    if not tid:
+        return None
+    v = citations.view(ws, tid, threshold)
+    at = {r["cite_id"]: (r["start"], r["end"]) for r in ws.query("SELECT cite_id, start, end FROM citations "
+                                                                  "WHERE text_id=?", (tid,))}
+    refs = []
+    for r in v["refs"]:
+        a, b = at.get(r["cite_id"], (None, None))
+        group = r["verdict"] if r["state"] == "checked" else r["state"]
+        refs.append({"ref_id": r["ref_id"], "cite_id": r["cite_id"], "start": a, "end": b, "raw": r["raw"],
+                     "marker": r["marker"], "claim": r["claim"], "group": group, "state": r["state"],
+                     "text": r["verdict_text"] or r["state_text"], "help": r["verdict_help"], "status": r["status"],
+                     "hyp_id": r["hyp_id"], "work": (r["work"] or {}).get("cite"),
+                     "quote": (r["quote"] or {}).get("quote"), "ignored": r["state"] in ("ignored", "contrast")})
+    c = v["counts"]
+    return {"text_id": tid, "citations": v["citations"], "works": v["works"], "refs": refs, "counts": c,
+            "ready": v["ready"], "accurate": v["accurate"], "checking": v["checking"], "notices": v["notices"],
+            "blocked": sum(c.get(k, 0) for k in CITE_BLOCKED), "has_bibliography": v["has_bibliography"],
+            "numeric_unread": v["text"]["numeric_unread"]}
+
+
+def _claim_of(text: str, claims: list[dict], a: int, b: int) -> dict | None:
+    """The claim a citation at a..b stands for: the one it is inside of, or right after it ("… a week (Smith, 2020)",
+    "… rose.[3]"), or right before it in the same sentence ("According to Smith (2020), …"; never across the end of a
+    sentence: "(Smith, 2020). It also …" is not the next sentence's)."""
+    best, gap = None, 4
+    for c in claims:
+        if a < c["end"] and b > c["start"]:
+            g = 0
+        elif a >= c["end"]:
+            g = a - c["end"]
+        else:
+            g = c["start"] - b if not re.search(r"[.!?\n]", text[b:c["start"]]) else gap
+        if 0 <= g < gap:
+            best, gap = c, g
+    return best
+
+
+# ---------------------------------------------------------------------------------------------
 # the view of a draft
 # ---------------------------------------------------------------------------------------------
-SIDES = (("supports", "supports"), ("partly", "partially_supports"), ("refutes", "refutes"))
+SIDES =(("supports", "supports"), ("partly", "partially_supports"), ("refutes", "refutes"))
 
 
 def _evidence(res: dict, cites: dict[str, dict] | None = None) -> dict[str, list[dict]]:
@@ -612,7 +739,8 @@ def view(ws: Workspace, draft_id: str, threshold: float | None = None) -> dict:
         c.update(cited=bool(r["cited"]), skip=bool(r["skip"]), edited=bool(r["edited"]),
                  decision=r["decision"] or ("dismissed" if r["skip"] else None), decided_at=r["decided_at"],
                  kind_text=KIND_TEXT.get(r["kind"] or "other", "A claim"),
-                 source_text=SOURCE_TEXT.get(r["source"], r["source"]), status=None, evidence=None, cite=None)
+                 source_text=SOURCE_TEXT.get(r["source"], r["source"]), status=None, evidence=None, cite=None,
+                 citations=[])
         if r["hyp_id"]:
             try:
                 res = cache.result(r["hyp_id"])
@@ -626,6 +754,13 @@ def view(ws: Workspace, draft_id: str, threshold: float | None = None) -> dict:
                          checked_at=res["created_at"])
                 counts[res["status"]] = counts.get(res["status"], 0) + 1
         claims.append(c)
+    cits = _citations(ws, draft_id, thr)
+    for ref in (cits or {}).get("refs", []):  # each citation on the claim it stands for (step 3 with step 1)
+        c = _claim_of(d["text"], claims, ref["start"], ref["end"]) if ref["start"] is not None else None
+        ref["claim_id"] = c["claim_id"] if c else None
+        if c:
+            c["citations"].append(ref)
+            c["cited"] = c["cited"] or not ref["ignored"]
     return {"draft": {"draft_id": draft_id, "title": d["title"], "file_name": d["file_name"],
                       "created_at": d["created_at"], "chars": len(d["text"]), "words": len(d["text"].split()),
                       "ai_access": lv, "own_setting": d["ai_access"] is not None, "ai_label": access.LABEL[lv],
@@ -636,6 +771,7 @@ def view(ws: Workspace, draft_id: str, threshold: float | None = None) -> dict:
                        "to_check": sum(1 for c in claims if not c["skip"] and not c["hyp_id"] and not c["decision"]),
                        "decided": {k: sum(1 for c in claims if c["decision"] == k) for k in DECISIONS},
                        "cited": sum(1 for c in claims if c["cited"]), "status": counts},
+            "citations": cits,
             "finding": finding(ws, draft_id), "sent": access.draft_ledger(ws, draft_id),
             "status_text": claimcheck.STATUS_TEXT}
 
@@ -659,6 +795,9 @@ def export_rows(ws: Workspace, draft_id: str, threshold: float | None = None) ->
                      "Contradicting documents": docs(c, "refutes"),
                      "Citation (APA 7)": ((c.get("cite") or {}).get("refutes" if c["decision"] == "refuted"
                                                                      else "supports") or {}).get("text", ""),
+                     "Your citations": "; ".join(r["raw"] for r in c["citations"] if not r["ignored"]),
+                     "What the cited source says": "; ".join(f"{r['raw']}: {r['text']}" for r in c["citations"]
+                                                             if not r["ignored"]),
                      "Position in the draft": f"characters {c['start']}–{c['end']}"})
     return rows
 

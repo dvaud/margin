@@ -2463,14 +2463,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def _citation_view(self, ws, text_id: str, q) -> dict:
         try:
-            return citations.view(ws, text_id, self._threshold(q))
+            return {**citations.view(ws, text_id, self._threshold(q)),
+                    "draft": drafts.of_text(ws, text_id)}  # Margin: the draft the text is, if it is one
         except KeyError:
             raise ApiError(404, "No such text.") from None
 
     def get_citations(self, name, q):
         ws = self.app.ws(name)
-        return {"texts": citations.texts(ws, self._threshold(q)), "has_bibliography": bibliography.has(ws),
-                "ai_access": access.project_info(ws)}
+        drafts.link_all(ws)  # Margin: every draft's citations are listed here too
+        texts = citations.texts(ws, self._threshold(q))
+        of = {r[0]: r[1] for r in ws.query("SELECT cite_text_id, draft_id FROM drafts WHERE cite_text_id != ''")}
+        for t in texts:
+            t["draft_id"] = of.get(t["text_id"])
+        return {"texts": texts, "has_bibliography": bibliography.has(ws), "ai_access": access.project_info(ws)}
 
     def post_citations(self, name, q):
         """A text to check: {text, title, ai_access} (pasted), {upload: {batch, name}, ai_access} (a file sent to
@@ -2494,11 +2499,12 @@ class Handler(BaseHTTPRequestHandler):
                     import shutil
 
                     shutil.rmtree(folder, ignore_errors=True)
-                tid = citations.add_text(ws, text, title=title or file_title, ai_access=body.get("ai_access"),
-                                         file_name=path.name, page_starts=pages)
+                # Margin: your own text is kept as a draft (Check a draft), whose citations these are
+                tid = drafts.new_cited_draft(ws, text, title=title or file_title, file_name=path.name,
+                                             ai_access=body.get("ai_access"))
             else:
-                tid = citations.add_text(ws, str(body.get("text") or ""), title=title,
-                                         ai_access=body.get("ai_access"))
+                tid = drafts.new_cited_draft(ws, str(body.get("text") or ""), title=title,
+                                             ai_access=body.get("ai_access"))
         except KeyError:
             raise ApiError(404, "No such document.") from None
         except ValueError as e:  # CitationError, or an AI setting that is none of the three
@@ -2511,8 +2517,12 @@ class Handler(BaseHTTPRequestHandler):
     def put_citation_text(self, name, text_id, q):
         ws = self.app.ws(name)
         body = self._body()
+        draft = drafts.of_text(ws, text_id)
         try:
-            citations.set_text(ws, text_id, title=body.get("title"), ai_access=body.get("ai_access"))
+            if draft:  # Margin: a draft's name and setting are the draft's, changed for both
+                drafts.update(ws, draft["draft_id"], body.get("title"), body.get("ai_access"))
+            else:
+                citations.set_text(ws, text_id, title=body.get("title"), ai_access=body.get("ai_access"))
         except KeyError:
             raise ApiError(404, "No such text.") from None
         except ValueError as e:
@@ -2521,6 +2531,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def delete_citation_text(self, name, text_id, q):
         self._body()
+        if drafts.of_text(self.app.ws(name), text_id):
+            raise ApiError(409, "These are the citations of one of your drafts: remove the draft on its page (Check "
+                                "a draft) to remove them.")
         try:
             citations.remove_text(self.app.ws(name), text_id)
         except KeyError:

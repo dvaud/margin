@@ -441,6 +441,20 @@ used as evidence.
    dotted. Your decision belongs to the draft: the answer on the claim's result page does not change. The filters
    above the claims add *To decide*, *You: supported* and *You: refuted*. Claims you decided on are left out of
    *Check N claims*; open the card and press *Check this one* to check one anyway.
+5. **Check your citations against their sources.** When you add a draft, Margin also finds its own citations, such
+   as *(Smith, 2020)*, *Smith et al. (2020) found that …* and *[3]* (with a numbered reference list at its end). No AI
+   is used for that. A third step on the draft page counts them, and **Check N citations** checks each cited work
+   whose document is in the project against that document only: does the source say what your sentence says? See
+   *Checking citations* below for what each answer means. In the draft, each citation is underlined by its answer:
+   solid green when the source says it, wavy red when the source says otherwise or both, wavy amber when it says only
+   part of it or the excerpts read do not say it, dotted while it waits or cannot be checked yet. The claim a
+   citation stands for shows it under **Your citation**, with *See the excerpts*, *Check this citation*, or *What it
+   needs* (a work to choose, a document to add). So a cited claim tells you two things: what all your documents say
+   about it (step 2), and whether the source you cite says it (step 3). The filter *Citation to look at* shows the
+   claims whose source needs a look, and a folded card names your citation and its answer. *Review every citation*
+   opens the draft on the *Check citations* page, where you choose the work of a citation or leave one out. The checks
+   of the draft's citations keep the draft's AI setting, as its claims' checks do, and *Remove* removes them with the
+   draft. The Excel and CSV files gain *Your citations* and *What the cited source says*.
 
 **Citations to paste (Margin 0.5).** With a bibliography on the *Bibliography* page (your Zotero library or
 a collection, or a file exported from a reference manager), every document a claim would cite that is linked to a
@@ -583,10 +597,16 @@ as a title, not as words spread over them.
 
 ### Checking citations (0.13.7)
 
-*Check citations* (in the sidebar, under *Check hypotheses*) reads a text for its citations and checks each one
+*Check citations* (in the sidebar, under *Your writing*, beside *Check a draft*) reads a text for its citations and
+checks each one
 against the source it cites: does the source say what the sentence says? It needs the project's bibliography (the
 page above): a citation is matched with a work of the bibliography, and checked against that work's document in the
 project, and against no other document.
+
+In Margin, your own writing has one home: a text you paste or choose here is kept as a draft (with its name and AI
+setting), so *Check a draft* can also show which of its statements still need a source, and every draft's citations
+are listed here. A text without any citation is not kept. A draft's citations lead back to it (*Back to your draft*,
+*Open your draft*); they are removed with the draft, on its page.
 
 **A text to check.** Paste your draft, choose its file (Word, PDF, text, Markdown or a saved web page; it is read on
 this computer and does not become one of the project's documents, so it never turns up as evidence in another

@@ -829,7 +829,9 @@ the statements that need a source; each one kept is checked as a hypothesis of i
 in the set `batch_id` of the draft), so the result page, reviews, exports and the map work as for any check.
 
 - `GET /api/projects/<p>/drafts` → `{"drafts": [{"draft_id", "title", "file_name", "created_at", "found_at", "chars",
-  "ai_access", "own_setting", "claims", "kept", "checked"}], "default", "labels", "local_only"}`.
+  "ai_access", "own_setting", "claims", "kept", "checked", "cite_text_id", "citations"}], "default", "labels",
+  "local_only"}`. `cite_text_id`: the text of *Checking citations* made from the draft (null when it cites nothing
+  Margin can read); `citations`: its cited works not left out.
 - `POST /api/projects/<p>/drafts` `{"text", "title"?, "ai_access"?: "cloud" | "local" | "none"}` → `{"draft": summary}`
   (40 to 300,000 characters; no `ai_access`: the project's default).
 - `POST /api/projects/<p>/drafts/upload?name=chapter.docx&ai_access=…&title=…` with the raw file as the body (Word,
@@ -843,7 +845,16 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
   "waiting_for_you"}], "bibliography": bool, "counts": {"claims", "kept", "checked",
   "to_check", "cited", "status": {status: n}, "decided": {decision: n}}, "finding": {"total", "waiting", "done", "failed", "queued",
   "errors"?}, "sent": {"times", "routes", "parts_read", "claims_read", "first", "last"}, "documents",
-  "queue_command", "default", "labels", "local_only"}`.
+  "queue_command", "default", "labels", "local_only", "citations"}`.
+  Margin, with ENLENS 0.13.7: `citations` (null when the draft cites nothing Margin can read) is `{"text_id",
+  "citations", "works", "ready", "accurate", "checking", "notices", "blocked", "has_bibliography", "numeric_unread",
+  "counts": {group: n}, "refs": [{"ref_id", "cite_id", "start", "end" (the citation's place in "text"), "raw",
+  "marker", "claim", "group" (the answer's group, or what it needs: "ready", "no_document", …), "state", "text",
+  "help", "status", "hyp_id", "work", "quote", "ignored", "claim_id"}]}`, and each claim has `citations`: the refs
+  of the citations it stands for (inside it, right after it, or before it in the same sentence). `cited` is also
+  true for a claim with a citation found. Its citations are checked with `POST
+  /api/projects/<p>/citations/<text_id>/check` (job `citations`, `scope` the text). The text is found (no AI) when
+  the draft is added; a draft from before gets it when its page or `GET /api/projects/<p>/citations` is opened.
   Margin 0.5: `apa` is the APA 7 in-text citation of a document linked to a work of the bibliography
   (`null` otherwise): `{"text": "(Verhoeven & Okafor, 2025)", "narrative": "Verhoeven and Okafor (2025)", "html",
   "narrative_html"` (a title in `<i>` for a book or report without an author)`, "kind": "names" | "quoted" | "italic",
@@ -853,7 +864,8 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
   without one. `bibliography`: the project has one.
 - `PUT /api/projects/<p>/drafts/<d>` `{"title"?, "ai_access"?}` (`""`: the project's default) → `{"draft"}`. A changed
   setting applies at once to the tasks not answered yet that hold the draft's text.
-- `DELETE /api/projects/<p>/drafts/<d>` → `{"deleted", "claims", "checks"}`: the draft, its claims and their checks.
+- `DELETE /api/projects/<p>/drafts/<d>` → `{"deleted", "claims", "checks"}`: the draft, its claims and their checks,
+  and its citations' text with their checks.
 - `POST /api/projects/<p>/drafts/<d>/find` `{}` → job `draft-find` (`scope`: the draft). By queue (Claude Code) its
   tasks (kind `claims`, one per part of a few paragraphs) wait in the queue; a draft Claude may not read is read by the
   local model for restricted documents, or by rules when there is none (or when it is *No AI*). Progress `{"message",
@@ -949,6 +961,12 @@ never as evidence; the prompt version stays `check-v4`) and `citing` (`{"text_id
 are left out of `GET /api/projects/<p>/hypotheses`, the evidence map, the Results downloads and the Overview's
 `hypotheses`; `GET /api/projects/<p>/hypotheses/<id>` opens them as any other (`options.citation` holds the sentence
 and the work). Finding citations uses no AI.
+
+Margin: a text pasted or read from a file is kept as a draft (*Check a draft*) whose citations it is. The view has
+`draft` (`{"draft_id", "title"}` or null) and each summary of `GET …/citations` has `draft_id`; `PUT` on a draft's
+text renames the draft or changes its AI setting (both stay in step); `DELETE` on it is refused (409: the draft is
+removed on its page, with its citations). A pasted text without citations is not kept (400, which names Check a
+draft). Every draft's citations are listed (found when the list is asked for, for drafts from before).
 
 - `GET /api/projects/<p>/citations` → `{"texts": [text summary, newest first], "has_bibliography": bool,
   "ai_access": {...the project's AI settings}}`. A summary: the view's `text` with `citations`, `works`, `counts`,

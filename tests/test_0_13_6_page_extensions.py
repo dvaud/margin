@@ -65,8 +65,8 @@ out.batch = [reg.originLink({ batch_id: "b1" }), reg.originLink({ origin: "batch
     # Check citations before Results
     assert [(s["key"], s["features"], s["compact"]) for s in out["sections"]] == [
         ("explore", ["search", "profile", "concepts", "themes", "sources"], False),
-        ("write", ["drafts"], True),  # Margin: your writing, between exploring and checking
-        ("check", ["check", "batch", "citations", "history"], True)]
+        ("write", ["drafts", "citations"], True),  # Margin: your writing (with its citations), before checking
+        ("check", ["check", "batch", "history"], True)]
     assert out["sections"][0]["sub"] == "Start here: no hypothesis needed."
     check, second, ingest, prepare, unknown = out["rows"]
     assert check == {"href": "#/check?job=j1", "icon": "flask", "text": "Water use rises", "tooltip": "Water use rises"}
