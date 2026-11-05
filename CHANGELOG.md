@@ -1,5 +1,76 @@
 # Changelog
 
+## Unreleased
+
+From ENLENS 0.13.9 and 0.13.10, in Margin's names: a speed for Claude Code, recommended models that follow your
+Claude plan, and only the Zotero works you choose. (ENLENS 0.13.9's *remove a theme and find a new one in its place*
+has been in Margin since 0.7; its tests come along.)
+
+### Faster or slower, and which helpers (ENLENS 0.13.10)
+
+- **Speed: Slower · Normal · Faster** sits under every *Start Claude Code* (a check's progress, a result that waits,
+  the sidebar's queue panel) and under *Settings → AI → Speed of Claude Code*: one, two or four helpers at once.
+  Faster is done sooner but uses your plan's limits faster; Slower is easiest on them. The choice is kept, and the
+  estimates follow it. *Claude Code is working on it* says how many helpers the run has.
+- **Choose the helpers for this run**, folded away under the speed, lists each helper with work waiting (its model,
+  what it would answer, how much waits). Set how many of each work at once (0: that work waits for a later run) and
+  how many in all (1 to 8). It holds for one run; *Use the speed again*, or picking a speed, undoes it.
+- A typed `/margin-run` without `--parallel` goes at the speed chosen in the app, and takes `--helpers
+  checker=2,labeller=1` too. Margin now shares the helpers out itself: `queue_status` says how many to start for each
+  group (`start`), and the skill starts what it says, so a run never has more helpers at once than chosen.
+- For developers: Settings' `claude_speed`; `GET …/queue` adds `speed` and `start` on each group; `POST
+  …/queue/claude-code` takes `{"parallel", "helpers"}`; the connector's `queue_status` takes `kind`, `parallel` and
+  `helpers`. `docs/API.md` and the manual's *Start Claude Code* describe it.
+
+### Models that suit your Claude plan (ENLENS 0.13.10)
+
+- The recommended model of each task now follows the plan Claude Code is signed in with, found in the background
+  (from `claude auth status`), also for work that already waits:
+  - **Free:** no Opus or Fable. Haiku for most tasks (search words, splitting a hypothesis, theme names, references,
+    a draft's claims, labels, links), stepping up to Sonnet; judging excerpts and second opinions on Sonnet.
+  - **Pro** (and a plan not known yet): as before.
+  - **Max, Team, Enterprise:** Opus for most tasks, checks included; Haiku and Sonnet only for the many labels, links
+    and references, where speed matters.
+- Models you chose in *Settings → Technical → AI model per task* come first on every plan. That section says which
+  plan the recommendations follow, with a choice by hand for when Claude Code names it wrongly or not at all. The
+  Claude API and local models do not follow the plan.
+- For developers: Settings' `claude_plan` and `claude_plan_detected`; `routing.plan_tier`, `tier_defaults`,
+  `settings_tier`; a task kind's `bulk` (label, link, resolve). `GET /api/routing` adds `plan`.
+  `docs/MODEL_CHOICE.md` has the rules per plan.
+
+### Only the Zotero works you choose (ENLENS 0.13.9)
+
+- On *Bibliography*, tick **Choose the works one by one** under *Collection*: the library's works (or the chosen
+  collection's) are listed by title with authors, year and type, searchable with Zotero's own quick search. Ticked
+  works stay ticked while you search and stand above the list; the button says *Bring in 3 works*. A choice is 1 to
+  500 works.
+- *Update from Zotero* reads those same works again; *Choose other works or a file* opens the choice with last time's
+  works ticked. Their files come along as for a collection.
+- For developers: `GET /api/zotero/works`; `POST …/bibliography` takes `{"zotero": {"library", "items"}}`.
+
+### In Margin
+
+- The merge keeps Margin's prompt versions (`label-v2`, `link-v2`) and its draft-claims kind; the SDG pack's kinds
+  and the extractor helper, which Margin does not offer since 0.8, are left out of `/margin-run`, the manual's plan
+  table and `docs/MODEL_CHOICE.md`.
+
+**Defects fixed (from ENLENS 0.13.10).** A plan of helpers asking for more at once than the helpers named add up to
+said *8 helpers at once*: it now says what the run can really have. A decimal number of helpers (2.5) was cut down
+without a word: it is refused.
+
+**Tests** (from ENLENS, in Margin's names): `tests/test_0_13_10_helpers_per_run.py` (15),
+`tests/test_0_13_10_plan_models.py` (10), `tests/test_0_13_9_chosen_works.py` (4),
+`tests/test_0_13_9_remove_themes.py` (7); `tests/test_08_queue.py` expects `start` on each group. 604 pass.
+Checked in headless Chromium with `tools/dev_server.py --corpus social --claude-cli --zotero`: the speed in Settings,
+the plan choice under *Technical*, and choosing Zotero works one by one, in light and dark and at 390 px, with no
+console errors.
+
+**Not yet done.** Tried with the stand-in Claude Code and stand-in Zotero only. Whether a real, signed-in Claude Code
+starts exactly `start` helpers at once, and how much faster four helpers make a large run, needs a real run. The plan
+is read from `subscriptionType` in `claude auth status`; only the stand-in's values were tried, so a real value spelt
+otherwise leaves the recommendations as for Pro until set by hand. The Zotero choice was not tried in Margin against a
+real Zotero (ENLENS tried it with Zotero 10.0.7), nor with a library of thousands of works.
+
 ## 0.9.0 (November 2026): social practice theory as a codebook
 
 Margin 0.9 adds two built-in codebooks from social practice theory, and what a codebook of *analytical* codes needs

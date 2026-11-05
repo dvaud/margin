@@ -28,7 +28,10 @@ what waits, for example *Waiting for Claude Code: 120 passages to label*. Then, 
 /margin-run Pilot              # every kind of task waiting in the project Pilot
 /margin-run Pilot label        # only the labels
 /margin-run Pilot --parallel 4 # four helpers at the same time (faster, uses your plan's limit faster)
+/margin-run Pilot --helpers checker=2,labeller=1   # only these helpers, as many of each at the same time
 ```
+
+Without `--parallel`, it goes at the speed chosen in the Margin app (Slower 1, Normal 2, Faster 4 helpers at once).
 
 Each kind of task goes to a helper on the model Margin names for it: labels and links on Haiku, theme names,
 references, search words and checks on Sonnet, second opinions on Opus. Unsure answers go once to a stronger model. You follow the

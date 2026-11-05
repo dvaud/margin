@@ -1,7 +1,7 @@
 ---
 name: margin-run
 description: Work through a Margin project's task queue (labels, concept links, theme names, references, search words, the claims of a draft, and checks) with the Margin helper agents, each on the model Margin names for that kind of task. Use when the user types /margin-run with a project name.
-argument-hint: "<project> [kind] [--parallel N]"
+argument-hint: "<project> [kind] [--parallel N] [--helpers checker=2,labeller=1]"
 disable-model-invocation: true
 allowed-tools: {{TOOL_PREFIX}}queue_status Agent
 ---
@@ -18,18 +18,23 @@ Arguments: `$ARGUMENTS`
   without a project to list the projects that have work waiting, and ask which one.
 - An optional second argument is one kind of task (label, link, theme, expand, decompose, resolve, claims, check, reread,
   second): then work only on that kind.
-- `--parallel N` sets how many helpers work at the same time (default 2). More is faster but uses the plan's limit
-  faster.
+- `--parallel N` sets how many helpers work at the same time (1 to 8; without it, the speed chosen in the Margin
+  app: normally 2). More is faster but uses the plan's limit faster.
+- `--helpers checker=2,labeller=1` names the helpers for this run and how many of each may work at the same time;
+  the helpers not named do nothing in this run (their work keeps waiting).
 
 ## Steps
 
-1. Call `queue_status` with the project. It lists `groups`: each has a `kind`, a `model`, a `helper` and how many
-   tasks wait. If it says the project is local only, tell the user and stop. If nothing waits, say so and stop.
-2. Start helpers, at most N at the same time (several Agent calls in one message), in the order the groups are
-   listed. For each group start the subagent named `margin-run:<helper>` (for example `margin-run:margin-labeller`).
+1. Call `queue_status` with the project, and with `kind`, `parallel` and `helpers` exactly as the arguments give them
+   (leave out what the arguments do not give). It lists `groups`: each has a `kind`, a `model`, a `helper`, how many
+   tasks wait, and `start`: how many helpers to start for that group now. Margin has already shared the helpers out
+   over the groups; follow `start`, do not work it out yourself. If it says the project is local only, tell the user
+   and stop. If no group has a `start` of 1 or more, say that nothing waits for this run and stop.
+2. Start, in one message (several Agent calls), `start` helpers for each group, in the order the groups are listed.
+   For each group start the subagent named `margin-run:<helper>` (for example `margin-run:margin-labeller`).
    Pass the `model` parameter with the group's model whenever it differs from that helper's own model
-   (labeller and linker: haiku; namer, reader and checker: sonnet; auditor: opus). Give it this prompt,
-   filled in:
+   (labeller and linker: haiku; namer, reader and checker: sonnet; auditor: opus). Give each of them this
+   prompt, filled in:
 
    > Project: <project>. Kind: <kind>. Model: <model>. Helper: <helper>. Take batches with
    > next_tasks(project="<project>", kind="<kind>", model="<model>", helper="<helper>",
@@ -37,11 +42,13 @@ Arguments: `$ARGUMENTS`
    > until next_tasks returns no claim or you have finished 5 batches. Then report how many tasks you stored and how
    > many still had problems.
 
-   A large group can have two helpers at once; the queue never gives the same task to both.
-3. When helpers report back, call `queue_status` again and start helpers for what still waits, until nothing waits
-   (or only held kinds wait).
-4. Finish with a short report: per kind, what was answered and what is left, and that the results are in the Margin
-   app. Do not show passages or answers.
+   A group can have several helpers at once; the queue never gives the same task to two of them.
+3. When every helper you started has reported back (`start` counts on none of yours still working, so never ask
+   again while one is), call `queue_status` again (with the same `kind`, `parallel` and `helpers`) and start what
+   `start` says, until no group has a `start` of 1 or more.
+4. Finish with a short report: per kind, what was answered and what is left (and, with `--helpers`, what waits for
+   the helpers not named: `not_this_run`), and that the results are in the Margin app. Do not show passages or
+   answers.
 
 ## Rules
 

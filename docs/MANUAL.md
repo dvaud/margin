@@ -579,14 +579,17 @@ temporary project and opens it at its key terms: search it, see its codes and re
 
 ### The bibliography: Zotero (0.13)
 
-*Bibliography* (in the sidebar, under *Documents*) puts your Zotero library, or one collection of it, next to the
-project's documents. It answers three questions: which works of the bibliography do I have, which do I still need
+*Bibliography* (in the sidebar, under *Documents*) puts your Zotero library, one collection of it, or just the works
+you choose, next to the project's documents. It answers three questions: which works of the bibliography do I have, which do I still need
 to find, and which documents are not in my bibliography. It uses no AI.
 
 **Bringing it in.** Margin reads Zotero from the Zotero app on this computer: Zotero 7 or later, open, with *Settings
 → Advanced → Allow other applications on this computer to communicate with Zotero* ticked once. Choose the library
 (My Library, or a group library), a collection (or *The whole library*) and whether its subcollections come along,
-and press *Bring in the bibliography*. Nothing goes over the internet, no Zotero account or key is needed, and Zotero
+and press *Bring in the bibliography*. To bring in only some works, even a single one, tick *Choose the works one by
+one* (0.13.9): a list of the library's works appears (or of the collection chosen above), searched by title, author
+or year as in Zotero's own search box. Tick the works you want; they stay ticked while you search or switch
+collections, and stand above the list (click one to leave it out). Press *Bring in 1 work* (or *2 works*, and so on). Nothing goes over the internet, no Zotero account or key is needed, and Zotero
 is only read, never changed. The page says plainly when Zotero is not open, does not allow it yet (with the box to
 tick), or is too old. Without the app, *Use an exported file instead* takes a file exported from Zotero (right-click a
 collection → *Export Collection…*: BibTeX, RIS, CSL JSON or CSV) or from Mendeley, EndNote and other reference
@@ -612,8 +615,10 @@ managers (BibTeX or RIS). With Zotero's CSV and BibTeX the paths of the files Zo
 - *Not in the bibliography*: the documents no work is linked to. Add them to Zotero and press *Update from Zotero*, or
   *Link to a work* by hand.
 
-**Keeping it up to date.** *Update from Zotero* reads the same collection again; *Use another collection or file*
-replaces the bibliography. Your decisions are kept for every work that is still there, even when it comes from
+**Keeping it up to date.** *Update from Zotero* reads the same collection again, or the same chosen works (a work
+deleted from Zotero goes; a work added to Zotero does not come along). *Use another collection or file* replaces the
+bibliography; for chosen works it is called *Choose other works or a file*, and the works you chose last time start
+ticked, so adding one more is one tick away. Your decisions are kept for every work that is still there, even when it comes from
 another source (by its Zotero key, else its DOI, else its title and year). Documents you add later are matched as
 they come in: the message after adding says how many were linked and how many wait for you. A document linked to a
 work takes the work's title (0.13.3): in the Documents list, on the document page, in Search, in a check's excerpts
@@ -729,7 +734,8 @@ Settings has five tabs, each one page with nothing folded inside another (0.9):
   meaning**.
 - **Technical**: **AI model per task** (which model answers each kind of task, what it steps up to, the helper on
   Claude Code, a choice per kind, *Use the recommended models*, and for local servers the small model for labels and
-  links); with a local model, the **model for second opinions** and the **context length** (automatic by default, see section
+  links; on Claude Code, since 0.13.10, *The recommendations follow* your Claude plan, see *Models that suit your
+  Claude plan* below); with a local model, the **model for second opinions** and the **context length** (automatic by default, see section
   5) with *Sort the best excerpts again by wording* (off; see the changelog of 0.6.0); **Repeatable results** (the
   seed sent with every request, 42 by default, and a test of whether the server gives the same answer twice); *Test a
   model before trusting it* (section 5); and where your data is.
@@ -946,6 +952,22 @@ it stops by itself when nothing waits. *Stop Claude Code* returns the batches it
 run ends with a problem (a usage limit, for example), the page shows the end of its report. The first start also
 adds the plugin if that was not done yet.
 
+**How fast it works (0.13.10).** Under **Start Claude Code** is **Speed: Slower · Normal · Faster**. Claude Code
+hands the work to helpers (one per kind of task, each on its own model); the speed is how many work at once: Slower
+one, Normal two (as before), Faster four. Faster is done sooner but uses your plan's limits faster; Slower takes longer
+and is easiest on them. The choice is kept, is the same beside every *Start Claude Code*, and is also under *Settings
+→ AI → Speed of Claude Code*. A run already working keeps the speed it started with; the line *Claude Code is working
+on it* says how many helpers it has (*· 4 helpers at once*).
+
+For one run you can also choose the helpers yourself: **Choose the helpers for this run**, folded away under the
+speed, lists each helper that has work waiting, with its model, what it would answer and how much waits (*Labeller
+haiku · Codebook labels · 7,868 waiting*). Set how many of each work at once (0 leaves that work waiting for a later
+run) and **Helpers at once, in all** (1 to 8). The fold then says *changed* and the speed above it greys out; *Use the
+speed again*, or picking a speed (even the one shown), undoes it. Work that comes in during the run for a helper not listed (an unsure answer for the auditor,
+a check's excerpts after its search words) gets one helper. The choice is for that run only: after *Start Claude
+Code* the fold is back to the speed. Which model each helper uses stays under *Settings → Technical → AI model per
+task*.
+
 Until it is pressed, nothing is answered: the step that waits keeps its spinner, so from 0.11.3 a **Start Claude
 Code** left unpressed for about five seconds while work waits (and nothing answers it) pulses, and the line beside it
 says *Nothing runs until you press it.* (with reduced motion in the computer's settings, it has a still ring
@@ -959,8 +981,15 @@ model), which used to say only which command to type.
 ```
 /margin-run Pilot              # every kind of task waiting in the project Pilot
 /margin-run Pilot label        # only the labels
-/margin-run Pilot --parallel 4 # four helpers at once: faster, but it uses your plan's limit faster (default 2)
+/margin-run Pilot --parallel 4 # four helpers at once: faster, but it uses your plan's limit faster
+/margin-run Pilot --helpers checker=2,labeller=1   # only these helpers, as many of each at once (0.13.10)
 ```
+
+Without `--parallel`, a typed run goes at the speed chosen in Margin (two helpers at once unless you changed it;
+0.13.10). With `--helpers`, the helpers not named do nothing in that run, and `--parallel` (if given) caps the total.
+The helpers' names are labeller, linker, namer, reader, checker and auditor. Margin works out how many
+helpers each kind of task gets, in the queue's order, and never more than it has batches for. The speed counts the
+helpers of one run: Claude Code started both from Margin and in a terminal at the same time runs both runs' helpers.
 
 `/margin-run` hands each kind of task to a helper agent on the model Margin names for it (labels and links on
 Haiku, theme names, references, search words and checks on Sonnet, second opinions on the auditor; *AI model per task*
@@ -984,7 +1013,23 @@ answers stop arriving, Margin says *Paused at 340 of 7,868 labels. To go on, typ
 *Stop* on a waiting page takes its tasks that no session has taken yet out of the queue (a waiting check is removed
 whole).
 
-**Fable.** The auditor (second opinions, and checks read again by a stronger model) runs on Opus. *Let the auditor
+**Models that suit your Claude plan (0.13.10).** On Claude Code the recommended model of each task follows the plan
+Claude Code is signed in with. Margin finds it by itself, in the background (from `claude auth status`, when the app
+starts, when it looks at the queue and before a run), and work that waits follows a new plan at once:
+
+| Plan | Recommended models |
+| --- | --- |
+| Free | No Opus or Fable. Haiku for most tasks (search words, splitting a hypothesis, theme names, references, a draft's claims, labels, links), stepping up to Sonnet when unsure; judging excerpts and second opinions on Sonnet. |
+| Pro (and a plan not known yet) | As before: Sonnet for most tasks, Haiku for the many labels and links, Opus for second opinions and the hard cases. |
+| Max, Team, Enterprise | Opus for most tasks, checks included. Haiku and Sonnet only where there are many tasks at a time and speed matters: labels and links (Haiku), references (Sonnet, stepping up to Opus). A check on Opus has no stronger model unless *Let the auditor use Fable* is on. |
+
+A model you chose for a kind of task (*AI model per task*) comes first on every plan. Should Claude Code name the
+plan wrongly, or not at all (signed in with an API key), set it under *Settings → Technical → AI model per task →
+The recommendations follow*. The Claude API and local models do not follow the plan. Note that Claude Code itself
+may need a paid plan.
+
+**Fable.** The auditor (second opinions, and checks read again by a stronger model) runs on Opus (on a Free plan:
+Sonnet). *Let the auditor
 use Fable* switches it to Fable. In Claude Code, Fable can be billed from usage credits instead of your plan; its
 model picker then says *Requires usage credits*.
 

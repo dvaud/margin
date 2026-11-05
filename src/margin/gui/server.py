@@ -1067,7 +1067,7 @@ class App:
                 raise ApiError(400, "Only a bibliography read from Zotero can be updated: for a file, add the newer "
                                     "file instead.")
             z = {"library": src.get("library"), "collection": src.get("collection"),
-                 "subcollections": src.get("subcollections", True)}
+                 "subcollections": src.get("subcollections", True), "items": src.get("items")}
 
         def progress(job: Job):
             return lambda **kw: setattr(job, "progress", kw)
@@ -1086,10 +1086,15 @@ class App:
             collection = str(z["collection"]) if z.get("collection") else None
             if not bibliography.LIBRARY_RE.match(library) or (collection and not bibliography.KEY_RE.match(collection)):
                 raise ApiError(400, "Choose a library and a collection of your Zotero.")
+            items = z.get("items")  # 0.13.9: the works chosen one by one (their Zotero keys)
+            if items is not None and (not isinstance(items, list) or not 0 < len(items) <= bibliography.MAX_CHOSEN
+                                      or not all(isinstance(k, str) and bibliography.KEY_RE.match(k) for k in items)):
+                raise ApiError(400, f"Choose between 1 and {bibliography.MAX_CHOSEN} works of your Zotero.")
 
             def run(job: Job):
                 works, src = bibliography.pull_zotero(library, collection, bool(z.get("subcollections", True)),
-                                                      progress=progress(job), should_stop=job.cancel.is_set)
+                                                      progress=progress(job), should_stop=job.cancel.is_set,
+                                                      items=items)
                 if job.cancel.is_set():
                     return None
                 libs = {x["id"]: x["name"] for x in bibliography.zotero_status().get("libraries") or []}
@@ -1192,13 +1197,20 @@ class App:
 
     # -- 0.8: the queue ----------------------------------------------------------------------------
     def queue(self, name: str) -> dict:
-        ws = self.ws(name)
-        taskqueue.advance(ws)  # checks by queue move on here too, even when Claude Code's session stored the answers
-        out = taskqueue.status(ws, name)
-        out["route"] = self.settings().get("backend")
-        out["setup"] = claude_setup_info()
         from .. import claude_setup  # 0.9: Claude Code started from the app, and whether it can be
 
+        ws = self.ws(name)
+        taskqueue.advance(ws)  # checks by queue move on here too, even when Claude Code's session stored the answers
+        speed = self.settings().get("claude_speed") or "normal"
+        out = taskqueue.status(ws, name, parallel=taskqueue.speed_parallel(speed))
+        out["route"] = self.settings().get("backend")
+        out["setup"] = claude_setup_info()
+        # 0.13.10: how many helpers a start runs at once (the speed beside Start Claude Code), and the limits of
+        # "For this run"
+        out["speed"] = {"chosen": speed, "options": dict(taskqueue.SPEEDS), "max_parallel": taskqueue.MAX_PARALLEL,
+                        "max_per_helper": taskqueue.MAX_PER_HELPER,
+                        "helpers": taskqueue.helper_rows(out["groups"], out["kinds"]),
+                        "all_helpers": list(taskqueue.routing.HELPER_MODEL)}
         out["runner"] = claude_setup.run_state(name)
         if out["route"] == "claude_code" and not home.local_only():
             st = claude_setup.status()
@@ -1774,6 +1786,9 @@ def _repair_plugin() -> None:
         r = claude_setup.repair()
         if r.get("repaired"):
             print(f"The Claude Code plugin was brought up to date ({r.get('reason')}).")
+        # 0.13.10: which Claude plan Claude Code is signed in with, so the recommended models follow it from the start
+        if home.load_settings().get("backend") == "claude_code" and not home.local_only():
+            claude_setup.status(refresh=True)
     except Exception as e:  # noqa: BLE001 - never stop the app over this
         print(f"Could not bring the Claude Code plugin up to date: {e}", file=sys.stderr)
 
@@ -1925,6 +1940,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     # 0.13: the bibliography (Zotero, read on this computer, or an exported file)
     ("GET", r"/api/zotero", "get_zotero"),
     ("GET", r"/api/zotero/collections", "get_zotero_collections"),
+    ("GET", r"/api/zotero/works", "get_zotero_works"),
     ("GET", rf"/api/projects/{P}/bibliography", "get_bibliography"),
     ("POST", rf"/api/projects/{P}/bibliography", "post_bibliography"),
     ("DELETE", rf"/api/projects/{P}/bibliography", "delete_bibliography"),
@@ -2469,6 +2485,14 @@ class Handler(BaseHTTPRequestHandler):
     def get_zotero_collections(self, q):
         try:
             return {"collections": bibliography.zotero_collections(_str(q, "library") or "user")}
+        except bibliography.ZoteroError as e:
+            raise ApiError(409, str(e), f"zotero_{e.kind}") from None
+
+    def get_zotero_works(self, q):
+        """0.13.9: the works of a library or collection, to choose from one by one."""
+        try:
+            return bibliography.zotero_works(_str(q, "library") or "user", _str(q, "collection"), _str(q, "q") or "",
+                                             _int(q, "limit", 100, 1, 200))
         except bibliography.ZoteroError as e:
             raise ApiError(409, str(e), f"zotero_{e.kind}") from None
 
@@ -3366,10 +3390,14 @@ class Handler(BaseHTTPRequestHandler):
         if route == "local":
             large = s.get("ollama_model") or s.get("openai_model") or ""
         r = routing.from_settings(s, route=route, large=large or "the main model")
+        detected = s.get("claude_plan_detected") or ""
         return {"route": route, "route_name": routing.ROUTE_NAMES.get(route, route), "rows": r.table(),
                 "aliases": list(routing.ALIASES), "fable": bool(s.get("use_fable")),
                 "local_small_model": s.get("local_small_model") or "", "second_model": s.get("second_model") or "",
-                "step_up_below": routing.STEP_UP_BELOW, "routing": bool(s.get("routing", True))}
+                "step_up_below": routing.STEP_UP_BELOW, "routing": bool(s.get("routing", True)),
+                # 0.13.10: the plan the recommendations follow on Claude Code
+                "plan": {"tier": r.tier, "chosen": s.get("claude_plan") or "auto", "detected": detected,
+                         "titles": dict(routing.TIER_TITLES)}}
 
     def get_claude_setup(self, q):
         from .. import claude_setup
@@ -3399,12 +3427,14 @@ class Handler(BaseHTTPRequestHandler):
     def post_claude_code_start(self, name, q):
         from .. import claude_setup
 
-        self._body()
+        body = self._body()
         self.app.ws(name)  # 404 for a project that does not exist
         if self.app.settings().get("backend") != "claude_code":
             raise ApiError(400, "Choose Claude Code as the AI in Settings first.")
         try:
-            return claude_setup.start_run(name)
+            # 0.13.10: "For this run": the helpers named one by one ({helper: how many at once}); else the speed of
+            # Settings (claude_speed) says how many helpers at once
+            return claude_setup.start_run(name, parallel=body.get("parallel"), helpers=body.get("helpers"))
         except ValueError as e:
             raise ApiError(400, str(e)) from e
 

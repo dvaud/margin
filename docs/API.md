@@ -927,6 +927,40 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
   those projects (all by default), ENLENS's codebooks, and its settings when Margin has no project yet. ENLENS's own
   folder is not changed.
 
+### How fast Claude Code works, and which helpers it starts (0.13.10)
+
+- Settings (`PUT /api/settings`): `claude_speed`: `"slower"` | `"normal"` (default) | `"faster"`, one, two or four
+  helpers at once when the app starts Claude Code (400 for anything else).
+- `GET /api/projects/<p>/queue` adds `"speed": {"chosen", "options": {"slower": 1, "normal": 2, "faster": 4},
+  "max_parallel": 8, "max_per_helper": 4, "helpers": [{"helper", "name", "models", "kinds", "waiting", "batches"}],
+  "all_helpers": [...]}` (`helpers`: the helpers with work waiting, with the titles of the kinds they would answer;
+  `batches`: how many batches that is, the most helpers that can work on it at once). Each of `"groups"` adds
+  `"start"`: how many helpers a run at the chosen speed starts for it now, and the estimates count with that speed.
+- `POST /api/projects/<p>/queue/claude-code` takes `{"parallel"?: 1 to 8, "helpers"?: {"margin-checker": 2,
+  "margin-labeller": 1}}` (`"checker"` works too; 0 to 4 each, at least one above 0) for that run; with neither, the
+  speed of Settings. The command gets `--parallel N` and, with helpers, `--helpers checker=2,labeller=1` (the ones
+  given 0 left out: they do nothing in that run). With helpers, `parallel` is at most what they add up to (their sum,
+  at most 8, when not given). Whole numbers only (2.0 is 2; 2.5 is refused). 400 for a bad plan. The run's object
+  adds `"parallel"` (the helpers it can have at once) and `"helpers"` (`{"checker": 2, …}` or null).
+- The connector's `queue_status` takes `kind`, `parallel` and `helpers` (`"checker=2,labeller=1"`), as `/margin-run`
+  was given them; without `parallel` it uses the speed of Settings. Its `groups` carry `start` (one per group in the
+  queue's order, then more for the groups with more batches; with `helpers`, each helper at most as many as named),
+  only for the kind asked and the helpers named; the answer adds `"parallel"` and, with `helpers`, `"helpers"` and
+  `"not_this_run"` (the groups of the helpers left out). `/margin-run` starts what `start` says, and asks again only
+  when all its helpers have reported back (`taskqueue.run_status`, `run_plan`, `plan_helpers`).
+
+### Models that suit the Claude plan (0.13.10)
+
+- Settings: `claude_plan` (`"auto"`, the default: follow the plan Claude Code names; or `"free"` | `"pro"` | `"max"`)
+  and `claude_plan_detected` (`""` | `"free"` | `"pro"` | `"max"`: the tier of `subscriptionType` from `claude auth
+  status`, written in the background by `claude_setup.status()` when Claude Code is signed in and the tier changed,
+  and once when the app starts; Team and Enterprise are `"max"`). Not carried by *Move Margin to another computer*.
+- `GET /api/routing` adds `"plan": {"tier", "chosen", "detected", "titles"}` (`tier`: the one the recommendations
+  follow, `""` when not known: as Pro). Each row's `"recommended"` is now the model itself (the auditor named: opus,
+  fable, or sonnet on Free), with `"recommended_role": "auditor"` where it is the auditor's.
+- In `routing`: `TIERS`, `plan_tier(plan)`, `tier_defaults(kind, tier)`, `settings_tier(settings)`, `Router.tier`.
+  A kind registered by an add-on can say `bulk=True` (many tasks at a time: keeps its models on Max).
+
 ### The bibliography: Zotero, or an exported file (0.13)
 
 A project can hold one bibliography: the works of a Zotero library or collection, read from the Zotero app on this
@@ -938,16 +972,24 @@ from a reference manager (BibTeX, RIS, CSL JSON, Zotero's CSV). Nothing goes ove
   [{"id": "user" | "group-<id>", "name"}], "detail"}` (`libraries` when ready).
 - `GET /api/zotero/collections?library=user` → `{"collections": [{"key", "name", "parent", "items", "depth"}]}` in
   tree order (`items`: the works directly in it). 409 with `kind` `zotero_<state>` when Zotero cannot be read.
+- `GET /api/zotero/works?library=user&collection=<key>&q=<words>&limit=100` (0.13.9) → `{"works": [{"key", "title",
+  "cite", "type"}], "more"}`: the top-level works of a library, or of one collection (not its subcollections), by title,
+  without notes; `q` is Zotero's quick search (title, creators, year); `more` when there are more than `limit` (at most
+  200). 409 as above.
 - `POST /api/projects/<p>/bibliography` → job (kind `bibliography`), one of:
   `{"zotero": {"library": "user", "collection": "<key>" | null, "subcollections": true}}` (null: the whole library),
-  `{"file": {"name": "refs.bib", "text": "…"}}`, or `{"update": true}` (the same Zotero library and collection again).
+  `{"zotero": {"library": "user", "items": ["<key>", …]}}` (0.13.9: only these works, 1 to 500 of them),
+  `{"file": {"name": "refs.bib", "text": "…"}}`, or `{"update": true}` (the same Zotero library and collection, or the
+  same chosen works, again).
   It replaces the bibliography; a person's decisions are kept for every work that is in the new one too (by its key,
   else its DOI, else its title and year). `progress`: `{"phase": "works" | "attachments" | "files" | "checksums" |
   "matching", "done", "total"}`. `result`: the counts below. 400 for a file that is not a bibliography, a file without
-  works, or `update` of a bibliography read from a file.
+  works, `update` of a bibliography read from a file, or `items` that are not 1 to 500 Zotero keys. Chosen works
+  that Zotero no longer has are left out (and out of the next update); none left is an error of the job.
 - `GET /api/projects/<p>/bibliography` → `{"bibliography": null}` before one is brought in; else
   `{"bibliography": {"kind": "zotero" | "file", "library", "library_name", "collection", "collection_name",
-  "subcollections", "name", "format", "format_text", "pulled_at", "works"}, "counts": {"works", "linked", "confirm",
+  "subcollections", "items" (0.13.9: the chosen works' Zotero keys), "name", "format", "format_text", "pulled_at",
+  "works"}, "counts": {"works", "linked", "confirm",
   "to_find", "not_in", "files"}, "linked": [Pair], "confirm": [Pair], "to_find": [Work], "not_in": [Document],
   "ai_access": project info}`. A Work: `{"key", "title", "cite": "Verhoeven and Okafor (2025)", "authors", "year",
   "type", "container", "doi", "url", "link": "zotero://select/…" | null, "file": name of a file Zotero keeps | null}`.

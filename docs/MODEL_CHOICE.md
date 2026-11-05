@@ -50,5 +50,21 @@ repeatability, seconds per task, pass mark, passes) with the chosen default and 
 | check, reread | Sonnet (high effort) | the auditor (Opus, or Fable if switched on) | the main model |
 | second | the auditor | none | the second model |
 
+### Per Claude plan (0.13.10)
+
+The table above is the recommendation for a **Pro** plan (and for a plan Claude Code does not name). On Claude Code the
+recommendations follow the plan Claude Code is signed in with (`routing.tier_defaults`; Settings' `claude_plan`,
+found in the background as `claude_plan_detected`), worked out from each kind's own entry so that an add-on's kinds
+follow too:
+
+- **Free**: no Opus or Fable (the auditor is Sonnet). Kinds that judge excerpts (`judging` or `to_auditor`: check, reread,
+  second) run on Sonnet with nothing above; every other
+  kind starts on Haiku and steps up to Sonnet.
+- **Max, Team, Enterprise**: kinds with many tasks at a time (`bulk`: label, link, resolve) keep the Pro
+  models, as speed matters there; every other kind starts on Opus, stepping up to the auditor only where it reads the
+  hard cases (`to_auditor`) and only to a stronger model (Fable, when switched on).
+
+Models chosen per task in Settings come first on every plan. The Claude API and local models do not follow the plan.
+
 ENLENS also has defaults for its SDG pack (extract, split, verify, audits); Margin 0.8 does not offer the pack, so
 they are left out here (see ENLENS's own `docs/MODEL_CHOICE.md`).
