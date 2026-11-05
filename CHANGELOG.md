@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+**Removing themes, shared with ENLENS.** The code of 0.7's *remove a theme, and find a new one in its place* is
+offered to ENLENS as well (as ENLENS 0.14.0). So that it comes back through `tools/sync_enlens.py` without a conflict,
+Margin's copy is now the same as ENLENS's apart from the names: its rules move from `margin.css` (section `m070`) to
+the Themes page's own stylesheet, `concepts-themes.css`, unchanged; the comment on its columns in `store.py` no longer
+names an app; and its tests are ENLENS's, `tests/test_0_14_0_remove_themes.py` (was `tests/test_m0_7_0_remove_themes.py`,
+the same 7 tests, which now look for the rules in `concepts-themes.css`). Nothing changes on screen. Checked with a
+practice sync of the ENLENS commit into a copy of Margin: it merges without a conflict and changes no file; and in
+headless Chrome, the Themes page as before, light and dark, with no console errors.
+
 ## 0.7.0 (November 2026): remove a theme, and find a new one in its place
 
 Margin 0.7 lets you take out the themes that say nothing about your question, and look for one it missed instead.

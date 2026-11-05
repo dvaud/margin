@@ -1,9 +1,9 @@
 /* margin.css: all of Margin's CSS, in the local layer. ENLENS's releases never edit it.
 
    site.css (linked after every stylesheet of ENLENS in index.html) imports it, so Margin's look wins. Its sections
-   keep the order the separate sheets had (m-tokens, m010, m030, m050, then m060 for 0.6, m070 for 0.7, and m020);
-   add new rules to the section of the feature they belong to, never in a new file. Colours come from the tokens (the
-   first section, over ENLENS's tokens.css), so the light and dark themes both work. */
+   keep the order the separate sheets had (m-tokens, m010, m030, m050, then m060 for 0.6, and m020); add new rules to the
+   section of the feature they belong to, never in a new file. Colours come from the tokens (the first section,
+   over ENLENS's tokens.css), so the light and dark themes both work. */
 
 /* ==== m-tokens: Margin's colour tokens and fonts, over ENLENS's tokens.css ==== */
 /* Margin's theme tokens: paper, ink and a margin rule (the look since Margin 0.2), over ENLENS's tokens.css.
@@ -354,33 +354,6 @@ mark.dm.dm-you[data-cite="cited"]::after { background: var(--surface-2); color: 
 .dc-cite-own { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .dc-cite-own .dc-cite-name { font-size: inherit; }
 .chip.dcit-badge-blocked, .chip.dcit-badge-wait, .chip.dcit-badge-off { color: var(--text-2); }
-
-/* ==== m070: remove a theme, and find a new one in its place (Margin 0.7) ==== */
-/* Colour tokens only, so the light and dark themes both work. */
-
-/* a new theme, on the list */
-.chip.th-new { color: var(--accent-text); background: var(--accent-soft); font-size: .76rem; display: inline-flex; align-items: center; gap: 3px; }
-.th-item.th-flash { animation: th-flash 2.4s ease-out 1; }
-@keyframes th-flash {
-  0%, 30% { box-shadow: var(--shadow), 0 0 0 3px var(--accent); }
-  100% { box-shadow: var(--shadow), 0 0 0 0 transparent; }
-}
-@media (prefers-reduced-motion: reduce) { .th-item.th-flash { animation: none; outline: 2px solid var(--accent); outline-offset: 2px; } }
-
-/* the removed themes, folded under the list */
-.th-removed > summary { font-weight: 600; }
-.th-removed > p { margin: 6px 0 8px; }
-.th-removed-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.th-removed-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px;
-  padding: 8px 12px; border: 1px dashed var(--border-strong); border-radius: 8px; background: var(--surface-2); }
-.th-removed-main { min-width: 0; flex: 1 1 260px; overflow-wrap: anywhere; }
-.th-removed-name { font-family: var(--font-serif); color: var(--text-2); text-decoration: line-through; text-decoration-color: var(--faint); }
-.th-removed-name:hover, .th-removed-name:focus-visible { color: var(--accent-text); text-decoration: underline; }
-.th-removed-acts { gap: 6px; }
-
-/* a removed theme's page, and a new theme's */
-.th-removed-note p, .th-new-note p { margin: 0 0 4px; }
-.th-new-note a, .th-removed-note a { overflow-wrap: anywhere; }
 
 /* ==== m020: Margin's look: it restyles what the others draw, so it comes last (Margin 0.2) ==== */
 /* Margin 0.2: the Margin look. Paper and ink, serif titles, and a red margin rule as the one signature line.
