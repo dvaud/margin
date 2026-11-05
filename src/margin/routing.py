@@ -60,7 +60,9 @@ CLAUDE_DEFAULTS: dict[str, tuple[str, str | None]] = {
     "label": ("haiku", "sonnet"), "link": ("haiku", "sonnet"),
     "expand": ("sonnet", "opus"), "decompose": ("sonnet", "opus"),
     "theme": ("sonnet", "opus"), "resolve": ("sonnet", "opus"),
-    "check": ("opus", "auditor"), "reread": ("opus", "auditor"),
+    # checks start on Sonnet (its helper runs at high effort, see agents/margin-checker.md); an unsure or twice
+    # rejected judgement goes to the auditor, so the second opinion and the step-up stay on Opus (or Fable)
+    "check": ("sonnet", "auditor"), "reread": ("sonnet", "auditor"),
     "second": ("auditor", None),
     # the SDG pack. extract is bulk work (hundreds to thousands of passages, every claim tagged with SDG targets,
     # directions and quotes): Sonnet, and an answer it is unsure of (a claim under 0.6) or two rejected answers go to
@@ -85,7 +87,7 @@ HELPERS = {"label": "margin-labeller", "link": "margin-linker", "theme": "margin
            "extract": "margin-extractor", "split": "margin-extractor", "verify": "margin-checker",
            "verify_set": "margin-checker", "audit": "margin-auditor", "claims": "margin-reader"}
 HELPER_MODEL = {"margin-labeller": "haiku", "margin-linker": "haiku", "margin-namer": "sonnet",
-                "margin-reader": "sonnet", "margin-extractor": "sonnet", "margin-checker": "opus",
+                "margin-reader": "sonnet", "margin-extractor": "sonnet", "margin-checker": "sonnet",
                 "margin-auditor": "opus"}
 # the kinds whose stepped-up tasks go to the auditor (they judge excerpts, or set the reference claims)
 TO_AUDITOR = ("check", "reread", "split", "verify", "verify_set")

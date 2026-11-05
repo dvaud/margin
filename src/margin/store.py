@@ -137,6 +137,14 @@ CREATE TABLE IF NOT EXISTS draft_claims(claim_id TEXT PRIMARY KEY, draft_id TEXT
   edited INT DEFAULT 0, hyp_id TEXT, created_at TEXT);
 CREATE INDEX IF NOT EXISTS ix_draft_claims_draft ON draft_claims(draft_id, start);
 CREATE TABLE IF NOT EXISTS draft_sent(draft_id TEXT, route TEXT, task_id TEXT, sent_at TEXT, feature TEXT, chars INT);
+-- 0.13: the project's bibliography (a Zotero library or collection, or an exported file; see bibliography.py): its
+-- works, and which document each work is. status: 'auto' (the same file or DOI), 'probable' (the title, an author or
+-- the year on the first pages; a person confirms it), 'confirmed' or 'rejected' (a person's word, kept across matches)
+CREATE TABLE IF NOT EXISTS bib_items(item_key TEXT PRIMARY KEY, item_type TEXT, title TEXT, creators_json TEXT,
+  year TEXT, doi TEXT, url TEXT, container TEXT, isbn TEXT, link TEXT, files_json TEXT, seq INT);
+CREATE TABLE IF NOT EXISTS bib_links(item_key TEXT, doc_id TEXT, status TEXT, method TEXT, score REAL,
+  evidence_json TEXT, decided_at TEXT, PRIMARY KEY(item_key, doc_id));
+CREATE INDEX IF NOT EXISTS ix_bib_links_doc ON bib_links(doc_id);
 """
 
 # Indexes on columns that older workspaces gain only through MIGRATIONS, so they are created afterwards.
@@ -238,7 +246,10 @@ MIGRATIONS = [("documents", "declared_ref", "TEXT"), ("vca_refs", "alias_of", "T
               # Margin 0.3: the person's own decision on a claim of a draft ('supported', 'refuted', 'dismissed'; a
               # dismissed claim also has skip=1) and when it was made. It belongs to the draft: the check's answer
               # on its result page does not change.
-              ("draft_claims", "decision", "TEXT"), ("draft_claims", "decided_at", "TEXT")]
+              ("draft_claims", "decision", "TEXT"), ("draft_claims", "decided_at", "TEXT"),
+              # 0.13.3: the title read from the file, kept while the title of the work it is linked to in the
+              # bibliography replaces it (NULL: the document has its own title; see bibliography._sync_titles)
+              ("documents", "file_title", "TEXT")]
 
 
 def _migrate(cx: sqlite3.Connection) -> None:
@@ -403,7 +414,7 @@ class Workspace:
         with self.connect() as cx:
             for t in ("documents", "pages", "paragraphs", "headings", "passages", "embeddings", "doc_refs", "claims",
                       "claim_targets", "evidence", "interactions", "verifications", "labels", "terms", "term_mentions",
-                      "concepts", "concept_terms", "theme_runs", "themes", "theme_members", "mentions"):
+                      "concepts", "concept_terms", "theme_runs", "themes", "theme_members", "mentions", "bib_links"):
                 out[t] = cx.execute(f"DELETE FROM {t}").rowcount
             kinds = ("('extract','verify','verify_set','expand','check','decompose','reread','second','label','link',"
                      "'theme','resolve')")
@@ -461,6 +472,7 @@ class Workspace:
             cx.execute("DELETE FROM paragraphs WHERE doc_id=?", (doc_id,))
             cx.execute("DELETE FROM headings WHERE doc_id=?", (doc_id,))
             cx.execute("DELETE FROM doc_refs WHERE doc_id=?", (doc_id,))
+            cx.execute("DELETE FROM bib_links WHERE doc_id=?", (doc_id,))  # 0.13: its work goes back to "to find"
             out["documents"] = cx.execute("DELETE FROM documents WHERE doc_id=?", (doc_id,)).rowcount
             # 0.11.1: tasks not answered yet that still hold its passages (a check, a theme name, a concept link) are
             # relabelled now, so none of them is handed to Claude Code after the document is gone

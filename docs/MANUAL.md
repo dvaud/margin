@@ -84,11 +84,14 @@ same Python only when the requirements changed (with the extras already installe
 plugin if one was set up, and says to restart the app if it is running. It changes nothing if files of the copy
 were edited by hand, and never touches the data folder. `margin update --check` only looks.
 
-**Update Margin in the app (0.2.1).** At the bottom of the sidebar, *Update Margin* does the same from the page: it
-says what is waiting, and *Update and restart* installs it and restarts Margin on the same address; the page reloads by
-itself. If a newer version is already installed (updated in a terminal while Margin ran), it offers *Restart now*.
-The button shows only where Margin can restart itself (started from its icon or `margin-gui`). On Windows, a one-line
-install says to quit Margin and run the install line.
+**Update Margin in the app (Margin 0.2.1).** *Update Margin* at the bottom of the sidebar does the same as `margin update`
+without a terminal: it looks for a new version (the latest release, or new commits for a git copy), says which one is
+ready, and with *Update and restart* installs it and restarts Margin on the same address. The open page shows
+*Starting Margin …* and opens the new version by itself; started from the icon, Margin is restarted the same way,
+without a new browser tab. Anything still running (a check, documents being added) stops first, as with *Quit
+Margin*, and the dialog says so. If the update fails, the reason is shown and nothing restarts. With the one-line
+install on Windows it says to quit Margin and run the install line again (a running program cannot replace itself
+there).
 
 **An icon instead of the terminal.** The one-line install makes it. From a git copy, run once, as the person who will
 use the app:
@@ -102,7 +105,8 @@ Start menu; Linux: also in the applications menu). Double-clicking it starts Mar
 terminal window, and opens it in the browser; double-clicking it again while it runs just opens it again. After an
 update (`margin update`, `git pull`, the install line again), the copy still running is the old version: the icon
 then quits it and starts the new one (0.10.2), unless a check or documents being added still run in it, in which
-case it opens it and every page says *Margin X is installed, but Y is still running*, with a *Quit Margin* button;
+case it opens it and every page says *Margin X is installed, but Y is still running*, with a *Restart now* button
+(0.13.1; before, *Quit Margin*);
 the version label in Settings says the same. The icon's picture ships with Margin (0.10.2; before, it needed the
 Python package Pillow, and without it the icon was blank); an icon made without its picture gets it the next time
 Margin starts. If the
@@ -194,11 +198,20 @@ The app is written for researchers who do not program: plain words on every work
 technical details only under *Technical details* and *Settings → Technical*. Each feature says, above its title,
 which part of the app it belongs to (*Explore the documents* or *Check hypotheses*) and whether it uses the AI; in
 the sidebar a filled **AI** mark means the feature needs the AI, a dashed one that the AI is optional, and no mark
-that it never uses the AI (0.9).
+that it never uses the AI (0.9). The marks are grey (0.13.3): green, amber, red and purple are kept for the
+judgements and answers.
 
-**The sidebar (0.9).** *Overview* (the start page of a project), *Documents*, then **Explore the documents**
+**One look on every page (0.13.3).** Every page follows the rules of the result page: a title and one short line
+under it; a few type sizes, and bold only for headings and the page's main button; cards with a thin edge and no
+shadow; a longer explanation behind a small **(?)** that opens on hover or click (what a passage is, what a second
+opinion does, the auditor, how the AI labels passages); and downloads as one quiet line of links (*Download
+Excel (.xlsx) · CSV*) instead of buttons. The *Overview* cards say what each feature does; hover a card for what it
+is for.
+
+**The sidebar (0.9).** *Overview* (the start page of a project), *Documents*, *Bibliography* (0.13), then **Explore the documents**
 (Search, Profile, Concepts, Themes) and **Check hypotheses** (Check a hypothesis, Check several, Results). At the
-bottom, under the line that says where text goes, *Settings*, *Theme* and *Quit Margin* sit together (0.10.1); every
+bottom, under the line that says where text goes, *Settings*, *Theme*, *Update Margin* (0.13.1) and *Quit Margin*
+sit together (0.10.1); every
 *Settings* tab shows the version of Margin at the top right, and clicking it opens *Technical → Where your data is*
 (how this copy was installed and how to update it). The *Overview* shows every feature with one line on what it does, whether it uses the AI and what is
 already made in the project (a profile, a glossary, a set of themes, results), and the AI in use with what is left
@@ -253,82 +266,112 @@ while it is still reading the prompt (0.11.1). You can use the rest of the app m
 
 ### Reading and reviewing a result
 
-The answer box says:
+The page reads from top to bottom in four parts (0.12): the answer, the evidence, the other AI models, then notes and
+downloads. *Technical details* and *Delete this result* close it. It keeps to a few type sizes; green, amber and red
+are the judgements (supports, partly supports, contradicts) and purple is mixed evidence.
 
-- the answer, shown as **the AI's first reading** (an outlined badge) until you have reviewed the judgements, then
-  *Partly reviewed by you* and *Reviewed by you*;
-- what it rests on: the documents by name and the number of excerpts that count, with a caution when it rests on a
-  single document or when one or two unchecked AI judgements decide it;
-- how many judgements were too uncertain to count, how many excerpts you reviewed and changed, and how often you
-  agreed with the AI (an agreement figure, like an inter-coder check);
-- *What to do next*, and your strictness (*Change in Settings*).
+**The answer** is one card:
 
-**Who says what** names the documents on each side with their locations. Below, every excerpt read is shown with
-its judgement, the AI's certainty, whether it counts, the document and where in it ("quote in paragraph 6 of 8 · the
-excerpt covers paragraphs 1–6", "quote on page 2"), and the excerpt with the verified quote highlighted. *Show more
-of the document* shows the paragraphs around it; *Open the whole document here* shows the document by paragraph or
-page, with the quote highlighted, and *Back to the result* returns to the excerpt. Excerpts the AI found not about
-the hypothesis are listed at the bottom, so you can check those too. Excerpts are shown with their paragraphs and
-headings as in the document. **Open the original** opens the file itself: a PDF at the page, a text file with the
-quote highlighted, a web page scrolled to the quote (in browsers that support it).
+- the answer, and beside it who judged it: *judged by the AI*, *partly reviewed by you* or *reviewed by you* (hover
+  it for the AI model);
+- **who says what**: one row per document, with a coloured dot per side and where, e.g. *supports it: paragraph 9 ·
+  contradicts it: paragraph 5*. A hypothesis checked in parts lists its parts instead, each with its answer and its
+  documents for and against, under one line on which part decides the answer (*Part 1 decides the answer*; hover it:
+  the hypothesis holds only if every part does). A document with excerpts on both sides counts once (*3 documents
+  for, one of them also against*). Click a part to go to its evidence;
+- at most one caution, when the answer is fragile: *It rests on a single document and on two excerpts you have not
+  reviewed* (or one of the two; for a hypothesis checked in parts, only the parts that decide the answer count);
+- documents added to the project since the check, when there are any, with *Read them* (a further search for this
+  result; the check is not run again, so your reviews are kept);
+- **Next to review**: it goes to the excerpts you have not reviewed, the judgements that count in the answer first
+  (where a second opinion differs, or the AI flagged another group, before the others), then the rest, then those you
+  only commented on. Past the evidence it goes on to the excerpts the AI found not about the hypothesis.
 
-An orange **About another group** flag means the AI thinks the excerpt is about another group, place or period than
-your hypothesis (fully remote workers for a hypothesis about hybrid work): it then counts at most as partly
-supporting. Decide yourself whether it is about your hypothesis.
+When the AI was too unsure to count any excerpt, the card says so in one sentence, and *Next to review* takes you to
+them: your own judgement always counts.
 
-**Ask the AI to read this again** sends one excerpt back to the AI, alone, with your comment as a hint (why you doubt
-it). The card then says "Read again by the AI: was Supports (75%), now Partly supports (59%)", with the AI's reason;
-the earlier judgements are under *Technical details*. Your own judgement, if you gave one, still counts.
+**The evidence** has **Cards** and a compact **Table** (one row per excerpt, with your decisions; click a row to open
+its card) beside its title, and two lines under it: how many excerpts count at your strictness (the (?) explains
+strictness and offers *Try another strictness on this page*), and *Every quote is checked against its document; your
+judgement overrides the AI's.* A hypothesis checked in parts shows each part under its own heading (*Part 1: …*) with
+its own documents above its excerpts.
 
-To review, use **Agree with the AI** or **Judge it differently** (supports, partly supports, contradicts, not about
-this; each saves at once, with Undo). Add a comment, and **mark the sentence you mean** (select it in the excerpt, or
-pick it from a list) when the AI highlighted the wrong one. Your judgement replaces the AI's in the answer and in the
-downloads, always counts whatever the strictness, and shows "AI said: …" beside it. *Go back to the AI's judgement*
-undoes a change. *Next to review* goes to the excerpts you have not reviewed, those that count first. Agreeing with
-an uncertain AI judgement makes it yours, so it then counts. A comment saved without a judgement stays a comment: it
-is not a review and does not count as agreeing. After a save, the card keeps its place on the screen and says where
-it moved in the list.
+Each excerpt card shows, in this order: its judgement with at most two quiet facts (*Certainty: medium*; *Not
+counted* and *Certainty: low* when it is below your strictness; *Second opinion: partly supports*, with its colour
+dot; *You agreed with the AI*; *Your judgement (the AI said …)*); the document and where the quote is (*paragraph 6
+of 8*); and the quote, highlighted in its judgement's colour, with one sentence before and after it (on a phone, the
+sentence before it). A short heading that opens a paragraph of the document (*Recommendations.*) is shown as a small
+heading above it (0.13.2). An excerpt read for another part too says *also in part 1*; hover it for your judgement
+there. Cards that do not count come after those that do; cards you have judged sit back (no fill, a dashed edge). One
+row of actions, the same on every card:
 
-**Keep this result up to date** (under the answer):
+- **Agree** makes the AI's judgement yours (it then counts, whatever the AI's certainty); a note at the bottom says
+  so, and whether the answer changed, with *Undo*. The card then says *You agreed with the AI*, and the button
+  becomes **Take back**.
+- **Not about this** dismisses the excerpt in one click (0.12): your judgement *Not about this* moves it to the
+  excerpts that are not about the hypothesis, under the cards. *Undo* is offered.
+- **Judge differently…** (*Edit judgement…* once you have judged; *Judge this excerpt…* when no AI may read it): the
+  other judgements, each with its colour dot, under a line that says what your judgement is now (each saves at once,
+  with *Undo*), a comment (saved on Enter or when you leave the field), and the sentence you mean when the AI
+  highlighted the wrong one (select it in the excerpt, then *Use it*; or pick it from a list). Your judgement
+  replaces the AI's in the answer and in the downloads, always counts whatever the strictness, and the card shows
+  what the AI said. A comment without a judgement stays a comment: it is not a review.
+- **In context** shows the whole excerpt the AI read, with *Open the whole document at this place* (by paragraph or
+  page, the quote highlighted; *Back to the result* returns to the excerpt), *the original file* (a PDF at the page,
+  a text file with the quote highlighted, a web page scrolled to the quote in browsers that support it) and *a
+  highlighted copy* of the document (a PDF, or a web page for a text document), with this hypothesis's judgements
+  highlighted.
+- **Details**: *Ask the AI to read this again* (one excerpt, alone, with your comment as a hint; the card then says
+  what it was and what it is now, and your own judgement still counts), the AI's certainty as a percentage, how the
+  excerpt was found, and the technical facts (span, id, earlier judgements).
 
-- When documents were added to the project after the check, it says how many and how many have matching excerpts.
-  *Read them* reads those documents as a further search; the check is not run again, so your reviews are kept.
-- **Ask another AI model to read these excerpts** offers two different things, side by side (0.11.2):
-  - **Stronger model** (*replaces the AI's judgements*): *Ask a stronger model* has the model checks step up to (on
-    Claude the auditor, Opus or Fable) read every search of the result again, once. Its judgements take the place of
-    the first AI's, so the answer can change. The answer then shows the stronger model's reading with a small mark
-    beside it, e.g. **Supported** *at first: partly supported* (hover or click it for which models and how many
-    judgements changed), and each changed excerpt shows both readings ("Read again by a stronger model: was Partly
-    supports, now Supports"). The same happens on its own when an answer was unsure or rejected twice. Your own
-    judgements stay and count either way. Not offered when the AI chosen in Settings has no stronger model.
-  - **Second opinion** (*only for comparison*): *Get a second opinion* has another model (on Claude the auditor; with
-    a local model, a second local model chosen there or in Settings) read the same excerpts on its own. Each card
-    then shows both readings in one line, "Second opinion differs · The AI: Supports (80%) · Second opinion (opus):
-    Partly supports (70%)" (and yours, when you judged it), and, when the second opinion points to another sentence,
-    *Highlight the quote of: The AI | Second opinion* switches which quote is highlighted. *Next to review* goes to
-    the excerpts where the second opinion differs first. A second opinion never changes the answer; yours does. With
-    local models only one is kept in memory at a time, so this takes a while.
+After a save, the card keeps its place on the screen and says where it moved in the list. *About another group* under
+a quote means the AI thinks the excerpt is about another group, place or period than your hypothesis (fully remote
+workers for a hypothesis about hybrid work): it then counts at most as partly supporting. Excerpts the AI found not
+about the hypothesis are folded under the cards, so you can check those too.
 
-**Look harder**: *Look for more evidence* reads the next excerpts that match the same words; *Search with other
-words* reads excerpts containing words you type (documents often say "telework" where the hypothesis says "remote
-work"). New excerpts are marked *new*, a *Just now* line says what was found, and each search shows the words it
-used. When everything that matches has been read, the button says so.
+Under the cards, **Read more excerpts** reads the next excerpts that match the same words; **Search with other
+words** reads excerpts containing words you type (documents often say "telework" where the hypothesis says "remote
+work"). New excerpts are marked *new*, a *Just now* line in the answer says what was found, and when everything that
+matches has been read, the line above the buttons says so.
 
-Add **notes** (saved automatically). **Download for Excel (.xlsx)**: a *Summary* sheet (one row per hypothesis:
-answer, answer per part, documents per side, excerpts counted and too uncertain, your reviews and changes, notes,
-strictness, the AI model for a methods section) and an *Excerpts* sheet (every excerpt read: judgement, judged by
-you or the AI, the AI's own judgement and certainty, counted or not, quote and who chose it, document, where, your
-comment, the AI's note about another group, its earlier judgement when it read an excerpt again, the second model's
-judgement when one was asked, the full excerpt). CSV and JSON are under *Technical details*, for programmers.
+**Ask another AI model** says what has happened (what a second opinion found; that no stronger model is set, with
+*Set one in Settings*), then has two buttons side by side (0.11.2); each button's tooltip says what it does, and the
+(?) explains the difference:
+
+- **Ask a stronger model** (*it replaces the AI's judgements; the answer can change*): the model checks step up to
+  (on Claude the auditor, Opus or Fable) reads every search of the result again, once. Its judgements take the place
+  of the first AI's. The answer then shows a small mark beside it, e.g. **Supported** *at first: partly supported*
+  (hover or click it for which models and how many judgements changed), and each changed excerpt shows both readings.
+  The same happens on its own when an answer was unsure or rejected twice. Your own judgements stay and count either
+  way. When the AI chosen in Settings has no stronger model, the card says so, with *Set one* (Settings).
+- **Get a second opinion** (*shown only for comparison: it never changes the answer*): another model (on Claude the
+  auditor; with a local model, a second local model chosen there or in Settings) reads the same excerpts on its own.
+  Each card then says *Second opinion: …* beside the AI's judgement, *Next to review* goes to the excerpts where it
+  differs first, and when it points to another sentence, *Highlight the quote of: the AI / the second opinion*
+  switches which quote is highlighted. With local models only one is kept in memory at a time, so this takes a while.
+
+Add **notes** (saved as you type). **Download**, one link per file: *Excel (.xlsx)*: a *Summary* sheet (one row per
+hypothesis: answer, answer per part, documents per side, excerpts counted and too uncertain, your reviews and
+changes, notes, strictness, the AI model for a methods section) and an *Excerpts* sheet (every excerpt read:
+judgement, judged by you or the AI, the AI's own judgement and certainty, counted or not, quote and who chose it,
+document, where, your comment, the AI's note about another group, its earlier judgement when it read an excerpt
+again, the second model's judgement when one was asked, the full excerpt); *Highlighted documents (.zip)*; *Whole
+project (.zip)*; and *CSV · JSON (for programmers)*. *Technical details* has the strictness slider (this page only),
+the models and settings of the check, what each search looked for and the AI's note on what it read.
+
+A check still **waiting for Claude Code** shows only the waiting card (with *Start Claude Code*), any excerpts
+already read, and your notes; the rest appears when the answer is in.
 
 ### Results and checking several
 
 **Results** lists every hypothesis with its answer, the excerpts that count (and how many were too uncertain), tags
 such as *part of a set*, *checked in 2 parts*, *N to review*, *N changed by you*, *has notes*, *N documents added
 since*, *second opinion differs on N*, and the date; an answer a stronger model changed carries the small mark *was
-partly supported* (or whatever it was at first). Search, filter by answer, open one, or **Download all for Excel** (with a
-*Map* sheet). *Read the new documents for all N* brings every result with documents added since up to date in one go;
-*Get a second opinion for all results* does the same for second opinions.
+partly supported* (or whatever it was at first). Search, filter by answer, open one, or download them all
+(*Download all: Excel (.xlsx)*, with a *Map* sheet, or *CSV (for programmers)*, under *Show as a map*). *Read the new
+documents for all N* brings every result with documents added since up to date in one go; *Get a second opinion for
+all results* does the same for second opinions (for comparison only: the answers do not change; its (?) says more).
 
 **Show as a map** shows all results (or one set) as a grid: one row per hypothesis, one column per document, and in
 each cell + supports, (+) partly supports, − contradicts or ± both, with the number of excerpts that count. It flags
@@ -450,6 +493,58 @@ temporary project and opens it at its key terms: search it, see its codes and re
 **For FlexiConc / Cross-Doc** (Projects page) downloads the project as one SQLite file in the FlexiConc layout of
 the Cross-Doc SDG Explorer (documents, sentences with their code, reference chains, theme clusters and, with an
 embedding model, embeddings), for tools that read that format.
+
+### The bibliography: Zotero (0.13)
+
+*Bibliography* (in the sidebar, under *Documents*) puts your Zotero library, or one collection of it, next to the
+project's documents. It answers three questions: which works of the bibliography do I have, which do I still need
+to find, and which documents are not in my bibliography. It uses no AI.
+
+**Bringing it in.** Margin reads Zotero from the Zotero app on this computer: Zotero 7 or later, open, with *Settings
+→ Advanced → Allow other applications on this computer to communicate with Zotero* ticked once. Choose the library
+(My Library, or a group library), a collection (or *The whole library*) and whether its subcollections come along,
+and press *Bring in the bibliography*. Nothing goes over the internet, no Zotero account or key is needed, and Zotero
+is only read, never changed. The page says plainly when Zotero is not open, does not allow it yet (with the box to
+tick), or is too old. Without the app, *Use an exported file instead* takes a file exported from Zotero (right-click a
+collection → *Export Collection…*: BibTeX, RIS, CSL JSON or CSV) or from Mendeley, EndNote and other reference
+managers (BibTeX or RIS). With Zotero's CSV and BibTeX the paths of the files Zotero keeps come along too.
+
+**The four lists.** Four tiles at the top count them and open each one:
+
+- *Please confirm*: a work whose title stands on the first pages of a document, with an author or the year. The work
+  and the document are side by side, with the place on the document where the title stands, highlighted, and what was
+  found (*Found on page 1: the whole title, the author Lindqvist, the year 2025*). *Same work* links them; *Not the
+  same* means the pair is never proposed again. *Confirm all* takes every pair at once.
+- *To find*: the works without a document, with their authors, year, type, where they were published, a DOI link,
+  their web address and *Open in Zotero*. *Download the list* gives them as a spreadsheet, your to-download list.
+  When Zotero keeps a file (a PDF, a saved web page, a Word file) for some of them, a card offers *Add these files to
+  the project*: they are read where Zotero keeps them (nothing is copied), after you say who may read them with AI
+  (the project's choice is preselected), and each is linked to its work. *Link a document* says by hand which
+  document a work is.
+- *Linked*: each work with its document, and how they were linked: *Same file* (a file Zotero keeps for the work is
+  the very file you added, by its checksum), *Same DOI* (the document prints the work's DOI), *You confirmed it* or
+  *You linked it*. *Unlink* undoes a link for good (*Undo* in the message brings it back). A linked document is
+  called by its work's title everywhere in Margin (0.13.3); when the file's own title says something else, it stays
+  under the file name (*Title in the file: …*).
+- *Not in the bibliography*: the documents no work is linked to. Add them to Zotero and press *Update from Zotero*, or
+  *Link to a work* by hand.
+
+**Keeping it up to date.** *Update from Zotero* reads the same collection again; *Use another collection or file*
+replaces the bibliography. Your decisions are kept for every work that is still there, even when it comes from
+another source (by its Zotero key, else its DOI, else its title and year). Documents you add later are matched as
+they come in: the message after adding says how many were linked and how many wait for you. A document linked to a
+work takes the work's title (0.13.3): in the Documents list, on the document page, in Search, in a check's excerpts
+and in the exports. The document page also shows the title read from the file, which comes back when no work is
+linked any more; a title edited in Zotero follows with *Update from Zotero*. The document also shows its reference
+(*Verhoeven and Okafor (2025)*) in the Documents list, and on the document page with its DOI and *Open in Zotero*.
+*Remove the bibliography* takes the works and links out of the project; documents and Zotero
+stay as they are.
+
+**What the matching does not do.** A scanned PDF without a text layer has no title to find until text recognition
+(OCR) has read it. The same title in different years (an annual report) is told apart by the year printed nearest the
+title; when both are close, both pairs are shown for you to choose. A book and one of its chapters, or a translation,
+are at best proposed. A document that only cites a work is not taken for it: the title must stand on its first pages
+as a title, not as words spread over them.
 
 ### Settings
 
@@ -709,7 +804,7 @@ model), which used to say only which command to type.
 ```
 
 `/margin-run` hands each kind of task to a helper agent on the model Margin names for it (labels and links on
-Haiku, theme names, references and search words on Sonnet, checks on Opus; for the SDG pack, extraction on Sonnet,
+Haiku, theme names, references, search words and checks on Sonnet; for the SDG pack, extraction on Sonnet,
 splitting the VCA and checking its claims on Opus, audits on the auditor; *AI model per task* in Settings) and
 reports what is done and what is left. The helpers can use only the Margin queue tools: they see nothing but the
 passages handed out and write nothing but answers. Every answer is quote-checked; a wrong quote is sent back and
@@ -717,6 +812,10 @@ answered again. An unsure answer (certainty under 0.6), or one rejected twice, g
 
 You follow the progress in Margin: on the page that waits, and in the **queue panel** under the jobs in the
 sidebar (per kind: waiting, being answered, done, the model and helper, the estimate; *Do first*, *Hold*, *Remove*).
+Work that waits for Claude Code while nothing answers it (Claude Code not started from Margin, no `/margin-run`
+taking or answering a batch, no answer in the last two minutes) is **not running**, and the jobs line above the queue
+panel says so in amber with a pause mark: *1 task not running · Waiting for Claude Code to start*, with *Start Claude
+Code* in its panel (0.12). Once Claude Code takes the work it says *1 task running* again, with the pulsing dot.
 A check waits under Results as *Waiting for Claude Code*: its search runs in Margin at once, and only its search
 words, parts and judging wait. It finishes when the answers arrive, even if the app was closed meanwhile.
 
@@ -760,6 +859,7 @@ claimed for 30 minutes), `submit_answers` (each answer quote-checked: stored, or
 | task_claims | 0.8: the batches of queued tasks handed out to Claude Code: who took them, when, model, helper; `tasks.queued`, `claimed_by`, `step`, `again` and `results.route`, `helper`, `step` belong with it |
 | meta | Thresholds used by the pack, and the corpus version (search indexes are rebuilt when it changes) |
 | drafts, draft_claims, draft_sent | Margin 0.1: your drafts (text, AI setting), their claims (offsets in `drafts.text`, the quote, the claim checked, who found it, the hypothesis that checks it) and every time Claude read part of a draft |
+| bib_items, bib_links | 0.13: the bibliography's works (title, creators, year, DOI, web address, Zotero link, the files Zotero keeps with their checksums) and which document each is (`status`: `auto` for the same file or DOI, `probable`, `confirmed` or `rejected` by a person; `method`: `file`, `doi`, `title`, `person`); where it came from is in `meta` (`bibliography`); 0.13.3: `documents.file_title` keeps the file's own title while a linked work's title replaces it (`meta` `titles_version` rebuilds the keyword index) |
 | vca_targets, vca_refs, doc_refs, claims, claim_targets, evidence, interactions, vca_claims, reviews | The SDG pack (section 13) |
 
 Open it with any SQLite tool. Offsets in `evidence` and `verifications` index into `documents.text`. Removing one
@@ -777,6 +877,10 @@ first screen (or *Projects → Import a project (.zip)*, which takes both kinds 
 ---
 
 ## 8. Privacy and copyright
+
+**Zotero (0.13).** The Bibliography page reads Zotero through the Zotero app's own connection on this computer
+(`127.0.0.1`, port 23119), never through Zotero's servers, and only reads. The works' details stay in the project;
+nothing about them is sent to Claude.
 
 ### Who may read each document with AI (0.11)
 
@@ -1292,7 +1396,9 @@ For checking hypotheses about any subject, no pack is needed: sections 3 and 4.
 | "Remove all documents" is refused | The project also holds results of the SDG pack (extracted claims, VCA verifications). Remove documents one by one, or run `margin --ws FOLDER reset-corpus --yes` if you mean it. |
 | Empty document, or "Scanned: no text" | No text layer (scanned). Install Tesseract and the `ocr` extra (section 1) and add the file again, or run OCR yourself (`ocrmypdf in.pdf out.pdf`). |
 | The Margin icon is a blank square (macOS) or a plain shortcut (Windows) | It was made before 0.10.2 without Pillow. Open Margin once with 0.10.2 or later: it gives the icon its picture (macOS: if Finder still shows the blank one, `killall Finder`). Or make the icon again: `margin-gui --make-launcher`. |
-| Settings shows an older version after updating | That copy was still running. Choose *Quit Margin*, then open Margin from its icon (0.10.2 does this by itself when nothing runs). |
+| Settings shows an older version after updating | That copy was still running. Choose *Restart now* on the notice at the top of the page (0.13.1), or *Quit Margin* and open Margin from its icon (0.10.2 does this by itself when nothing runs). |
+| *Update Margin* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows: choose *Quit Margin* and run the install line again in PowerShell. |
+| The page keeps saying *Starting Margin …* | After 90 seconds it says Margin did not come back: open it again from its icon (or with `margin-gui`), and look at `logs/margin.log` in the data folder for the reason. |
 | Double-clicking the Margin icon does nothing | Look at `logs/margin.log` in the data folder. Run the install line again (one-line install), or `margin-gui --make-launcher` again after moving or reinstalling Python (git copy). On macOS, if the icon was copied from another computer, right-click it and choose *Open* once. |
 | The install line stops with "does not match the release's checksum" | The download was cut off or changed on the way; nothing was installed. Run the line again later. |
 | The install line on Windows says uv could not install Margin | Margin is probably running: choose *Quit Margin* in it and run the line again. |

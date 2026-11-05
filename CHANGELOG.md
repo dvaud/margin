@@ -1,5 +1,76 @@
 # Changelog
 
+## Unreleased
+
+From ENLENS 0.12.0 to 0.13.3: a Zotero bibliography beside your documents, a rebuilt result page, a calmer look on
+every page, and checks on Sonnet. Margin keeps its own look, its drafts and its *second opinion* wording on top.
+Every answer still goes through the quote check and a person can overrule it.
+
+**Your Zotero bibliography next to your documents (from ENLENS 0.13.0).** A new **Bibliography** page brings in a
+Zotero collection (or the whole library, or a group library) from the Zotero app on this computer: Zotero 7 or later,
+with *Settings → Advanced → Allow other applications on this computer to communicate with Zotero* ticked once.
+Nothing goes over the internet, Zotero is only read, and no AI is used. No Zotero at hand: a file exported from
+Zotero, Mendeley or EndNote (BibTeX, RIS, CSL JSON or Zotero's CSV).
+- Each work is linked to the document you already have by itself when it is the same file or has the same DOI; when
+  only its title, with an author or the year, stands on a document's first pages, the pair waits for *Same work* or
+  *Not the same*, shown beside the place where the title stands. A document that only cites a work is not taken for
+  it.
+- *To find* lists the works without a document (DOI link, web address, *Open in Zotero*, *Download the list* as a
+  spreadsheet); the PDFs Zotero keeps for them are added in one go, read where Zotero keeps them. *Not in the
+  bibliography* lists the documents Zotero does not have. Documents added later are matched as they come in; your
+  decisions are kept when you update from Zotero or switch to another collection or file.
+- **Titles from your bibliography (from ENLENS 0.13.3).** A linked document takes its work's title everywhere (the
+  Documents list, the document page, Search, a check's excerpts and exports); the title read from the file is kept
+  and shown under it, and comes back when the link goes. AI tasks made after the link carry the work's title.
+
+**The result page, rebuilt to be read (from ENLENS 0.12.0 and 0.13.2).** The answer first, in one card: who says what
+(one row per document), one caution in one sentence and one button, **Next to review**. Then the evidence, as *Cards*
+or *Table*: each excerpt card shows the judgement, the document and place, and the quote with one sentence around
+it, with the same row of actions (**Agree**, **Not about this** (new: one click, with Undo), **Judge differently…**,
+*In context*, *Details*). Then *Ask another AI model*, your notes, quiet download links, and *Technical details*. A
+short heading that opens a paragraph (*Recommendations.*) shows as a small heading. On a claim of a draft the page
+still links back to the draft (*Back to your draft*, *a claim of your draft*).
+
+**Every page calmer (from ENLENS 0.13.3).** A few type sizes and two weights, one card style without shadows,
+colour only where it means something (the AI marks are grey), one-line page subtitles, help marks (?) instead of
+paragraphs, and downloads as quiet links on *Results*, *Search*, *Profile*, *Themes* and the evidence map. Margin's
+own look (`m010.css`, `m020.css`, `m030.css`) is still linked last, so its ink blue, book face, eyebrows and margin
+line win where the two differ.
+
+**The sidebar says when nothing runs (from ENLENS 0.12.0).** Work waiting for Claude Code while nothing answers it
+now says *1 task not running · Waiting for Claude Code to start*, with *Start Claude Code* in its panel, instead of
+*1 task running*. This covers Margin's own draft jobs too (finding a draft's claims, checking them).
+
+**Checks on Sonnet (from ENLENS 0.13.3).** Judging excerpts (a check, reading one excerpt again, a draft's claims)
+goes to Sonnet at high effort instead of Opus. An unsure judgement, two rejected answers and *Ask a stronger model*
+still go to the auditor (Opus, or Fable when switched on), and second opinions stay on the auditor. *Settings →
+Technical → AI model per task* can set checks back to Opus. A Margin plugin set up earlier runs its checker on Sonnet
+at the normal effort until it is written again (*Update Margin* or `margin update`, then `/plugin marketplace update
+margin` in Claude Code; `margin claude-setup` on a git copy).
+
+**Defects fixed (from ENLENS).** Dates in the computer's own language and order are now *4 Nov 2026, 19:36*
+everywhere; a quote opening with *There is…* or *It seems…* is no longer flagged for a reference to check; a comment
+typed and then *In context* clicked is no longer lost; on a phone *Search* no longer scrolls sideways; a help note
+near the right edge stays in view; a DOI in a document's header is a link; a card's source line no longer begins
+with "·"; a selection across "…" in an excerpt is accepted.
+
+**Update Margin (ENLENS 0.13.1).** ENLENS took Margin 0.2.1's *Update Margin* button. The code was the same on both
+sides; Margin's wording stays, `docs/API.md` and `docs/MANUAL.md` now describe it in more detail, and ENLENS's tests
+for it (`tests/test_0131_update_button.py`) run beside Margin's.
+
+**Tests:** from ENLENS, `tests/test_0120_results_page.py`, `test_0130_bibliography.py`, `test_0131_update_button.py`,
+`test_0132_result_page_polish.py`, `test_0133_app_wide_polish.py` and `test_0133_zotero_titles.py`, with the stand-in
+Zotero `tests/fake_zotero.py` (also `tools/dev_server.py --zotero`). `test_0133_app_wide_polish.py` now checks that
+only Margin's own stylesheets come after ENLENS's last one (ENLENS wants its own last). New:
+`tests/test_unreleased_draft_jobs_on_hold.py`: finding and checking a draft's claims are *not running* while nothing
+answers and running once Claude Code takes a batch. Checked in Chrome with the dev server (the social corpus, the
+stand-in Claude Code and Zotero): the result page (a mixed answer and a claim of a draft), *Bibliography*, a draft,
+*Overview*, *Documents*, *Search*, *Results*, *Profile*, *Themes* and *Settings*, light and dark, 1280 and 390 px; no
+console errors.
+
+**Not yet done.** Not tried with a real Zotero 7 (only the stand-in) nor with a real signed-in Claude Code (the
+*not running* state and checks on Sonnet were tried with stand-ins). Checked in Chrome only.
+
 ## 0.3.1 (November 2026): the 0.3 release, with a test that no longer depends on timing
 
 0.3.0's release workflow stopped on one test, so 0.3.0 was never published; 0.3.1 is the same release (see 0.3.0

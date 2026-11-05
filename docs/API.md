@@ -143,19 +143,26 @@ kept in memory for this run only. `DELETE /api/settings/key` forgets both. 403 w
 `POST /api/quit` → `{"stopping": true, "jobs_stopped": n}`: stops the app ("Quit Margin" in the sidebar) once the
 running jobs have stopped (at most 20 s); 409 when this copy was not started in a way that can be stopped from here.
 
-`POST /api/restart` → `{"restarting": true, "jobs_stopped": n}`: stops the app the same way, then starts the version
-on disk in its place on the same port (Margin 0.2.1; *Restart now*). 409 when this copy cannot restart itself
-(`GET /api/state` → `can_restart` is false).
+"Update Margin" in the sidebar (Margin 0.2.1). `GET /api/state` says `can_quit` and `can_restart`: whether this copy
+can stop itself, and restart itself (started with `margin-gui` or from the Margin icon; the button is shown only then).
 
-`GET /api/update` → whether a newer Margin waits (Margin 0.2.1): `{"available": bool, "on_disk": bool, "version":
-"0.2.1", "latest": "0.2.2" | null, "changes": n | null}`. `on_disk` is true when a newer version is installed already
-(updated while this copy ran); `latest` is the newest release (one-line install), `changes` the number of new commits
-(git copy). 409 with the reason when this copy cannot update itself (installed with pip, files changed by hand, offline…).
+- `GET /api/update` → `{"available": bool, "on_disk": bool, "version": running, "latest": "0.2.2" | null,
+  "changes": n | null}`: whether a newer Margin waits, the way this copy was installed (the latest GitHub Release
+  for the one-line install: `latest`; new commits on the branch a git copy follows: `changes`), or is installed
+  already while this copy kept running (`on_disk`, `latest` is that version). 409 with the reason when it cannot be
+  updated from here (files of a git copy edited by hand, a download package, no network).
+- `POST /api/update` `{}` → `{"updated": true, "restarting": true, "from", "version", "jobs_stopped": n}`: installs it
+  as `margin update` does, then restarts on the same address and port (running jobs are stopped first, as for Quit;
+  at most 20 s); `{"updated": false, "restarting": false, "version"}` when nothing newer waits. 409 when the update
+  fails (nothing restarts; the reason is the error), on Windows with the one-line install (quit, then run the install
+  line again), when this copy cannot restart itself, and for a second request while one is updating or restarting.
+- `POST /api/restart` `{}` → `{"restarting": true, "jobs_stopped": n}`: restarts into the version on disk (*Restart
+  now* on the banner *Margin X is installed, but Y is still running*); 409 when this copy cannot restart itself.
 
-`POST /api/update` → installs the newest Margin the way this copy was installed (as `margin update`), then restarts
-into it: `{"updated": true, "restarting": true, "from": "0.2.1", "version": "0.2.2", "jobs_stopped": n}`, or
-`{"updated": false, "restarting": false, "version": "0.2.1"}` when it is up to date (nothing restarts). 409 when the
-update fails (with the reason), when this copy cannot restart itself, or while an update is already running.
+The restarted copy has a new access token: the page waits until `/` answers with a new `margin-token` (or answers
+again after not answering) and reloads. On macOS and Linux the same process becomes the new version (`os.execv`),
+in the same terminal; on Windows a new one is started and the old one ends. Started from the icon, it is restarted
+as the icon starts it (`--launcher`, output to `logs/margin.log`), without opening a new browser tab.
 
 `GET /api/servers` → local model servers running now (probed in parallel, < 1 s):
 ```json
@@ -237,7 +244,7 @@ priority). `scanned_no_text`: PDFs with scanned pages that stayed without text (
 `empty_files` and is not added.
 
 `GET /api/projects/<p>/documents/<doc_id>?offset=0&limit=50` → document details with its passages:
-`{"doc_id", "title", "file", "kind", "n_pages", "n_chars", "doi", "added_at", "total_passages", "offset",
+`{"doc_id", "title", "file_title", "file", "kind", "n_pages", "n_chars", "doi", "added_at", "total_passages", "offset",
 "passages": [{"passage_id", "seq", "page", "section": "body"|"references"|"reference_like"|"unreadable", "text"}]}`.
 With `&view=blocks` (use `limit=500`) it adds the document as a reader cites it: `"blocks": [{"label": "Page 2,
 paragraph 3" | "Paragraph 6" | "Page 2" | "The whole text", "n", "page": 2 | null, "paragraph": 3 | null, "start",
@@ -829,13 +836,66 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
   those projects (all by default), ENLENS's codebooks, and its settings when Margin has no project yet. ENLENS's own
   folder is not changed.
 
+### The bibliography: Zotero, or an exported file (0.13)
+
+A project can hold one bibliography: the works of a Zotero library or collection, read from the Zotero app on this
+computer through its local API (Zotero 7 or later, `http://127.0.0.1:23119/api/`, switched on in Zotero under
+*Settings → Advanced → Allow other applications on this computer to communicate with Zotero*), or of a file exported
+from a reference manager (BibTeX, RIS, CSL JSON, Zotero's CSV). Nothing goes over the internet; Zotero is only read.
+
+- `GET /api/zotero` → `{"state": "ready" | "not_running" | "api_off" | "too_old" | "failed", "url", "libraries":
+  [{"id": "user" | "group-<id>", "name"}], "detail"}` (`libraries` when ready).
+- `GET /api/zotero/collections?library=user` → `{"collections": [{"key", "name", "parent", "items", "depth"}]}` in
+  tree order (`items`: the works directly in it). 409 with `kind` `zotero_<state>` when Zotero cannot be read.
+- `POST /api/projects/<p>/bibliography` → job (kind `bibliography`), one of:
+  `{"zotero": {"library": "user", "collection": "<key>" | null, "subcollections": true}}` (null: the whole library),
+  `{"file": {"name": "refs.bib", "text": "…"}}`, or `{"update": true}` (the same Zotero library and collection again).
+  It replaces the bibliography; a person's decisions are kept for every work that is in the new one too (by its key,
+  else its DOI, else its title and year). `progress`: `{"phase": "works" | "attachments" | "files" | "checksums" |
+  "matching", "done", "total"}`. `result`: the counts below. 400 for a file that is not a bibliography, a file without
+  works, or `update` of a bibliography read from a file.
+- `GET /api/projects/<p>/bibliography` → `{"bibliography": null}` before one is brought in; else
+  `{"bibliography": {"kind": "zotero" | "file", "library", "library_name", "collection", "collection_name",
+  "subcollections", "name", "format", "format_text", "pulled_at", "works"}, "counts": {"works", "linked", "confirm",
+  "to_find", "not_in", "files"}, "linked": [Pair], "confirm": [Pair], "to_find": [Work], "not_in": [Document],
+  "ai_access": project info}`. A Work: `{"key", "title", "cite": "Verhoeven and Okafor (2025)", "authors", "year",
+  "type", "container", "doi", "url", "link": "zotero://select/…" | null, "file": name of a file Zotero keeps | null}`.
+  A Pair: `{"work", "doc": {"doc_id", "title", "file", "kind", "pages", "added_at", "file_title"}, "status": "auto" |
+  "confirmed" | "probable", "method": "file" | "doi" | "title" | "person", "score"}`; a probable one adds
+  `"evidence": {"title": "whole" | "main" | "words", "author", "year", "excerpt", "start", "end", "page"}` (the
+  title's place on the document, `start`/`end` within `excerpt`).
+- How a work and a document are linked: by themselves when a file the work has and the document are the same file
+  (the same checksum) or they have the same DOI (`auto`); proposed (`probable`) when the work's title stands on the
+  document's first pages with an author or the year (a title of one or two words needs both); a document or work
+  already linked gets no proposal, and a pair a person rejected is never proposed again. Adding documents matches
+  them again: the ingest job's `result` adds `"bibliography": {"linked", "confirm"}` for the new documents.
+- A linked document (`auto` or `confirmed`) takes its work's title (0.13.3): its `title` everywhere (the documents,
+  search, a check's excerpts and exports) is the work's, and `file_title` (in a Pair's `doc` and in
+  `GET …/documents/<doc_id>`) is the title read from the file, `null` when the two are the same or the document is not
+  linked. When no work is linked any more (`different`, another bibliography, `DELETE`), the file's own title comes
+  back. A document linked to several works takes the first one's (the bibliography's order). The matching always reads
+  the file's own title.
+- `PUT /api/projects/<p>/bibliography/links` `{"item_key", "doc_id", "decision": "same" | "different" | "clear"}` →
+  the view above. `same` confirms a proposal or links by hand; `different` rejects a proposal or undoes a link;
+  `clear` forgets the person's word.
+- `POST /api/projects/<p>/bibliography/confirm-all` `{}` → `{"confirmed": n, …the view}`.
+- `POST /api/projects/<p>/bibliography/files` `{"ai_access": "cloud" | "local" | "none", "item_keys": [...]?}` → an
+  ingest job (title "Adding Zotero's files") of the files the bibliography has for works without a document, read
+  where they are. 400 when there is none.
+- `GET /api/projects/<p>/bibliography/to-find.xlsx` and `.csv` (downloads; `?token=` allowed): the works without a
+  document: Title, Authors, Year, Type, Published in, DOI, DOI link, Web address, Open in Zotero, File in Zotero.
+- `DELETE /api/projects/<p>/bibliography` `{}` → `{"removed": n, …the view}`: the works and links go; documents and
+  Zotero are not touched.
+- `GET /api/projects/<p>/documents` adds `"bib"` per document (`{"cite", "title", "doi", "link", "url", "type",
+  "container"}` of its linked work, or null); `GET /api/projects/<p>/documents/<id>` adds the same `"bib"`.
+
 ### Jobs
 
 `GET /api/jobs` → `{"jobs": [Job summary]}` newest first. `GET /api/jobs/<id>` → full Job:
 ```json
 {"id": "fdd6a426a6f0", "kind": "check" | "prepare" | "batch" | "more" | "reread" | "read-new" | "second-opinion" |
          "ingest" | "index" | "benchmark" | "label" | "link" | "theme-names" | "resolve" | "stronger" | "queue-run" |
-         "claude-install" | "draft-find" | "draft-check" | …,
+         "claude-install" | "draft-find" | "draft-check" | "bibliography" | …,
  "title": "…", "queue": false,
  "project": "Demo" | null, "state": "queued" | "running" | "done" | "error" | "cancelled",
  "created_at": 1793136448.87, "started_at": … | null, "finished_at": … | null, "seconds": 19.9,
