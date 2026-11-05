@@ -1,24 +1,28 @@
 // 0.9: one description of every feature, used by the sidebar, the Overview page and the page heads, so each feature
 // says the same thing wherever it is shown: what it does, which part of the app it belongs to, and whether it needs
 // the AI.
-import { h, icon } from "./lib.js";
+import { h, icon, plural } from "./lib.js";
 
+// 0.15.1: `sub` and `compact`: the section's line and card size on the Overview (registry.js builds it from these)
 export const SECTIONS = {
-  explore: { title: "Explore the documents", short: "Explore" },
-  write: { title: "Your writing", short: "Write" },
-  check: { title: "Check hypotheses", short: "Check" },
+  explore: { title: "Explore the documents", short: "Explore", sub: "Start here: no hypothesis needed." },
+  write: { title: "Your writing", short: "Write", sub: "Which claims of your draft the documents back, and which they contradict.", compact: true },
+  check: { title: "Check hypotheses", short: "Check", sub: "When you have a statement to test against the documents.", compact: true },
   project: { title: "Your project", short: "Project" },
 };
 
-// ai: "none" (never uses the AI), "optional" (works without it; the AI can add to it), "uses" (the AI does the work)
+// ai: "none" (never uses the AI), "optional" (works without it; the AI can add to it), "uses" (the AI does the work).
+// 0.15.1: `overview` (where its Overview card goes, or false), and an add-on's `state(o)` and `nav` (registry.js).
 export const FEATURES = {
   sources: {
     section: "project", title: "Documents", icon: "book-open", href: "#/sources", ai: "optional",
     what: "Add your reports, papers and web pages, say who may read each with AI, and open one to read it with its codes, key terms and references.",
+    overview: { section: "explore", order: 99, title: "Read one document", what: "Open a document from the list to see its codes, key terms, what “it” and “they” refer to, and a highlighted copy." },
   },
   bibliography: {
     section: "project", title: "Bibliography", icon: "library", href: "#/bibliography", ai: "none",
     what: "Your Zotero library or a collection of it, matched with the documents: which works you have, which you still need to find, and which documents Zotero does not have.",
+    overview: false,
   },
   search: {
     section: "explore", title: "Search", icon: "text-search", href: "#/search", ai: "none",
@@ -42,6 +46,7 @@ export const FEATURES = {
   },
   drafts: {
     section: "write", title: "Check a draft", icon: "file-pen", href: "#/drafts", ai: "uses",
+    state: (o) => (o.drafts ? [true, plural(o.drafts, "draft", "drafts")] : [false, "None yet"]),  // its Overview line
     what: "Marks the statements in your draft that need a source, and finds the documents that support or contradict each one.",
     use: "While you write: to see which claims your documents back, which they contradict, and what to cite.",
   },

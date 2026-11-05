@@ -24,7 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import access, bibliography, claimcheck, tasks
+from . import access, bibliography, claimcheck, taskkinds, tasks
 from .schema import ClaimsOut
 from .store import Workspace, now
 from .textutil import find_quote, normalise, split_sentences
@@ -661,3 +661,66 @@ def export_rows(ws: Workspace, draft_id: str, threshold: float | None = None) ->
                                                                      else "supports") or {}).get("text", ""),
                      "Position in the draft": f"characters {c['start']}–{c['end']}"})
     return rows
+
+
+# ---------------------------------------------------------------------------------------------
+# Margin's kind of AI task: the claims in a part of a draft (registered with ENLENS's task registry, taskkinds.py,
+# as an add-on's kind is: ENLENS checks every quote against the part of the draft before store_claims stores it)
+# ---------------------------------------------------------------------------------------------
+def claims_system() -> str:
+    from .prompts import _JSON_RULE  # noqa: F401  (used in the text)
+
+    return f"""You read part of a researcher's own draft (a paper, thesis, report or proposal) and list the
+statements that need a source: a citation to published evidence that lets a reader verify them.
+
+A statement needs a source when it presents as fact something this draft does not establish itself:
+- statistic: a number, amount, share, rate or trend;
+- causal: a cause, an effect, an influence or a mechanism;
+- comparison: more or less than, the largest, the main, a ranking;
+- prior_research: what studies, data or experts found or say;
+- generalisation: a claim about the world, a field, a group or a practice ("is widely used", "most firms");
+- definition: a definition, a date or a history attributed to others;
+- other: any other factual claim a careful reviewer would ask a source for.
+It does not need one when it is the author's own aim, plan, method, argument, interpretation or result in this
+work ("we interviewed", "this paper argues", "our results show"), a question, a heading, a signpost of the text
+itself, or common knowledge no reader would doubt.
+
+Rules
+- quote: the statement as it stands in the PASSAGE, copied character for character: the whole sentence, or the
+  clause that makes the claim. Never quote the BEFORE text.
+- claim: the statement as one plain, self-contained sentence that a source could support or contradict: say what
+  "it", "this" and "they" stand for, keep its numbers, place, time, group and direction; add nothing and leave out
+  any citation. Do not judge whether it is true.
+- cited: true when the passage already gives a source for it (an author and year, a number in brackets, a footnote
+  mark), else false. List cited statements too: the researcher wants to see whether the documents back them.
+- why: a few words on what a reader would want a source for.
+- At most {25} statements, in the order they appear. An empty list is a valid answer.
+
+Output format
+{{"claims": [{{"quote": "It cut their emissions by 30% in 2021.", "claim": "Remote work cut commuters' emissions by 30% in 2021.",
+  "kind": "statistic", "cited": false, "why": "a figure and a year"}}], "note": null}}
+{_JSON_RULE}"""
+
+
+def claims_user(payload: dict) -> str:
+    out = f"DRAFT: {payload.get('title') or 'untitled'} (part {payload.get('part', 1)} of {payload.get('parts', 1)})"
+    if payload.get("context"):
+        out += f"\n\nBEFORE (to know what \"it\" and \"this\" refer to; not to be listed or quoted):\n…{payload['context']}"
+    return out + f"\n\nPASSAGE:\n{payload['text']}"
+
+
+def _claims_demo(payload: dict) -> dict:
+    """The offline demo: the rules a draft marked No AI is read with."""
+    return {"claims": rule_claims(payload["text"])[:MAX_PER_PART], "note": "Offline demo: found by rules, not by reading."}
+
+
+CLAIMS_KIND = taskkinds.register(taskkinds.TaskKind(
+    name="claims", prompt_version="claims-v1", system=claims_system, user=claims_user, schema=None,
+    quote_from=lambda payload: payload["text"], store=lambda cx, t, payload, obj, model: store_claims(cx, t, payload, obj, model),
+    # reading a draft for its claims is careful reading of the researcher's own text, not bulk work
+    claude=("sonnet", "opus"), local="large", helper="margin-reader",
+    row="claims", row_title="Claims in a draft that need a source",
+    batch=3, order=0,  # the researcher's own request: first in the queue; parts of up to 4,000 characters each
+    noun=("part of a draft to read for claims", "parts of a draft to read for claims"), short="parts of drafts",
+    title="Claims in a draft", run_name="Claims in a draft", output_cap=4000, demo=_claims_demo,
+    size=lambda k, max_chars: 300 + 4000 + 400))  # a part of a draft and the end of the part before

@@ -1,0 +1,118 @@
+/* Margin's theme tokens: paper, ink and a margin rule (the look since Margin 0.2), over ENLENS's tokens.css.
+   Part of Margin's local layer: imported by site.css, which ENLENS's releases never edit. */
+
+:root {
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Charter, "Noto Serif", "Liberation Serif", Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
+
+  --bg: #f8f6f1;
+  --bg-2: #f1eee7;
+  --surface: #fffefc;
+  --surface-2: #f9f7f3;
+  --surface-3: #ece9e1;
+  --border: #e3ded4;
+  --border-strong: #cbc5b8;
+  --text: #1b1e27;
+  --text-2: #464a56;
+  --muted: #6a6d78;
+  --faint: #858893;
+
+  --accent: #2b4a9b;
+  --accent-strong: #1f3a80;
+  --accent-soft: #e4e9f6;
+  --accent-text: #27448f;
+  --on-accent: #ffffff;
+  --heat-4: color-mix(in srgb, var(--accent) 88%, var(--surface));  /* darkest heat-grid cell: white numbers at 4.5:1 or more */
+
+  --ok: #1f7a3d;      --ok-soft: #e1f2e6;    --ok-line: #8fcaa4;
+  --partly: #946000;  --partly-soft: #faefd3; --partly-line: #e3bd63;
+  --bad: #b3261e;     --bad-soft: #fbe4e2;   --bad-line: #eea19b;
+  --mixed: #6a3fa0;   --mixed-soft: #ece4f7; --mixed-line: #c4ace6;
+  --none: #5c6670;    --none-soft: #e7eaed;  --none-line: #b7bec5;
+  --warn: #9a5a00;    --warn-soft: #fff0d6;
+  --mark: #fff0a6;
+  --mark-line: #e8c33b;
+  --rule: #c8452f;       /* the margin rule: Margin's signature line, never a verdict colour */
+  --rule-soft: #f6e2dc;
+  --rule-text: #ad3a25;  /* the rule colour for small text: 5:1 on the paper */
+  --focus: #2b4a9b;
+  --shadow: 0 1px 2px rgba(20, 24, 40, .05), 0 4px 14px -8px rgba(20, 24, 40, .16);
+  --shadow-lg: 0 20px 50px -20px rgba(20, 24, 40, .35);
+  --radius: 8px;
+  --radius-sm: 5px;
+  --sidebar-w: 248px;
+  --content-w: 980px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12141a;
+    --bg-2: #0e1015;
+    --surface: #1a1d25;
+    --surface-2: #20232c;
+    --surface-3: #292d38;
+    --border: #2c303b;
+    --border-strong: #434957;
+    --text: #e8e6e1;
+    --text-2: #c3c1bb;
+    --muted: #9a9ba3;
+    --faint: #7a7c85;
+    --accent: #8fa9f0;
+    --accent-strong: #afc2f7;
+    --accent-soft: #1e2847;
+    --accent-text: #a9bdf5;
+    --on-accent: #0e1530;
+    --heat-4: color-mix(in srgb, var(--accent) 70%, var(--surface));
+    --ok: #6fd092;      --ok-soft: #16301f;    --ok-line: #2f6b45;
+    --partly: #e8bd5a;  --partly-soft: #332a12; --partly-line: #7a6124;
+    --bad: #f28b83;     --bad-soft: #3a1c1a;   --bad-line: #7c3a35;
+    --mixed: #c3a6ee;   --mixed-soft: #2b2140; --mixed-line: #5e4a86;
+    --none: #a3adb6;    --none-soft: #262b30;  --none-line: #4b545c;
+    --warn: #f0b86a;    --warn-soft: #33260f;
+    --mark: #4a3d0d;
+    --mark-line: #c7a235;
+    --rule: #e8735c;
+    --rule-soft: #3a1f1a;
+    --rule-text: #ee8c78;
+    --focus: #afc2f7;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -10px rgba(0, 0, 0, .6);
+    --shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, .7);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12141a;
+  --bg-2: #0e1015;
+  --surface: #1a1d25;
+  --surface-2: #20232c;
+  --surface-3: #292d38;
+  --border: #2c303b;
+  --border-strong: #434957;
+  --text: #e8e6e1;
+  --text-2: #c3c1bb;
+  --muted: #9a9ba3;
+  --faint: #7a7c85;
+  --accent: #8fa9f0;
+  --accent-strong: #afc2f7;
+  --accent-soft: #1e2847;
+  --accent-text: #a9bdf5;
+  --on-accent: #0e1530;
+  --heat-4: color-mix(in srgb, var(--accent) 70%, var(--surface));
+  --ok: #6fd092;      --ok-soft: #16301f;    --ok-line: #2f6b45;
+  --partly: #e8bd5a;  --partly-soft: #332a12; --partly-line: #7a6124;
+  --bad: #f28b83;     --bad-soft: #3a1c1a;   --bad-line: #7c3a35;
+  --mixed: #c3a6ee;   --mixed-soft: #2b2140; --mixed-line: #5e4a86;
+  --none: #a3adb6;    --none-soft: #262b30;  --none-line: #4b545c;
+  --warn: #f0b86a;    --warn-soft: #33260f;
+  --mark: #4a3d0d;
+  --mark-line: #c7a235;
+  --rule: #e8735c;
+  --rule-soft: #3a1f1a;
+  --rule-text: #ee8c78;
+  --focus: #afc2f7;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -10px rgba(0, 0, 0, .6);
+  --shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, .7);
+  color-scheme: dark;
+}

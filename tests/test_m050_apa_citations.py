@@ -14,6 +14,7 @@ from test_app import api, home  # noqa: F401  (fixtures)
 from margin import bibliography as b
 from margin import drafts, ingest
 from margin.llm import BaselineBackend
+from margin_static import styles_text
 
 STATIC = Path(__file__).resolve().parent.parent / "src" / "margin" / "gui" / "static"
 
@@ -164,7 +165,7 @@ def test_the_page_copies_the_citation():
     assert "ALT_CLICK" in js and "cite.narrative" in js
     # documents of the side without a work of the bibliography are named, with the way to link them
     assert 'h("a", { href: "#/bibliography" }, "Bibliography")' in js
-    index = (STATIC / "index.html").read_text()
+    index = styles_text()  # Margin's sheets are imported by site.css (the local layer)
     assert index.index("/static/m050.css") < index.index("/static/m020.css")
     css = (STATIC / "m050.css").read_text()
     assert ".dc-apa:hover" in css and not __import__("re").search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css)

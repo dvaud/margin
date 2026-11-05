@@ -13,6 +13,7 @@ from test_app import api, home  # noqa: F401  (fixtures)
 
 from margin import access, claimcheck, drafts, taskqueue, tasks
 from margin.llm import BaselineBackend
+from margin_static import styles_text
 
 STATIC = Path(__file__).resolve().parent.parent / "src" / "margin" / "gui" / "static"
 
@@ -92,7 +93,7 @@ def test_the_ai_s_claims_go_through_the_quote_check(loaded):
     bad = {"claims": [{"quote": "Electrolysis needs a lot of water.", "claim": "Electrolysis needs a lot of water.",
                        "kind": "statistic", "cited": False, "why": "x"}]}
     ok, errs = tasks.ingest_result(loaded, tid, bad, model="m")
-    assert not ok and "not found in the passage" in errs[0]
+    assert not ok and "not found in the passage" in errs[0]  # ENLENS's quote check (0.15) says it first
     assert not loaded.scalar("SELECT COUNT(*) FROM draft_claims WHERE draft_id=?", (did,))
     good = {"claims": [{"quote": "It also raises local water stress in arid regions.",
                         "claim": "Electrolysis raises local water stress in arid regions.", "kind": "cause",
@@ -263,7 +264,7 @@ def test_the_api_of_drafts(api, corpus):  # noqa: F811
 
 def test_the_page_files(api):  # noqa: F811
     index = (STATIC / "index.html").read_text()
-    assert "/static/m010.css" in index and 'data-route="drafts"' in index
+    assert "/static/m010.css" in styles_text() and 'data-route="drafts"' in index
     css = (STATIC / "m010.css").read_text()
     assert "#" not in css.split("*/", 1)[1]  # colour tokens only, no fixed colours
     js = (STATIC / "views" / "drafts.js").read_text()

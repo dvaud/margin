@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+**From ENLENS 0.13.5 to 0.15.1: room for apps built on ENLENS, and Margin moved into it.** ENLENS now gives an app
+built on it extension points, so Margin can add its features in files of its own instead of editing ENLENS's, and
+each sync clashes less. Nothing changes on screen.
+- **Margin's look is in the local layer.** Margin's colour tokens moved out of `app.css` into `m-tokens.css`, and
+  `site.css` (linked last, never edited by ENLENS) imports them and Margin's own sheets (`m010`, `m030`, `m050`,
+  `m020`, in the same order as before). ENLENS's tokens now live in `tokens.css`, which Margin's override.
+- **Margin's name and welcome words** are in `brand.json`; the sidebar, window titles, welcome screen and the Update
+  and Quit buttons read them.
+- **Finding the claims in a draft is a registered kind of AI task** (`drafts.py`, ENLENS's `taskkinds.py`), no longer
+  edits to ENLENS's prompts, routing, queue, store, limits, offline demo and size estimate. Its prompt is unchanged
+  (`claims-v1`). ENLENS's quote check now reads every quote of its answers too, before Margin's own store function.
+- **A draft's AI setting runs through ENLENS's access hooks** (`register_floor`, `register_hidden`), so tasks holding
+  a draft's text and the checks of its claims keep the draft's setting, and drafts kept on this computer stay out of
+  a Claude chat, as before.
+- **A claim of a draft records where it comes from** as ENLENS 0.14 does (`origin` "draft"); claims made earlier are
+  given it when a project is opened (Margin's `gui/extensions.py`). The result page's *Back to your draft* and *a
+  claim of your draft*, and the sidebar's names for draft jobs, come from Margin's page module (`static/extensions.js`).
+- From ENLENS 0.13.5: an import of a project's folder zipped by hand works as in Margin 0.2.1; the release workflow,
+  the zip-name and icon fixes were Margin's already. *Second opinion* wording everywhere. Steadier tests.
+- From ENLENS 0.14 to 0.15.1 (for developers): add-on routes, jobs, tables, access hooks, task kinds and page modules
+  (docs/EXTENDING.md), with ENLENS's stand-in add-on and its tests.
+
+**Tests.** ENLENS's new tests (`test_0135_*`, `test_0140_addons.py`, `test_0150_task_kinds.py`,
+`test_0151_page_extensions.py`) run in Margin with Margin's filled local layer: its kind of task, its look and its
+page module. Margin's look tests read the sheets `site.css` imports (`tests/margin_static.py`). Checked in headless
+Chrome: the Overview (*Your writing* between exploring and checking) and *Check a draft* in Margin's look, with no
+console errors.
+
+**Not yet done.** The `claims` row of Settings' model table now comes last (it was between *References* and
+*Judging excerpts*). The drafts' tables, columns, routes and page still live in ENLENS's files (`store.py`,
+`server.py`, `index.html`, `features.js`); they can move into Margin's local layer step by step.
+
 ## 0.5.0 (November 2026): APA citations to paste from your draft
 
 **Citations to paste from a draft.** With a bibliography (your Zotero library or a collection, or an exported file),

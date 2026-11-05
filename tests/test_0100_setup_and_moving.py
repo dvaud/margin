@@ -28,6 +28,8 @@ import pytest
 from test_app import Api, api, home  # noqa: F401  (fixtures)
 
 from margin import __version__ as VERSION
+from _static import defined_tokens
+from helpers import api_docs
 
 # 0.10.1: the tests follow the package's version (a newer published release is the next patch), so a release no
 # longer has to edit them
@@ -514,7 +516,7 @@ def test_page_files_of_the_release():
     css = (static / "v010.css").read_text()
     import re
 
-    defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", (static / "app.css").read_text()))
+    defined = defined_tokens()  # 0.13.5: the tokens are in tokens.css
     used = set(re.findall(r"var\((--[a-z0-9-]+)", css))
     assert used and used <= defined, used - defined
     js = (static / "views" / "settings.js").read_text()
@@ -523,6 +525,6 @@ def test_page_files_of_the_release():
     assert "/api/move.zip" in (static / "views" / "projects.js").read_text()
     assert "Import from another computer" in (static / "views" / "setup.js").read_text()
     assert "ask IT to install Tesseract" not in (static / "views" / "sources.js").read_text()
-    api_md = (ROOT / "docs" / "API.md").read_text()
+    api_md = api_docs()  # 0.13.5: every docs/*API*.md
     for route in ("/api/claude-setup/claude-code", "/api/claude-setup/sign-in", "/api/move.zip"):
         assert route in api_md, route

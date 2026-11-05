@@ -13,6 +13,7 @@ from test_m010_drafts import DRAFT
 
 from margin import claimcheck, drafts
 from margin.llm import BaselineBackend
+from margin_static import styles_text
 
 STATIC = Path(__file__).resolve().parent.parent / "src" / "margin" / "gui" / "static"
 
@@ -101,7 +102,7 @@ def test_the_api_takes_a_decision(api):  # noqa: F811
 
 
 def test_the_page_files():
-    index = (STATIC / "index.html").read_text()
+    index = styles_text()  # Margin's sheets are imported by site.css (the local layer)
     # after the draft page's styles (m010), before Margin's look (m020), which comes last
     assert index.index("/static/m010.css") < index.index("/static/m030.css") < index.index("/static/m020.css")
     css = (STATIC / "m030.css").read_text()

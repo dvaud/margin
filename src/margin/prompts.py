@@ -3,16 +3,11 @@ from __future__ import annotations
 
 import json
 
+from . import taskkinds
 from .taxonomy import targets_reference_text
 
-VERSIONS = {"extract": "extract-v1", "split": "split-v2", "verify": "verify-v1", "verify_set": "verify-set-v1",
-            "expand": "expand-v2", "check": "check-v4", "decompose": "decompose-v1",
-            "reread": "check-v4",   # reading one excerpt again uses the check prompt
-            "second": "check-v4",   # so does a second model grading the excerpts already read
-            # 0.7
-            "label": "label-v1", "link": "link-v1", "theme": "theme-v1", "resolve": "resolve-v1",
-            # Margin 0.1
-            "claims": "claims-v1"}
+# 0.15: a view of the registry (taskkinds.py): check, reread and second share the check prompt (check-v4)
+VERSIONS = taskkinds.Table("prompt_version")
 
 _JSON_RULE = ("Answer with one JSON object and nothing else: no prose, no code fences. "
               "Copy every quote character for character from the text you were given, including odd spacing or "
@@ -39,6 +34,9 @@ def _targets_block() -> str:
 
 
 def system_prompt(kind: str) -> str:
+    k = taskkinds.get(kind)
+    if k is not None and k.system is not None:  # 0.15: an add-on's kind builds its own
+        return k.system()
     if kind == "extract":
         return f"""You extract evidence-backed impact claims from scientific and policy texts about the green hydrogen value chain,
 for a Value Chain Assessment against the UN Sustainable Development Goals.
@@ -258,41 +256,13 @@ Rules
 Output format
 {"parts": [{"text": "one checkable sentence", "role": "mechanism"}], "note": null}
 Answer with one JSON object and nothing else: no prose, no code fences."""
-    if kind == "claims":
-        return f"""You read part of a researcher's own draft (a paper, thesis, report or proposal) and list the
-statements that need a source: a citation to published evidence that lets a reader verify them.
-
-A statement needs a source when it presents as fact something this draft does not establish itself:
-- statistic: a number, amount, share, rate or trend;
-- causal: a cause, an effect, an influence or a mechanism;
-- comparison: more or less than, the largest, the main, a ranking;
-- prior_research: what studies, data or experts found or say;
-- generalisation: a claim about the world, a field, a group or a practice ("is widely used", "most firms");
-- definition: a definition, a date or a history attributed to others;
-- other: any other factual claim a careful reviewer would ask a source for.
-It does not need one when it is the author's own aim, plan, method, argument, interpretation or result in this
-work ("we interviewed", "this paper argues", "our results show"), a question, a heading, a signpost of the text
-itself, or common knowledge no reader would doubt.
-
-Rules
-- quote: the statement as it stands in the PASSAGE, copied character for character: the whole sentence, or the
-  clause that makes the claim. Never quote the BEFORE text.
-- claim: the statement as one plain, self-contained sentence that a source could support or contradict: say what
-  "it", "this" and "they" stand for, keep its numbers, place, time, group and direction; add nothing and leave out
-  any citation. Do not judge whether it is true.
-- cited: true when the passage already gives a source for it (an author and year, a number in brackets, a footnote
-  mark), else false. List cited statements too: the researcher wants to see whether the documents back them.
-- why: a few words on what a reader would want a source for.
-- At most {25} statements, in the order they appear. An empty list is a valid answer.
-
-Output format
-{{"claims": [{{"quote": "It cut their emissions by 30% in 2021.", "claim": "Remote work cut commuters' emissions by 30% in 2021.",
-  "kind": "statistic", "cited": false, "why": "a figure and a year"}}], "note": null}}
-{_JSON_RULE}"""
     raise ValueError(f"unknown task kind {kind!r}")
 
 
 def user_prompt(kind: str, payload: dict) -> str:
+    k = taskkinds.get(kind)
+    if k is not None and k.user is not None:  # 0.15: an add-on's kind builds its own
+        return k.user(payload)
     if kind == "extract":
         parts = [f"DOCUMENT: {payload.get('title') or 'untitled'}"]
         if payload.get("doi"):
@@ -319,11 +289,6 @@ def user_prompt(kind: str, payload: dict) -> str:
         return out
     if kind == "decompose":
         return f"HYPOTHESIS:\n{payload['hypothesis']}"
-    if kind == "claims":
-        out = f"DRAFT: {payload.get('title') or 'untitled'} (part {payload.get('part', 1)} of {payload.get('parts', 1)})"
-        if payload.get("context"):
-            out += f"\n\nBEFORE (to know what \"it\" and \"this\" refer to; not to be listed or quoted):\n…{payload['context']}"
-        return out + f"\n\nPASSAGE:\n{payload['text']}"
     if kind in ("check", "reread", "second"):
         head = "CLAIM"
         if payload.get("target"):

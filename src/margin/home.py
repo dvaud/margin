@@ -22,7 +22,7 @@ from pathlib import Path
 
 from .llm import (AnthropicBackend, BackendError, BaselineBackend, LocalBackend, OllamaBackend, detect_local,
                   is_chat_model)
-from . import routing
+from . import routing, taskkinds
 from .store import Workspace
 
 DEFAULTS = {
@@ -310,10 +310,11 @@ def task_tokens(kind: str, k: int = 8, thinks: bool = False, max_chars: int = 11
         user = 2 * (100 + 3 * 400) + retry
     elif kind == "resolve":
         user = 300 + 3 * (max_chars + 40) + retry
-    elif kind == "claims":  # Margin 0.1: a part of a draft and the end of the part before
-        user = 300 + 4000 + 400 + retry
-    else:  # expand, decompose
+    elif kind in ("expand", "decompose"):
         user = 4000 + retry
+    else:  # 0.15: an add-on's kind says how long its prompt can be
+        k_ = taskkinds.get(kind)
+        user = (k_.size(k, max_chars) if k_ is not None and k_.size else 4000) + retry
     room = (2 * budget + 64 if budget else THINK_ALLOWANCE) if thinks else 0
     return system + estimate_tokens("x" * user) + OUTPUT_CAP.get(kind, 2000) + room
 
@@ -794,15 +795,15 @@ def make_second_backend(settings: dict, api_key: str = ""):
     if not second:
         raise ValueError("Choose a model for second opinions in Settings first.")
     if b == "baseline":
-        raise ValueError("The offline demo has no second model. Choose a local model in Settings.")
+        raise ValueError("The offline demo cannot give second opinions. Choose a local model in Settings.")
     key = {"anthropic": "anthropic_model", "openai": "openai_model"}.get(b, "ollama_model")
     changed = {**settings, key: second}
     if b == "auto":
         changed.update(ollama_model=second, openai_model=second)
     be, model = make_backend(changed, api_key, kinds=("second",))
     if model != second:
-        raise BackendError(f"The second model {second} is not installed on the model server. Install it, or choose "
-                           "another second model in Settings.")
+        raise BackendError(f"The model for second opinions, {second}, is not installed on the model server. Install it, or "
+                           "choose another one in Settings.")
     return be, model
 
 
