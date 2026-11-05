@@ -1,10 +1,5 @@
 /* site.css: Margin's look, in the local layer (ENLENS 0.13.5). ENLENS's releases never edit it.
 
    It is linked after every stylesheet of ENLENS (index.html: under "release stylesheets end"), so what is here wins.
-   Margin's tokens come first, then Margin's own sheets, in the order they were linked before. */
-@import url("/static/m-tokens.css");
-@import url("/static/m010.css");
-@import url("/static/m030.css");
-@import url("/static/m050.css");
-@import url("/static/unreleased.css");  /* the next release's look, until it is named */
-@import url("/static/m020.css");
+   All of Margin's CSS is in margin.css (Margin 0.6: one stylesheet, never a new file per release). */
+@import url("/static/margin.css");

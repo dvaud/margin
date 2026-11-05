@@ -13,7 +13,7 @@ from test_m010_drafts import DRAFT
 
 from margin import claimcheck, drafts
 from margin.llm import BaselineBackend
-from margin_static import styles_text
+from margin_static import section, sections
 
 STATIC = Path(__file__).resolve().parent.parent / "src" / "margin" / "gui" / "static"
 
@@ -102,10 +102,10 @@ def test_the_api_takes_a_decision(api):  # noqa: F811
 
 
 def test_the_page_files():
-    index = styles_text()  # Margin's sheets are imported by site.css (the local layer)
-    # after the draft page's styles (m010), before Margin's look (m020), which comes last
-    assert index.index("/static/m010.css") < index.index("/static/m030.css") < index.index("/static/m020.css")
-    css = (STATIC / "m030.css").read_text()
+    # after the draft page's styles (m010), before Margin's look (m020), which comes last (sections of margin.css)
+    order = sections()
+    assert order.index("m010") < order.index("m030") < order.index("m020")
+    css = section("m030")
     assert "#" not in css.split("*/", 1)[1]  # colour tokens only
     assert "overflow-y: auto" in css and "position: sticky" in css  # the claims scroll on their own
     assert "attr(data-cite)" in css  # the tag where a source should be cited

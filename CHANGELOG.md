@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (November 2026): check your citations against their sources
+
+Margin 0.6 checks the other half of a draft's sources. *Check a draft* already showed which of your documents back
+each claim; now it also checks the citations you wrote yourself: does the work you cite say what your sentence says?
+Your citations are found as you add a draft, checked against the cited work's own document, and shown where you
+write: underlined in the draft and on the claim they stand for. It comes from ENLENS 0.13.7's *Check citations*,
+made one with *Check a draft*. From ENLENS 0.13.6 and 0.13.7 also come an update button that shows only when there is
+an update, and a model on this computer without a terminal.
 
 **Check a draft checks your citations too.** ENLENS 0.13.7's *Check citations* now works with *Check a draft*.
 Your own writing has one home, and a cited claim shows both what your documents say about it and whether the source
@@ -31,18 +38,26 @@ you cite says it.
 - **Excel and CSV** of a draft gain *Your citations* and *What the cited source says*.
 - `tools/dev_server.py --citations` makes its demo text a draft (claims found by rules), so the page shows both.
 
-**Tests.** `tests/test_unreleased_draft_citations.py` (9 tests): a new draft's citations found at once, with the
+**Tests.** `tests/test_m0_6_0_draft_citations.py` (9 tests): a new draft's citations found at once, with the
 draft's name and setting kept in step (and the project's default); a draft without citations; drafts from before
 linked; each citation on the claim it stands for (after, before in the same sentence, inside; never across a
 sentence's end) with its place in the draft; checking a draft's citations (answers on the claims, the export, what
 Claude read recorded, removed with the draft); a draft for *Only a local AI* (nothing reaches the stand-in Claude,
 hidden from the connector, every task the draft's); a new setting reaching queued tasks; through the app (a draft's
 citations on its page and in the list, checked, renamed and set from Check citations, removal refused, a pasted text
-kept as a draft, one without citations not kept); the page files and `unreleased.css` (colour tokens only). ENLENS's
+kept as a draft, one without citations not kept); the page files and its rules in `margin.css` (colour tokens only). ENLENS's
 `test_0_13_7_citations.py` and `test_0_13_6_page_extensions.py` expect Check citations under *Your writing*, and
 removing a pasted text through its draft. Checked in headless Chrome with `tools/dev_server.py --citations`: the
 draft page before and after checking (step 3, the underlines, *Your citation*, the filter), the drafts list, Check
 citations (the list and a draft's text), the Overview, in light and dark and at 390 px, with no console errors.
+
+**One stylesheet for Margin.** Margin's CSS was one file per release (`m-tokens.css`, `m010.css`, `m030.css`,
+`m050.css`, `m020.css`) plus the next release's. It is now one stylesheet, `margin.css`, which `site.css` (the local
+layer, linked after every stylesheet of ENLENS) imports. Its sections keep the old order, so nothing looks different:
+18 screenshots (the draft page before and after checking, the drafts list, Check citations, a draft's citations, the
+Overview; light, dark, 390 px) are identical, byte for byte, before and after. Margin's tests read its sections
+(`tests/margin_static.py`: `sections()`, `section(name)`). New rules go into the section of their feature, never
+into a new file.
 
 **Not yet done.** A draft has no pages, so its citations show no *page 3 of your text*, as a file given to ENLENS's
 Check citations would. Checking the claims and checking the citations are two buttons, and two jobs. A claim with a

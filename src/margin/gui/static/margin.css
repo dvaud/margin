@@ -1,0 +1,425 @@
+/* margin.css: all of Margin's CSS, in the local layer. ENLENS's releases never edit it.
+
+   site.css (linked after every stylesheet of ENLENS in index.html) imports it, so Margin's look wins. Its sections
+   keep the order the separate sheets had (m-tokens, m010, m030, m050, then m060 for 0.6, and m020); add new rules to the
+   section of the feature they belong to, never in a new file. Colours come from the tokens (the first section,
+   over ENLENS's tokens.css), so the light and dark themes both work. */
+
+/* ==== m-tokens: Margin's colour tokens and fonts, over ENLENS's tokens.css ==== */
+/* Margin's theme tokens: paper, ink and a margin rule (the look since Margin 0.2), over ENLENS's tokens.css.
+   Part of Margin's local layer: imported by site.css, which ENLENS's releases never edit. */
+
+:root {
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Charter, "Noto Serif", "Liberation Serif", Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
+
+  --bg: #f8f6f1;
+  --bg-2: #f1eee7;
+  --surface: #fffefc;
+  --surface-2: #f9f7f3;
+  --surface-3: #ece9e1;
+  --border: #e3ded4;
+  --border-strong: #cbc5b8;
+  --text: #1b1e27;
+  --text-2: #464a56;
+  --muted: #6a6d78;
+  --faint: #858893;
+
+  --accent: #2b4a9b;
+  --accent-strong: #1f3a80;
+  --accent-soft: #e4e9f6;
+  --accent-text: #27448f;
+  --on-accent: #ffffff;
+  --heat-4: color-mix(in srgb, var(--accent) 88%, var(--surface));  /* darkest heat-grid cell: white numbers at 4.5:1 or more */
+
+  --ok: #1f7a3d;      --ok-soft: #e1f2e6;    --ok-line: #8fcaa4;
+  --partly: #946000;  --partly-soft: #faefd3; --partly-line: #e3bd63;
+  --bad: #b3261e;     --bad-soft: #fbe4e2;   --bad-line: #eea19b;
+  --mixed: #6a3fa0;   --mixed-soft: #ece4f7; --mixed-line: #c4ace6;
+  --none: #5c6670;    --none-soft: #e7eaed;  --none-line: #b7bec5;
+  --warn: #9a5a00;    --warn-soft: #fff0d6;
+  --mark: #fff0a6;
+  --mark-line: #e8c33b;
+  --rule: #c8452f;       /* the margin rule: Margin's signature line, never a verdict colour */
+  --rule-soft: #f6e2dc;
+  --rule-text: #ad3a25;  /* the rule colour for small text: 5:1 on the paper */
+  --focus: #2b4a9b;
+  --shadow: 0 1px 2px rgba(20, 24, 40, .05), 0 4px 14px -8px rgba(20, 24, 40, .16);
+  --shadow-lg: 0 20px 50px -20px rgba(20, 24, 40, .35);
+  --radius: 8px;
+  --radius-sm: 5px;
+  --sidebar-w: 248px;
+  --content-w: 980px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12141a;
+    --bg-2: #0e1015;
+    --surface: #1a1d25;
+    --surface-2: #20232c;
+    --surface-3: #292d38;
+    --border: #2c303b;
+    --border-strong: #434957;
+    --text: #e8e6e1;
+    --text-2: #c3c1bb;
+    --muted: #9a9ba3;
+    --faint: #7a7c85;
+    --accent: #8fa9f0;
+    --accent-strong: #afc2f7;
+    --accent-soft: #1e2847;
+    --accent-text: #a9bdf5;
+    --on-accent: #0e1530;
+    --heat-4: color-mix(in srgb, var(--accent) 70%, var(--surface));
+    --ok: #6fd092;      --ok-soft: #16301f;    --ok-line: #2f6b45;
+    --partly: #e8bd5a;  --partly-soft: #332a12; --partly-line: #7a6124;
+    --bad: #f28b83;     --bad-soft: #3a1c1a;   --bad-line: #7c3a35;
+    --mixed: #c3a6ee;   --mixed-soft: #2b2140; --mixed-line: #5e4a86;
+    --none: #a3adb6;    --none-soft: #262b30;  --none-line: #4b545c;
+    --warn: #f0b86a;    --warn-soft: #33260f;
+    --mark: #4a3d0d;
+    --mark-line: #c7a235;
+    --rule: #e8735c;
+    --rule-soft: #3a1f1a;
+    --rule-text: #ee8c78;
+    --focus: #afc2f7;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -10px rgba(0, 0, 0, .6);
+    --shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, .7);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12141a;
+  --bg-2: #0e1015;
+  --surface: #1a1d25;
+  --surface-2: #20232c;
+  --surface-3: #292d38;
+  --border: #2c303b;
+  --border-strong: #434957;
+  --text: #e8e6e1;
+  --text-2: #c3c1bb;
+  --muted: #9a9ba3;
+  --faint: #7a7c85;
+  --accent: #8fa9f0;
+  --accent-strong: #afc2f7;
+  --accent-soft: #1e2847;
+  --accent-text: #a9bdf5;
+  --on-accent: #0e1530;
+  --heat-4: color-mix(in srgb, var(--accent) 70%, var(--surface));
+  --ok: #6fd092;      --ok-soft: #16301f;    --ok-line: #2f6b45;
+  --partly: #e8bd5a;  --partly-soft: #332a12; --partly-line: #7a6124;
+  --bad: #f28b83;     --bad-soft: #3a1c1a;   --bad-line: #7c3a35;
+  --mixed: #c3a6ee;   --mixed-soft: #2b2140; --mixed-line: #5e4a86;
+  --none: #a3adb6;    --none-soft: #262b30;  --none-line: #4b545c;
+  --warn: #f0b86a;    --warn-soft: #33260f;
+  --mark: #4a3d0d;
+  --mark-line: #c7a235;
+  --rule: #e8735c;
+  --rule-soft: #3a1f1a;
+  --rule-text: #ee8c78;
+  --focus: #afc2f7;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -10px rgba(0, 0, 0, .6);
+  --shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, .7);
+  color-scheme: dark;
+}
+
+/* ==== m010: Check a draft (Margin 0.1) ==== */
+/* Margin 0.1: check a draft. The draft with its claims marked, and a card per claim with the documents for and
+   against it. Colours come from the tokens of app.css, so light and dark both work. */
+
+.view:has(.draft-board) { max-width: 1320px; }
+
+/* the list of drafts and a new one */
+.draft-steps-intro { margin: 0 0 18px; padding-left: 1.3em; color: var(--text-2); font-size: .92rem; display: grid; gap: 4px; }
+.draft-new .field { margin-bottom: 12px; }
+.draft-input { font-family: var(--font-serif); font-size: 1.02rem; line-height: 1.55; min-height: 11em; }
+.draft-new .access-choice { margin-top: 6px; }
+.draft-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.draft-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); text-decoration: none; }
+.draft-row:hover { border-color: var(--accent); color: var(--text); }
+.draft-row .grow { display: flex; flex-direction: column; min-width: 0; }
+.draft-row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-row-counts { white-space: nowrap; }
+
+/* one draft: its setting and the two steps */
+.draft-setting { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: -6px 0 14px; }
+.draft-setting label { gap: 6px; }
+.draft-steps { display: grid; gap: 4px; margin-bottom: 18px; }
+.draft-step { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; }
+.draft-step + .draft-step { border-top: 1px solid var(--border); padding-top: 12px; }
+.draft-step h3 { margin: 0 0 2px; font-size: 1rem; }
+.draft-step p { margin: 0; }
+.draft-step > .btn { flex-shrink: 0; margin-top: 2px; }
+.draft-step-n { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: .85rem; background: var(--surface-3); color: var(--text-2); margin-top: 1px; }
+.draft-step-n.done { background: var(--ok-soft); color: var(--ok); }
+.draft-step .queue-notice { margin-top: 6px; }
+.draft-job { margin-top: 8px; }
+
+/* the board: the draft beside its claims */
+.draft-board { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+.draft-col-text { position: sticky; top: 12px; }
+.draft-text-wrap { position: relative; }
+.draft-text { white-space: pre-wrap; font-family: var(--font-serif); font-size: 1.04rem; line-height: 1.75; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 22px;
+  max-height: calc(100vh - 150px); overflow: auto; overflow-wrap: anywhere; }
+.draft-mark-btn { position: absolute; z-index: 5; box-shadow: var(--shadow); }
+
+/* a claim in the text: coloured by its answer, numbered like its card */
+mark.dm { color: inherit; border-radius: 3px; padding: 1px 1px; cursor: pointer; background: var(--accent-soft);
+  box-shadow: inset 0 -2px 0 var(--accent); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+mark.dm::after { content: attr(data-n); font-family: var(--font-ui); font-size: .62em; font-weight: 700; vertical-align: super;
+  line-height: 0; margin-left: 2px; color: var(--text-2); user-select: none; }
+mark.dm:hover, mark.dm:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+mark.dm.dm-picked { outline: 2px solid var(--focus); outline-offset: 1px; }
+.dm-supported { background: var(--ok-soft) !important; box-shadow: inset 0 -2px 0 var(--ok-line) !important; }
+.dm-partially_supported, .dm-uncertain { background: var(--partly-soft) !important; box-shadow: inset 0 -2px 0 var(--partly-line) !important; }
+.dm-contested { background: var(--mixed-soft) !important; box-shadow: inset 0 -2px 0 var(--mixed-line) !important; }
+.dm-contradicted, .dm-failed { background: var(--bad-soft) !important; box-shadow: inset 0 -2px 0 var(--bad-line) !important; }
+.dm-unsupported, .dm-no_passages { background: var(--none-soft) !important; box-shadow: inset 0 -2px 0 var(--none-line) !important; }
+.dm-waiting { background: var(--surface-3) !important; box-shadow: inset 0 -2px 0 var(--border-strong) !important; }
+mark.dm-skip { background: transparent !important; box-shadow: none !important; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+mark.dm-skip::after { color: var(--faint); }
+
+/* the claims */
+.draft-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.draft-claims { display: grid; gap: 10px; }
+.dc-card { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius-sm); padding: 12px 14px; }
+.dc-card.dc-picked { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+.dc-card.dc-supported { border-left-color: var(--ok-line); }
+.dc-card.dc-partially_supported, .dc-card.dc-uncertain { border-left-color: var(--partly-line); }
+.dc-card.dc-contested { border-left-color: var(--mixed-line); }
+.dc-card.dc-contradicted, .dc-card.dc-failed { border-left-color: var(--bad-line); }
+.dc-card.dc-unsupported, .dc-card.dc-no_passages { border-left-color: var(--none-line); }
+.dc-card.dc-waiting { border-left-color: var(--border-strong); }
+.dc-card.dc-skip { border-left-color: var(--border); opacity: .7; }
+.dc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 6px; }
+.dc-n { min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; border: 1px solid var(--border); font: inherit; font-size: .8rem;
+  font-weight: 700; color: var(--text); cursor: pointer; background: var(--accent-soft); }
+.dc-n:hover { border-color: var(--focus); }
+.dc-kind { font-size: .8rem; color: var(--muted); }
+.dc-chip { font-size: .74rem; padding: 1px 7px; background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); gap: 4px; }
+.dc-claim { margin: 0 0 4px; font-family: var(--font-serif); font-size: 1.04rem; line-height: 1.45; }
+.dc-quote { margin: 0 0 6px; }
+.dc-quote q { font-family: var(--font-serif); font-style: italic; }
+.dc-why { margin: 0 0 6px; }
+.dc-evidence { margin: 8px 0 4px; display: grid; gap: 8px; }
+.dc-side-label { display: flex; align-items: center; gap: 5px; font-size: .82rem; font-weight: 600; margin-bottom: 2px; }
+.dc-side-ok .dc-side-label { color: var(--ok); }
+.dc-side-partly .dc-side-label { color: var(--partly); }
+.dc-side-bad .dc-side-label { color: var(--bad); }
+.dc-docs { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.dc-doc { font-weight: 600; font-size: .92rem; }
+.dc-q { margin: 3px 0 0; padding: 2px 0 2px 10px; border-left: 2px solid var(--border-strong); font-family: var(--font-serif); font-size: .93rem;
+  color: var(--text-2); line-height: 1.45; }
+.dc-side-ok .dc-q { border-left-color: var(--ok-line); }
+.dc-side-partly .dc-q { border-left-color: var(--partly-line); }
+.dc-side-bad .dc-q { border-left-color: var(--bad-line); }
+.dc-advice { margin: 0; color: var(--text-2); }
+.dc-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.dc-edit { font-family: var(--font-serif); }
+a.btn.btn-sm:hover { color: var(--text); }
+
+@media (max-width: 1100px) {
+  .draft-board { grid-template-columns: minmax(0, 1fr); }
+  .draft-col-text { position: static; }
+  .draft-text { max-height: 60vh; }
+}
+@media (max-width: 640px) {
+  .draft-step { flex-wrap: wrap; }
+  .draft-step > .btn { margin-left: 38px; }
+  .draft-text { padding: 14px 14px; font-size: 1rem; }
+  .draft-row { flex-wrap: wrap; }
+  .draft-row-counts { white-space: normal; }
+}
+
+/* ==== m030: your decision on a claim of a draft (Margin 0.3) ==== */
+/* Margin 0.3: deciding on the claims of a draft. Supported, refuted or dismissed: the card folds to what matters and
+   the claim's highlight says a source should be cited there. On a wide window the draft and the claims scroll on
+   their own. After the m010 section and before Margin's look (m020). Colours come from the tokens of app.css, so
+   light and dark both work. */
+
+/* two panes that scroll on their own: the page scrolls until the board fills the window, then each pane scrolls */
+@media (min-width: 1101px) {
+  /* a small bottom margin, so the page cannot scroll the panes' headings away past the end of the board */
+  .view:has(.draft-board) { padding-bottom: 20px; }
+  .draft-col-text, .draft-col-claims { position: sticky; top: 12px; max-height: calc(100vh - 36px); display: flex;
+    flex-direction: column; min-height: 0; }
+  .draft-col-text > .section-title, .draft-col-claims > .section-title, .draft-filter { flex-shrink: 0; }
+  .draft-text-wrap { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .draft-text { max-height: none; min-height: 0; flex: 0 1 auto; }
+  .draft-claims { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; align-content: start;
+    padding: 2px 6px 14px 2px; margin: -2px -6px 0 -2px; scrollbar-gutter: stable; }
+}
+
+/* a whole card shows its sentence in the draft */
+.dc-card { cursor: pointer; transition: border-color .12s ease; }
+.dc-card:hover { border-top-color: var(--border-strong); border-right-color: var(--border-strong); border-bottom-color: var(--border-strong); }
+.dc-card.dc-picked:hover { border-top-color: var(--focus); border-right-color: var(--focus); border-bottom-color: var(--focus); }
+.dc-card textarea, .dc-card blockquote, .dc-card .dc-claim, .dc-card .dc-quote { cursor: text; }
+.dc-card.dc-folded .dc-claim { cursor: pointer; }
+
+/* the three decisions */
+.dc-decide { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.dc-decide-supported .icon { color: var(--ok); }
+.dc-decide-refuted .icon { color: var(--bad); }
+.dc-decide-dismissed .icon { color: var(--muted); }
+.dc-decide-btn[aria-pressed="true"].dc-decide-supported { background: var(--ok-soft); border-color: var(--ok-line); color: var(--ok); }
+.dc-decide-btn[aria-pressed="true"].dc-decide-refuted { background: var(--bad-soft); border-color: var(--bad-line); color: var(--bad); }
+.dc-decide-btn[aria-pressed="true"].dc-decide-dismissed { background: var(--surface-3); border-color: var(--border-strong); color: var(--text); }
+.dc-actions .dc-fold { margin-left: auto; }
+
+/* a card decided on, folded */
+.dc-card.dc-you-supported { border-left-color: var(--ok-line); }
+.dc-card.dc-you-refuted { border-left-color: var(--bad-line); }
+.dc-card.dc-folded { padding: 8px 12px 9px; }
+.dc-folded .dc-head { margin-bottom: 3px; flex-wrap: nowrap; }
+.dc-folded .dc-head > * { flex-shrink: 0; }
+.dc-folded .dc-head > .dc-ai { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dc-folded .dc-head > .grow { flex: 1 1 0; min-width: 0; }
+.dc-folded .dc-claim { margin: 0; font-size: .96rem; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dc-folded.dc-you-dismissed .dc-claim { color: var(--muted); }
+.dc-you { display: inline-flex; align-items: center; gap: 4px; font-size: .78rem; font-weight: 600; padding: 1px 8px 1px 6px; border-radius: 999px; border: 1px solid transparent; }
+.dc-you-badge-supported { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-line); }
+.dc-you-badge-refuted { background: var(--bad-soft); color: var(--bad); border-color: var(--bad-line); }
+.dc-you-badge-dismissed { background: var(--surface-2); color: var(--muted); border-color: var(--border); }
+.dc-ai { white-space: nowrap; }
+.dc-cite { margin: 5px 0 0; color: var(--text-2); }
+.dc-cite .icon { vertical-align: -2px; margin-right: 5px; color: var(--muted); }
+.dc-cite .dc-doc { font-size: .86rem; }
+.dc-n.dm-you-supported { background: var(--ok-soft) !important; border-color: var(--ok-line); }
+.dc-n.dm-you-refuted { background: var(--bad-soft) !important; border-color: var(--bad-line); }
+
+/* its highlight in the draft: no fill, an underline, and a tag where the citation goes */
+mark.dm.dm-you { background: transparent !important; box-shadow: inset 0 -2px 0 var(--ok-line) !important; }
+mark.dm.dm-you-refuted { box-shadow: inset 0 -2px 0 var(--bad-line) !important; }
+mark.dm.dm-you::after { content: attr(data-n) " · " attr(data-cite); display: inline-block; vertical-align: .45em; line-height: 1.25;
+  font-size: .64em; font-weight: 700; letter-spacing: .02em; margin-left: 3px; padding: 0 .5em; border-radius: 999px;
+  background: var(--ok-soft); color: var(--ok); border: 1px solid var(--ok-line); }
+mark.dm.dm-you-refuted::after { background: var(--bad-soft); color: var(--bad); border-color: var(--bad-line); }
+mark.dm.dm-you[data-cite="cited"]::after { background: var(--surface-2); color: var(--text-2); border-color: var(--border); }
+
+@media (max-width: 640px) {
+  .dc-folded .dc-head > .dc-ai { display: none; }
+}
+
+/* ==== m050: APA citations to paste from a draft (Margin 0.5) ==== */
+/* Margin 0.5: the APA 7 citation of a document to cite, on a button that copies it (views/drafts.js) */
+.dc-apa { display: inline-flex; align-items: center; gap: 5px; margin-left: 6px; padding: 1px 8px 1px 6px;
+  font: inherit; font-size: .8rem; line-height: 1.5; color: var(--accent-text); background: var(--accent-soft);
+  border: 1px solid transparent; border-radius: 6px; cursor: pointer; vertical-align: 1px; max-width: 100%; }
+.dc-apa:hover { border-color: var(--accent); color: var(--accent-strong); }
+.dc-apa:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dc-apa .icon { flex-shrink: 0; margin: 0 !important; color: inherit !important; vertical-align: 0 !important; }
+.dc-apa-text { overflow-wrap: anywhere; text-align: left; }
+.dc-apa-all { margin-left: 2px; }
+.dc-cite-line { margin: 0; }
+.dc-cite-line + .dc-cite-line { margin-top: 3px; }
+.dc-cite-docs { padding-left: 17px; }
+
+/* ==== m060: a draft's citations, checked against their sources (Margin 0.6) ==== */
+/* Margin 0.6: a draft's citations (Check a draft with ENLENS 0.13.7's Check citations). Colour tokens only, so the
+   light and dark themes both work. */
+
+/* step 3 */
+.draft-step-cite .draft-cite-link { margin: 4px 0 0; }
+
+/* a citation in the draft, underlined by its answer (inside a claim's mark, or between claims) */
+.dcit { text-decoration-line: underline; text-decoration-style: dotted; text-decoration-thickness: 2px; text-underline-offset: 3px;
+  text-decoration-color: var(--none-line); }
+.dcit-ok { text-decoration-style: solid; text-decoration-color: var(--ok); }
+.dcit-bad { text-decoration-style: wavy; text-decoration-color: var(--bad); }
+.dcit-partly { text-decoration-style: wavy; text-decoration-color: var(--partly); }
+.dcit-wait { text-decoration-color: var(--accent); }
+.dcit-blocked { text-decoration-color: var(--none); }
+.dcit-off { text-decoration-color: var(--faint); text-decoration-thickness: 1px; }
+
+/* a claim's own citations, on its card */
+.dc-cites { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.dc-cites .dc-side-label { color: var(--text-2); }
+.dc-cites-sub { font-weight: 400; }
+.dc-cite-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; }
+.dc-cite-item { padding-left: 10px; border-left: 2px solid var(--border-strong); }
+.dcit-item-ok { border-left-color: var(--ok-line); }
+.dcit-item-bad { border-left-color: var(--bad-line); }
+.dcit-item-partly { border-left-color: var(--partly-line); }
+.dc-cite-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.dc-cite-name { font-weight: 600; font-size: .9rem; overflow-wrap: anywhere; }
+.dc-cite-help { flex-basis: 100%; margin: 0; }
+.dc-cite-actions { margin-top: 3px; }
+.dc-cite-actions .link-btn { display: inline-flex; align-items: center; gap: 4px; }
+.dc-cite-own { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.dc-cite-own .dc-cite-name { font-size: inherit; }
+.chip.dcit-badge-blocked, .chip.dcit-badge-wait, .chip.dcit-badge-off { color: var(--text-2); }
+
+/* ==== m020: Margin's look: it restyles what the others draw, so it comes last (Margin 0.2) ==== */
+/* Margin 0.2: the Margin look. Paper and ink, serif titles, and a red margin rule as the one signature line.
+   Only the look changes: every page keeps its layout and controls. Colours are the tokens of app.css
+   (--accent is the ink blue, --rule the margin red, which is never used for a verdict). */
+
+::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* ---- type: serif titles, as on a printed page */
+h1, h2 { font-family: var(--font-serif); font-weight: 600; letter-spacing: 0; }
+h1 { font-size: 1.85rem; line-height: 1.2; }
+h2 { font-size: 1.22rem; line-height: 1.3; }
+.hero h1 { font-size: 2.3rem; }
+.page-sub { color: var(--text-2); font-size: 1rem; max-width: 52em; }
+
+/* the small line above a page title reads like a note in the margin */
+.eyebrow { text-transform: uppercase; letter-spacing: .1em; font-size: .7rem; font-weight: 700; color: var(--rule-text); }
+.fe-section { color: var(--rule-text); letter-spacing: .1em; }
+.eyebrow .ai-tag { text-transform: none; letter-spacing: 0; }
+.hero p.eyebrow { font-size: .7rem; color: var(--rule-text); }  /* the first screen: `.hero p` would win otherwise */
+
+/* page heads end on a hairline, like a running head */
+.page-head { padding-bottom: 18px; border-bottom: 1px solid var(--border); margin-bottom: 26px; }
+
+/* ---- the sidebar: a page edge with the margin rule */
+.sidebar { background: var(--bg-2); border-right: 1px solid color-mix(in srgb, var(--rule) 40%, var(--border)); }
+.brand img { border-radius: 0; }
+.brand-text strong { font-family: var(--font-serif); font-size: 1.42rem; font-weight: 600; letter-spacing: 0; line-height: 1.05; }
+.brand-text small { font-size: .72rem; margin-top: 2px; }
+.nav-group { text-transform: uppercase; letter-spacing: .1em; font-size: .66rem; font-weight: 700; color: var(--faint); }
+.nav a { border-radius: 6px; }
+.nav a[aria-current="page"] {
+  background: var(--surface); color: var(--text); font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--rule), 0 1px 2px rgba(20, 24, 40, .06);
+}
+.nav a[aria-current="page"] .nav-icon { color: var(--accent-text); }
+.project-switch summary, .privacy, .jobs summary { border-radius: 6px; }
+
+/* ---- controls: crisper corners, ink-blue primary */
+.btn { border-radius: 6px; font-weight: 600; }
+.btn-sm { border-radius: 5px; }
+.btn-primary { box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .18); }
+.icon-btn { border-radius: 6px; }
+.input, .select, .textarea { border-radius: 6px; }
+.dialog { border-radius: 10px; }
+.toast { border-radius: 8px; }
+
+/* ---- cards and tables */
+.card { box-shadow: var(--shadow); }
+.card > h2:first-child, .card > header h2 { margin-bottom: .25rem; }
+.ov-card-icon { border-radius: 7px; }
+.ov-card:hover { border-color: var(--accent); box-shadow: var(--shadow), inset 3px 0 0 var(--rule); }
+.table th { text-transform: uppercase; letter-spacing: .07em; font-size: .7rem; font-weight: 700; }
+
+/* ---- the first screens */
+.setup-step { border-radius: 6px; }
+
+/* ---- phone width */
+@media (max-width: 860px) {
+  .topbar { border-bottom-color: color-mix(in srgb, var(--rule) 40%, var(--border)); }
+  .brand-small { font-family: var(--font-serif); font-weight: 600; letter-spacing: 0; font-size: 1.12rem; }
+  h1 { font-size: 1.5rem; }
+  .hero h1 { font-size: 1.75rem; }
+  .page-head { padding-bottom: 14px; margin-bottom: 20px; }
+}
+/* a long button label wraps on a phone instead of widening the page */
+@media (max-width: 480px) {
+  .btn { white-space: normal; text-align: center; }
+}

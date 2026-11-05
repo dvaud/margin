@@ -1,4 +1,4 @@
-"""Margin, with ENLENS 0.13.7's Check citations: a draft's own citations, checked against the sources they cite.
+"""Margin 0.6, with ENLENS 0.13.7's Check citations: a draft's own citations, checked against the sources they cite.
 
 A draft's citations are found (without AI) when it is added, as an ENLENS text linked to the draft; drafts from before
 are linked when their page or Check citations opens. The draft page shows them as a third step, each underlined in the
@@ -263,7 +263,7 @@ def test_draft_citations_through_the_app(api, tmp_path, monkeypatch):  # noqa: F
 # the page
 # ---------------------------------------------------------------------------------------------
 def test_the_page_files():
-    from margin_static import styles_text
+    from margin_static import section, sections
 
     js = (STATIC / "views" / "drafts.js").read_text(encoding="utf-8")
     for s in ("Check your citations against their sources", "Review every citation", "function citeBlock(c)",
@@ -275,8 +275,8 @@ def test_the_page_files():
         assert s in view, s
     features = (STATIC / "features.js").read_text(encoding="utf-8")
     assert 'section: "write", title: "Check citations"' in features
-    styles = styles_text()
-    assert styles.index("/static/m050.css") < styles.index("/static/unreleased.css") < styles.index("/static/m020.css")
-    css = (STATIC / "unreleased.css").read_text(encoding="utf-8")
+    order = sections()  # its section of margin.css: after the APA citations', before Margin's look
+    assert order.index("m050") < order.index("m060") < order.index("m020")
+    css = section("m060")
     assert ".dcit-bad" in css and ".dc-cites" in css
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css)  # colour tokens only: light and dark both work

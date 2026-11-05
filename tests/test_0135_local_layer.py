@@ -48,10 +48,12 @@ def test_the_helper_catches_a_sheet_after_site_css():
 
 
 def test_site_css_holds_margins_look():
-    """Margin fills the local layer: site.css imports Margin's tokens, then Margin's own sheets."""
+    """Margin fills the local layer: site.css imports margin.css (Margin 0.6: all of Margin's CSS in one sheet,
+    its tokens first)."""
     css = (STATIC / "site.css").read_text(encoding="utf-8")
     imports = re.findall(r'@import url\("/static/([^"]+)"\);', css)
-    assert imports[0] == "m-tokens.css" and imports[-1] == "m020.css" and "never edit" in css
+    assert imports == ["margin.css"] and "never edit" in css
+    assert (STATIC / "margin.css").read_text(encoding="utf-8").split("==== m-tokens:", 1)[1].count("--rule:") == 3
     for f in imports:
         assert (STATIC / f).is_file(), f
 

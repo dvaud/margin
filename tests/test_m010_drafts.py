@@ -13,7 +13,7 @@ from test_app import api, home  # noqa: F401  (fixtures)
 
 from margin import access, claimcheck, drafts, taskqueue, tasks
 from margin.llm import BaselineBackend
-from margin_static import styles_text
+from margin_static import section, styles_text
 
 STATIC = Path(__file__).resolve().parent.parent / "src" / "margin" / "gui" / "static"
 
@@ -264,14 +264,14 @@ def test_the_api_of_drafts(api, corpus):  # noqa: F811
 
 def test_the_page_files(api):  # noqa: F811
     index = (STATIC / "index.html").read_text()
-    assert "/static/m010.css" in styles_text() and 'data-route="drafts"' in index
-    css = (STATIC / "m010.css").read_text()
+    assert "/static/margin.css" in styles_text() and 'data-route="drafts"' in index
+    css = section("m010")  # its section of margin.css (m010.css until Margin 0.6)
     assert "#" not in css.split("*/", 1)[1]  # colour tokens only, no fixed colours
     js = (STATIC / "views" / "drafts.js").read_text()
     assert "export async function renderDrafts(" in js and "export async function renderDraft(" in js
     assert "./views/drafts.js" in (STATIC / "app.js").read_text()
     assert "drafts:" in (STATIC / "features.js").read_text()
-    for f in ("/static/m010.css", "/static/views/drafts.js"):
+    for f in ("/static/margin.css", "/static/views/drafts.js"):
         assert api("GET", f, token=False)[0] == 200, f
 
 

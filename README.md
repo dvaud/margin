@@ -1,8 +1,8 @@
 # Margin: write with your sources beside you
 
 Margin is a research and paper-writing companion: it finds the claims in your draft that need a source and shows
-which of your documents support or contradict each, helps you explore those documents, and checks a hypothesis
-against them, with every quote checked against the source. It runs on your computer, with Claude on your own plan or
+which of your documents support or contradict each, checks that the sources you cite say what you say, helps you
+explore those documents, and checks a hypothesis against them, with every quote checked against the source. It runs on your computer, with Claude on your own plan or
 a local model. It grew out of ENLENS, and can sit beside it on the same computer.
 
 ## Install
@@ -33,8 +33,9 @@ Used Margin on another computer? Choose *Import from another computer* on the fi
 
 ## Update
 
-From 0.2.1 on, click **Update Margin** at the bottom of the sidebar: Margin looks for a new version, installs it and
-restarts by itself (on Windows it says to use the install line). Or do it by hand:
+When a new version is out, **Update to 0.x.y** appears at the bottom of the sidebar (from 0.6, with a note in the
+corner the first time): click it and Margin installs the new version and restarts by itself (on Windows it says to
+use the install line). *Settings → Technical → Check for updates* looks at once. Or do it by hand:
 
 1. **Quit Margin** (*Quit Margin* at the bottom of the sidebar).
 2. **Get the new version:** in Terminal or PowerShell type `margin update`, or paste the install line again. On
@@ -44,21 +45,30 @@ restarts by itself (on Windows it says to use the install line). Or do it by han
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.5: APA citations to paste from your draft
+## New in 0.6: check your citations against their sources
 
-- **Copy a citation, paste it into your text.** With your Zotero bibliography on the *Bibliography* page, every
-  document a claim of your draft would cite has its APA 7 citation beside it, such as **(Verhoeven & Okafor, 2025)**.
-  Click it to copy it and paste it where the claim stands; Alt-click (Option-click on a Mac) copies *Verhoeven and
-  Okafor (2025)*. A claim you marked *supported* or *refuted* has one button for all its sources at once:
-  *(Adeyemi & Brandt, 2024; Verhoeven & Okafor, 2025)*.
-- **APA 7 as your reference list would write it:** *et al.* from three authors, *2024a* and *2024b* for the same
-  authors and year, *n.d.* without a year, and the title for a work without an author. The draft's Excel file has a
-  *Citation (APA 7)* column too. No AI and nothing sent anywhere: the citation is made from what Zotero holds.
+- **Does the source you cite say it?** When you add a draft, Margin also finds its citations, such as *(Verhoeven
+  & Okafor, 2025)*, *Lindqvist (2025) found that …* or *[3]* with a numbered reference list (no AI is used for
+  that). A third step on the draft page, **Check your citations against their sources**, checks each one against the
+  cited work's own document in your project, and no other: *Source accurate*, or a notice when the source says only
+  part of it, does not say it, or says otherwise, with the excerpt that shows why. You can overrule every answer.
+- **Seen where you write.** In your draft each citation is underlined by its answer (green: the source says it; wavy
+  red or amber: look at it), and the claim it stands for shows *Your citation* with its answer. So a cited claim
+  tells you both what all your documents say about it and whether your own source says it. The filter *Citation to
+  look at* gathers the ones to fix; the Excel file has *Your citations* and *What the cited source says*.
+- **Check citations** sits beside *Check a draft* under *Your writing*: every draft's citations are there, a text you
+  paste there is kept as a draft, and a citation whose work or document is missing says what it needs. Your draft's
+  AI setting applies to its citations' checks too.
+- **A model on this computer, without a terminal** (from ENLENS 0.13.7): *A model on this computer* (first screen or
+  *Settings → AI*) says how to get Ollama (free), notices when it starts, and downloads a model with one button.
+- **Updates that announce themselves:** the update button shows only when there is a new version, with its number.
 
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.5**: APA 7 citations to paste from your draft: every document a claim would cite has its citation on a
+  button that copies it, one for all of a claim's sources, as your reference list would write it.
 - **Margin 0.4**: your Zotero bibliography beside your documents (each work linked to its document, the works still
   to find, the PDFs Zotero keeps added in one go, proper titles); a result page you read at a glance and calmer
   pages everywhere; which Claude account answers; checks on Sonnet (from ENLENS 0.12 and 0.13).
@@ -120,12 +130,9 @@ icon. `MARGIN_LOCAL_ONLY=1` or `MARGIN_HOME=<folder>` before the line are built 
 `margin claude-setup` sets up Claude from a terminal, and `/margin-run <project>` in Claude Code answers a project's
 waiting work yourself.
 
-No Claude plan? Choose *A model on this computer* (first screen or *Settings → AI*):
-
-```bash
-ollama pull qwen3:8b             # any local chat model (Ollama, LM Studio, llama.cpp, Jan, vLLM all work)
-ollama pull nomic-embed-text     # optional: search by meaning as well as by words (bge-m3 for mixed languages)
-```
+No Claude plan? Choose *A model on this computer* (first screen or *Settings → AI*): get Ollama (free), open it,
+and *Download qwen3:8b* gets a model with one button (*Also nomic-embed-text* adds search by meaning). Other local
+model servers work too (LM Studio, llama.cpp, Jan, vLLM); from a terminal: `ollama pull qwen3:8b`.
 
 Installing it for someone else: the install line, on their account (*Quit Margin* in the app stops it);
 `MARGIN_LOCAL_ONLY=1` removes every option that sends text off the computer. Scanned PDFs need the program
