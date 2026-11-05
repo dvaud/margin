@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.1 (November 2026): how fast Claude Code works, models for your plan, and the Zotero works you choose
 
 From ENLENS 0.13.9 and 0.13.10, in Margin's names: a speed for Claude Code, recommended models that follow your
 Claude plan, and only the Zotero works you choose. (ENLENS 0.13.9's *remove a theme and find a new one in its place*

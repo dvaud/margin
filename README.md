@@ -59,6 +59,15 @@ instead? `margin update` pulls the new version (see *For developers*).
   and its source; small codebooks (30 codes or fewer) go to the AI whole with every passage, since a keyword search
   misses codes whose words are not in the text. A codebook can name its own directions.
 
+**0.9.1** (from ENLENS 0.13.9 and 0.13.10):
+- **Faster or slower.** *Slower · Normal · Faster* beside every *Start Claude Code* (and in Settings) sets how many
+  helpers Claude Code starts at once: one, two or four. Folded away under it, you can choose which helpers work in
+  one run.
+- **Models that suit your Claude plan.** The recommended model of each task now follows the plan Claude Code is
+  signed in with (Free, Pro, Max), found by itself; *Settings → Technical* shows it and lets you set it by hand.
+- **Only the Zotero works you choose.** On *Bibliography*, *Choose the works one by one* brings in just the works you
+  tick, even a single one, and *Update from Zotero* keeps them up to date.
+
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
