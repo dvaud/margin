@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.3 (November 2026): /margin-run waits for its helpers
 
 - **From ENLENS 0.14.2: the theme is a small icon beside Settings.** The *Theme: system* button at the foot of the
   sidebar no longer takes a row of its own: it is an icon at the end of the *Settings* row (a screen to follow your
@@ -19,7 +19,7 @@
   batch goes back to the queue as before), and has its own colour in Claude Code's list of agents. The run itself
   works at low effort: it only hands out work.
 - The skill reads its project and kind as named arguments, so a project name in quotes with spaces arrives whole.
-- Tests: `tests/test_unreleased_modern_skill.py`. `claude plugin validate` passes on the written plugin.
+- Tests: `tests/test_m0_12_3_modern_skill.py`. `claude plugin validate` passes on the written plugin.
 - **Not yet done:** not tried with a real signed-in Claude Code on a real queue (the tests use the stand-in). Kept
   on purpose: the skill stays at the plugin's root rather than in `skills/margin-run/`, which Claude Code still
   supports for a one-skill plugin and which keeps ENLENS syncs clean.

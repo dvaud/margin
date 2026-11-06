@@ -61,6 +61,11 @@ instead? `margin update` pulls the new version (see *For developers*).
 - **0.12.2: tidier claim cards.** The claims beside a draft no longer scroll sideways (one PDF quote without
   spaces used to widen every card and hide its right side). Each card now ends with *Your verdict* as one switch
   (*Supported | Refuted | Dismiss*), then plain links (*Find literature*, *Open the result*), with *Remove* apart.
+- **0.12.3: Claude Code runs that finish their work.** Current Claude Code starts helpers in the background, so a
+  run started from Margin's *Start Claude Code* could end before its helpers were done. `/margin-run` now waits for
+  them, always uses the model Margin names for each task (Fable for second opinions too, when switched on), and its
+  helpers no longer read your own `CLAUDE.md`. Run `margin claude-setup` once to take it into Claude Code. The theme
+  is now a small icon beside *Settings* (from ENLENS 0.14.2).
 
 Full notes: `CHANGELOG.md`.
 
