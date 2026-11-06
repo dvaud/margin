@@ -53,6 +53,11 @@ instead? `margin update` pulls the new version (see *For developers*).
   another, abbreviations used before they are spelt out, words spelt two ways, and claims a reader may find
   confusing ("This shows …", "probably … certainly", several claims in one sentence). Click a notice to see its
   sentences highlighted in your draft, or press *Not a problem* to set it aside.
+- **0.12.1: a local model that cannot freeze your computer.** When a document marked *Only a local AI* needs the
+  local model and there is not enough memory free, Margin no longer starts it: it says so, Claude's part of the
+  check finishes, and those excerpts wait (*Read them now*, or *Start it anyway*). While the local model reads,
+  the progress shows it, with Stop. The one-line install works on a Mac again (both from ENLENS 0.13.11 and
+  0.14.1).
 
 Full notes: `CHANGELOG.md`.
 

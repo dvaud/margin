@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.12.1 (November 2026): the local model waits for room, and the Mac install works again
+
+Two fixes from ENLENS, and one ENLENS feature Margin leaves out.
+
+### The local model shows itself, and waits for room (from ENLENS 0.13.11)
+
+Found in an ENLENS user test: with Claude Code as the AI, a check whose key document was marked *Only a local AI*
+loaded a 7.6 GB local model on a 16 GB Mac with 2.7 GB free, and the computer all but froze for minutes while the
+page said only *Waiting for Claude Code*.
+
+- **You see the local model at work.** While it reads its excerpts, the progress says so (*Your local model … is
+  reading 3 excerpts from documents marked Only a local AI, on this computer*), with what it is doing and Stop. A
+  check whose only waiting excerpts are the local model's says *Waiting for your local model* on the result, each
+  part, the Results list and the map.
+- **Not started without room for it.** Before the local model for restricted documents is loaded (Ollama), Margin
+  compares what it needs with the memory free. When it clearly cannot fit, it is not started and says why and what to
+  do; Claude's part of the check finishes and those excerpts wait. *Read them now* tries again, and *Start it anyway*
+  lets you decide.
+- **Memory given back.** A local model taking more than a third of the computer's memory is let go once it has read
+  (once per set, for *Check several*), instead of staying loaded for 15 minutes.
+
+Defects fixed on the way: taking waiting checks out of the queue removed a check whose local excerpts still waited,
+Claude's answers included; the progress said excerpts *were read on this computer* when no local model could be used;
+the steps of a queued check showed one poll late; a test could read your own `~/margin` settings.
+
+API: `POST …/hypotheses/<id>/read-local` takes `{"force": true}`; results carry `status_text` *Waiting for your
+local model*; jobs can end with `error_kind: "memory"`. `tools/dev_server.py --low-memory`.
+
+### The one-line install works on a Mac again (from ENLENS 0.14.1)
+
+Since 0.10.0 the one-line install stopped after its first step in most Mac Terminals: macOS's `sh` (bash 3.2) in a
+UTF-8 locale read the ellipsis after `$VERSION` as part of the name and ended with "unbound variable". `install.sh`
+is now plain ASCII. A failed install now ends as a failure, always removes its temporary folder, and stops at once on
+Ctrl-C. A git copy (`margin update`) was not affected.
+
+### Left out: working on a project together (ENLENS 0.14.0)
+
+ENLENS 0.14.0 lets colleagues each keep a copy of a project and bring in each other's work (per-person judgements and
+reviews, *sync clash* copies, `bring-in`). Margin is used by one person, so this is not needed for the foreseeable
+future: the merge records ENLENS 0.14.0 as seen and takes none of its changes (no `sync.py`, `people.py` or new
+tables), so later syncs bring in only ENLENS's later work. *Download as a zip* and *Import a project* stay as before.
+
+**Tests added.** `tests/test_0_13_11_local_memory.py` (17, from ENLENS): the progress names the local model on Claude
+Code and the Claude API; a queued check with no room ends once Claude Code is done, its local excerpts waiting, and
+*Read them now* refuses until *Start it anyway*; Stop leaves them waiting; a large model let go and a small one kept;
+a set loads the model once; withdrawing keeps a finished check; Ollama's memory check; *Waiting for your local model*
+everywhere it shows. `tests/test_0_14_1_mac_install.py` (from ENLENS): `install.sh` is ASCII, the install line piped
+into `sh` in UTF-8 locales, errors end as failures. Checked in the app with `tools/dev_server.py --mixed --claude-code
+--low-memory`: the result page while the local excerpt waits, in light and dark and at 390 px.
+
+**Not yet done.** Tried with stand-in models only; loading a real model with too little memory free was not repeated
+on purpose. A local model on LM Studio or another OpenAI-compatible server is not checked for memory. The install fix
+was tried for real on a Mac (macOS's `sh`, `en_US.UTF-8`, a scratch home folder, the release wheel): it installed.
+
 ## 0.12.0 (November 2026): your draft against itself
 
 A draft is now also read against itself, without AI: where it may contradict itself, what is inconsistent in it, and
