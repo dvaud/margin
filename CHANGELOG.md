@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 (November 2026): your draft against itself
+
+A draft is now also read against itself, without AI: where it may contradict itself, what is inconsistent in it, and
+the claims a reader may find confusing.
 
 ### Your draft against itself
 
@@ -27,7 +30,7 @@ about a second each, and four contradiction notices in all, each a pair worth a 
 
 API: `GET …/drafts/<d>/consistency`, `PUT …/drafts/<d>/notices/<key>`; table `draft_notices`.
 
-**Tests added.** `tests/test_unreleased_draft_itself.py` (18): opposite directions, "not" and "in-" opposites;
+**Tests added.** `tests/test_m0_12_0_draft_itself.py` (18): opposite directions, "not" and "in-" opposites;
 contrasts on purpose, a reported view, another place and two cited works left out; two numbers for one statement, two
 years left out; page numbers and captions not read as numbers; abbreviations used early or spelt out two ways (a
 heading and a PDF's stray space left out); spelling two ways, with names, the reference list, "large-scale" / "on a

@@ -45,20 +45,21 @@ use the install line). *Settings → Technical → Check for updates* looks at o
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.11: skim one document
+## New in 0.12: your draft against itself
 
-- **Skim a publication without setting up a project.** *Quick look at one document* now opens **Skim**, a one-page
-  report on the file: how long it takes to read, its abstract, what it sets out to do and what it says it found, the
-  sentences that carry most of its key terms, the claims it makes without a citation (its own data and results kept
-  apart), its sections, key terms, the works it cites most and its codes. Every sentence opens the document at its
-  place, and the report downloads as Markdown. Keep the quick look as a project, or let it go to the trash after a
-  week. *Skim* is also in the sidebar and on every document (*Skim it*). No AI is used.
-- **Find literature looks right again** on a computer screen: since 0.10 its styles applied only on a phone.
+- **See where your draft disagrees with itself.** *Check a draft* compared each claim with your documents; now a card
+  on the draft page also reads the draft against itself, without AI. It points out two sentences that say opposite
+  things or give two numbers for the same thing, a source passage that backs one of your claims and contradicts
+  another, abbreviations used before they are spelt out, words spelt two ways, and claims a reader may find
+  confusing ("This shows …", "probably … certainly", several claims in one sentence). Click a notice to see its
+  sentences highlighted in your draft, or press *Not a problem* to set it aside.
 
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.11**: *Skim*, a one-page report on one document made without AI, which a quick look now opens; Find
+  literature's styles back on a computer screen.
 - **Margin 0.10**: an outline to write from, made from your themes (sections with key terms, passages, sources to
   cite and where they disagree; beside a draft, what it still misses; Word or Markdown), and *Find literature* for
   claims no document backs, the works your documents cite, and saved searches, straight into Zotero.
