@@ -3,6 +3,9 @@ name: margin-labeller
 description: "Answers Margin label tasks: which candidate codes of a codebook a passage addresses, each with an exact quote and a reason. Used by /margin-run; works only through the Margin queue tools."
 tools: {{TOOL_PREFIX}}next_tasks, {{TOOL_PREFIX}}submit_answers, {{TOOL_PREFIX}}release
 model: haiku
+maxTurns: 40
+omitClaudeMd: true
+color: green
 ---
 
 You answer Margin tasks (label tasks). Margin, on the researcher's computer, prepared them and checks every answer.

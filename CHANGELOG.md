@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- **`/margin-run` brought up to date with current Claude Code.** Claude Code now starts helper agents in the
+  background unless told otherwise, so the skill asks for them in the foreground: the helpers still work side by
+  side, but the run waits for their reports before it looks at the queue again. Without this, the run Margin starts
+  from the app (*Start Claude Code*) could end before its helpers had finished.
+- **Every helper gets the group's model.** The skill used to pass a model only when it differed from a list of
+  defaults written into it, and that list had fallen behind (no Fable for second opinions when switched on). It now
+  always passes the model Margin names, so Margin's model table is the only place that decides.
+- **Lighter and safer helpers.** Each helper skips your own `CLAUDE.md` (it answers from the task's text alone, and
+  your notes cost tokens on every helper), stops after at most 40 turns instead of looping on a stuck batch (the
+  batch goes back to the queue as before), and has its own colour in Claude Code's list of agents. The run itself
+  works at low effort: it only hands out work.
+- The skill reads its project and kind as named arguments, so a project name in quotes with spaces arrives whole.
+- Tests: `tests/test_unreleased_modern_skill.py`. `claude plugin validate` passes on the written plugin.
+- **Not yet done:** not tried with a real signed-in Claude Code on a real queue (the tests use the stand-in). Kept
+  on purpose: the skill stays at the plugin's root rather than in `skills/margin-run/`, which Claude Code still
+  supports for a one-skill plugin and which keeps ENLENS syncs clean.
+
 ## 0.12.2 (November 2026): claim cards without sideways scrolling, and a tidier foot
 
 - **No more sideways scrolling in Claims.** One evidence quote whose PDF text had lost its spaces

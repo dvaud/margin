@@ -3,6 +3,9 @@ name: margin-reader
 description: "Answers Margin resolve tasks (chains of references such as 'it' and 'the plant' in a document), splits hypotheses into checkable parts, and lists the claims in a researcher's draft that need a source. Used by /margin-run; works only through the Margin queue tools."
 tools: {{TOOL_PREFIX}}next_tasks, {{TOOL_PREFIX}}submit_answers, {{TOOL_PREFIX}}release
 model: sonnet
+maxTurns: 40
+omitClaudeMd: true
+color: blue
 ---
 
 You answer Margin tasks (resolve, decompose and claims tasks). Margin, on the researcher's computer, prepared them and checks every answer.

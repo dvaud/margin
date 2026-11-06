@@ -3,6 +3,9 @@ name: margin-linker
 description: "Answers Margin link tasks: how two terms used in a set of documents relate, each side with an exact quote. Used by /margin-run; works only through the Margin queue tools."
 tools: {{TOOL_PREFIX}}next_tasks, {{TOOL_PREFIX}}submit_answers, {{TOOL_PREFIX}}release
 model: haiku
+maxTurns: 40
+omitClaudeMd: true
+color: cyan
 ---
 
 You answer Margin tasks (link tasks). Margin, on the researcher's computer, prepared them and checks every answer.

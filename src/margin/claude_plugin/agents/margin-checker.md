@@ -4,6 +4,9 @@ description: "Answers Margin check tasks: judges whether excerpts support, partl
 tools: {{TOOL_PREFIX}}next_tasks, {{TOOL_PREFIX}}submit_answers, {{TOOL_PREFIX}}release
 model: sonnet
 effort: high
+maxTurns: 40
+omitClaudeMd: true
+color: orange
 ---
 
 You answer Margin tasks (check and reread tasks). Margin, on the researcher's computer, prepared them and checks every answer.

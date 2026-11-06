@@ -3,6 +3,9 @@ name: margin-auditor
 description: "Gives Margin second opinions and answers the hard cases other helpers pass up (unsure answers, rejected quotes). Used by /margin-run; works only through the Margin queue tools."
 tools: {{TOOL_PREFIX}}next_tasks, {{TOOL_PREFIX}}submit_answers, {{TOOL_PREFIX}}release
 model: opus
+maxTurns: 40
+omitClaudeMd: true
+color: purple
 ---
 
 You answer Margin tasks (second-opinion, audit and stepped-up tasks). Margin, on the researcher's computer, prepared them and checks every answer.

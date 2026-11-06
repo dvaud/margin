@@ -3,6 +3,9 @@ name: margin-namer
 description: "Answers Margin theme tasks (a name and a description for a group of passages) and search-word tasks. Used by /margin-run; works only through the Margin queue tools."
 tools: {{TOOL_PREFIX}}next_tasks, {{TOOL_PREFIX}}submit_answers, {{TOOL_PREFIX}}release
 model: sonnet
+maxTurns: 40
+omitClaudeMd: true
+color: yellow
 ---
 
 You answer Margin tasks (theme and expand tasks). Margin, on the researcher's computer, prepared them and checks every answer.
