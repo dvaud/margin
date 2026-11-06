@@ -54,7 +54,7 @@ def test_the_css_uses_the_tokens_and_has_a_phone_layout():
     used = set(re.findall(r"var\((--[a-z0-9-]+)", block))
     assert used and used <= defined_tokens(), used - defined_tokens()
     assert not re.search(r"#[0-9a-fA-F]{3,6}\b", block)   # colours only through the tokens (light and dark)
-    assert "a.btn.dc-lit:hover" in block   # a link styled as a button keeps its hover colours
+    assert "a.dc-link:hover" in css   # the draft card's Find literature link has its own hover colours
 
 
 def test_every_endpoint_is_documented():

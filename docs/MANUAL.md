@@ -420,7 +420,7 @@ used as evidence.
    is restated as one self-contained sentence ("it" replaced by what it stands for), and says whether your draft
    already cites a source there. Without AI (a draft marked *No AI*, or *Only a local AI* with no local model chosen)
    rules find the likely ones instead, and the page says so.
-2. **Keep the ones you want checked.** *Dismiss claim* on one that is not a claim, *Reword* one before it is checked
+2. **Keep the ones you want checked.** *Dismiss* (under *Your verdict*) on one that is not a claim, *Reword* one before it is checked
    (what is checked is that wording), or select a sentence in the draft and press *Mark as a claim*. *Find again*
    finds the claims anew and keeps every one you checked, decided on, dismissed, reworded or marked.
 3. **Check them.** Each claim is checked against all the documents as a hypothesis of its own (one claim, no
@@ -428,8 +428,10 @@ used as evidence.
    answer, and each card lists the documents that support it, partly support it or contradict it, with the best quote
    and its place, and what to do next ("cite them", "your documents disagree: cite both sides"). *Open the result*
    gives the full result page, where you review the excerpts as for any check.
-4. **Decide on each claim (Margin 0.3).** Every card has three buttons: **Claim supported**, **Claim refuted** and
-   **Dismiss claim**. You can use them before or after a check. The card then folds to what you need: its number,
+4. **Decide on each claim (Margin 0.3).** At the foot of every card, *Your verdict* is one switch of three:
+   **Supported**, **Refuted** and **Dismiss** (press the chosen one again to take it back). Under it are the card's
+   links (*Find literature*, *Open the result*, or *Check this one* and *Reword* before a check), with *Remove* at
+   the far end. You can decide before or after a check. The card then folds to what you need: its number,
    your decision, the claim, and what to cite (the documents that support it, or the ones that contradict it, or
    *Your draft cites a source here*); *More* opens it again and *Undo* takes the decision back. In the draft, the
    sentence loses its colour fill and gets an underline (green for supported, red for refuted) with a small tag

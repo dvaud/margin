@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Claim cards: no sideways scrolling, and a tidier foot
+
+- **No more sideways scrolling in Claims.** One evidence quote whose PDF text had lost its spaces
+  ("Socialpracticetheoryseesthepractice…") could not wrap, and the claims column grew to fit it: every card became
+  wider than the pane and its right side (the status, the end of the claim) was cut off behind a sideways scrollbar.
+  The column now never grows past the pane, and a word too long for a card breaks where it has to.
+- **The card's buttons are sorted.** Six bordered buttons of equal weight sat in two loose rows. Now the foot of a
+  card has the verdict as one switch of three (*Your verdict: Supported | Refuted | Dismiss*; press the chosen one
+  again to take it back), then plain links for the ways on (*Find literature*, *Open the result*, or *Check this
+  one* and *Reword* before a check), with *Fold* and *Remove* quiet at the far end. On a phone the switch takes the
+  card's full width.
+- Tests: `tests/test_unreleased_claim_card.py`; `test_m0_10_0_literature_page.py` now checks the hover colours of the
+  Find literature link instead of the old button.
+- **Not yet done:** checked in the browser (light, dark, 390 px, with a copy of the Tovertafel project's draft that
+  showed the problem) but not on the Mac app window itself.
+
 ## 0.12.1 (November 2026): the local model waits for room, and the Mac install works again
 
 Two fixes from ENLENS, and one ENLENS feature Margin leaves out.

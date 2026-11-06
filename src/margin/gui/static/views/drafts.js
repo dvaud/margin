@@ -38,9 +38,9 @@ const SIDES = [["supports", "Supports it", "circle-check", "ok"], ["partly", "Pa
 const FILTERS = [["all", "All"], ["open", "To decide"], ["you_supported", "You: supported"], ["you_refuted", "You: refuted"], ["cite_notice", "Citation to look at"], ["unchecked", "Not checked"], ["supported", "Supported"], ["partially_supported", "Partly supported"], ["contested", "Mixed evidence"], ["contradicted", "Contradicted"], ["unsupported", "No evidence"], ["no_passages", "Nothing matched"], ["uncertain", "Uncertain"], ["waiting", "Waiting"], ["skip", "Dismissed"]];
 // the person's decisions on a claim (Margin 0.3); `side` is the evidence the folded card names as what to cite
 const DECIDE = {
-  supported: { label: "Claim supported", short: "You: supported", icon: "circle-check", side: "supports", cite: "Cite a source here", none: "Cite the source that supports it here." },
-  refuted: { label: "Claim refuted", short: "You: refuted", icon: "circle-x", side: "refutes", cite: "Cite or revise here", none: "Cite the source that contradicts it, or revise the sentence." },
-  dismissed: { label: "Dismiss claim", short: "Dismissed", icon: "x", title: "Not a claim that needs a source" },
+  supported: { label: "Claim supported", seg: "Supported", short: "You: supported", icon: "circle-check", side: "supports", cite: "Cite a source here", none: "Cite the source that supports it here." },
+  refuted: { label: "Claim refuted", seg: "Refuted", short: "You: refuted", icon: "circle-x", side: "refutes", cite: "Cite or revise here", none: "Cite the source that contradicts it, or revise the sentence." },
+  dismissed: { label: "Dismiss claim", seg: "Dismiss", short: "Dismissed", icon: "x", title: "Not a claim that needs a source" },
 };
 
 const ALT_CLICK = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "Option-click" : "Alt-click";
@@ -653,8 +653,7 @@ export async function renderDraft(view, [draftId], query) {
       selfLine(c),
       c.status ? evidence(c) : c.why && !c.skip ? h("p", { class: "muted small dc-why" }, c.why) : null,
       citeBlock(c),
-      decide(c),
-      foot(c));
+      h("div", { class: "dc-foot" }, decide(c), actions(c)));
     return clickToShow(card, c);
   }
 
@@ -714,12 +713,14 @@ export async function renderDraft(view, [draftId], query) {
             : h("a", { class: "it", href: `#/citations/${encodeURIComponent(tid)}?ref=${encodeURIComponent(r.ref_id)}` }, "What it needs", icon("arrow-right", { size: 12 })))))));
   }
 
-  // The person's decision: three buttons; the one chosen is pressed, and pressing it again takes it back.
+  // The person's decision: one switch of three; the one chosen is pressed, and pressing it again takes it back.
   function decide(c) {
-    const row = h("div", { class: "dc-decide", role: "group", "aria-label": `Your decision on claim ${c.n}` },
-      Object.entries(DECIDE).map(([k, d]) => h("button", { class: `btn btn-sm dc-decide-btn dc-decide-${k}`, type: "button", "aria-pressed": String(c.decision === k), title: d.title || null,
-        onClick: () => decideClaim(c, c.decision === k ? null : k) }, icon(d.icon, { size: 13 }), d.label)));
-    return row;
+    return h("div", { class: "dc-decide" },
+      h("span", { class: "dc-decide-label", "aria-hidden": "true" }, "Your verdict"),
+      h("div", { class: "dc-seg", role: "group", "aria-label": `Your verdict on claim ${c.n}` },
+        Object.entries(DECIDE).map(([k, d]) => h("button", { class: `dc-decide-btn dc-decide-${k}`, type: "button", "aria-pressed": String(c.decision === k),
+          title: `${d.label}${d.title ? `: ${d.title.toLowerCase()}` : ""}${c.decision === k ? " (press again to take it back)" : ""}`,
+          onClick: () => decideClaim(c, c.decision === k ? null : k) }, icon(d.icon, { size: 13 }), d.seg))));
   }
 
   async function decideClaim(c, decision) {
@@ -744,37 +745,34 @@ export async function renderDraft(view, [draftId], query) {
       c.waiting_for_you ? h("p", { class: "small dc-advice" }, icon("alert-circle", { size: 12 }), ` ${plural(c.waiting_for_you, "excerpt waits", "excerpts wait")} for your judgement on the result page.`) : null);
   }
 
-  // the card's own buttons, and Fold at the end for a claim decided on
-  function foot(c) {
-    const row = actions(c) || (c.decision ? h("div", { class: "dc-actions" }) : null);
-    if (c.decision) row.append(h("button", { class: "btn btn-sm btn-ghost dc-fold", type: "button", "aria-expanded": "true", title: "Fold the card again", onClick: () => { unfolded.delete(c.claim_id); drawList(numbered()); } }, icon("chevron-up", { size: 13 }), "Fold"));
-    return row;
-  }
-
   // Margin: a claim no document supports can be taken to Find literature (a draft kept on this computer cannot send its
   // words, so the link opens the page without them: the person types their own)
   function literatureLink(c) {
     if (c.skip || c.decision === "dismissed" || !["unsupported", "no_passages", "uncertain"].includes(c.status)) return null;
     const ok = data.draft.ai_access === "cloud";
-    return h("a", { class: "btn btn-sm dc-lit", href: ok ? `#/literature?draft=${encodeURIComponent(draftId)}&claim=${encodeURIComponent(c.claim_id)}` : "#/literature",
+    return h("a", { class: "dc-link dc-lit", href: ok ? `#/literature?draft=${encodeURIComponent(draftId)}&claim=${encodeURIComponent(c.claim_id)}` : "#/literature",
       title: ok ? "Search OpenAlex for works to cite. You see and edit the search words before anything is sent." : "This draft's AI setting keeps its words on this computer, so the search starts without them." }, icon("search", { size: 13 }), "Find literature");
   }
 
+  // The card's ways on, as quiet links under the verdict: the result and Find literature (or Check this one and Reword
+  // for a claim not checked yet), then Fold and Remove at the far end.
   function actions(c) {
     const row = h("div", { class: "dc-actions" });
     if (c.hyp_id) {
       const lit = literatureLink(c);
       if (lit) row.append(lit);
-      row.append(h("a", { class: "btn btn-sm", href: `#/h/${encodeURIComponent(c.hyp_id)}` }, "Open the result", icon("arrow-right", { size: 13 })));
-      row.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => removeClaim(c) }, "Remove"));
-      return row;
+      row.append(h("a", { class: "dc-link", href: `#/h/${encodeURIComponent(c.hyp_id)}` }, "Open the result", icon("arrow-right", { size: 13 })));
+    } else if (!c.skip) {
+      const docs = data.documents || 0;
+      row.append(h("button", { class: "btn btn-sm", type: "button", disabled: watchers.length > 0 || !docs, onClick: () => startJob("check", { claim_ids: [c.claim_id] }) }, icon("play", { size: 13 }), "Check this one"));
+      row.append(h("button", { class: "dc-link", type: "button", onClick: () => reword(c, row) }, icon("file-pen", { size: 13 }), "Reword"));
     }
-    if (c.skip) return c.source === "person" ? (row.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => removeClaim(c) }, "Remove")), row) : null;
-    const docs = data.documents || 0;
-    row.append(h("button", { class: "btn btn-sm", type: "button", disabled: watchers.length > 0 || !docs, onClick: () => startJob("check", { claim_ids: [c.claim_id] }) }, icon("play", { size: 13 }), "Check this one"));
-    row.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => reword(c, row) }, "Reword"));
-    if (c.source === "person") row.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => removeClaim(c) }, "Remove"));
-    return row;
+    const end = [
+      c.decision ? h("button", { class: "dc-link dc-link-quiet dc-fold", type: "button", "aria-expanded": "true", title: "Fold the card again", onClick: () => { unfolded.delete(c.claim_id); drawList(numbered()); } }, icon("chevron-up", { size: 13 }), "Fold") : null,
+      c.hyp_id || c.source === "person" ? h("button", { class: "dc-link dc-link-quiet dc-link-danger", type: "button", title: "Remove this claim", onClick: () => removeClaim(c) }, icon("trash", { size: 13 }), "Remove") : null,
+    ].filter(Boolean);
+    if (end.length) row.append(h("span", { class: "dc-actions-end" }, end));
+    return row.childNodes.length ? row : null;
   }
 
   function reword(c, row) {
