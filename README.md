@@ -58,6 +58,9 @@ instead? `margin update` pulls the new version (see *For developers*).
   check finishes, and those excerpts wait (*Read them now*, or *Start it anyway*). While the local model reads,
   the progress shows it, with Stop. The one-line install works on a Mac again (both from ENLENS 0.13.11 and
   0.14.1).
+- **0.12.2: tidier claim cards.** The claims beside a draft no longer scroll sideways (one PDF quote without
+  spaces used to widen every card and hide its right side). Each card now ends with *Your verdict* as one switch
+  (*Supported | Refuted | Dismiss*), then plain links (*Find literature*, *Open the result*), with *Remove* apart.
 
 Full notes: `CHANGELOG.md`.
 

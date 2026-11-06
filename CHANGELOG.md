@@ -1,8 +1,6 @@
 # Changelog
 
-## Unreleased
-
-### Claim cards: no sideways scrolling, and a tidier foot
+## 0.12.2 (November 2026): claim cards without sideways scrolling, and a tidier foot
 
 - **No more sideways scrolling in Claims.** One evidence quote whose PDF text had lost its spaces
   ("Socialpracticetheoryseesthepractice…") could not wrap, and the claims column grew to fit it: every card became
@@ -13,7 +11,7 @@
   again to take it back), then plain links for the ways on (*Find literature*, *Open the result*, or *Check this
   one* and *Reword* before a check), with *Fold* and *Remove* quiet at the far end. On a phone the switch takes the
   card's full width.
-- Tests: `tests/test_unreleased_claim_card.py`; `test_m0_10_0_literature_page.py` now checks the hover colours of the
+- Tests: `tests/test_m0_12_2_claim_card.py`; `test_m0_10_0_literature_page.py` now checks the hover colours of the
   Find literature link instead of the old button.
 - **Not yet done:** checked in the browser (light, dark, 390 px, with a copy of the Tovertafel project's draft that
   showed the problem) but not on the Mac app window itself.
