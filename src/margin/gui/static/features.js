@@ -24,6 +24,12 @@ export const FEATURES = {
     what: "Your Zotero library or a collection of it, matched with the documents: which works you have, which you still need to find, and which documents Zotero does not have.",
     overview: false,
   },
+  // Margin: a one-page report on one document, no AI; a quick look (one file, no project to set up) lands on it
+  skim: {
+    section: "explore", title: "Skim", icon: "eye", href: "#/skim", ai: "none",
+    what: "A one-page report on one document: what it sets out to do and says it found, its key sentences, the claims it makes without a citation and the works it cites most.",
+    use: "To skim a publication before deciding to read it, without setting up a project (Quick look).",
+  },
   search: {
     section: "explore", title: "Search", icon: "text-search", href: "#/search", ai: "none",
     what: "Every place a word or phrase occurs in the documents, one line per place, with the words around it.",

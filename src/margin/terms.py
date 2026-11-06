@@ -897,22 +897,33 @@ def set_link(ws: Workspace, a: str, b: str, decision: str, relation: str | None 
 # ---------------------------------------------------------------------------------------------
 def key_terms(ws: Workspace, doc_id: str | None = None, passage_id: str | None = None, n: int = 20) -> list[dict]:
     """The terms that characterise a document (or a passage) against the corpus: TF-IDF of its terms, with
-    sublinear term frequency; a term inside a longer one already chosen with as many mentions is left out."""
+    sublinear term frequency; a term inside a longer one already chosen with as many mentions is left out. In a
+    project of one document, the term frequency is weighed by the share of the document's passages it occurs in."""
     if bool(doc_id) == bool(passage_id):
         raise ValueError("Give a document or a passage.")
+    within = False
     if doc_id:
-        rows = ws.query("SELECT m.term_id, COUNT(*) AS tf, t.label, t.stems, t.df AS df FROM term_mentions m "
+        rows = ws.query("SELECT m.term_id, COUNT(*) AS tf, t.label, t.stems, t.df AS df, "
+                        "COUNT(DISTINCT m.passage_id) AS spread FROM term_mentions m "
                         "JOIN terms t ON t.term_id=m.term_id WHERE m.doc_id=? GROUP BY m.term_id", (doc_id,))
         total = int(ws.scalar("SELECT COUNT(DISTINCT doc_id) FROM term_mentions") or 1)
+        # Margin (skim): with one document there is nothing to contrast it with, and TF-IDF is only the count. A term
+        # that runs through the document says more about what it is about than one repeated in a single paragraph.
+        within = total <= 1
+        n_body = int(ws.scalar("SELECT COUNT(*) FROM passages WHERE doc_id=? AND section='body'", (doc_id,)) or 1)
     else:
         rows = ws.query("SELECT m.term_id, COUNT(*) AS tf, t.label, t.stems, t.passages AS df FROM term_mentions m "
                         "JOIN terms t ON t.term_id=m.term_id WHERE m.passage_id=? GROUP BY m.term_id", (passage_id,))
         total = int(ws.scalar("SELECT COUNT(*) FROM passages WHERE section='body'") or 1)
     scored = []
     for r in rows:
-        idf = math.log((1 + total) / (1 + r["df"])) + 1
+        st = r["stems"].split(" ")
+        if within:
+            w = math.sqrt(min(1.0, r["spread"] / n_body)) * (1 + 0.25 * (len(st) - 1))
+        else:
+            w = math.log((1 + total) / (1 + r["df"])) + 1
         scored.append({"term_id": r["term_id"], "label": r["label"], "mentions": r["tf"],
-                       "score": round((1 + math.log(r["tf"])) * idf, 3), "_st": r["stems"].split(" ")})
+                       "score": round((1 + math.log(r["tf"])) * w, 3), "_st": st})
     scored.sort(key=lambda x: (-x["score"], x["label"]))
     out: list[dict] = []
     for s in scored:

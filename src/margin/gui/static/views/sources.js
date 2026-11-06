@@ -413,8 +413,9 @@ export async function renderDocument(view, [docId], query) {
     d.file_title ? h("p", { class: "muted small dv-file-title", style: { margin: "4px 0 0" } }, "Title in the file: ", h("span", { class: "serif" }, d.file_title)) : null,
     h("div", { class: "row dv-head-row", style: { marginTop: "8px", gap: "8px 14px" } },
       originalLink(project, docId, hit >= 0 ? blocks[hit].page : null, d.kind, { info: d.original || undefined, quote: quoteText, text: d.kind === "pdf" ? (hit >= 0 && blocks[hit].page ? `Open the original PDF at page ${blocks[hit].page}` : "Open the original PDF") : quoteText ? "Open the original at the quote" : "Open the original" }),
-      copyBtn),
-    span ? h("p", { class: "muted small", style: { marginTop: "6px" } }, hit >= 0 ? (span.whole ? `The excerpt from the result is highlighted, in ${blocks[hit].label.toLowerCase()}.` : `The quote from the result is highlighted, in ${blocks[hit].label.toLowerCase()}.`) : "The quote could not be placed in this text.") : null)));
+      copyBtn,
+      h("a", { class: "it sk-doc-link", href: `#/skim/${encodeURIComponent(docId)}`, title: "A one-page report on this document: aims, findings, key sentences, claims and citations. No AI." }, icon("eye", { size: 13 }), "Skim it")),  // Margin
+    span ? h("p", { class: "muted small", style: { marginTop: "6px" } }, hit >= 0 ? (query.src === "skim" ? `The place from the skim is highlighted, in ${blocks[hit].label.toLowerCase()}.` : span.whole ? `The excerpt from the result is highlighted, in ${blocks[hit].label.toLowerCase()}.` : `The quote from the result is highlighted, in ${blocks[hit].label.toLowerCase()}.`) : "The quote could not be placed in this text.") : null)));
 
   // ----------------------------------------------------------------- the text, with layers of highlights
   const nodeAt = new WeakMap();        // text node -> document offset of its first character

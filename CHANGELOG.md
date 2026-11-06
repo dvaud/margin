@@ -1,5 +1,59 @@
 # Changelog
 
+## Unreleased
+
+### Skim one document
+
+For a publication you only want to skim: **Skim** (sidebar, first under *Explore the documents*; *Skim it* on every
+document) is a one-page report on one document, and a **quick look** now lands on it, so there is no project to set up
+(drop the file, read the report, keep or discard the quick look). Everything is made on this computer without AI
+(Level 0): rules, counts and the document's own words. Nothing in it needs the other documents.
+
+- **At a glance:** reading time, sections, works cited and claims without a citation; the abstract (under its heading,
+  or a line starting with *Abstract*, without the keywords).
+- **What it sets out to do, and what it says it found:** sentences in its own voice ("we", "this study", "our results
+  show", "we conclude"); a plan ("we will describe") is not a finding. *Check a draft* skips these on purpose; a skim
+  wants them first.
+- **Key sentences:** an extractive summary: the sentences carrying most of its key terms, at most two per section, in
+  reading order, with fewer that open with "it" or "they".
+- **Claims about the world:** *Check a draft*'s rules (numbers, causes, comparisons, what research found, general
+  claims), each with or without a citation. Those in its own abstract, data, methods or results are counted apart, as
+  its evidence rather than claims to source, so *No citation* lists what leans on nothing.
+- **Sections** with their length, **key terms**, the **works it cites most** (author-year and numbered citations), the
+  DOIs in its reference list (*Follow its citations* on Find literature), and its **codes** when a codebook is chosen.
+- Every item opens the document at its place, highlighted ("The place from the skim is highlighted"). *Markdown (.md)*
+  downloads the report as notes. In a quick look, *Ask it something* leads to *Check a hypothesis* and *Search*.
+- **Single-document versions.** Key terms in a project of one document were plain counts (TF-IDF has nothing to
+  contrast with); they are now weighed by how far a term runs through the document (the share of its passages), with
+  a little extra for longer terms. This also changes the *Key terms* panel of a quick look's document. Line breaks are
+  rebuilt from the layout the document was read with, so a sentence never runs across a heading (a text file is stored
+  with its breaks as spaces) and a PDF's line broken mid-sentence is one sentence. Passages the reading marked as
+  references or unreadable, and lines with a web address or DOI, are left out, and so are lines of a contents page,
+  figure captions, running heads glued to the text, rows of numbers and a footnote's number at a sentence's start
+  (found by trying it on the pilot's 300-page reports). "USD (2019)" is not read as a citation.
+- For developers: `src/margin/skim.py`, `GET /api/projects/<p>/documents/<id>/skim` and `…/skim.md` (`docs/API.md`),
+  `views/skim.js`, the feature `skim` in `features.js`, routes `#/skim` and `#/skim/<doc>`, a *skim* section in
+  `margin.css`. ENLENS candidate: the single-document weighting in `terms.key_terms`.
+
+**Defects fixed on the way.** The Outline section of `margin.css` (0.10.0) left its phone-width block unclosed, so
+every rule of *Find literature* after it applied only on screens 640 px wide or less: on a computer the page's tabs,
+privacy box, works and saved searches were unstyled. Closed; the Literature page now looks as designed at every width.
+
+**Tests added.** `tests/test_unreleased_skim.py` (12): a Markdown paper (abstract, aims and findings, no sentence across
+a heading, every item's place and text), key sentences spread over sections and in order, claims with its own results
+kept apart, works cited and the reference list, line breaks rebuilt, one document's key terms favouring a term that
+runs through it (and the corpus contrast back with a second document), a document with little text, the Markdown copy,
+the API with a quick look end to end, a PDF without headings whose reference entries and DOI line stay out, lines that
+are not sentences, and the page files and docs. `test_0_13_6_page_extensions.py` lists Skim among the Overview's *Explore* cards; `test_m0_10_0_literature_page.py` no longer
+expects 0.10.0 at the very top of the changelog.
+
+**Not yet done.** Tried on Markdown and on the suite's small PDFs, not on a range of real publications: heading
+detection in PDFs decides the sections and the abstract, and two-column layouts, footnotes or a reference list without
+a heading may leak into the lists. The own-voice rules are English only. Citations in footnote style (Chicago notes)
+are not read. Codes appear only when a codebook was chosen before the quick look (it runs the keyword pass then).
+Nothing is cached: the report is made again on each visit (about half a second for a 300-page report, less for a
+paper). On long reports without headings, key sentences and findings are noisier than on papers.
+
 ## 0.10.0 (November 2026): an outline from your themes, and finding literature
 
 Two parts of the roadmap (`docs/ROADMAP.md`), both without AI: **Outline** turns your themes into a plan to write

@@ -1895,6 +1895,8 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", rf"/api/projects/{P}/concepts/{P}", "get_concept"),
     ("POST", rf"/api/projects/{P}/concepts/{P}/wordings", "post_concept_wordings"),
     ("GET", rf"/api/projects/{P}/documents/{P}/terms", "get_document_terms"),
+    ("GET", rf"/api/projects/{P}/documents/{P}/skim", "get_document_skim"),   # Margin: skim one document
+    ("GET", rf"/api/projects/{P}/documents/{P}/skim\.md", "get_document_skim_md"),
     ("GET", rf"/api/projects/{P}/passages/{P}/terms", "get_passage_terms"),
     ("GET", rf"/api/projects/{P}/themes", "get_themes"),
     ("POST", rf"/api/projects/{P}/themes", "post_themes"),
@@ -3220,6 +3222,25 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler):
 
         ws = self.app.ws(name)
         return {**terms.key_term_spans(ws, doc_id, _int(q, "n", 15, 1, 50)), "status": terms.status(ws)}
+
+    # Margin: skim one document (no AI)
+    def _skim(self, name, doc_id, q):
+        from .. import skim
+
+        ws = self.app.ws(name)
+        if not ws.scalar("SELECT 1 FROM documents WHERE doc_id=?", (doc_id,)):
+            raise ApiError(404, "No such document.")
+        return skim.skim(ws, doc_id, _str(q, "framework") or self.app.settings().get("profile_framework") or None)
+
+    def get_document_skim(self, name, doc_id, q):
+        return self._skim(name, doc_id, q)
+
+    def get_document_skim_md(self, name, doc_id, q):
+        from .. import skim
+
+        r = self._skim(name, doc_id, q)
+        return self._send(200, skim.to_markdown(r).encode("utf-8"), "text/markdown; charset=utf-8",
+                          {"Content-Disposition": _disposition(_filename(f"Margin skim - {r['title'][:60]}", "md"))})
 
     def get_passage_terms(self, name, passage_id, q):
         from .. import terms

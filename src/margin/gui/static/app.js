@@ -23,6 +23,7 @@ import { renderBibliography } from "./views/bibliography.js";
 import { renderCitations } from "./views/citations.js";
 import { renderOutlines, renderOutline } from "./views/outline.js";
 import { renderLiterature } from "./views/literature.js";   // finding literature
+import { renderSkim, renderSkimIndex } from "./views/skim.js";   // skim one document
 
 const ROUTES = [
   [/^\/?$/, "overview", renderOverview],
@@ -41,6 +42,8 @@ const ROUTES = [
   [/^\/setup$/, "", renderSetup],
   [/^\/projects$/, "", renderProjects],
   // 0.7: explore the documents
+  [/^\/skim$/, "skim", renderSkimIndex],   // skim one document
+  [/^\/skim\/([^/]+)$/, "skim", renderSkim],
   [/^\/search$/, "search", renderSearch],
   [/^\/profile$/, "profile", renderProfile],
   [/^\/concepts$/, "concepts", renderConcepts],

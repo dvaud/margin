@@ -695,6 +695,15 @@ every answer they store records the model, its digest, the prompt version, the s
   `POST /api/projects/<p>/concepts/<term_id>/wordings` → job: the AI proposes other wordings the documents use.
 - `GET /api/projects/<p>/documents/<id>/terms?n=15` → key terms with their places (`spans`) for underlining;
   `GET /api/projects/<p>/passages/<id>/terms` → the key terms of one passage.
+  In a project of one document, a document's key terms are weighed by the share of its passages a term occurs in
+  (Margin: there is no other document to contrast it with).
+- (Margin) `GET /api/projects/<p>/documents/<id>/skim?framework=` → the one-page report on one document, made without
+  AI (`skim.py`): `facts {pages, words, minutes, sections, sentences}`, `documents_in_project`, `abstract`, `outline`
+  (`title, start, end, page, words, share, references`), `key_terms {basis: document|corpus, terms}`,
+  `key_sentences` (each with `terms`), `aims`, `findings`, `claims {total, own, others, cited, uncited, by_kind, kinds,
+  items, cut}` (each item `kind, why, cited, own`), `cited {markers, works, numbered_entries, top, dois,
+  references_at, references_page}` and `codes` (or null). Every item has `start, end, text, page, section`.
+  `GET /api/projects/<p>/documents/<id>/skim.md` → the same as Markdown, to download.
 
 #### Themes (F4)
 
@@ -800,7 +809,7 @@ or one of your own (`kind: "own"`). Sections nest three levels deep (`max_depth`
 #### Quick look and FlexiConc (F8)
 
 - `POST /api/quicklook?name=<file>` (raw body) → `{project, job}`: a temporary project for one document, opened at
-  once; `project.temporary = {created_at, expires_at, file, from}`. It goes to the trash after 7 days unless
+  once (Margin: the page then opens its skim report); `project.temporary = {created_at, expires_at, file, from}`. It goes to the trash after 7 days unless
   `POST /api/projects/<p>/keep`. Removing it (`DELETE /api/projects/<p>`) opens another project.
 - (Margin 0.8: not linked from the page, kept for ENLENS's projects) `GET /api/projects/<p>/flexiconc.sqlite?framework=` → the project in the FlexiConc layout of the Cross-Doc SDG
   Explorer: `documents`, `sentences` (with a code label, confidence and consensus), `chains`, `clusters` and, when

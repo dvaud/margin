@@ -602,8 +602,8 @@ the page says so.
 **Download.** *Word (.docx)* and *Markdown (.md)* give the outline as a document to write into: numbered headings,
 your notes, key terms, the citation, quotes with their place, where the sources disagree, gaps, and the sources named.
 
-**In a document.** Besides *Codes*: **Key terms** (the terms that set the document apart; point at one to underline it
-in the text), **References** (*Follow the references*: the AI reads the document three passages at a time and links
+**In a document.** Besides *Codes*: **Key terms** (the terms that set the document apart; in a project of one document, the terms that
+run through it; point at one to underline it in the text), **References** (*Follow the references*: the AI reads the document three passages at a time and links
 "it", "they" or "the study" to the name they stand for; select a name in the text to see every later mention), and
 **Search** in the document. *Download a highlighted copy* gives the PDF with highlights for the judgements, codes,
 concepts or references you choose (exact boxes with the `pdfminer` extra, whole lines otherwise, text recognition for
@@ -614,9 +614,38 @@ AI did not say, the excerpt is flagged *Check what the quote's first word refers
 excerpt, *Highlighted documents (.zip)* in the downloads, and *highlighted* under each document of the evidence map
 give the documents with the quotes marked.
 
-**Quick look.** *Quick look at one document* (on the start page, *Check a hypothesis*, and on *Manage projects*) reads one file into a
-temporary project and opens it at its key terms: search it, see its codes and references at once. A banner offers
-*Keep as a project* or *Discard now*; otherwise it goes to the trash after 7 days.
+**Quick look.** *Quick look at one document* (on the start page, on *Skim* and on *Manage projects*) reads one file
+into a temporary project and opens its *Skim* report (below): search it, see its codes and references at once. A banner
+offers *Keep as a project* or *Discard now*; otherwise it goes to the trash after 7 days.
+
+### Skimming one document (Margin)
+
+**Skim** (sidebar, first under *Explore the documents*; *Skim it* on any document) is a one-page report on one
+document, for a publication you want to skim before deciding to read it. A quick look lands on it, so there is no
+project to set up. It is made on this computer without AI (rules, counts and the document's own words), and needs no
+other document: what compares documents elsewhere has a single-document version here.
+
+- **At a glance:** reading time (the words before the reference list, at 230 a minute), sections, works cited, and
+  claims without a citation.
+- **Abstract:** under a heading *Abstract* or *Summary*, or a line starting with the word near the start; the keywords
+  after it are left out.
+- **What it sets out to do, and what it says it found:** sentences in its own voice ("we", "this study", "our results
+  show", "we conclude"). A plan ("we will describe") is not a finding. *Check a draft* leaves these sentences out on
+  purpose; here they come first.
+- **Key sentences:** the sentences that carry most of its key terms, at most two from a section, in reading order: a
+  summary in its own words. One that opens with "it" or "they" is chosen less often, since out of context the reader
+  cannot tell what it refers to.
+- **Claims about the world:** the statements of the kinds that usually need a source (numbers, causes and effects,
+  comparisons, what research found, general claims), by the rules of *Check a draft*, each marked with or without a
+  citation. Those in its own abstract, data, methods or results are kept apart: there a number is its evidence. The list
+  opens on *Without a citation*.
+- **Sections** with the words in each, **key terms** (with one document, weighed by how far each term runs through it,
+  since there is nothing to compare it with; in a larger project, against the other documents), the **works it cites
+  most** in its text, and the DOIs in its reference list (*Follow its citations* on *Find literature*), and its
+  **codes**, when a codebook is chosen.
+
+Every sentence opens the document at its place. *Markdown (.md)* downloads the report as notes to keep. In a quick look,
+*Ask it something* leads to *Check a hypothesis* (which uses the AI) and *Search*.
 
 ### The bibliography: Zotero (0.13)
 

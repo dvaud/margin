@@ -1,5 +1,5 @@
 // Quick look (F8): drop one document and read it at once (search, key terms, codes), in a temporary project that is
-// moved to the trash after a week unless it is kept.
+// moved to the trash after a week unless it is kept. Margin: it opens on Skim, the one-page report.
 import { App, api, h, icon, replace, toast, showError, dialog, confirmDialog, watchJob, P, navigate, fmt } from "../lib.js";
 import { simpleProgress } from "./progress.js";
 
@@ -41,7 +41,7 @@ export function quickLookBanner(box) {
 // "Quick look at one document": choose a file, it is read into a temporary project and opened.
 export function quickLookButton(opts = {}) {
   const input = h("input", { type: "file", accept: ".pdf,.docx,.html,.htm,.txt,.md", class: "visually-hidden" });
-  const btn = h("button", { class: opts.class || "btn", type: "button", title: "Read one document at once: search it, see its key terms and the codes it addresses, without setting up a project" },
+  const btn = h("button", { class: opts.class || "btn", type: "button", title: "Skim one document at once, without setting up a project: its aims, findings, key sentences and citations" },
     icon("eye", { size: 15 }), opts.text || "Quick look at one document");
   btn.addEventListener("click", () => input.click());
   input.addEventListener("change", () => { const f = input.files && input.files[0]; input.value = ""; if (f) startQuickLook(f); });
@@ -53,7 +53,7 @@ export async function startQuickLook(file) {
   const pb = h("div", {}, h("p", { class: "muted" }, `Copying ${file.name} (${fmt.bytes(file.size)})…`));
   let watcher = null, jobId = null;
   const done = dialog({
-    title: "Quick look", body: h("div", { class: "stack" }, h("p", {}, "The document is read into a temporary project of its own. You can search it, see its key terms and the codes it addresses at once."), pb),
+    title: "Quick look", body: h("div", { class: "stack" }, h("p", {}, "The document is read into a temporary project of its own, then skimmed: its aims and findings, key sentences, the claims it makes without a citation and the works it cites most. No AI."), pb),
     actions: [{ text: "Stop", value: null, onClick: async () => { if (jobId) await api("POST", `/api/jobs/${P(jobId)}/cancel`).catch(() => {}); } }],
   });
   try {
@@ -67,7 +67,7 @@ export async function startQuickLook(file) {
     if (job.state === "done") {
       const added = (job.result && job.result.documents_added) || [];
       if (!added.length) { toast("The document could not be read: it has no text (a scan without text recognition?).", "warn", { ttl: 9000 }); navigate("#/sources"); return; }
-      navigate(`#/doc/${encodeURIComponent(added[0].doc_id)}?tab=terms`);
+      navigate(`#/skim/${encodeURIComponent(added[0].doc_id)}`);  // Margin: the one-page report first
     } else if (job.state === "error") showError({ message: job.error, kind: job.error_kind });
   } catch (e) {
     const dlg = document.querySelector("#dialogs dialog");

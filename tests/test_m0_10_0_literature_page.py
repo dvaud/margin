@@ -81,4 +81,4 @@ def test_every_endpoint_is_documented():
 def test_the_dev_server_can_run_the_stand_ins():
     src = (ROOT / "tools" / "dev_server.py").read_text(encoding="utf-8")
     assert "--literature" in src and "fake_literature" in src and "no_created_filter" in src
-    assert "## 0.10.0" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")[:200]
+    assert "\n## 0.10.0 (" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")  # later work goes on top

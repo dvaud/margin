@@ -355,6 +355,63 @@ mark.dm.dm-you[data-cite="cited"]::after { background: var(--surface-2); color: 
 .dc-cite-own .dc-cite-name { font-size: inherit; }
 .chip.dcit-badge-blocked, .chip.dcit-badge-wait, .chip.dcit-badge-off { color: var(--text-2); }
 
+/* ==== skim: a one-page report on one document (no AI) ==== */
+.sk-meta { margin-top: 6px; }
+.sk-back { margin-left: 10px; }
+.sk-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 16px; }
+.sk-tile { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.sk-tile-n { font-size: 1.35rem; font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; }
+.sk-tile-label { color: var(--muted); font-size: .85rem; line-height: 1.3; }
+.sk-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.sk-main, .sk-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.sk-card { padding: 16px 18px; }
+.sk-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.sk-card-head h2 { margin: 0; font-size: 1.02rem; display: flex; align-items: center; gap: 7px; }
+.sk-card-head h2 .icon { color: var(--accent); flex: none; }
+.sk-sub { margin: 4px 0 10px; }
+.sk-card > .sk-card-head + :not(.sk-sub) { margin-top: 10px; }
+.sk-h3 { margin: 4px 0 0; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.sk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.sk-list > li { padding: 9px 0 9px 12px; border-left: 2px solid var(--border); }
+.sk-list > li + li { margin-top: 6px; }
+.sk-list > li:hover { border-left-color: var(--accent); }
+.sk-text { margin: 0; line-height: 1.55; color: var(--text); overflow-wrap: anywhere; }
+.sk-abstract { font-size: 1.02rem; }
+.sk-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; margin-top: 5px; }
+.sk-foot > .sk-where { margin-left: auto; }
+.sk-where { display: inline-flex; align-items: center; gap: 4px; font-size: .82rem; color: var(--muted); text-decoration: none; }
+.sk-where:hover { color: var(--accent-text); text-decoration: underline; }
+.sk-terms { font-style: italic; }
+.sk-seg { flex-wrap: wrap; }
+.sk-outline, .sk-cited, .sk-codes, .sk-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.sk-outline > li { padding: 5px 0; border-bottom: 1px solid var(--border); }
+.sk-outline > li:last-child { border-bottom: 0; }
+.sk-outline a { display: flex; gap: 8px; justify-content: space-between; color: var(--text); text-decoration: none; font-size: .92rem; }
+.sk-outline a:hover .sk-o-title { color: var(--accent-text); text-decoration: underline; }
+.sk-o-n { font-variant-numeric: tabular-nums; flex: none; }
+.sk-bar { display: block; height: 3px; margin-top: 4px; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
+.sk-bar > span { display: block; height: 100%; background: var(--accent); opacity: .55; }
+.sk-refs .sk-o-title { color: var(--muted); font-style: italic; }
+.sk-refs .sk-bar > span { background: var(--faint); }
+.sk-cited > li, .sk-codes > li { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.sk-cited > li:last-child, .sk-codes > li:last-child { border-bottom: 0; }
+.sk-cited a, .sk-codes a { display: flex; gap: 8px; align-items: baseline; flex: 1; min-width: 0; color: var(--text); text-decoration: none; overflow-wrap: anywhere; font-size: .92rem; }
+.sk-cited a:hover, .sk-codes a:hover { color: var(--accent-text); text-decoration: underline; }
+.sk-pick { padding: 6px 0; }
+.sk-docs > li + li { border-top: 1px solid var(--border); }
+.sk-docs a { display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: var(--text); text-decoration: none; }
+.sk-docs a:hover { background: var(--surface-2); }
+.sk-docs a:hover .serif { color: var(--accent-text); }
+.sk-doc-link { display: inline-flex; align-items: center; gap: 4px; }
+@media (max-width: 900px) {
+  .sk-grid { grid-template-columns: minmax(0, 1fr); }
+  .sk-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .sk-card { padding: 14px; }
+  .sk-seg { display: flex; flex-direction: column; width: 100%; }
+}
+
 /* ==== m020: Margin's look: it restyles what the others draw, so it comes last (Margin 0.2) ==== */
 /* Margin 0.2: the Margin look. Paper and ink, serif titles, and a red margin rule as the one signature line.
    Only the look changes: every page keeps its layout and controls. Colours are the tokens of app.css
@@ -524,6 +581,7 @@ h2 { font-size: 1.22rem; line-height: 1.3; }
   .ol-body { padding-left: 14px; }
   .ol-tree .ol-tree { margin-left: 8px; padding-left: 8px; }
   .ol-ctls { margin-left: 0; width: 100%; }
+}
 
 /* ---- Find literature (online lookups, no AI): search, follow citations, saved searches */
 .lit { display: flex; flex-direction: column; gap: 14px; }
