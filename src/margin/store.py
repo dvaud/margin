@@ -151,6 +151,9 @@ CREATE TABLE IF NOT EXISTS draft_claims(claim_id TEXT PRIMARY KEY, draft_id TEXT
   edited INT DEFAULT 0, hyp_id TEXT, created_at TEXT);
 CREATE INDEX IF NOT EXISTS ix_draft_claims_draft ON draft_claims(draft_id, start);
 CREATE TABLE IF NOT EXISTS draft_sent(draft_id TEXT, route TEXT, task_id TEXT, sent_at TEXT, feature TEXT, chars INT);
+-- Margin: a notice about a draft read against itself (consistency.py) that the person set aside; `key` names the
+-- notice by its kind and the words of its places, so it stays aside while those words are the same
+CREATE TABLE IF NOT EXISTS draft_notices(draft_id TEXT, key TEXT, dismissed_at TEXT, PRIMARY KEY(draft_id, key));
 -- 0.13: the project's bibliography (a Zotero library or collection, or an exported file; see bibliography.py): its
 -- works, and which document each work is. status: 'auto' (the same file or DOI), 'probable' (the title, an author or
 -- the year on the first pages; a person confirms it), 'confirmed' or 'rejected' (a person's word, kept across matches)

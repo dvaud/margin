@@ -452,6 +452,28 @@ used as evidence.
    of the draft's citations keep the draft's AI setting, as its claims' checks do, and *Remove* removes them with the
    draft. The Excel and CSV files gain *Your citations* and *What the cited source says*.
 
+**Your draft against itself.** Between the steps and the draft, a card reads the draft against itself, without AI,
+using its sentences and what Margin already has for it (the claims, their checks, your decisions). It opens on what
+needs a look first:
+
+- **May contradict each other**: two sentences about the same thing that go opposite ways ("costs fell" and "costs
+  rose", "effective" and "ineffective") or where one says "not"; the same statement with two numbers ("grew by 40%"
+  and "grew by 25%"); one passage of a document that supports one claim and contradicts another; two claims that say
+  nearly the same thing but got opposite answers, or that you marked one supported and the other refuted.
+- **Inconsistent**: an abbreviation used before it is spelt out, or spelt out two ways; one word written two ways
+  ("organisation" and "organization", "data set" and "dataset").
+- **May confuse a reader**: a claim that opens with "This" or "These" and a verb ("This shows …"), one that is
+  careful and absolute at once ("probably … certainly"), and one long sentence holding several claims.
+
+Contrasts you draw on purpose are left out: a sentence opening with "However", "In contrast" and the like close by,
+a view you report in order to answer it ("Some argue …"), two different works cited for the two sides, sentences
+naming different things ("costs in Europe" and "costs in Japan"), or two different years. Your reference list is not
+read. Click a quoted place to highlight it, with the notice's other places, in your draft; a claim's card also names
+the notices it is in ("May contradict claim 6"), and clicking that opens the notice. **Not a problem** sets a notice
+aside; it stays aside while those sentences are the same, and *Show … set aside* brings it back. Each notice is a
+prompt to look, not a verdict: the rules are careful rather than complete, so a contradiction worded very differently
+is not found.
+
 **Citations to paste (Margin 0.5).** With a bibliography on the *Bibliography* page (your Zotero library or
 a collection, or a file exported from a reference manager), every document a claim would cite that is linked to a
 work of the bibliography has its APA 7 in-text citation next to it, such as **(Verhoeven & Okafor, 2025)**. Click it

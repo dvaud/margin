@@ -412,6 +412,50 @@ mark.dm.dm-you[data-cite="cited"]::after { background: var(--surface-2); color: 
   .sk-seg { display: flex; flex-direction: column; width: 100%; }
 }
 
+/* ==== self: your draft against itself (consistency.py, no AI) ==== */
+/* where the draft may contradict itself, what is inconsistent and what may confuse a reader, between the steps and
+   the draft; a place shown in the draft is highlighted with the CSS Custom Highlight API */
+.draft-self { margin-bottom: 18px; }
+.draft-self .section-title h2 { display: flex; align-items: center; gap: 6px; }
+.ds-intro { margin: 0 0 10px; }
+.ds-none { margin: 0; color: var(--ok); display: flex; align-items: center; gap: 4px; }
+.ds-groups { display: grid; gap: 8px; }
+.ds-group { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.ds-group > summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-weight: 600; list-style: none; }
+.ds-group > summary::-webkit-details-marker { display: none; }
+.ds-group > summary::after { content: "▸"; margin-left: auto; color: var(--muted); transition: transform .15s; }
+.ds-group[open] > summary::after { transform: rotate(90deg); }
+.ds-group > summary .count { color: var(--muted); font-weight: 500; }
+.ds-contradiction > summary { color: var(--bad); }
+.ds-inconsistency > summary { color: var(--partly); }
+.ds-unclear > summary { color: var(--text-2); }
+.ds-list { display: grid; gap: 0; border-top: 1px solid var(--border); max-height: 420px; overflow-y: auto; }
+.ds-note { padding: 10px 12px; border-top: 1px solid var(--border); transition: background .3s; }
+.ds-note:first-child { border-top: 0; }
+.ds-note.ds-flash { background: var(--accent-soft); }
+.ds-dismissed { opacity: .6; }
+.ds-text { margin: 0 0 6px; }
+.ds-places { display: grid; gap: 4px; }
+.ds-place { display: flex; gap: 8px; align-items: baseline; text-align: left; font: inherit; font-size: .9rem; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 5px 8px; cursor: pointer; }
+.ds-place:hover { background: var(--surface-3); border-color: var(--border-strong); }
+.ds-place:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.ds-place-n { flex: none; font-weight: 600; color: var(--text-2); font-size: .82rem; }
+.ds-place q { font-family: var(--font-serif); font-style: italic; overflow-wrap: anywhere; }
+.ds-actions { margin-top: 6px; }
+.ds-aside { margin-top: 8px; }
+.ds-on-claim { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.ds-chip { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: .82rem; cursor: pointer; border-radius: 999px;
+  padding: 2px 9px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); }
+.ds-chip:hover { background: var(--surface-3); color: var(--text); }
+.ds-chip-contradiction { border-color: var(--bad-line); background: var(--bad-soft); color: var(--bad); }
+.ds-chip-inconsistency { border-color: var(--partly-line); background: var(--partly-soft); color: var(--partly); }
+::highlight(draft-self) { background-color: var(--warn-soft); color: var(--text); text-decoration: underline 2px var(--warn); }
+@media (max-width: 600px) {
+  .ds-place { flex-direction: column; gap: 2px; }
+  .ds-list { max-height: none; }
+}
+
 /* ==== m020: Margin's look: it restyles what the others draw, so it comes last (Margin 0.2) ==== */
 /* Margin 0.2: the Margin look. Paper and ink, serif titles, and a red margin rule as the one signature line.
    Only the look changes: every page keeps its layout and controls. Colours are the tokens of app.css

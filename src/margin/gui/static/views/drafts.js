@@ -10,6 +10,8 @@
 // With ENLENS 0.13.7's Check citations: the draft's own citations are found when it is added (no AI), and a third
 // step checks each against the cited work's document only. A citation is underlined in the draft by its answer, and
 // the claim it stands for shows it: what the documents say (step 2) and whether your own source says it (step 3).
+// Margin: the draft read against itself, without AI (consistency.py): where it may contradict itself, what is
+// inconsistent (numbers, abbreviations, spelling) and what may confuse a reader, each with its places in the draft.
 import { featureEyebrow } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, statusBadge, confirmDialog, dialog, download, TERMINAL, runningJob, plural, session, queueNotice, navigate } from "../lib.js";
 import { ProgressPanel, jobCard } from "./progress.js";
@@ -57,6 +59,11 @@ const citeLook = (g) => CITE_LOOK[g] || "blocked";
 const citesOf = (c) => (c.citations || []).filter((r) => !r.ignored);
 const citeNotice = (c) => citesOf(c).some((r) => CITE_NOTICES.includes(r.group));
 const citeName = (r) => r.work || (r.raw.length > 60 ? `${r.raw.slice(0, 57)}…` : r.raw);
+// the draft read against itself: its groups, how each opens, and the short name of each kind of notice on a claim
+const SELF_GROUPS = [["contradiction", "alert-triangle", true], ["inconsistency", "arrows-opposed", false], ["unclear", "help", false]];
+const SELF_KIND = { opposite: "may contradict", numbers: "gives another number than", same_passage: "may contradict", answers_differ: "got another answer than",
+  pronoun: "Opens with “This …”", strength: "Careful and absolute at once", overloaded: "Several claims in one sentence" };
+const clip = (s, n = 140) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 // ---------------------------------------------------------------------------------------------
 // the list of drafts, and a new one
@@ -155,6 +162,9 @@ export async function renderDraft(view, [draftId], query) {
   let watchers = [];
   let refreshTimer = null;
   let alive = true;
+  let inner = null;           // the draft read against itself (GET …/consistency)
+  let showAside = false;     // the notices set aside, shown again
+  const openSelf = new Set(SELF_GROUPS.filter(([, , open]) => open).map(([g]) => g));
 
   const head = h("div");
   const setting = h("div", { class: "draft-setting" });
@@ -172,12 +182,131 @@ export async function renderDraft(view, [draftId], query) {
       h("div", { class: "section-title" }, h("h2", {}, "Your draft"), h("span", { class: "muted" }, "select a sentence to mark it as a claim")), textWrap),
     h("section", { class: "draft-col draft-col-claims", "aria-label": "Claims" },
       h("div", { class: "section-title" }, h("h2", {}, "Claims"), h("span", { class: "muted draft-claims-count" })), chips, list));
-  view.append(head, setting, steps, board);
+  const selfBox = h("section", { class: "card draft-self", "aria-label": "Your draft against itself", hidden: true });
+  view.append(head, setting, steps, selfBox, board);
 
   async function reload() {
     try { data = await api("GET", base); } catch (e) { if (e.status !== 404) showError(e); return; }
     if (!alive) return;
     drawAll();
+    loadSelf();
+  }
+
+  // --- the draft read against itself (no AI)
+  async function loadSelf() {
+    try { inner = await api("GET", `${base}/consistency`); } catch (_) { return; }
+    if (!alive) return;
+    drawSelf();
+    drawList(numbered());
+  }
+
+  const claimNo = (id) => data.claims.findIndex((c) => c.claim_id === id) + 1;
+
+  function drawSelf() {
+    if (!inner) return;
+    selfBox.hidden = false;
+    const open = inner.notices.filter((n) => !n.dismissed);
+    const shown = showAside ? inner.notices : open;
+    const intro = h("p", { class: "muted small ds-intro" }, `Without AI: where it may contradict itself, what is inconsistent, and what may confuse a reader. Read ${plural(inner.read.sentences, "sentence", "sentences")}${inner.read.checked ? ` and the checks of ${plural(inner.read.checked, "claim", "claims")}` : ""}. Each notice is a prompt to look, not a verdict.`);
+    const groups = SELF_GROUPS.map(([g, ic]) => {
+      const items = shown.filter((n) => n.group === g);
+      if (!items.length) return null;
+      const n = inner.counts[g] || 0;
+      const box = h("details", { class: `ds-group ds-${g}`, open: openSelf.has(g) },
+        h("summary", {}, icon(ic, { size: 14 }), h("span", { class: "ds-group-name" }, inner.groups[g]), h("span", { class: "count" }, String(n))),
+        h("div", { class: "ds-list" }, items.map(noteRow)));
+      box.addEventListener("toggle", () => { if (box.open) openSelf.add(g); else openSelf.delete(g); });
+      return box;
+    }).filter(Boolean);
+    const aside = inner.dismissed ? h("button", { class: "btn btn-sm btn-ghost ds-aside", type: "button", "aria-pressed": String(showAside), onClick: () => { showAside = !showAside; drawSelf(); } },
+      showAside ? "Hide the notices set aside" : `Show ${plural(inner.dismissed, "notice", "notices")} set aside`) : null;
+    replace(selfBox,
+      h("div", { class: "section-title" }, h("h2", {}, icon("arrows-opposed", { size: 16 }), "Your draft against itself"),
+        h("span", { class: "muted" }, open.length ? plural(open.length, "notice", "notices") : "")),
+      intro,
+      groups.length ? h("div", { class: "ds-groups" }, groups)
+        : h("p", { class: "ds-none small" }, icon("circle-check", { size: 14 }), " Nothing found: no contradictions, inconsistencies or unclear sentences that these rules can see."),
+      aside);
+  }
+
+  function noteRow(n) {
+    const places = n.places.map((p, i) => {
+      const no = p.claim_id ? claimNo(p.claim_id) : 0;
+      const b = h("button", { class: "ds-place", type: "button", title: "Show it in the draft" },
+        h("span", { class: "ds-place-n" }, no ? `Claim ${no}` : n.places.length > 1 ? `Place ${i + 1}` : "In the draft"),
+        h("q", {}, clip(p.quote)));
+      b.addEventListener("click", () => showPlaces(n, i));
+      return b;
+    });
+    const btn = n.dismissed
+      ? h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => setAside(n, false) }, "Show again")
+      : h("button", { class: "btn btn-sm btn-ghost", type: "button", title: "Set this notice aside: it stays aside while these sentences are the same", onClick: () => setAside(n, true) }, icon("x", { size: 13 }), "Not a problem");
+    return h("article", { class: `ds-note${n.dismissed ? " ds-dismissed" : ""}`, "data-key": n.key },
+      h("p", { class: "ds-text" }, n.text), h("div", { class: "ds-places" }, places), h("div", { class: "btn-row ds-actions" }, btn));
+  }
+
+  async function setAside(n, dismissed) {
+    try {
+      await api("PUT", `${base}/notices/${P(n.key)}`, { dismissed });
+      n.dismissed = dismissed;
+      inner.dismissed += dismissed ? 1 : -1;
+      if (inner.counts[n.group] != null) inner.counts[n.group] += dismissed ? -1 : 1;
+      drawSelf();
+      drawList(numbered());
+    } catch (e) { showError(e); }
+  }
+
+  // The places of a notice, highlighted in the draft; the one clicked is scrolled to (a claim's is also picked).
+  function rangeAt(start, end) {
+    const walker = document.createTreeWalker(textBox, NodeFilter.SHOW_TEXT);
+    const r = document.createRange();
+    let pos = 0, started = false;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const len = node.data.length;
+      if (!started && start <= pos + len) { r.setStart(node, Math.max(0, start - pos)); started = true; }
+      if (started && end <= pos + len) { r.setEnd(node, Math.max(0, end - pos)); return r; }
+      pos += len;
+    }
+    return started ? r : null;
+  }
+
+  function showPlaces(n, i) {
+    const ranges = n.places.map((p) => rangeAt(p.start, p.end)).filter(Boolean);
+    const target = rangeAt(n.places[i].start, n.places[i].end);
+    if (!target) return;
+    if (window.CSS && CSS.highlights && window.Highlight) CSS.highlights.set("draft-self", new Highlight(...ranges));
+    else { const sel = document.getSelection(); sel.removeAllRanges(); sel.addRange(target); }
+    const id = n.places[i].claim_id;
+    if (id) {  // its claim card is picked too, without moving the claims
+      picked = id;
+      for (const m of textBox.querySelectorAll("mark.dm")) m.classList.toggle("dm-picked", m.dataset.id === id);
+      for (const el of list.querySelectorAll(".dc-card")) el.classList.toggle("dc-picked", el.dataset.id === id);
+    }
+    reveal(textBox, { getBoundingClientRect: () => target.getBoundingClientRect(),
+      scrollIntoView: (o) => window.scrollBy({ top: target.getBoundingClientRect().top - innerHeight / 2, behavior: o.behavior }) });
+  }
+
+  // On a claim's card: the notices it is in (the other claim it may contradict, or why it may confuse a reader).
+  function selfLine(c) {
+    if (!inner) return null;
+    const mine = inner.notices.filter((n) => !n.dismissed && n.places.some((p) => p.claim_id === c.claim_id));
+    if (!mine.length) return null;
+    return h("div", { class: "ds-on-claim small" }, mine.slice(0, 3).map((n) => {
+      const other = n.places.find((p) => p.claim_id !== c.claim_id);
+      const label = n.group === "unclear" ? SELF_KIND[n.kind]
+        : n.group === "contradiction" ? `${SELF_KIND[n.kind][0].toUpperCase()}${SELF_KIND[n.kind].slice(1)} ${other && other.claim_id ? `claim ${claimNo(other.claim_id)}` : "another sentence of your draft"}`
+        : n.text.split(". ")[0];
+      return h("button", { class: `ds-chip ds-chip-${n.group}`, type: "button", title: n.text, onClick: () => showNote(n) },
+        icon(n.group === "unclear" ? "help" : n.group === "contradiction" ? "alert-triangle" : "arrows-opposed", { size: 12 }), label);
+    }));
+  }
+
+  function showNote(n) {
+    openSelf.add(n.group);
+    drawSelf();
+    const el = selfBox.querySelector(`.ds-note[data-key="${CSS.escape(n.key)}"]`);
+    if (el) { el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); el.classList.add("ds-flash"); setTimeout(() => el.classList.remove("ds-flash"), 1600); }
+    showPlaces(n, 0);
   }
 
   function drawAll() {
@@ -521,6 +650,7 @@ export async function renderDraft(view, [draftId], query) {
         c.status ? statusBadge(c.status, { short: true }) : h("span", { class: "muted small" }, c.skip ? "Dismissed" : "Not checked yet")),
       h("p", { class: "dc-claim" }, c.claim),
       differs(c) ? h("p", { class: "dc-quote muted small" }, "In your draft: ", h("q", {}, c.quote.replace(/\s+/g, " "))) : null,
+      selfLine(c),
       c.status ? evidence(c) : c.why && !c.skip ? h("p", { class: "muted small dc-why" }, c.why) : null,
       citeBlock(c),
       decide(c),
@@ -709,6 +839,7 @@ export async function renderDraft(view, [draftId], query) {
   });
 
   drawAll();
+  loadSelf();
 
   // a job of this draft that is running (or the one this page was opened with)
   const active = query.job ? await api("GET", `/api/jobs/${P(query.job)}`).catch(() => null) : null;
@@ -722,6 +853,7 @@ export async function renderDraft(view, [draftId], query) {
     for (const w of watchers) w.stop();
     clearInterval(refreshTimer);
     document.removeEventListener("selectionchange", selListener);
+    if (window.CSS && CSS.highlights) CSS.highlights.delete("draft-self");
   };
 }
 

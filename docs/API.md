@@ -985,6 +985,20 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
   *How these results were made*.
 - `GET /api/projects/<p>/hypotheses/<h>` and the Results list carry `draft_id`; `GET /api/projects/<p>/overview`
   carries `drafts`.
+- `GET /api/projects/<p>/drafts/<d>/consistency?threshold=` → the draft read against itself, without AI
+  (`consistency.py`): `{"draft_id", "notices": [{"key", "kind", "group", "text", "places": [{"start", "end" (offsets
+  in the draft's text), "quote", "claim_id" (the claim the place is, or null)}], "dismissed"}], "groups": {group:
+  heading}, "counts": {group: notices not set aside}, "open", "dismissed", "read": {"sentences", "claims",
+  "checked"}}`. Groups and kinds: `contradiction` (`opposite`: two sentences about the same thing going opposite ways
+  or one saying "not"; `numbers`: the same statement with two numbers; `same_passage`: one passage counted for one
+  claim and against another; `answers_differ`: two nearly identical claims with opposite answers or decisions),
+  `inconsistency` (`abbrev_late`, `abbrev_twice`, `spelling`), `unclear` (`pronoun`: "This …" and a verb;
+  `strength`: hedged and absolute at once; `overloaded`: several claims in one long sentence; read for the claims kept
+  and the sentences rules would pick). The reference list is not read. At most 40 notices of a kind (25 of an
+  `unclear` kind). 404 for a missing draft.
+- `PUT /api/projects/<p>/drafts/<d>/notices/<key>` `{"dismissed": true | false}` → `{"key", "dismissed"}`: set a
+  notice aside ("not a problem") or bring it back. `key` names the notice by its kind and the words of its places, so
+  it stays aside while those words are the same. 400 for a key that is not one.
 
 ### ENLENS's projects (Margin 0.1)
 

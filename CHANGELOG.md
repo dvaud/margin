@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased
+
+### Your draft against itself
+
+Check a draft compared each claim with the documents, but never the draft with itself: two sentences saying opposite
+things, or the same figure given twice, went unnoticed unless a document happened to contradict one of them. A new
+card on the draft page now reads the draft against itself, **without AI** (`consistency.py`), from its sentences and
+what Margin already has for it: the claims found, their checks and your decisions.
+
+- **May contradict each other**: two sentences about the same thing going opposite ways ("fell" / "rose",
+  "effective" / "ineffective") or one saying "not"; the same statement with two numbers; one passage of a document
+  counted for one claim and against another; two nearly identical claims with opposite answers or opposite
+  decisions.
+- **Inconsistent**: an abbreviation used before it is spelt out, or spelt out two ways; one word written two ways
+  (UK and US spelling, "data set" / "dataset").
+- **May confuse a reader**: a claim opening with "This …" and a verb, one hedged and absolute at once, several claims
+  in one long sentence.
+
+Contrasts drawn on purpose are left out ("However, …" close by, a view reported to be answered, two works cited for
+the two sides, sentences naming different things, two different years), and so are the reference list, figure and
+table captions, page headers, and a PDF's split words and removed line-break hyphens. Clicking a place highlights it
+and the notice's other places in the draft; a claim's card names the notices it is in. **Not a problem** sets a
+notice aside, and it stays aside while those sentences are the same. Tried on eight 40,000-word reports from PDFs:
+about a second each, and four contradiction notices in all, each a pair worth a second look.
+
+API: `GET …/drafts/<d>/consistency`, `PUT …/drafts/<d>/notices/<key>`; table `draft_notices`.
+
+**Tests added.** `tests/test_unreleased_draft_itself.py` (18): opposite directions, "not" and "in-" opposites;
+contrasts on purpose, a reported view, another place and two cited works left out; two numbers for one statement, two
+years left out; page numbers and captions not read as numbers; abbreviations used early or spelt out two ways (a
+heading and a PDF's stray space left out); spelling two ways, with names, the reference list, "large-scale" / "on a
+large scale" and PDF artefacts left out; the three kinds of unclear claim, and the sentences rules pick before any
+claim is found; opposite decisions; one passage on both sides of two checked claims; setting a notice aside, finding
+it again and removing it with the draft; a 2,500-sentence draft; the API; the page files.
+
+**Not yet done.** No AI reading of the pairs the rules find, or of contradictions worded too differently for them
+(a local model would be the next level up). Abbreviations never spelt out are not flagged (too many are common
+knowledge). The notices are not in the Excel or CSV download.
+
 ## 0.11.0 (November 2026): skim one document
 
 Skim, a one-page report on one document that a quick look now lands on, made without AI; and Find literature's

@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .. import __version__, access, addons, bibliography, citations, claimcheck, drafts, embed, frameworks, home, ingest, taskqueue
+from .. import __version__, access, addons, bibliography, citations, claimcheck, consistency, drafts, embed, frameworks, home, ingest, taskqueue
 from .. import tasks as tasks_mod
 from .. import llm
 from ..llm import BackendError, detect_local
@@ -1956,6 +1956,8 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("PUT", rf"/api/projects/{P}/drafts/{P}/claims/{P}", "put_draft_claim"),
     ("DELETE", rf"/api/projects/{P}/drafts/{P}/claims/{P}", "delete_draft_claim"),
     ("GET", rf"/api/projects/{P}/drafts/{P}/export\.(csv|xlsx)", "get_draft_export"),
+    ("GET", rf"/api/projects/{P}/drafts/{P}/consistency", "get_draft_consistency"),
+    ("PUT", rf"/api/projects/{P}/drafts/{P}/notices/{P}", "put_draft_notice"),
     # 0.13: the bibliography (Zotero, read on this computer, or an exported file)
     ("GET", r"/api/zotero", "get_zotero"),
     ("GET", r"/api/zotero/collections", "get_zotero_collections"),
@@ -2828,6 +2830,16 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler):
     def delete_draft_claim(self, name, draft_id, claim_id, q):
         drafts.remove_claim(self.app.ws(name), draft_id, claim_id)
         return {"deleted": claim_id}
+
+    def get_draft_consistency(self, name, draft_id, q):
+        """Margin: the draft read against itself, without AI (consistency.py)."""
+        return consistency.review(self.app.ws(name), draft_id,
+                                  _float(q, "threshold", self.app.settings()["threshold"]))
+
+    def put_draft_notice(self, name, draft_id, key, q):
+        body = self._body()
+        consistency.set_dismissed(self.app.ws(name), draft_id, key, bool(body.get("dismissed", True)))
+        return {"key": key, "dismissed": bool(body.get("dismissed", True))}
 
     def get_draft_export(self, name, draft_id, fmt, q):
         ws = self.app.ws(name)

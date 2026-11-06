@@ -155,6 +155,7 @@ def delete(ws: Workspace, draft_id: str) -> dict:
         for tbl in ("results", "tasks"):
             cx.execute(f"DELETE FROM {tbl} WHERE task_id LIKE ?", (f"claims:{draft_id}:%",))
         n = cx.execute("DELETE FROM draft_claims WHERE draft_id=?", (draft_id,)).rowcount
+        cx.execute("DELETE FROM draft_notices WHERE draft_id=?", (draft_id,))
         cx.execute("DELETE FROM drafts WHERE draft_id=?", (draft_id,))
     return {"deleted": draft_id, "claims": n, "checks": len(hyps)}
 
