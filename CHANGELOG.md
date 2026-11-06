@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **From ENLENS 0.14.2: the theme is a small icon beside Settings.** The *Theme: system* button at the foot of the
+  sidebar no longer takes a row of its own: it is an icon at the end of the *Settings* row (a screen to follow your
+  computer, a sun for light, a moon for dark). A click moves to the next one, as before; the tooltip says which is in
+  use. On a short window the sidebar's foot needs one row less. Checked in light, dark and at phone width: Margin's
+  paper look still wins. Tests: `tests/test_0_14_2_theme_icon.py`.
 - **`/margin-run` brought up to date with current Claude Code.** Claude Code now starts helper agents in the
   background unless told otherwise, so the skill asks for them in the foreground: the helpers still work side by
   side, but the run waits for their reports before it looks at the queue again. Without this, the run Margin starts
