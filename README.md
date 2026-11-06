@@ -45,24 +45,23 @@ use the install line). *Settings → Technical → Check for updates* looks at o
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.10: an outline from your themes, and finding literature
+## New in 0.11: skim one document
 
-- **An outline to write from.** *Outline* (under *Your writing*, or *Make an outline* on a set of themes) turns your
-  themes into sections: each with its key terms, the passages that show it best, the documents to cite (with their
-  APA citation), its codes and concepts, and where your sources disagree or run thin. Themes that share documents and
-  terms sit next to each other, so it reads as a path; drag, nest, merge, split, rename, and add sections of your own.
-  Beside a draft, each section says how much of it you have covered and which sources you have not used yet.
-  Download it as Word or Markdown. No AI is used.
-- **Find literature.** For a claim of your draft that no document backs, *Find literature* searches OpenAlex for works
-  to cite, with search words made on your computer and shown to you before anything is sent. It also follows the works
-  your documents cite and those citing them, and keeps saved searches that say what is new since you last looked.
-  Works you choose go straight into Zotero (or download as RIS or BibTeX). Nothing is sent from drafts or documents
-  kept on this computer, or with `--local-only`.
+- **Skim a publication without setting up a project.** *Quick look at one document* now opens **Skim**, a one-page
+  report on the file: how long it takes to read, its abstract, what it sets out to do and what it says it found, the
+  sentences that carry most of its key terms, the claims it makes without a citation (its own data and results kept
+  apart), its sections, key terms, the works it cites most and its codes. Every sentence opens the document at its
+  place, and the report downloads as Markdown. Keep the quick look as a project, or let it go to the trash after a
+  week. *Skim* is also in the sidebar and on every document (*Skim it*). No AI is used.
+- **Find literature looks right again** on a computer screen: since 0.10 its styles applied only on a phone.
 
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.10**: an outline to write from, made from your themes (sections with key terms, passages, sources to
+  cite and where they disagree; beside a draft, what it still misses; Word or Markdown), and *Find literature* for
+  claims no document backs, the works your documents cite, and saved searches, straight into Zotero.
 - **Margin 0.9**: social practice theory as a codebook (practices, their elements, and whether a passage holds a
   practice together or pulls it apart), codebooks of ideas rather than words; 0.9.1 a speed for Claude Code, models
   that follow your Claude plan, and only the Zotero works you choose (from ENLENS 0.13.9 and 0.13.10).

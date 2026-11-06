@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 (November 2026): skim one document
+
+Skim, a one-page report on one document that a quick look now lands on, made without AI; and Find literature's
+styles back on a computer screen.
 
 ### Skim one document
 
@@ -39,7 +42,7 @@ document) is a one-page report on one document, and a **quick look** now lands o
 every rule of *Find literature* after it applied only on screens 640 px wide or less: on a computer the page's tabs,
 privacy box, works and saved searches were unstyled. Closed; the Literature page now looks as designed at every width.
 
-**Tests added.** `tests/test_unreleased_skim.py` (12): a Markdown paper (abstract, aims and findings, no sentence across
+**Tests added.** `tests/test_m0_11_0_skim.py` (12): a Markdown paper (abstract, aims and findings, no sentence across
 a heading, every item's place and text), key sentences spread over sections and in order, claims with its own results
 kept apart, works cited and the reference list, line breaks rebuilt, one document's key terms favouring a term that
 runs through it (and the corpus contrast back with a second document), a document with little text, the Markdown copy,
