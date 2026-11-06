@@ -21,6 +21,8 @@ import { renderOverview } from "./views/overview.js";
 import { renderDrafts, renderDraft } from "./views/drafts.js";
 import { renderBibliography } from "./views/bibliography.js";
 import { renderCitations } from "./views/citations.js";
+import { renderOutlines, renderOutline } from "./views/outline.js";
+import { renderLiterature } from "./views/literature.js";   // finding literature
 
 const ROUTES = [
   [/^\/?$/, "overview", renderOverview],
@@ -34,6 +36,7 @@ const ROUTES = [
   [/^\/sources$/, "sources", renderSources],
   [/^\/doc\/([^/]+)$/, "sources", renderDocument],
   [/^\/bibliography$/, "bibliography", renderBibliography],   // 0.13
+  [/^\/literature$/, "literature", renderLiterature],   // finding literature
   [/^\/settings(?:\/([^/]+))?$/, "settings", renderSettings],
   [/^\/setup$/, "", renderSetup],
   [/^\/projects$/, "", renderProjects],
@@ -48,6 +51,9 @@ const ROUTES = [
   // Margin 0.1: check a draft
   [/^\/drafts$/, "drafts", renderDrafts],
   [/^\/drafts\/([^/]+)$/, "drafts", renderDraft],
+  // roadmap C: an outline from the themes
+  [/^\/outline$/, "outline", renderOutlines],
+  [/^\/outline\/([^/]+)$/, "outline", renderOutline],
 ];
 
 let cleanup = null;

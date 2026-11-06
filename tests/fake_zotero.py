@@ -56,6 +56,13 @@ class FakeZotero:
         self.groups: dict[str, str] = {}     # group id -> name
         self.requests: list[str] = []
         self.server: ThreadingHTTPServer | None = None
+        # Margin (finding literature): Zotero's connector. `saved` holds the items posted to /connector/saveItems;
+        # `selected` is the collection selected in Zotero's window; `save_status` is what saveItems answers (201: saved)
+        self.saved: list[dict] = []
+        self.posts: list[tuple[str, dict, dict]] = []
+        self.selected = {"libraryID": 1, "libraryName": "My Library", "libraryEditable": True, "filesEditable": True,
+                         "id": 7, "name": "Remote work"}
+        self.save_status = 201
 
     @property
     def user(self) -> Library:
@@ -160,6 +167,29 @@ class FakeZotero:
                 data = body.encode() if isinstance(body, str) else json.dumps(body).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", ctype or "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_POST(self):  # noqa: N802
+                u = urlparse(self.path)
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                except ValueError:
+                    body = {}
+                fake.requests.append(u.path)
+                fake.posts.append((u.path, body, {k: v for k, v in self.headers.items()}))
+                status, out = 404, "No endpoint found"
+                if u.path == "/connector/getSelectedCollection":
+                    status, out = 200, fake.selected
+                elif u.path == "/connector/saveItems":
+                    status, out = fake.save_status, ({} if fake.save_status == 201 else "Could not save")
+                    if fake.save_status == 201:
+                        fake.saved.extend(body.get("items") or [])
+                data = out.encode() if isinstance(out, str) else json.dumps(out).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "text/plain" if isinstance(out, str) else "application/json")
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)

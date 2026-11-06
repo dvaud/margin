@@ -561,6 +561,47 @@ theme you removed, so the removed theme does not come back under another name. A
 replaces and where its passages come from; remove it too to find another. Removals and new themes belong to that
 set of themes only.
 
+### An outline from your themes
+
+*Outline* (in the sidebar, under *Your writing*; or *Make an outline* on a set of themes) turns the themes into a
+plan to write from. It uses no AI: everything is made on your computer from what Margin already knows, so it gives
+the same outline twice.
+
+**One section for each theme.** A section shows the theme's key terms, the passages that represent it best (with
+their place in the document), the documents to cite (with an APA in-text citation such as *(Haugen, 2024; Okafor,
+2023)* and a *Copy* button when the documents are linked to your bibliography), the codes of your codebook that its
+passages carry, and the concepts its key terms belong to. A heading comes from the theme: the name the AI gave it
+(*Themes → Let the AI name the themes*, optional), your own rename, or else its first key terms.
+
+**An order that reads as a path.** Themes that share documents and key terms sit next to each other. The outline
+starts with the theme that has most passages and goes on to the most similar theme not used yet; each section says
+what it shares with the next. The order is a suggestion: *Suggest the order again* puts the theme sections back in it
+(sections of your own stay where they are).
+
+**Make it yours.** Drag a section by its grip to move it (top of another section: before it; bottom: after it;
+middle: inside it), or use the arrow buttons: *Move up*, *Move down*, *Put inside the section above*, *Take out of its
+section*. The three dots give *Rename*, *Join to another section* (the other gains its themes, notes and inner
+sections), *Split* (a section of several themes becomes one for each; a section of one theme is split by documents)
+and *Take out of the outline* (its theme waits under *Themes not in the outline*). *Add a section* makes one of your
+own, such as an introduction or the methods. Each section has a box for your notes. Sections nest three levels deep.
+The outline is kept in the project, survives a reload, and stays when you find the themes again or delete the set it
+came from (the sections keep their titles and notes). You can make several outlines.
+
+**What each section tells you.** *Where the sources disagree* shows, side by side, the claims you checked in which the
+section's documents are on both sides (or on one side against documents elsewhere), with the quote and place of each.
+*Gaps* names a section with one source only, two sources, mostly one source or few passages. *You decided* lists what
+you decided about claims of a draft that these documents touch.
+
+**Beside a draft.** *Beside a draft* marks each section with how much of it the draft covers: its key terms found in
+your words, and its sources found among the works your draft's own citations name. Opened, a section lists the
+sources not cited yet, their passages, the key terms not used yet and where in the draft it is touched. *Also by
+meaning* compares each draft paragraph with the section using the embedding model, only when search by meaning is
+set up with a model on this computer; nothing is sent anywhere. Without a bibliography no source can count as used, and
+the page says so.
+
+**Download.** *Word (.docx)* and *Markdown (.md)* give the outline as a document to write into: numbered headings,
+your notes, key terms, the citation, quotes with their place, where the sources disagree, gaps, and the sources named.
+
 **In a document.** Besides *Codes*: **Key terms** (the terms that set the document apart; point at one to underline it
 in the text), **References** (*Follow the references*: the AI reads the document three passages at a time and links
 "it", "they" or "the study" to the name they stand for; select a name in the text to see every later mention), and
@@ -709,6 +750,46 @@ file's footnotes are not read; a numbered citation needs its reference list in t
 the sentence by rules, not by the AI: when it starts with *it* or *they*, the context says what they are, and the
 answer is yours to overrule. A text that changed is added again (remove the old one).
 
+### Finding literature (Margin)
+
+**Find literature** (under *Your writing*) looks things up online. It is not AI: it asks OpenAlex, a free index of
+scholarly works, and the words it asks with are made on your computer. It has three tabs.
+
+- **Search.** Start from a claim of a draft that no document supports (the draft page's *Find literature* button opens
+  it with that claim), or type words. Margin suggests search words from the claim and from the key terms of your
+  documents; you can change them, and the line under them says exactly what will be sent and to whom. Pick *Search
+  in* OpenAlex, Crossref or Semantic Scholar, a first year, and *only works with an open copy* if you wish. The works
+  are ordered by how close they are to your claim: by meaning when you have a local embedding model (Settings →
+  Documents), otherwise by the words they share. Works you already have are marked. An open copy is shown when
+  OpenAlex knows one; *Look for open copies* asks Unpaywall for the rest (it needs your e-mail address).
+- **Follow citations.** The works your documents cite and the works that cite them, from the DOIs of your documents
+  (and of the works of your bibliography linked to them). They are ordered by how many of your documents they connect
+  to, then by how close they are to your themes. *Show exactly what is sent* lists the DOIs; documents whose AI
+  setting keeps them on this computer are left out.
+- **Saved searches.** Keep a search, or write a research question: Margin makes search words from it and you change
+  them. A saved search says how many works are *new since you last looked*. Margin checks searches when you open the
+  page (those not checked for six hours) and when you press *Check now*; nothing runs in the background. *Mark as
+  seen* starts the next look from today. The Overview card shows the count.
+
+**Choosing works.** Tick works anywhere on the page; the bar at the bottom offers **Send to Zotero** (Zotero's own
+connection on this computer: Zotero puts the works in the collection that is selected in its window, so open Zotero
+and select one first; the bar says which) or a **RIS** or **BibTeX** file to import yourself. *Let Zotero fetch the open
+PDFs* adds each open PDF to the work; Zotero itself downloads them. Then update the bibliography to match the new works
+with your documents.
+
+**What it sends, and what it never does.** Search words, the DOIs of your documents when you follow citations, and, if
+you set one under *Settings → Exploring*, your e-mail address (so the services can reach you if you ask for much;
+Unpaywall requires one). Margin never fills it in. Nothing goes out when cloud models are off for good on this
+computer (`--local-only`); a search from a draft goes out only when the draft's setting is *Claude may read it*, so for
+other drafts you type your own words; documents with another setting are left out of *Follow citations*. No text of a
+draft or document is ever sent, and no AI reads anything. Answers are kept in the project so the same lookup is not
+repeated; *Ask again* asks the service again.
+
+**What it does not do yet.** It has not been tried against the real services by its authors' tests (they use stand-ins),
+so a change in OpenAlex's rules (it may ask for a key) can show as *refused*. A saved search lists at most 50 works per
+look. Following citations resolves at most 150 cited works. Crossref and Semantic Scholar are for searching only; saved
+searches use OpenAlex.
+
 ### Settings
 
 Settings has five tabs, each one page with nothing folded inside another (0.9):
@@ -729,7 +810,8 @@ Settings has five tabs, each one page with nothing folded inside another (0.9):
   (other words, parts, how many excerpts to read and at most how many from one document).
 - **Exploring**: the codebook of the profiles, how many themes a new set looks for, and the **codebooks**: view the
   codes, add a CSV codebook, remove one; a CSV codebook can be marked as aims a text can help or hinder, like policy
-  goals. The built-in SDG codebooks are listed last.
+  goals. The built-in SDG codebooks are listed last. Margin adds **Looking up literature online**: your optional
+  e-mail address for *Find literature* (empty until you give one).
 - **Documents**: **reading scanned PDFs** (on or off, and the languages) and the embedding model for **search by
   meaning**.
 - **Technical**: **AI model per task** (which model answers each kind of task, what it steps up to, the helper on
@@ -1085,6 +1167,11 @@ first screen (or *Projects → Import a project (.zip)*, which takes both kinds 
 **Zotero (0.13).** The Bibliography page reads Zotero through the Zotero app's own connection on this computer
 (`127.0.0.1`, port 23119), never through Zotero's servers, and only reads. The works' details stay in the project;
 nothing about them is sent to Claude.
+
+**Finding literature (Margin).** *Find literature* sends search words (and, to follow citations, the DOIs of your
+documents) to OpenAlex, and if you choose Crossref, Semantic Scholar or Unpaywall, after showing them to you. It sends
+no text of a document or draft, uses no AI, never runs with `--local-only`, takes nothing from a draft or document
+whose AI setting keeps it on this computer, and sends your e-mail address only if you gave one in Settings.
 
 ### Who may read each document with AI (0.11)
 

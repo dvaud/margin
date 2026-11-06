@@ -7,6 +7,7 @@ import { featureEyebrow } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, confirmDialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks } from "../lib.js";
 import { simpleProgress, MiniJob, jobError } from "./progress.js";
 import { codebookChooser } from "./profile.js";
+import { outlineButton } from "./outline.js";
 
 const PASSAGES = 30;   // passages per page on a theme's page
 const searchHref = (q) => `#/search?q=${encodeURIComponent(q)}&mode=phrase`;
@@ -169,7 +170,7 @@ async function renderRun(view, runId, info, query) {
     replace(head, pageHead("Themes", {
       eyebrow: latest ? featureEyebrow("themes") : h("span", {}, icon("history", { size: 12 }), ` An earlier set of themes, found ${fmt.date(r.created_at)} · `, h("a", { href: "#/themes" }, "Show the newest")),
       sub: `${plural(v.themes.length, "theme")}${(v.removed || []).length ? ` (${(v.removed || []).length} removed)` : ""} in ${plural(r.passages, "passage")} of ${plural(nDocs, "document")}, found ${modeWords(r.mode)} on ${fmt.date(r.created_at)}. Open a theme to read its passages.`,
-      actions: [nameBtn, xlsx],
+      actions: [nameBtn, outlineButton(project, runId), xlsx],
     }));
     clear(notes);
     if (r.stale) notes.appendChild(h("div", { class: "notice notice-warn", style: { marginBottom: "12px" } }, icon("alert-triangle"),

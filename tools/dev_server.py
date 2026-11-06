@@ -20,6 +20,10 @@
   remote-work demo corpus (use it with `--corpus social` or `--fresh-user`): one work whose PDF is the very file in
   the project, three found by their title, one with a PDF to add, works still to find. `--zotero api_off` is a Zotero
   whose box "Allow other applications…" is not ticked, `--zotero old` a Zotero 6, `--zotero closed` no Zotero open.
+- with `--literature` (Margin, Find literature): stand-ins for OpenAlex, Crossref, Semantic Scholar and Unpaywall
+  (tests/fake_literature.py) answer the page's lookups, with the remote-work demo corpus and the stand-in Zotero (which
+  also takes works sent to it): three documents have a DOI, a draft has claims no document supports, and a saved search
+  has new works to find. `--literature-mode rate_limited|down|no_created_filter|refused` makes the services misbehave.
 - with `--update` (0.13.1): "Update Margin" in the sidebar finds a stand-in newer release (nothing is fetched or
   installed: the install takes 2 s) and restarts the app in this process, with a new token, so the page's wait and
   reload can be watched. `--update commits` is a git copy with 3 new commits, `--update on-disk` a newer version
@@ -42,6 +46,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests")]
+
+
+# Margin (Find literature): a draft with claims the documents do not support, for --literature
+LITERATURE_DRAFT = """Remote work and public services
+
+Remote work lowers the quality of public services in municipal offices, according to several recent studies.
+
+Unicorn populations doubled in the last decade across the northern hemisphere, and sightings keep rising.
+
+Employees who work from home at least two days a week report higher life satisfaction than those at the office every day.
+
+Four-day weeks cut commuting emissions by about a fifth in every country that tried them.
+"""
 
 
 # 0.13.7: a researcher's draft citing the remote-work demo's works (some say it, some only partly, some not; one work
@@ -101,12 +118,17 @@ def main() -> int:
                          "wait to be checked (implies --corpus social --zotero)")
     ap.add_argument("--zotero", nargs="?", const="ready", choices=["ready", "api_off", "old", "closed"],
                     help="0.13: a stand-in Zotero (its local API) with a library for the remote-work demo corpus")
+    ap.add_argument("--literature", action="store_true",
+                    help="Margin: stand-in OpenAlex, Crossref, Semantic Scholar and Unpaywall for Find literature "
+                         "(implies --corpus social --zotero)")
+    ap.add_argument("--literature-mode", default="ok", choices=["ok", "rate_limited", "down", "no_created_filter", "refused"],
+                    help="how the stand-in literature services behave")
     ap.add_argument("--update", nargs="?", const="release", choices=["release", "commits", "on-disk", "none", "fails"],
                     help="0.13.1: Update Margin finds a stand-in newer version and restarts the app in this process")
     ap.add_argument("--ollama", nargs="?", const="empty", choices=["empty", "later", "none"],
                     help="0.13.7: a model on this computer chosen, but no model yet (empty), Ollama later, or none")
     a = ap.parse_args()
-    if a.citations:
+    if a.citations or a.literature:
         a.corpus, a.zotero = "social", a.zotero or "ready"
     home_dir = Path(a.home or tempfile.mkdtemp(prefix="margin-dev-"))
     os.environ["MARGIN_HOME"] = str(home_dir)
@@ -261,6 +283,34 @@ def main() -> int:
             did = drafts.new_draft(ws, CITING_DRAFT, title="Chapter 2: remote work and wellbeing (draft)")
             drafts.find_by_rules(ws, did)
             print("citations: the Zotero library is in the Demo project, with a draft to check (its claims and citations)")
+    if a.literature:
+        import fake_literature
+
+        fl = fake_literature.FakeLiterature()
+        fl.mode = a.literature_mode
+        os.environ.update(fl.env(fl.start()))
+        print(f"stand-in literature services: {os.environ['MARGIN_OPENALEX_URL'].rsplit('/', 1)[0]} ({a.literature_mode})")
+        if "Demo" in home.list_projects():
+            from margin import drafts, literature
+
+            ws = home.open_project("Demo")
+            dois = {"panel_study": "10.5555/lhp.2025.1", "hybrid_productivity": "10.5555/hyb.2025.3",
+                    "commuting_emissions": "10.5555/rmi.2024.12"}
+            with ws.connect() as cx:
+                for r in cx.execute("SELECT doc_id, path FROM documents").fetchall():
+                    doi = next((d for k, d in dois.items() if k in (r[1] or "")), None)
+                    if doi:
+                        cx.execute("UPDATE documents SET doi=? WHERE doc_id=?", (doi, r[0]))
+            did = drafts.new_draft(ws, LITERATURE_DRAFT, title="Remote work and public services (draft)", ai_access="cloud")
+            drafts.find_by_rules(ws, did)
+            drafts.check_claims(ws, did, OllamaBackend(base_url=fake_url), chat_model, k=4, per_doc=2, expand=True)
+            drafts.new_draft(ws, LITERATURE_DRAFT, title="A confidential draft (stays on this computer)", ai_access="local")
+            sid = literature.save_search(ws, '"remote work" wellbeing', title="Remote work and wellbeing", from_year=2020)["search_id"]
+            lid = literature.save_search(ws, "hybrid work productivity", title="Does hybrid work change productivity?",
+                                         kind="question")["search_id"]
+            with ws.connect() as cx:   # looked at before the newest works of the stand-in were created
+                cx.execute("UPDATE lit_searches SET since='2026-09-30'")
+            print("literature: a draft with claims no document supports, two saved searches, and three documents with a DOI")
     if a.update:
         stand_in_update(a.update)
     port = a.port

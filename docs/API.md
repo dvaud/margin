@@ -723,6 +723,64 @@ every answer they store records the model, its digest, the prompt version, the s
 - `POST /api/projects/<p>/themes/<run>/name` → job: the AI names the themes (task `theme`, quotes checked).
 - `GET /api/projects/<p>/themes/<run>/export.xlsx`.
 
+#### An outline from the themes (roadmap C)
+
+No AI is used anywhere here. An outline is stored in the project (`outlines`, `outline_sections`), keeps its titles
+and notes when the set of themes it came from is deleted, and several per project are fine. A section is one of a
+theme (its `parts`: `[{"theme": id, "docs": [doc ids] or null}]`, so a merge adds parts and a split takes them apart)
+or one of your own (`kind: "own"`). Sections nest three levels deep (`max_depth`). Errors are 400 (in plain words),
+404 for a missing outline, section, set of themes or draft.
+
+- `GET /api/projects/<p>/outlines` → `{outlines: [{outline_id, title, run_id, sections, created_at, updated_at,
+  run_exists, run_created_at}], runs: [{run_id, created_at, mode, k, themes_now, passages, stale}], framework}`
+  (`framework`: the codebook chosen in Settings, the default for a new outline).
+- `POST /api/projects/<p>/outlines {run_id?, title?, order?: similarity|size, framework?}` → `{outline_id}`. A section
+  for each theme shown in the set (`run_id`: default the newest). `order` `similarity` (default) is the suggested path:
+  the theme with most passages first, then always the most similar theme not used yet (half the cosine of the themes'
+  passage counts per document, half the share of key-term words they have in common), improved by 2-opt; `size` lists
+  the themes as the Themes page does. 409 when there is no set of themes yet.
+- `GET /api/projects/<p>/outlines/<outline>?framework=&threshold=` → `{outline, run (null when its themes were
+  deleted), sections, available_themes, own_suggestions, max_depth, framework_missing}`. `sections` is a tree
+  (`children`); each has `section_id`, `number` ("2.1"), `depth`, `index`, `siblings`, `parent_id`, `kind`, `title`,
+  `title_source` (`you`, `model` (the AI's theme name), `person` (your rename on the Themes page), `terms`, `own`,
+  `gone`), `default_title`, `note`, `themes` (`[{theme_id, name, state: shown|removed|gone}]`), `state`, `passages`,
+  `documents`, `terms`, `representatives` (the passages nearest the heart of the section, one per document first, with
+  `location`, `similarity` and `apa`), `sources` (`[{doc_id, title, passages, apa, narrative}]`), `cite` (`{text, html,
+  count, more, missing}`: one APA 7 in-text citation of the section's documents linked to the bibliography, or null),
+  `codes` (`[{code, description, passages}]` of `framework`, null without one), `concepts` (`[{concept_id, term_id,
+  label, wordings}]`), `disagreements` (checks already made in which documents of the section stand on both sides,
+  `tier: "inside"`, or on one side against documents elsewhere, `"across"`: `{hyp_id, claim, status, status_text,
+  supports, refutes}` with each side's documents, quote, place and citation), `decisions` (what you decided about
+  claims of a draft that these documents touch), `gaps` (`kind` none, one-source, few, mostly-one, thin; `text`),
+  `can_split`, `split_by_documents`, `link_to_next` (`{documents, terms}` it shares with the next section).
+  `framework` overrides the outline's codebook for this answer.
+- `PUT …/outlines/<outline> {title?, framework?}`; `DELETE …/outlines/<outline>`.
+- `POST …/outlines/<outline>/sections {title?, note?, parent_id?, index?, theme_id?}` → `{section_id}`: a section of
+  your own (`title` required), or with `theme_id` a theme of the set that the outline does not hold.
+  `PUT …/sections/<section> {title?, note?}` (an empty `title` of a theme section is its theme's heading again);
+  `DELETE …/sections/<section>` (the sections inside it move up).
+- `POST …/sections/<section>/move {parent_id, index}`: reorder, nest and un-nest are all this (`parent_id` null: top
+  level; `index` null: last). `POST …/sections/<section>/merge {into}`: the other section gains this one's themes,
+  notes and inner sections. `POST …/sections/<section>/split {doc_ids?}` → `{sections: [new ids]}`: a section of
+  several themes becomes one section per theme; a section of one theme is split by documents (`doc_ids` go to the new
+  section; some, not all).
+- `POST …/outlines/<outline>/order {}` → `{moved}`: the theme sections at the top level are put back in the suggested
+  order; sections of your own and nested sections stay.
+- `GET …/outlines/<outline>/draft/<draft>?meaning=1&threshold=` → the outline beside a draft: `{outline, draft:
+  {draft_id, title, words, cited_documents, citations}, sections: {<section_id>: {level: none|little|partly|well,
+  level_text, score, terms_used, terms_total, sources_used, sources_total, terms, used_sources, unused_sources,
+  unused_terms, unused_points, where: {paragraph, excerpt, hits}}}, order, notes, meaning}`. A key term counts as
+  used when the draft's words contain it (stop words kept, as the glossary keeps them); a source counts as used when
+  one of the draft's own citations names a work of the bibliography whose document it is. `meaning` is null unless
+  asked for; with `meaning=1` it is `{available: false, why}` unless search by meaning is set up with an embedding
+  model **on this computer** that has built the project's vectors (the draft is never given to a model on another
+  computer), else `{available: true, model, sections}` and each section gains `closeness` (0–1, the nearest draft
+  paragraph to the mean of the section's passage vectors) and `closest: {paragraph, excerpt}`.
+- `GET …/outlines/<outline>/export.docx` and `…/export.md` (downloads; `?token=` allowed; `?include=` a comma list of
+  terms, sources, quotes, codes, concepts, disagreements, gaps; default all; `?framework=`): headings numbered like
+  the outline, your notes, key terms, the citation, quotes with their place, where the sources disagree and what you
+  decided, gaps, and the sources named. The Word file is written without any library (Title and Heading 1–5 styles).
+
 #### References (F5)
 
 - `GET /api/projects/<p>/documents/<id>/references?start=&end=` → `{status, chains}`; with `start`/`end` (a
@@ -1082,6 +1140,69 @@ draft). Every draft's citations are listed (found when the list is asked for, fo
   source, Document.
 - `GET /api/projects/<p>/overview` adds `"citations": {"texts", "refs", "checked"}`; its `hypotheses` leaves the
   checks of citations out.
+
+### Finding literature (Margin)
+
+Online lookups that are not AI: OpenAlex (the main source), Crossref, Semantic Scholar and Unpaywall. The services'
+addresses can be changed with `MARGIN_OPENALEX_URL`, `MARGIN_CROSSREF_URL`, `MARGIN_S2_URL` and
+`MARGIN_UNPAYWALL_URL` (the tests and `tools/dev_server.py --literature` use stand-ins). Requests carry the agent
+`Margin/<version>`. The setting `contact_email` (empty until the person gives one; never filled in by Margin) is sent
+as `mailto` to OpenAlex and Crossref and as `email` to Unpaywall, which refuses a lookup without one. Every answer is
+kept in the project (tables `lit_cache`, `lit_searches`, `lit_found`, made when first needed), so the same lookup is not
+repeated; `"fresh": true` asks again.
+
+**What may go out.** Nothing, when cloud models are off for good (`--local-only`): every endpoint that would send
+answers `403` with `kind` `local_only`. A search made from a draft (`draft_id`) goes out only when the draft's AI setting
+is *Claude may read it*, else `403` `not_allowed`. Following citations sends only the DOIs of documents whose setting
+allows it. Errors that come from a service: `kind` `offline` (502), `rate_limited` (502, the message says how long to
+wait), `refused` (502), `failed` (502), `no_email` (409, for Unpaywall); `bad_request` is 400. A work is
+`{"key", "source", "title", "authors", "year", "venue", "doi", "url", "abstract", "cited_by", "type", "openalex_id",
+"open": {"url", "pdf_url", "license", "status", "found_by"} | null, "volume", "issue", "pages", "have": {"where":
+"documents" | "bibliography", "title"} | null, "closeness"}`.
+
+- `GET /api/projects/<p>/literature` → `{"local_only", "email", "sources": [{"id", "name", "site"}], "embedding" (the
+  local embedding model used to rank, or null), "drafts": [{"draft_id", "title", "ai_access", "ai_label", "claims"}],
+  "searches": [saved search], "documents": {"total", "usable", "not_allowed", "no_doi"}, "zotero_url"}`. Sends nothing.
+- `GET /api/projects/<p>/literature/draft/<d>` → `{"draft", "claims": [{"claim_id", "n", "claim", "status",
+  "status_text", "cited", "words", "terms"}], "searchable", "why_not"}`: the claims no document supports (status
+  `unsupported`, `no_passages` or `uncertain`) with search words made on this computer. Sends nothing.
+- `POST /api/projects/<p>/literature/words` `{"text"}` → `{"words", "terms"}`: search words from a sentence or a
+  research question (the corpus's key terms it contains, then its other content words; no model). Sends nothing.
+- `POST /api/projects/<p>/literature/search` `{"words", "source"?: "openalex" | "crossref" | "semanticscholar",
+  "from_year"?, "oa_only"?, "claim"? (the text to rank against), "draft_id"?, "limit"? (at most 50), "fresh"?}` →
+  `{"works", "source", "service", "words", "ranked_by": "meaning" | "words", "note", "sent": {"service", "site",
+  "words", "email", "text"}}`. Works are ordered by closeness to `claim` (else the words): by meaning when a local
+  embedding model has vectors in the project (never an embedding server on another computer), else by the words they
+  share. `have` marks works already in the documents or the bibliography.
+- `POST /api/projects/<p>/literature/open-copies` `{"dois": [...]}` → `{"copies": {doi: open copy | null}, "service":
+  "Unpaywall"}` (at most 25 DOIs; needs `contact_email`).
+- `GET /api/projects/<p>/literature/citations` → `{"documents": [{"doc_id", "title", "dois", "included", "reason":
+  null | "not_allowed" | "no_doi"}], "dois", "included", "not_allowed", "no_doi"}`: what following citations would send.
+  Sends nothing.
+- `POST /api/projects/<p>/literature/citations` `{"fresh"?}` → `{"cited", "citing", "closeness_by": "meaning" | "words" |
+  "none", "documents", "not_allowed", "no_doi", "found_in_openalex", "dois", "partial", "cited_cap"}`: the works the
+  documents cite and the works citing them (OpenAlex `referenced_works` and the `cites:` filter). Each work also has
+  `n_docs`, `docs`, `doc_titles` (the documents it connects to), `theme_close` and `theme`; lists are ordered by
+  `n_docs`, then closeness to the themes. At most 150 cited works are resolved (those shared by most documents).
+- `GET|POST /api/projects/<p>/literature/searches`: the saved searches `{"search_id", "title", "words", "kind":
+  "search" | "question", "filters": {"from_year", "oa_only"}, "draft_id", "created_at", "since", "last_checked_at",
+  "new", "error"}`; `POST` `{"words", "title"?, "kind"?, "from_year"?, "oa_only"?, "draft_id"?}` keeps one (nothing is
+  sent). `GET …/searches/<s>` → `{"search", "works"}` (the works new since the person last looked);
+  `POST …/searches/<s>/check` asks OpenAlex for works created since then (`from_created_date`; a service that refuses
+  that filter is asked for works published since) → `{"search", "found", "added", "works"}`; `POST …/searches/<s>/seen`
+  marks them seen; `DELETE …/searches/<s>` removes it. Nothing runs by itself: the page checks searches not looked at
+  for 6 hours when it opens.
+- `DELETE /api/projects/<p>/literature/cache` → `{"forgotten": n}`.
+- `GET /api/literature/zotero` → `{"state": "ready" | "not_running", "library", "collection", "editable"}`: whether
+  Zotero's connector answers on this computer and the collection selected in Zotero. Local only.
+- `POST /api/literature/zotero` `{"works": [...], "attach_pdf"?: true}` → `{"sent", "library", "collection"}`: saves the
+  works through `POST {MARGIN_ZOTERO_URL}/connector/saveItems` (the JSON Zotero's browser connector sends: `sessionID`,
+  `uri`, `items` with `itemType`, `title`, `creators`, `date`, `DOI`, `url`, the venue, `abstractNote` and, with
+  `attach_pdf`, a *Full Text PDF* attachment that Zotero itself fetches). Zotero puts them in the collection selected
+  in its window. `409` `zotero_not_running` when Zotero is not open; `502` `zotero_failed` when it refuses.
+- `POST /api/literature/export` `{"works": [...], "format": "ris" | "bibtex"}` → the file as a download.
+- `GET /api/projects/<p>/overview` adds `"literature": {"searches", "new"}` (counted from what is kept: it asks no
+  service).
 
 ### Jobs
 

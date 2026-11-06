@@ -77,6 +77,9 @@ DEFAULTS = {
     "restricted_server": "",           # "" | ollama | openai
     "restricted_model": "",
     "account_type": "",                # "" | personal | commercial
+    # Margin (finding literature): the e-mail address OpenAlex and Crossref may use to reach whoever makes many lookups
+    # (their "polite pool") and Unpaywall asks for. Empty until the person gives one; Margin never fills it in.
+    "contact_email": "",
 }
 
 BACKEND_LABELS = {"claude_code": "Claude Code (your subscription)", "auto": "Local model (automatic)",
@@ -194,6 +197,8 @@ def clean_settings(changes: dict) -> dict:
         raise ValueError("account_type must be personal, commercial or empty.")
     if "embed_backend" in out and out["embed_backend"] not in ("ollama", "openai", "off"):
         raise ValueError("embed_backend must be ollama, openai or off.")
+    if "contact_email" in out and out["contact_email"] and not re.fullmatch(r"[^@\s,;<>]{1,64}@[^@\s,;<>]{1,255}\.[^@\s,;<>]{2,}", out["contact_email"]):
+        raise ValueError("contact_email must look like name@example.org, or be empty.")
     if "threshold" in out and not 0 <= out["threshold"] <= 1:
         raise ValueError("threshold must be between 0 and 1.")
     if "k" in out and not 1 <= out["k"] <= 20:

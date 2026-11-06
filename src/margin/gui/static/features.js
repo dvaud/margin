@@ -63,9 +63,25 @@ export const FEATURES = {
     what: "Whether each source your draft cites says what your sentence says, with the excerpt that shows it.",
     use: "Before you submit: to catch a citation that does not back its sentence.",
   },
+  outline: {  // roadmap C: a writing plan made from the themes, with no AI
+    section: "write", title: "Outline", icon: "file-text", href: "#/outline", ai: "none",
+    what: "A writing plan made from your themes: one section for each, with its key terms, best passages, the sources to cite and where they disagree, in an order that reads as a path.",
+    use: "Before you write, or beside a draft: to see what each section needs and which of your sources it does not use yet.",
+  },
   history: {
     section: "check", title: "Results", icon: "history", href: "#/history", ai: "optional",
     what: "Every hypothesis checked in this project: the answers, your reviews, the evidence map and Excel downloads.",
+  },
+  // Margin: online lookups that are not AI (OpenAlex, Crossref, Semantic Scholar, Unpaywall); sidebar entry via `nav`
+  literature: {
+    section: "write", title: "Find literature", icon: "search", href: "#/literature", ai: "none", nav: true,
+    state: (o) => {
+      const l = o.literature || {};
+      return l.new ? [true, `${plural(l.new, "new work", "new works")} on your saved searches`]
+        : l.searches ? [false, `${plural(l.searches, "saved search", "saved searches")}, nothing new`] : [false, "Ready: search for works to cite"];
+    },
+    what: "Finds works to cite for the claims no document supports, the works your documents cite and those citing them, and what is new on a search you keep. Works you choose go to Zotero.",
+    use: "When a claim needs a source you do not have yet.",
   },
 };
 

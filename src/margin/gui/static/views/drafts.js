@@ -621,9 +621,20 @@ export async function renderDraft(view, [draftId], query) {
     return row;
   }
 
+  // Margin: a claim no document supports can be taken to Find literature (a draft kept on this computer cannot send its
+  // words, so the link opens the page without them: the person types their own)
+  function literatureLink(c) {
+    if (c.skip || c.decision === "dismissed" || !["unsupported", "no_passages", "uncertain"].includes(c.status)) return null;
+    const ok = data.draft.ai_access === "cloud";
+    return h("a", { class: "btn btn-sm dc-lit", href: ok ? `#/literature?draft=${encodeURIComponent(draftId)}&claim=${encodeURIComponent(c.claim_id)}` : "#/literature",
+      title: ok ? "Search OpenAlex for works to cite. You see and edit the search words before anything is sent." : "This draft's AI setting keeps its words on this computer, so the search starts without them." }, icon("search", { size: 13 }), "Find literature");
+  }
+
   function actions(c) {
     const row = h("div", { class: "dc-actions" });
     if (c.hyp_id) {
+      const lit = literatureLink(c);
+      if (lit) row.append(lit);
       row.append(h("a", { class: "btn btn-sm", href: `#/h/${encodeURIComponent(c.hyp_id)}` }, "Open the result", icon("arrow-right", { size: 13 })));
       row.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => removeClaim(c) }, "Remove"));
       return row;

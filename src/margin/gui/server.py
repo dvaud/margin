@@ -41,6 +41,9 @@ from ..claude_setup import setup_info as claude_setup_info
 from ..store import now as _now
 from ..sources import document_overview
 from .progress import Tracker
+from .literature_api import LiteratureHandlers
+from .. import literature
+from ..literature import LiteratureError
 
 STATIC = Path(__file__).with_name("static")
 MAX_UPLOAD = 2 * 1024 ** 3   # bytes per file
@@ -1246,6 +1249,7 @@ class App:
             "hypotheses": n("SELECT COUNT(*) FROM hypotheses WHERE COALESCE(origin, '') != 'citation'"),
             "drafts": n("SELECT COUNT(*) FROM drafts"),  # Margin 0.1
             "citations": citations.counts(ws),
+            "literature": literature.counts(ws),  # Margin: saved searches and the works new on them (nothing is sent)
             "waiting": (self._queue_summary(name) or {}).get("waiting", 0),
         }
         out.update(addons.overview(ws, set(out)))  # 0.13.6: an add-on's counts, never in place of Margin's
@@ -1901,6 +1905,19 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", rf"/api/projects/{P}/themes/{P}/name", "post_theme_names"),
     ("POST", rf"/api/projects/{P}/themes/{P}/new", "post_new_theme"),
     ("GET", rf"/api/projects/{P}/themes/{P}/{P}", "get_theme"),
+    # an outline from the themes (roadmap C)
+    ("GET", rf"/api/projects/{P}/outlines", "get_outlines"),
+    ("POST", rf"/api/projects/{P}/outlines", "post_outlines"),
+    ("GET", rf"/api/projects/{P}/outlines/{P}", "get_outline"),
+    ("PUT", rf"/api/projects/{P}/outlines/{P}", "put_outline"),
+    ("DELETE", rf"/api/projects/{P}/outlines/{P}", "delete_outline"),
+    ("POST", rf"/api/projects/{P}/outlines/{P}/order", "post_outline_order"),
+    ("POST", rf"/api/projects/{P}/outlines/{P}/sections", "post_outline_section"),
+    ("PUT", rf"/api/projects/{P}/outlines/{P}/sections/{P}", "put_outline_section"),
+    ("DELETE", rf"/api/projects/{P}/outlines/{P}/sections/{P}", "delete_outline_section"),
+    ("POST", rf"/api/projects/{P}/outlines/{P}/sections/{P}/(move|merge|split)", "post_outline_change"),
+    ("GET", rf"/api/projects/{P}/outlines/{P}/draft/{P}", "get_outline_draft"),
+    ("GET", rf"/api/projects/{P}/outlines/{P}/export\.(docx|md)", "get_outline_export"),
     ("GET", rf"/api/projects/{P}/documents/{P}/references", "get_references"),
     ("POST", rf"/api/projects/{P}/documents/{P}/references", "post_references"),
     ("GET", rf"/api/projects/{P}/documents/{P}/annotated\.pdf", "get_annotated"),
@@ -1957,14 +1974,33 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", rf"/api/projects/{P}/citations/{P}/check", "post_citation_check"),
     ("PUT", rf"/api/projects/{P}/citations/{P}/refs/{P}", "put_citation_ref"),
     ("GET", rf"/api/projects/{P}/citations/{P}/export\.xlsx", "get_citation_export"),
+    # Margin (finding literature): online lookups that are not AI; handlers in gui/literature_api.py
+    ("GET", rf"/api/projects/{P}/literature", "lit_get_literature"),
+    ("GET", rf"/api/projects/{P}/literature/draft/{P}", "lit_get_draft_claims"),
+    ("POST", rf"/api/projects/{P}/literature/words", "lit_post_words"),
+    ("POST", rf"/api/projects/{P}/literature/search", "lit_post_search"),
+    ("POST", rf"/api/projects/{P}/literature/open-copies", "lit_post_open_copies"),
+    ("GET", rf"/api/projects/{P}/literature/citations", "lit_get_citation_plan"),
+    ("POST", rf"/api/projects/{P}/literature/citations", "lit_post_citations"),
+    ("GET", rf"/api/projects/{P}/literature/searches", "lit_get_searches"),
+    ("POST", rf"/api/projects/{P}/literature/searches", "lit_post_searches"),
+    ("GET", rf"/api/projects/{P}/literature/searches/{P}", "lit_get_search_works"),
+    ("DELETE", rf"/api/projects/{P}/literature/searches/{P}", "lit_delete_search"),
+    ("POST", rf"/api/projects/{P}/literature/searches/{P}/check", "lit_post_search_check"),
+    ("POST", rf"/api/projects/{P}/literature/searches/{P}/seen", "lit_post_search_seen"),
+    ("DELETE", rf"/api/projects/{P}/literature/cache", "lit_delete_cache"),
+    ("GET", r"/api/literature/zotero", "lit_get_zotero_target"),
+    ("POST", r"/api/literature/zotero", "lit_post_zotero"),
+    ("POST", r"/api/literature/export", "lit_post_export"),
 ]]
 DOWNLOADS = {"get_hypothesis_export", "get_export", "get_document_file", "get_project_zip", "get_annotated", "get_flexiconc",
              "get_annotated_zip", "get_search_export", "get_profile_export", "get_themes_export", "get_move_zip",
-             "get_ai_sent_csv", "get_draft_export", "get_bibliography_export", "get_citation_export"}
+             "get_ai_sent_csv", "get_draft_export", "get_bibliography_export", "get_citation_export",
+             "get_outline_export"}
 # (these may take the token as ?token=, for plain links)
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(LiteratureHandlers, BaseHTTPRequestHandler):
     app: App
     server_version = f"margin/{__version__}"
     protocol_version = "HTTP/1.1"
@@ -2116,6 +2152,8 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(404, "No such API endpoint.")
         except ApiError as e:
             self._json(e.status, {"error": e.message, "kind": e.kind})
+        except LiteratureError as e:  # Margin: a lookup that may not go out, or a service that cannot be reached
+            self._json(e.status, {"error": str(e), "kind": e.kind})
         except BackendError as e:
             self._json(502, {"error": str(e), "kind": "backend"})
         except KeyError as e:
@@ -3259,6 +3297,131 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(404, "No such theme.") from None
         return themes.theme_passages(self.app.ws(name), run_id, tid, _int(q, "offset", 0, 0, 10 ** 7),
                                      _int(q, "limit", 50, 1, 200))
+
+    # an outline from the themes (roadmap C): no AI
+    def get_outlines(self, name, q):
+        from .. import outline, themes
+
+        ws = self.app.ws(name)
+        runs = [{k: r[k] for k in ("run_id", "created_at", "mode", "k", "themes_now", "passages", "stale")}
+                for r in themes.runs(ws)]
+        return {"outlines": outline.list_outlines(ws), "runs": runs,
+                "framework": self.app.settings().get("profile_framework") or ""}
+
+    def post_outlines(self, name, q):
+        from .. import outline, themes
+
+        ws = self.app.ws(name)
+        body = self._body()
+        run_id = str(body.get("run_id") or "")
+        if not run_id:
+            runs = themes.runs(ws)
+            if not runs:
+                raise ApiError(409, "Find the themes of the documents first: an outline is made from them.")
+            run_id = runs[0]["run_id"]
+        fw = body.get("framework")
+        if fw is None:
+            fw = self.app.settings().get("profile_framework") or ""
+        if fw:
+            try:
+                frameworks.get(fw, ws)
+            except (KeyError, ValueError):
+                fw = ""
+        oid = outline.create(ws, run_id, body.get("title"), fw, str(body.get("order") or "similarity"))
+        return {"outline_id": oid}
+
+    def get_outline(self, name, oid, q):
+        from .. import outline
+
+        s = self.app.settings()
+        return outline.view(self.app.ws(name), oid, _str(q, "framework"), _float(q, "threshold", s["threshold"]))
+
+    def put_outline(self, name, oid, q):
+        from .. import outline
+
+        body = self._body()
+        fw = body.get("framework")
+        ws = self.app.ws(name)
+        if fw:
+            frameworks.get(fw, ws)
+        outline.update(ws, oid, body.get("title"), fw)
+        return {"saved": True}
+
+    def delete_outline(self, name, oid, q):
+        from .. import outline
+
+        outline.delete(self.app.ws(name), oid)
+        return {"deleted": oid}
+
+    def post_outline_order(self, name, oid, q):
+        from .. import outline
+
+        self._body()
+        return {"moved": outline.reorder(self.app.ws(name), oid)}
+
+    def post_outline_section(self, name, oid, q):
+        from .. import outline
+
+        body = self._body()
+        tid = body.get("theme_id")
+        sid = outline.add_section(self.app.ws(name), oid, body.get("title"), body.get("note") or "",
+                                  body.get("parent_id") or None, _body_int(body, "index", None, 0, 10 ** 6),
+                                  int(tid) if tid is not None else None)
+        return {"section_id": sid}
+
+    def put_outline_section(self, name, oid, sid, q):
+        from .. import outline
+
+        body = self._body()
+        outline.update_section(self.app.ws(name), oid, sid, body.get("title"), body.get("note"))
+        return {"saved": True}
+
+    def delete_outline_section(self, name, oid, sid, q):
+        from .. import outline
+
+        outline.delete_section(self.app.ws(name), oid, sid)
+        return {"deleted": sid}
+
+    def post_outline_change(self, name, oid, sid, what, q):
+        from .. import outline
+
+        ws = self.app.ws(name)
+        body = self._body()
+        if what == "move":
+            outline.move(ws, oid, sid, body.get("parent_id") or None, _body_int(body, "index", None, 0, 10 ** 6))
+            return {"moved": sid}
+        if what == "merge":
+            outline.merge(ws, oid, sid, str(body.get("into") or ""))
+            return {"merged": sid}
+        docs = body.get("doc_ids")
+        if docs is not None and not isinstance(docs, list):
+            raise ApiError(400, "doc_ids must be a list.")
+        return {"sections": outline.split(ws, oid, sid, [str(d) for d in docs] if docs else None)}
+
+    def get_outline_draft(self, name, oid, draft_id, q):
+        from .. import outline
+
+        s = self.app.settings()
+        return outline.compare(self.app.ws(name), oid, draft_id, meaning=_bool(q, "meaning"), settings=s,
+                               threshold=_float(q, "threshold", s["threshold"]))
+
+    def get_outline_export(self, name, oid, fmt, q):
+        from .. import outline
+
+        ws = self.app.ws(name)
+        inc = _list(q, "include")
+        if inc is not None:
+            bad = [x for x in inc if x not in outline.INCLUDE]
+            if bad:
+                raise ApiError(400, f"include may name: {', '.join(outline.INCLUDE)}.")
+        doc = outline.document(ws, oid, tuple(inc) if inc is not None else outline.INCLUDE, _str(q, "framework"))
+        fname = _filename(f"Margin outline - {doc['title'][:60]}", fmt)
+        if fmt == "docx":
+            return self._send(200, outline.to_docx(doc),
+                              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                              {"Content-Disposition": _disposition(fname)})
+        return self._send(200, outline.to_markdown(doc).encode("utf-8"), "text/markdown; charset=utf-8",
+                          {"Content-Disposition": _disposition(fname)})
 
     # references (F5)
     def get_references(self, name, doc_id, q):

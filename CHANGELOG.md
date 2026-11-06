@@ -1,5 +1,102 @@
 # Changelog
 
+## Unreleased
+
+### An outline from your themes
+
+Roadmap section C. *Outline* (sidebar, under *Your writing*; also *Make an outline* on a set of themes) turns a set of
+themes into a plan to write from, beside a draft if you like, and downloads it as Word or Markdown. It uses no AI
+(Level 0; the optional embedding model is Level 1) and never sends anything off the computer.
+
+- **C1, the outline.** A section for each theme: key terms, the passages that represent it best (one per document
+  first, with their place), the documents to cite with an APA 7 in-text citation (when linked to the bibliography), the
+  codes of a codebook and the concepts its key terms belong to. The order is a path: the theme with most passages
+  first, then always the most similar theme not used yet (half the cosine of the passage counts per document, half
+  the share of key-term words in common), improved by 2-opt; the same themes always give the same order, and each
+  section says what it shares with the next. You drag a section (or use *Move up*, *Move down*, *Put inside the
+  section above*, *Take out of its section*), merge, split (several themes back into themes; one theme by
+  documents), rename, take out and bring back, add sections of your own and write notes; sections nest three levels
+  deep. Each section shows where its documents disagree (the checks already made, support and contradiction side by
+  side), gaps (no, one, two sources, mostly one source, few passages) and what you decided about the claims it
+  touches. Headings use the AI's theme name when there is one (no new AI task), else your rename, else the key
+  terms. The outline is stored in the project (`outlines`, `outline_sections`), survives a reload and the deletion of
+  its set of themes (titles and notes stay), and several outlines per project are fine.
+- **C2, beside a draft.** Each section says how much of it the draft covers (its key terms in your words, its sources
+  among the works your citations name) and lists the sources, points and key terms still unused, and where the draft
+  touches it. *Also by meaning* compares the draft's paragraphs with each section using the embedding model, only
+  with one on this computer that has built the project's vectors; a model on another computer is never given the
+  draft.
+- **C3, a document.** *Word (.docx)* and *Markdown (.md)*: numbered headings, notes, key terms, the citation, quotes
+  with their place, disagreements, decisions, gaps and the sources named. The .docx is written with `zipfile` (Title
+  and Heading styles, no new dependency).
+- For developers: twelve routes under `/api/projects/<p>/outlines` (`docs/API.md`), `margin/outline.py`, two new
+  tables in `store.py`'s schema, `views/outline.js`, a feature entry and a route in the page, and *Outline* in the
+  manual.
+
+Defects fixed on the way: none found in existing code.
+
+Tests: `tests/test_unreleased_outline.py` (22): the order puts similar themes together and 2-opt never makes the path
+worse; sections, terms, passages, citations; several outlines and reopening; reorder, nesting, depth limit and cycles;
+own sections, notes and titles; merge and split (by themes and by documents); taking out and bringing back; suggesting
+the order again; an outline that outlives its themes and follows a merge or removal; disagreements, decisions, gaps and
+APA from real checks; codes and concepts; beside a draft with and without a bibliography; closeness by meaning only
+with a local, built model; Markdown, a well-formed Word package; the API end to end; the page files and the docs.
+
+**Not yet done.** Dragging works with a mouse only (a phone has the arrow buttons); the .docx was checked as a package
+and read back by Pandoc, but not opened in Word itself; closeness by meaning was tested with a stand-in embedding
+model, not a real one; the outline's key terms, quotes and sources are not re-made when documents are added (find the
+themes again and make a new outline); a reference list in full APA style waits for roadmap B (the outline names its
+sources by title and in-text citation).
+
+### Finding literature
+
+Roadmap section E (E1, E2, E3): a new page, **Find literature** (under *Your writing*), for works your documents do not
+have yet. It is not AI: it asks OpenAlex (and, if you choose, Crossref, Semantic Scholar and Unpaywall), and the words it
+asks with are made on your computer and shown to you first.
+
+- **Search for the claims no document supports (E1).** On a draft, a claim the documents do not back gets a *Find
+  literature* button. The page suggests search words from the claim (the corpus's key terms it contains, kept whole,
+  then its other content words), you change them, and the line under them says what will be sent and to whom. The works
+  found are ordered by closeness to the claim: by meaning when a local embedding model has vectors in the project (never
+  one on another computer), else by the words they share. Works you already have in the documents or the bibliography are
+  marked; open copies come from OpenAlex, and *Look for open copies* asks Unpaywall for the rest.
+- **Follow citations (E2).** The works your documents cite and the works that cite them, from the documents' DOIs (and
+  those of the bibliography's works linked to them), ordered by how many of your documents they connect to and then by
+  closeness to your themes (meaning with the embedding model, else shared words).
+- **Saved searches (E3).** Keep a search or a research question (search words made from it on this computer); the page
+  says how many works are *new since you last looked* (OpenAlex `from_created_date`; where the service refuses that
+  filter, works published since). It checks searches not looked at for six hours when the page opens, and on *Check now*:
+  nothing runs in the background. The Overview card shows the count, from what is kept (it asks no service).
+- **Send to Zotero.** Works you tick go through Zotero's local connector (`/connector/saveItems`) into the collection
+  selected in Zotero, with the open PDF if you wish (Zotero fetches it); the bar says where they will go, and says so
+  plainly when Zotero is not open. RIS and BibTeX files are the fallback.
+- **Privacy.** Nothing goes out with `--local-only`. A search made from a draft goes out only if the draft's AI setting is
+  *Claude may read it* (for another draft you type your own words); following citations uses only documents whose setting
+  allows it and lists the DOIs it sends. No text of a document or draft is sent. A contact e-mail address in *Settings →
+  Exploring* is optional, empty until you give one, never filled in by Margin, and sent only to OpenAlex, Crossref and
+  Unpaywall (which needs one: without it only OpenAlex's own open-access links are used). The agent is `Margin/<version>`.
+  Answers are kept in the project (`lit_cache`), so the same lookup is not repeated; timeouts and plain-language errors
+  (offline, rate limited, refused) are shown with *Try again*.
+- For developers: `src/margin/literature.py`, the endpoints under `/api/projects/<p>/literature` and `/api/literature/*`
+  (`docs/API.md`), `MARGIN_OPENALEX_URL`, `MARGIN_CROSSREF_URL`, `MARGIN_S2_URL` and `MARGIN_UNPAYWALL_URL`, the setting
+  `contact_email`, and `tools/dev_server.py --literature` (stand-in services, a draft with unsupported claims, saved
+  searches). The project's three tables are made when first used, so there is no migration.
+
+**Defects fixed on the way.** None in existing code. Found while building: a draft id that does not exist is refused as
+"no such draft" rather than treated as a draft that may not send.
+
+**Tests added.** `tests/test_unreleased_literature.py` (search words, the three services, caching, offline, rate limit and
+refusal errors, the privacy gate for `--local-only`, drafts and documents, ranking with and without an embedding model,
+following citations, saved searches and their fallback, Zotero's connector, RIS and BibTeX, the API) and
+`tests/test_unreleased_literature_page.py`; stand-ins in `tests/fake_literature.py`, and `tests/fake_zotero.py` now answers
+the connector's `getSelectedCollection` and `saveItems`. None touches the network.
+
+**Not yet done.** Not tried against the real OpenAlex, Crossref, Semantic Scholar, Unpaywall or Zotero: everything was built
+from their documentation and stand-ins, so OpenAlex asking for an API key, or Zotero's connector wanting other fields,
+would show as *refused* or *Zotero did not save*. No count in the sidebar (only on the Overview card). Saved searches use
+OpenAlex only and list at most 50 works per look; following citations resolves at most 150 cited works, and runs while you
+wait (no job). Zotero's collections are not chosen from Margin: the one selected in Zotero is used.
+
 ## 0.9.1 (November 2026): how fast Claude Code works, models for your plan, and the Zotero works you choose
 
 From ENLENS 0.13.9 and 0.13.10, in Margin's names: a speed for Claude Code, recommended models that follow your

@@ -108,6 +108,16 @@ CREATE TABLE IF NOT EXISTS themes(run_id TEXT, theme_id INT, name TEXT, descript
 CREATE TABLE IF NOT EXISTS theme_members(run_id TEXT, theme_id INT, passage_id TEXT, similarity REAL,
   PRIMARY KEY(run_id, passage_id));
 
+-- Margin (roadmap C): an outline made from a set of themes (see outline.py). A section is of a theme ('theme': its
+-- parts, [{"theme": id, "docs": [doc ids] or null}], so merging adds parts and splitting takes them apart) or the
+-- person's own ('own'). `title` NULL: the theme's own heading. An outline is the person's work: it stays when the set
+-- of themes it came from is deleted.
+CREATE TABLE IF NOT EXISTS outlines(outline_id TEXT PRIMARY KEY, title TEXT, run_id TEXT, framework TEXT,
+  created_at TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS outline_sections(section_id TEXT PRIMARY KEY, outline_id TEXT, parent_id TEXT, seq INT,
+  kind TEXT, parts_json TEXT, title TEXT, note TEXT, created_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_outline_sections_outline ON outline_sections(outline_id, parent_id, seq);
+
 -- 0.7: references within a document (F5): chains of mentions, each mention quote-checked and placed by offset
 -- one row per mention as one window of passages reported it (`window`: task id # chain); chains are joined across
 -- overlapping windows and numbered per document (`chain_id`)

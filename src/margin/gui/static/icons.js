@@ -81,6 +81,8 @@ const ICONS = {
   inbox: [["path", { d: "M22 12h-6l-2 3h-4l-2-3H2" }], ["path", { d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" }]],
   terminal: [["path", { d: "m4 17 6-6-6-6M12 19h8" }]],
   "arrow-up": [["path", { d: "M12 19V5M5 12l7-7 7 7" }]],
+  "arrow-down": [["path", { d: "M12 5v14M19 12l-7 7-7-7" }]],
+  grip: [["circle", { cx: 9, cy: 6, r: 1 }], ["circle", { cx: 15, cy: 6, r: 1 }], ["circle", { cx: 9, cy: 12, r: 1 }], ["circle", { cx: 15, cy: 12, r: 1 }], ["circle", { cx: 9, cy: 18, r: 1 }], ["circle", { cx: 15, cy: 18, r: 1 }]],
   pause: [["rect", { x: 6, y: 4, width: 4, height: 16, rx: 1 }], ["rect", { x: 14, y: 4, width: 4, height: 16, rx: 1 }]],
   pin: [["path", { d: "M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" }]],
 };

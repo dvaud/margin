@@ -4,6 +4,7 @@ import { forgetFrameworks, loadFramework } from "./options.js";
 import { simpleProgress } from "./progress.js";
 import { restrictedModelCard, termsPanel } from "./ai-access.js";
 import { localModelHelp } from "./local-model.js";
+import { literatureSettings } from "./literature.js";
 
 const rerender = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 
@@ -11,7 +12,7 @@ const rerender = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 // #/settings/calibration…) open its tab and scroll to it.
 const TABS = [["model", "AI", "cpu"], ["basics", "Checking", "flask"], ["explore", "Exploring", "network"], ["documents", "Documents", "book-open"], ["advanced", "Technical", "sliders"]];
 const TAB_OF = { model: "model", ai: "model", speed: "model", basics: "basics", calibration: "basics", explore: "explore", frameworks: "explore", documents: "documents", ocr: "documents", embeddings: "documents",
-  advanced: "advanced", routing: "advanced", second: "advanced", context: "advanced", repeatable: "advanced", test: "advanced", updates: "advanced", data: "advanced" };
+  advanced: "advanced", routing: "advanced", second: "advanced", context: "advanced", repeatable: "advanced", test: "advanced", updates: "advanced", data: "advanced", literature: "explore" };
 
 export async function renderSettings(view, [section]) {
   const s = { ...App.settings() };
@@ -39,7 +40,7 @@ export async function renderSettings(view, [section]) {
     if (s.backend === "anthropic") main.append(sectionCard("terms", "Your Claude account and your documents", "", termsPanel({ account: "commercial" })));
   }
   else if (tab === "basics") main.append(basicsSection(s));
-  else if (tab === "explore") main.append(exploreSection(s), await frameworksSection());
+  else if (tab === "explore") main.append(exploreSection(s), literatureSettings(s, save, sectionCard), await frameworksSection());
   else if (tab === "documents") main.append(sectionCard("ocr", "Reading scanned PDFs", "", ocrBlock(s)), embedSection(s, servers, info));
   else {
     // a local model's own settings (second model, context length) only when a local model answers
