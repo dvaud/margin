@@ -36,7 +36,9 @@ in with `tools/sync_enlens.py`, so it is not built twice and syncs do not confli
 5. **The rest of the writing companion and the AI mix**: reviewer pass, synthesis, QDPX export, local and cloud
    mix (G, I).
 
-Optimisation (H) and the version control workflow (J) are ongoing: a little in every release.
+Optimisation (H) is ongoing: a little in every release. The release pipeline, documentation and ENLENS sync
+(J) start early, alongside step 1, because every later release is easier with them: first their small steps
+(J1 items 1, 3, 4 and 11; J3 stage 1), the rest as they fit.
 
 ---
 
@@ -187,6 +189,10 @@ this), labels and checks read junk, and quotes fail to place.
 - A dated record of decisions (codebook changes, claims dropped and why, themes removed, documents added), kept by
   itself, with room for your own entries. Valuable for reflexivity in qualitative work, and as an audit trail.
 
+**F5. History inside the app** · Level 0 · ENLENS candidate
+- Versions of a project you can go back to: drafts (with what changed between them), codebooks, theme sets,
+  decisions and reviews. *Compare with an earlier version* and *Restore*, with the research log (F4) as their story.
+
 ## G. The rest of the writing companion
 
 **G1. Literature matrix** · Level 0 · Margin
@@ -263,19 +269,134 @@ needed. · ENLENS candidate (`routing.py`, `llm.py`, the task queue)
 - A sample of tasks answered by both routes, with their agreement (kappa, which Margin already computes), so you can
   see whether the local model is good enough for each kind of task on your own corpus.
 
-## J. Version control workflow
+## J. Version control, releases, documentation and the ENLENS sync
 
-Two readings; both are listed until David says which he meant.
+How real products handle these, and what Margin would take from them. This is developer work: no AI is involved, and
+none of it changes what a researcher sees, except the beta channel (J1.6) and *What's new* (J2.5). When J is built,
+the `margin-release` skill's Part B changes with it (its test renames, README order and sync steps).
 
-**J1. The developer workflow** · Margin and ENLENS
-- Shared features built once in ENLENS and brought in, not built twice (as *remove a theme* was in 0.7).
-- Margin's own code kept in its own modules (the add-on layer), so syncs touch Margin's files less often.
-- `tools/sync_enlens.py` runs the tests itself, reports conflicts in plain words, and checks for leftover ENLENS names
-  and colours.
-- One command turns `## Unreleased` into a version (version bump, test renames, README sections) before the release
-  check.
-- A test run on every push to `dvaud/margin`, not only on release tags.
+### J1. A release pipeline
 
-**J2. History inside the app** · Level 0 · ENLENS candidate
-- Versions of a project you can go back to: drafts (with what changed between them), codebooks, theme sets,
-  decisions and reviews. *Compare with an earlier version* and *Restore*, with the research log (F4) as their story.
+**Now.** Pushing a tag `vX.Y.Z` runs `release.yml`: check that the versions agree, run the tests, build the wheel,
+try the one-line install on Linux, Windows and macOS, then make a draft release that a person publishes. That is a
+sound base (checksums, an install test, a person in the loop). The gaps are between releases: nothing tests a push
+to `main`, so a broken commit shows up only at release time; the version is typed in three places; the tests are
+renamed at every release; and there is no way to try a release before everyone gets it.
+
+**How real products do it, and the plan:**
+
+1. **Continuous integration (CI) on every push.** A second workflow, `ci.yml`, runs the tests and a linter (`ruff`) on
+   every push and pull request, on Linux, with the oldest and newest Python Margin supports (3.10 and 3.13). The full
+   three-system install test stays on release tags. *Why*: a fault is found the hour it is made, while it is cheap
+   to fix. `dvaud/margin` is private, so its Actions minutes are limited (macOS minutes count ten times): Linux on
+   pushes, all three systems on release tags.
+2. **Work on branches, merge through pull requests.** Each feature gets a branch (`feature/word-citations`) and a
+   pull request into `main` that CI must pass. Merge with *squash*, so `main` keeps one commit per feature. *Why*: even
+   alone, `main` then stays releasable, and each change has a record of what and why. Required checks on a private
+   personal repository need GitHub Pro; without it, the habit and CI's red mark do the job.
+3. **One version number, from the tag.** The version comes from the git tag (`setuptools-scm`, which fits
+   Margin's setuptools build), and `margin.__version__` reads it from the installed package (`importlib.metadata`).
+   *Why*: nothing to bump by hand, and `release.py check` has one thing less to compare. The changelog heading stays
+   written by hand.
+4. **Changelog fragments.** Each change adds a small file, `changes/<topic>.md`, instead of editing `## Unreleased`;
+   the release step joins them into the new `## X.Y.Z` entry and deletes them (as `towncrier` or `scriv` do).
+   Prose written for researchers stays as it is. *Why*: two branches, or a branch and an ENLENS sync, never edit the
+   same lines of `CHANGELOG.md`, which ends a common source of merge conflicts.
+5. **A release pull request.** `python tools/release.py prepare` decides nothing but does all the typing: it
+   collects the fragments into the changelog, updates *New in* in the README (J2), and opens a pull request
+   "Margin X.Y.Z". Merging it tags the commit, and the tag starts `release.yml` as now. *Why*: the release is
+   reviewed as one change before it exists (the pattern of `release-please`, without its commit-message rules).
+6. **Pre-releases and a beta channel.** `v0.10.0rc1` makes a GitHub pre-release. *Settings → Technical → Updates*
+   gets *Stable* (the default) and *Try new versions early*, and the update button follows the chosen channel. *Why*:
+   a release is used on your own computer for a few days before everyone else gets it.
+7. **Repeatable installs.** A `uv.lock` file pins every dependency that CI and the install use, and Dependabot opens a
+   pull request when a dependency or a GitHub Action has a new version. Actions are pinned by their commit hash, not
+   a moving tag. *Why*: the same release builds the same way next month, and an update is a change you see.
+8. **Provenance.** `actions/attest-build-provenance` records which workflow and commit built each release file
+   (next to the `SHA256SUMS` there already), so anyone can check a wheel came from this repository.
+9. **After publishing.** A job installs from the published release with the real install line on all three
+   systems, and runs once a week too (the macOS runners that hold up releases are tested then, not on release day).
+   *Why*: the draft test cannot catch a fault in what the public install line downloads.
+10. **Rolling back.** A short runbook in `docs/DEVELOPING.md`: a bad release is marked as a pre-release so "latest"
+    falls back to the one before, the update button skips it, and the fix follows as a patch release.
+11. **Tests named by topic, not version.** `tests/test_word_citations.py` rather than `test_m0_10_0_…`, never renamed.
+    *Why*: renaming at every release is churn, and a test's name should say what it guards. Existing files keep their
+    names.
+
+**Order:** 1, 3, 4 and 11 first (small, and the others build on them); then 2, 5 and 7; then 6, 8, 9 and 10.
+
+### J2. README and documentation
+
+**Now.** `README.md` is about 320 lines. *Install* and *Update* are clear, but the *New in* section and *Earlier
+releases* repeat `CHANGELOG.md`; *Exploring the documents*, *What a check does*, *A model per task* and *Privacy*
+repeat `docs/MANUAL.md`; and the git copy and the *Layout* table are for developers in the middle of a page for
+researchers. Each release edits text in two or three places, and they drift apart.
+
+**How real products do it.** The README is the front door: what it is, a picture, how to install, where to go
+next. Release notes live in the changelog and the GitHub Release. Documentation is written once and linked, never
+copied, and often arranged by what the reader needs (the Diátaxis split: tutorials to learn, how-to guides for a
+task, reference to look up, explanations to understand). Contributor material lives in its own file.
+
+**The plan:**
+
+1. **A README of about 100 lines:** one line on what Margin is and a screenshot; *Install*; *Update*; *What Margin
+   does* (six or so bullets, each linking to its manual section); *New in 0.X* (three to five bullets) with a link to
+   the changelog; *Privacy* in one paragraph; links to the documentation; *For developers* as a link.
+2. **No copies.** *Earlier releases* leaves the README (the changelog and GitHub Releases hold them). The feature
+   descriptions move into the manual, where they mostly are already.
+3. **`docs/DEVELOPING.md`** for developers: the git copy, the *Layout* table, tests, the dev server, the release
+   (J1) and the ENLENS sync (J3). `docs/EXTENDING.md` stays for add-ons.
+4. **The manual in parts:** *Getting started* (a first project, start to finish), a how-to page per feature,
+   reference (settings, the command line, the API) and explanations (privacy, how a check works, limits). Optionally
+   published as a site (MkDocs on GitHub Pages) built by CI.
+5. **Generated, not copied:** `release.py prepare` writes *New in 0.X* from the changelog; the app's *What's new*,
+   shown once after an update, reads the same entry.
+6. **Checked by CI:** links between documents resolve; every feature in `features.js` has a manual section; the
+   README's *New in* matches the changelog.
+
+The README order Part A of the release guide sets for ENLENS stays there; Margin's new order goes into Part B.
+
+### J3. Bringing in ENLENS's work
+
+**Now.** `tools/sync_enlens.py` rewrites each new ENLENS commit with Margin's names (nine text substitutions such
+as `ENLENS` → `Margin` and port 8765 → 8766), merges the result, and leaves conflicts to be resolved by hand;
+`README.md`, `CHANGELOG.md` and the version lines are Margin's own. It works, but every ENLENS change to a file
+Margin also changed can conflict, a text substitution can rename what it should not, a feature was built in both
+apps (*remove a theme*, 0.7), and the `enlens` remote still has a push address.
+
+**How real products do it.** Three patterns, from loosest to firmest:
+- *A fork with its changes on top* (Linux distributions' patch sets, browsers built on Chromium): flexible, but every
+  upstream release can conflict, and the work grows with the distance between the two.
+- *Identity as configuration* (VSCodium builds Visual Studio Code's own code with its own `product.json` for name,
+  folders and icons): the code is the same, so updates merge cleanly.
+- *Upstream as a dependency* (apps built on a framework, with plugins): the derived product does not copy the code
+  at all; it depends on a released version and adds its own parts through extension points. An update is a version
+  bump.
+
+ENLENS has the start of the second and third already: `brand.json`, the add-on module and the local layer
+(`docs/EXTENDING.md`).
+
+**The plan, in three stages:**
+
+1. **Safer and calmer now** (Margin; small):
+   - `git remote set-url --push enlens no-push`, so a push to ENLENS from this clone is impossible.
+   - **Upstream first**: a fix or feature both apps need is built in ENLENS and brought in, never built twice.
+   - Sync **ENLENS's release tags**, not whatever is on its `main`, on a branch `sync/enlens-X.Y.Z` with a pull
+     request that CI must pass.
+   - The tool runs the tests itself, compares the failures with those before the merge, lists leftover ENLENS
+     names and colours, and explains each conflict in plain words.
+   - A weekly workflow on `dvaud/margin` checks ENLENS (public) for a new release tag and opens the sync pull request
+     by itself.
+2. **ENLENS's identity as configuration** (ENLENS; medium): one *product profile* (app name, command names, the
+   `*_HOME` style variables, the data folder, the port, the plugin's name) read in one place, and no "ENLENS"
+   written into code or page text elsewhere (the page already uses `appName()`). The substitutions then shrink to
+   the Python package name, and most sync conflicts go with them.
+3. **Margin as ENLENS plus an add-on** (both; large, the end state): ENLENS publishes its package with each release;
+   Margin becomes a package that depends on a pinned ENLENS version, brings its own features (drafts, citation
+   checks, APA citations, the bibliography additions) as an add-on through the `extensions` entry point, and sets
+   its profile and look. A sync is a version bump that Dependabot can propose, tested by CI. The price: Margin no
+   longer edits ENLENS's code directly. What Margin needs from it becomes an extension point added in ENLENS first.
+
+**Order:** stage 1 now; stage 2 in ENLENS next; stage 3 once ENLENS's extension points cover what Margin adds
+(the list of Margin's changes to shared files, from `git diff` against the last synced ENLENS, shows what is
+missing).
