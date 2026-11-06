@@ -1,4 +1,4 @@
-"""Margin (unreleased): finding literature. Online lookups that are not AI: search for works for the claims no document
+"""Margin 0.10.0: finding literature. Online lookups that are not AI: search for works for the claims no document
 supports (E1), follow what the documents cite and who cites them (E2), and saved searches that say what is new (E3).
 The tests never touch the network: OpenAlex, Crossref, Semantic Scholar, Unpaywall and Zotero are stand-ins on this
 computer (tests/fake_literature.py, tests/fake_zotero.py), and the privacy gate is tested explicitly."""

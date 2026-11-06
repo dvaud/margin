@@ -1,7 +1,7 @@
 # Margin roadmap
 
-Where Margin is going: from a draft and evidence checker to a research manager and writing companion. Nothing here
-is built yet. Written 6 November 2026, after Margin 0.9.1; items move to `CHANGELOG.md` as they are built.
+Where Margin is going: from a draft and evidence checker to a research manager and writing companion. Sections C
+and E are built (Margin 0.10.0); the rest is not yet. Written 6 November 2026, after Margin 0.9.1; items move to `CHANGELOG.md` as they are built.
 
 ## The rule: as little AI as possible
 
@@ -115,6 +115,8 @@ this), labels and checks read junk, and quotes fail to place.
 
 ## C. An outline from the corpus's themes
 
+**Built in Margin 0.10.0** (see `CHANGELOG.md`); kept here for what it was meant to do.
+
 **C1. Outline from themes** · Level 0 · Margin
 - Turn a set of themes into a writing outline: each theme becomes a section with its key terms, the passages that
   represent it best, the documents to cite (with APA citations), its codes and its concepts.
@@ -160,6 +162,8 @@ this), labels and checks read junk, and quotes fail to place.
   where your terms differ from your sources'.
 
 ## E. Finding literature
+
+**Built in Margin 0.10.0** (see `CHANGELOG.md`); kept here for what it was meant to do.
 
 **E1. Literature for unsupported claims** · Level 0 (online lookup, not AI), Level 1 optional · Margin
 - For a claim no document supports: search OpenAlex, Crossref or Semantic Scholar with search words taken from the

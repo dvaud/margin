@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 (November 2026): an outline from your themes, and finding literature
+
+Two parts of the roadmap (`docs/ROADMAP.md`), both without AI: **Outline** turns your themes into a plan to write
+from, beside your draft, downloadable as Word or Markdown (section C); **Find literature** looks for works to cite for
+the claims your documents do not back, follows your documents' citations and keeps saved searches (section E).
 
 ### An outline from your themes
 
@@ -35,7 +39,7 @@ themes into a plan to write from, beside a draft if you like, and downloads it a
 
 Defects fixed on the way: none found in existing code.
 
-Tests: `tests/test_unreleased_outline.py` (22): the order puts similar themes together and 2-opt never makes the path
+Tests: `tests/test_m0_10_0_outline.py` (22): the order puts similar themes together and 2-opt never makes the path
 worse; sections, terms, passages, citations; several outlines and reopening; reorder, nesting, depth limit and cycles;
 own sections, notes and titles; merge and split (by themes and by documents); taking out and bringing back; suggesting
 the order again; an outline that outlives its themes and follows a merge or removal; disagreements, decisions, gaps and
@@ -85,10 +89,10 @@ asks with are made on your computer and shown to you first.
 **Defects fixed on the way.** None in existing code. Found while building: a draft id that does not exist is refused as
 "no such draft" rather than treated as a draft that may not send.
 
-**Tests added.** `tests/test_unreleased_literature.py` (search words, the three services, caching, offline, rate limit and
+**Tests added.** `tests/test_m0_10_0_literature.py` (search words, the three services, caching, offline, rate limit and
 refusal errors, the privacy gate for `--local-only`, drafts and documents, ranking with and without an embedding model,
 following citations, saved searches and their fallback, Zotero's connector, RIS and BibTeX, the API) and
-`tests/test_unreleased_literature_page.py`; stand-ins in `tests/fake_literature.py`, and `tests/fake_zotero.py` now answers
+`tests/test_m0_10_0_literature_page.py`; stand-ins in `tests/fake_literature.py`, and `tests/fake_zotero.py` now answers
 the connector's `getSelectedCollection` and `saveItems`. None touches the network.
 
 **Not yet done.** Not tried against the real OpenAlex, Crossref, Semantic Scholar, Unpaywall or Zotero: everything was built

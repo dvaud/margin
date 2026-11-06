@@ -1,4 +1,4 @@
-"""Margin (unreleased): the page of Find literature, its place in the app, and its documentation. The page itself is
+"""Margin 0.10.0: the page of Find literature, its place in the app, and its documentation. The page itself is
 looked at in a browser (see the changelog); these tests keep what a browser is not run for: the entries, the CSS rules,
 and that every endpoint is documented."""
 from __future__ import annotations
@@ -81,4 +81,4 @@ def test_every_endpoint_is_documented():
 def test_the_dev_server_can_run_the_stand_ins():
     src = (ROOT / "tools" / "dev_server.py").read_text(encoding="utf-8")
     assert "--literature" in src and "fake_literature" in src and "no_created_filter" in src
-    assert "Unreleased" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")[:200]
+    assert "## 0.10.0" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")[:200]

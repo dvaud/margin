@@ -45,33 +45,27 @@ use the install line). *Settings → Technical → Check for updates* looks at o
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.9: social practice theory as a codebook
+## New in 0.10: an outline from your themes, and finding literature
 
-- **Two built-in codebooks from social practice theory.** *Social practice theory* (25 codes) follows practices
-  rather than topics: their materials, competences and meanings, how they are performed, known, ruled, and how links
-  are made, kept and broken. *Framings of conduct and change* (4 codes) says how a text explains what people do:
-  through practices, individual choice, structure, or technology by itself. Use it on policy documents.
-- **Labels that say more.** With the practice codebook, each label names the practice and the element in the
-  passage's own words, and says whether the passage **holds the practice together** or **pulls it apart**.
-  *Profile → Count by → Practice* shows practices by code, each with its elements. A concept's page lists the labels
-  that name it, and its links can say how elements relate (needs, shapes, replaces, is an element of, clashes with).
-- **Codebooks of ideas, not just words.** Any codebook may now give each code keywords, when to use it, when not to,
-  and its source; small codebooks (30 codes or fewer) go to the AI whole with every passage, since a keyword search
-  misses codes whose words are not in the text. A codebook can name its own directions.
-
-**0.9.1** (from ENLENS 0.13.9 and 0.13.10):
-- **Faster or slower.** *Slower · Normal · Faster* beside every *Start Claude Code* (and in Settings) sets how many
-  helpers Claude Code starts at once: one, two or four. Folded away under it, you can choose which helpers work in
-  one run.
-- **Models that suit your Claude plan.** The recommended model of each task now follows the plan Claude Code is
-  signed in with (Free, Pro, Max), found by itself; *Settings → Technical* shows it and lets you set it by hand.
-- **Only the Zotero works you choose.** On *Bibliography*, *Choose the works one by one* brings in just the works you
-  tick, even a single one, and *Update from Zotero* keeps them up to date.
+- **An outline to write from.** *Outline* (under *Your writing*, or *Make an outline* on a set of themes) turns your
+  themes into sections: each with its key terms, the passages that show it best, the documents to cite (with their
+  APA citation), its codes and concepts, and where your sources disagree or run thin. Themes that share documents and
+  terms sit next to each other, so it reads as a path; drag, nest, merge, split, rename, and add sections of your own.
+  Beside a draft, each section says how much of it you have covered and which sources you have not used yet.
+  Download it as Word or Markdown. No AI is used.
+- **Find literature.** For a claim of your draft that no document backs, *Find literature* searches OpenAlex for works
+  to cite, with search words made on your computer and shown to you before anything is sent. It also follows the works
+  your documents cite and those citing them, and keeps saved searches that say what is new since you last looked.
+  Works you choose go straight into Zotero (or download as RIS or BibTeX). Nothing is sent from drafts or documents
+  kept on this computer, or with `--local-only`.
 
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.9**: social practice theory as a codebook (practices, their elements, and whether a passage holds a
+  practice together or pulls it apart), codebooks of ideas rather than words; 0.9.1 a speed for Claude Code, models
+  that follow your Claude plan, and only the Zotero works you choose (from ENLENS 0.13.9 and 0.13.10).
 - **Margin 0.8**: no codebook until you choose one; the SDG codebooks stay as built-in examples, and the
   green-hydrogen pipeline of the ENLENS pilot is gone from what you see.
 - **Margin 0.7**: remove a theme you do not need, and find a new one in its place, on your computer without AI.
@@ -113,7 +107,7 @@ them before you claim anything: every place a word occurs, the codes of your own
 document addresses, a glossary of terms grouped into concepts you can follow from one document to the next, themes
 across the documents, what "it" and "they" refer to, and highlighted copies. Most of that needs no AI at all; what the AI adds is quoted, checked against the text, and yours to overrule.
 
-When you write, Margin reads your draft the same way: it marks the statements that need a source and checks each one against your documents, so you see which claims they back, which they contradict, and what to cite.
+When you write, Margin reads your draft the same way: it marks the statements that need a source and checks each one against your documents, so you see which claims they back, which they contradict, and what to cite. It turns your themes into an outline to write from, and finds works to cite for the claims your documents do not back.
 
 When you have a statement to test, Margin also checks it: supported, partly supported, contradicted or mixed
 evidence, with the exact words of each source, where they are (page or paragraph), and a quote checked character by
@@ -124,7 +118,7 @@ The AI is Claude, through Claude Code signed in with your own Claude plan (Pro, 
 sets Claude Code up by itself and starts it when you press *Start Claude Code*; each kind of task goes to the right
 model (labels on Haiku, theme names and checks on Sonnet, second opinions on Opus). Your documents, results and
 reviews stay on your computer: only the passages inside the AI's tasks, from documents Claude may read, are sent to
-Anthropic. A model on your own computer (Ollama, LM Studio…) and a shared installation on the Claude API remain
+Anthropic, and the search words you see before you search for literature go to OpenAlex. A model on your own computer (Ollama, LM Studio…) and a shared installation on the Claude API remain
 available, and whoever installs it can switch everything off the computer off for good (`--local-only`).
 
 The app is written for researchers who do not program: plain language on every working screen; each feature says
@@ -269,6 +263,10 @@ see docs/MODEL_CHOICE.md) set them.
   switched on (or `--backend anthropic` on the command line). `--local-only` hides both cloud options for good.
 - The app is a small standard-library server on 127.0.0.1 with a per-run token; the page loads nothing from the
   internet (no CDN, fonts or analytics). No Streamlit, no telemetry.
+- *Find literature* (0.10) is not AI, but it does send words off the computer: the search words you see and edit
+  first (to OpenAlex, and to Crossref, Semantic Scholar or Unpaywall if you choose), or your documents' DOIs to follow
+  their citations. Never from a draft or document that Claude may not read, never the text of one, and never with
+  `--local-only`. A contact e-mail is sent only if you give one in *Settings → Exploring*.
 - Projects are plain folders with one SQLite database; settings live in `~/margin` (or `MARGIN_HOME`).
 
 ## Documentation
@@ -290,6 +288,8 @@ see docs/MODEL_CHOICE.md) set them.
 | `llm.py` | Ollama, OpenAI-compatible local servers (LM Studio, llama.cpp…), server detection, Claude API, offline baseline |
 | `tasks.py`, `schema.py`, `prompts.py` | Model tasks, validation with the quote check, versioned prompts |
 | `bibliography.py` | The bibliography (ENLENS 0.13): Zotero read through its local API, BibTeX / RIS / CSL JSON / CSV files, matching works with documents, titles from the linked work |
+| `outline.py` | An outline from the themes (Margin 0.10): the order by similarity, the person's sections and edits, coverage beside a draft, the Word and Markdown downloads |
+| `literature.py` | Find literature (Margin 0.10): OpenAlex, Crossref, Semantic Scholar and Unpaywall with the privacy gate, the cache, following citations, saved searches, Zotero's connector, RIS and BibTeX |
 | `drafts.py` | Check a draft (Margin 0.1): drafts kept apart from the documents, the claims that need a source (the AI with the quote check, or rules), the person's changes, their checks as hypotheses, the draft page's view and the export |
 | `access.py` | Who may read each document with AI (ENLENS 0.11): the settings, the guard on every task, which model reads what, the ledger of what was sent to Claude, the cap |
 | `ingest.py`, `textutil.py`, `store.py` | Documents and passages with page offsets, layout (paragraphs, headings), local OCR, text normalisation, the workspace database |
@@ -317,7 +317,8 @@ tag `vX.Y.Z` into a draft GitHub Release (tests, the package, the two scripts wi
 new user would find it, with the remote-work demo documents in `tools/demo_corpus/`; `--claude-code` with a fake
 Claude Code answering the queue; `--claude-cli` with a stand-in `claude` program the app sets up and starts, 0.9;
 `--claude-install` with Claude Code still to be installed and signed in to, `--no-tesseract` without Tesseract, 0.10;
-`--zotero` with a stand-in Zotero, `--update` with a stand-in update, ENLENS 0.13);
+`--zotero` with a stand-in Zotero, `--update` with a stand-in update, ENLENS 0.13; `--literature` with stand-in
+literature services, Margin 0.10);
 `tools/pdf_to_text.py` turns a
 folder of PDFs into page-preserving text files; `tools/eval_second_pass.py` measures the second sorting pass on the
 pilot. The green hydrogen pilot (workspace, report, run notes) is in
