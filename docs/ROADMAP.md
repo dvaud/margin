@@ -37,8 +37,8 @@ in with `tools/sync_enlens.py`, so it is not built twice and syncs do not confli
    mix (G, I).
 
 Optimisation (H) is ongoing: a little in every release. The release pipeline, documentation and ENLENS sync
-(J) start early, alongside step 1, because every later release is easier with them: first their small steps
-(J1 items 1, 3, 4 and 11; J3 stage 1), the rest as they fit.
+(J) start early, alongside step 1, because every later release of both apps is easier with them: see *Order for J
+as a whole* at the end.
 
 ---
 
@@ -271,29 +271,55 @@ needed. · ENLENS candidate (`routing.py`, `llm.py`, the task queue)
 
 ## J. Version control, releases, documentation and the ENLENS sync
 
-How real products handle these, and what Margin would take from them. This is developer work: no AI is involved, and
-none of it changes what a researcher sees, except the beta channel (J1.6) and *What's new* (J2.5). When J is built,
-the `margin-release` skill's Part B changes with it (its test renames, README order and sync steps).
+How real products handle these, and what ENLENS and Margin would take from them. This is developer work: no AI is
+involved. J1 and J2 apply to **both apps**; J3 (the sync) and J5 are Margin's only, J4 is ENLENS's only. When J is
+built, both release guides change with it: the shared steps go into the main ENLENS guide (Part A of the
+`margin-release` skill), so Margin's Part B shrinks to what is truly Margin's.
 
-### J1. A release pipeline
+### J0. One pipeline, two products
 
-**Now.** Pushing a tag `vX.Y.Z` runs `release.yml`: check that the versions agree, run the tests, build the wheel,
-try the one-line install on Linux, Windows and macOS, then make a draft release that a person publishes. That is a
-sound base (checksums, an install test, a person in the loop). The gaps are between releases: nothing tests a push
-to `main`, so a broken commit shows up only at release time; the version is typed in three places; the tests are
-renamed at every release; and there is no way to try a release before everyone gets it.
+ENLENS and Margin get **the same pipeline**: the same workflows, the same `tools/release.py` commands, the same
+changelog fragments, documentation checks, branch names and steps. What differs is held in one short **product
+profile** per app (the same file that J3 stage 2 introduces for the app's name, folders and port), plus each app's own
+README and changelog. So:
+
+- **Built once, in ENLENS.** The pipeline is shared code like any shared feature: built in ENLENS first and brought
+  into Margin by the sync. Margin never edits the shared pipeline files; it changes only its profile, which the sync
+  leaves alone (as it does `README.md` and `CHANGELOG.md` today).
+- **The same habits.** A release is the same few commands in either repository, so switching between them needs no
+  thought, and a fix to the pipeline reaches both.
+- **Recognisably distinct.** Different names, looks, version numbers, release pace and, above all, audiences:
+
+| | **ENLENS**: for scientists who rely on it | **Margin**: David's own companion |
+| --- | --- | --- |
+| Who the releases serve | researchers using it in their work, and those who read or review that work | David, to see what is going on |
+| Pace | careful: a release candidate before each minor release, in use for at least a week | as fast as useful: release when ready, release candidates optional |
+| CI | public repository: free minutes, all three systems on every push, required checks before merging | private: Linux on every push, three systems on release tags, checks advisory |
+| Release notes | plain language, grouped: *New*, *Changes that can alter your results*, *Fixed*, *Privacy* | short: what changed, what came from ENLENS, what is next |
+| README | a front door for scientists: what it does, install, how to cite, privacy, the manual | a short front page and the overview of J5 |
+| Extras | J4: citable versions, results you can trust across versions, a validation report, methods and privacy documents | J5: an overview of both apps and the roadmap |
+
+### J1. A release pipeline (both apps)
+
+**Now.** In both apps, pushing a tag `vX.Y.Z` runs `release.yml`: check that the versions agree, run the tests,
+build the wheel, try the one-line install on Linux, Windows and macOS, then make a draft release that a person
+publishes. That is a sound base (checksums, an install test, a person in the loop). The gaps are between
+releases: nothing tests a push to `main`, so a broken commit shows up only at release time; the version is typed in
+three places; the tests are renamed at every release; and there is no way to try a release before everyone gets it.
 
 **How real products do it, and the plan:**
 
 1. **Continuous integration (CI) on every push.** A second workflow, `ci.yml`, runs the tests and a linter (`ruff`) on
    every push and pull request, on Linux, with the oldest and newest Python Margin supports (3.10 and 3.13). The full
    three-system install test stays on release tags. *Why*: a fault is found the hour it is made, while it is cheap
-   to fix. `dvaud/margin` is private, so its Actions minutes are limited (macOS minutes count ten times): Linux on
-   pushes, all three systems on release tags.
+   to fix. Which systems run on a push is a profile setting: ENLENS is public, so its standard Actions minutes are
+   free and all three systems can run on every push; `dvaud/margin` is private, so its minutes are limited (macOS
+   minutes count ten times): Linux on pushes, all three systems on release tags.
 2. **Work on branches, merge through pull requests.** Each feature gets a branch (`feature/word-citations`) and a
    pull request into `main` that CI must pass. Merge with *squash*, so `main` keeps one commit per feature. *Why*: even
-   alone, `main` then stays releasable, and each change has a record of what and why. Required checks on a private
-   personal repository need GitHub Pro; without it, the habit and CI's red mark do the job.
+   alone, `main` then stays releasable, and each change has a record of what and why. ENLENS, being public, can
+   require the checks to pass before a merge (a branch ruleset); for the private Margin that needs GitHub Pro, and
+   without it the habit and CI's red mark do the job.
 3. **One version number, from the tag.** The version comes from the git tag (`setuptools-scm`, which fits
    Margin's setuptools build), and `margin.__version__` reads it from the installed package (`importlib.metadata`).
    *Why*: nothing to bump by hand, and `release.py check` has one thing less to compare. The changelog heading stays
@@ -304,11 +330,13 @@ renamed at every release; and there is no way to try a release before everyone g
    same lines of `CHANGELOG.md`, which ends a common source of merge conflicts.
 5. **A release pull request.** `python tools/release.py prepare` decides nothing but does all the typing: it
    collects the fragments into the changelog, updates *New in* in the README (J2), and opens a pull request
-   "Margin X.Y.Z". Merging it tags the commit, and the tag starts `release.yml` as now. *Why*: the release is
-   reviewed as one change before it exists (the pattern of `release-please`, without its commit-message rules).
+   "ENLENS X.Y.Z" or "Margin X.Y.Z". Merging it tags the commit, and the tag starts `release.yml` as now. *Why*: the
+   release is reviewed as one change before it exists (the pattern of `release-please`, without its commit-message
+   rules).
 6. **Pre-releases and a beta channel.** `v0.10.0rc1` makes a GitHub pre-release. *Settings → Technical → Updates*
    gets *Stable* (the default) and *Try new versions early*, and the update button follows the chosen channel. *Why*:
-   a release is used on your own computer for a few days before everyone else gets it.
+   a release is used on your own computer for a few days before everyone else gets it. ENLENS's profile requires a
+   release candidate before every minor release; Margin's does not.
 7. **Repeatable installs.** A `uv.lock` file pins every dependency that CI and the install use, and Dependabot opens a
    pull request when a dependency or a GitHub Action has a new version. Actions are pinned by their commit hash, not
    a moving tag. *Why*: the same release builds the same way next month, and an update is a change you see.
@@ -325,12 +353,13 @@ renamed at every release; and there is no way to try a release before everyone g
 
 **Order:** 1, 3, 4 and 11 first (small, and the others build on them); then 2, 5 and 7; then 6, 8, 9 and 10.
 
-### J2. README and documentation
+### J2. README and documentation (both apps)
 
-**Now.** `README.md` is about 320 lines. *Install* and *Update* are clear, but the *New in* section and *Earlier
-releases* repeat `CHANGELOG.md`; *Exploring the documents*, *What a check does*, *A model per task* and *Privacy*
-repeat `docs/MANUAL.md`; and the git copy and the *Layout* table are for developers in the middle of a page for
-researchers. Each release edits text in two or three places, and they drift apart.
+**Now.** Both READMEs have the same layout (Margin's about 320 lines, ENLENS's about 350), set by the main release
+guide. *Install* and *Update* are clear, but the *New in* section and *Earlier releases* repeat `CHANGELOG.md`;
+*Exploring the documents*, *What a check does*, *A model per task* and *Privacy* repeat `docs/MANUAL.md`; and the git
+copy and the *Layout* table are for developers in the middle of a page for researchers. Each release edits text in
+two or three places, and they drift apart.
 
 **How real products do it.** The README is the front door: what it is, a picture, how to install, where to go
 next. Release notes live in the changelog and the GitHub Release. Documentation is written once and linked, never
@@ -339,11 +368,16 @@ task, reference to look up, explanations to understand). Contributor material li
 
 **The plan:**
 
-1. **A README of about 100 lines:** one line on what Margin is and a screenshot; *Install*; *Update*; *What Margin
-   does* (six or so bullets, each linking to its manual section); *New in 0.X* (three to five bullets) with a link to
-   the changelog; *Privacy* in one paragraph; links to the documentation; *For developers* as a link.
+1. **A README of about 100 lines, written for its audience** (each app's README stays its own and is not synced):
+   - *ENLENS*, for scientists: one line on what it is and a screenshot; *Install*; *Update*; *What ENLENS does* (six
+     or so bullets, each linking to its manual section); *New in 0.X* (three to five bullets, with whether they can
+     change results); *How to cite ENLENS* (J4); *Privacy and your documents* in one paragraph, linking to the privacy
+     statement; links to the manual and methods; *For developers* as a link.
+   - *Margin*, for David: one line on what it is; *Install*; *Update*; *New in 0.X*; *What Margin adds to ENLENS*
+     (its own features, a few lines); *Where things stand* (J5); *For developers* as a link.
 2. **No copies.** *Earlier releases* leaves the README (the changelog and GitHub Releases hold them). The feature
-   descriptions move into the manual, where they mostly are already.
+   descriptions move into the manual, where they mostly are already. Margin's manual keeps coming through the sync
+   with its own sections added, so it costs no extra writing.
 3. **`docs/DEVELOPING.md`** for developers: the git copy, the *Layout* table, tests, the dev server, the release
    (J1) and the ENLENS sync (J3). `docs/EXTENDING.md` stays for add-ons.
 4. **The manual in parts:** *Getting started* (a first project, start to finish), a how-to page per feature,
@@ -354,9 +388,10 @@ task, reference to look up, explanations to understand). Contributor material li
 6. **Checked by CI:** links between documents resolve; every feature in `features.js` has a manual section; the
    README's *New in* matches the changelog.
 
-The README order Part A of the release guide sets for ENLENS stays there; Margin's new order goes into Part B.
+Items 3 to 6 are shared files, built in ENLENS and synced. The README order in the main release guide (Part A)
+changes to ENLENS's new one; Margin's order goes into Part B.
 
-### J3. Bringing in ENLENS's work
+### J3. Bringing in ENLENS's work (Margin only)
 
 **Now.** `tools/sync_enlens.py` rewrites each new ENLENS commit with Margin's names (nine text substitutions such
 as `ENLENS` → `Margin` and port 8765 → 8766), merges the result, and leaves conflicts to be resolved by hand;
@@ -400,3 +435,50 @@ ENLENS has the start of the second and third already: `brand.json`, the add-on m
 **Order:** stage 1 now; stage 2 in ENLENS next; stage 3 once ENLENS's extension points cover what Margin adds
 (the list of Margin's changes to shared files, from `git diff` against the last synced ENLENS, shows what is
 missing).
+
+### J4. ENLENS for scientists (ENLENS only)
+
+What a tool needs when its users publish with it, review with it, or have to justify it to an ethics board.
+
+1. **Citable versions.** A `CITATION.cff` file (GitHub then shows *Cite this repository*) and a DOI for every release
+   through Zenodo's GitHub link, so a paper can cite the exact version it used. The README's *How to cite ENLENS*
+   gives both.
+2. **Results you can trust across versions.** Each release note says, under *Changes that can alter your results*,
+   whether the same documents can now give different answers (a new parser, as A1 would be; a new prompt, model or
+   rule). Every result already records how it was made; it also records the ENLENS version, and a project opened in a
+   newer version says which of its results were made with an older one. Old results stay readable.
+3. **A validation report per release.** The parts that need no AI (reading documents, search, terms, themes, their
+   determinism) are measured by the release workflow on the demo and pilot corpora; figures that need AI come from a
+   recorded, dated run. The report goes with the release notes, so a change in accuracy is seen, not guessed.
+4. **Methods and privacy documents.** `docs/METHODS.md`: how a check, labels, concepts and themes work, with their
+   references, written so it can back a methods section. `docs/PRIVACY.md`: what leaves the computer, when, to whom,
+   and what never does, written for ethics applications and data protection assessments.
+5. **Reporting a problem without knowing GitHub.** Issue forms in plain language (what you did, what you expected,
+   and the app's technical details pasted with one button), a contact for privacy and security problems
+   (`SECURITY.md`), and a note on which versions get fixes.
+6. **Changes announced ahead.** A feature that is removed or works differently is announced one minor release
+   before, in the notes and in the app.
+
+### J5. Margin as an overview (Margin only)
+
+Margin is where David sees what is going on in both apps and in the plan, at a glance and without digging.
+
+1. **`python tools/status.py`** (and the same text in the summary of each CI run): which ENLENS version Margin is
+   built on and the ENLENS releases not brought in yet; what waits to be released (the changelog fragments); open
+   branches and their CI state; the last release of each app and whether its after-publishing check passed; the
+   roadmap's items by state.
+2. **The roadmap keeps state.** Each item is marked *planned*, *in progress* or *done in X.Y.Z*; `status.py` counts
+   them, and the release step marks the items a release finishes.
+3. **One changelog for both.** Margin's release notes say *From ENLENS X.Y.Z* for what came in, so Margin's changelog
+   reads as the log of both apps.
+4. **About this version.** *Settings → Technical* says "Margin X.Y.Z, built on ENLENS A.B.C", with links to both
+   changelogs.
+5. **Lighter gates.** The macOS install test stays advisory, release candidates are optional, and a release can be
+   made the day its work is done.
+
+### Order for J as a whole
+
+1. In ENLENS: J1 items 1, 3, 4 and 11, the product profile (J0) and J2 items 3 and 6. Sync them into Margin.
+2. In Margin: J3 stage 1 and J5 items 1 and 2.
+3. In ENLENS: J2's new README and the rest of J1, then J4 (citation first, as it is the smallest). Sync.
+4. Both: J3 stage 2, then stage 3 when ready.
