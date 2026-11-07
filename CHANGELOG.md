@@ -1,5 +1,100 @@
 # Changelog
 
+## Unreleased
+
+From ENLENS 0.14.3 and 0.14.4: fixes from a review of the whole app. Five reviewers each took one part of ENLENS
+(checking, privacy, the server and updates, exploring, the pages); most defects were reproduced before they were fixed,
+and each fix has a test. Several **can change results**: each says so. ENLENS's fixes for shared projects are left out,
+as Margin has no shared projects.
+
+### Privacy
+
+- **A local model's summary no longer reaches a Claude chat.** When your main AI was a model on this computer, the
+  connector showed its summary of a check (and its "about another group" notes) to Claude, although it had read
+  documents marked *Only a local AI*. Now they are shown only when the check read nothing but text Claude may read.
+  **Can change what Claude is sent.**
+- **Letting Claude read a document asks first.** Loosening a document's setting (to *Claude may read it*, or from *No
+  AI* to *Only a local AI*) now asks before saving and shows the document's note; *Cancel* puts it back. Making a
+  setting stricter stays instant.
+- **The project zip leaves out removed documents.** *Download as a zip* took the whole uploads folder, so a document
+  you had removed went along. Only the current documents' files and the codebooks go in now, and the download link
+  no longer carries the app's access key in its address. **Can change exports.**
+- **Glossary terms stay home.** With an embedding server on another computer, terms found only in documents kept from
+  Claude are no longer sent to it.
+
+### Checking a hypothesis
+
+- **A check whose AI answers failed no longer says "No evidence found".** It says *The check did not work* and why;
+  nothing the AI said in a failed search counts anywhere. Your own judgements of its excerpts are kept and count once
+  another search of the check is answered. **Can change results.**
+- **Excerpts that wait for your judgement are not "not about it".** A check of *No AI* documents now says *Waiting for
+  your judgement* (result, Results list, map, Excel, connector), and the answer card says so beside any other caution.
+  **Can change results.**
+- **Excel says who really judged each excerpt** ("nobody yet", and why), and the *AI model used* column lists every
+  model whose answers the check used. **Can change exports.**
+- **A stricter quote check.** Quotes match whole words only ("legal" is not found in "illegal"), may not start or end
+  inside a number, and a judgement's quote needs at least three words or 15 characters (prompts `check-v5`,
+  `verify-v2`, `verify-set-v2`). Your own selections are widened to whole words. Stored results do not change.
+  **Can change new checks.**
+- **A local model's runaway answer no longer stops everything**: an answer cut off or stuck writing blank space is one
+  failed try, asked again, and the check goes on.
+- **The stronger model gets its own three tries** (it could get only two and then wait for good).
+- The evidence map agrees with the Results list and is faster; *How these results were made* records the prompt
+  version the model was actually given.
+
+### Exploring the documents
+
+- **A phrase finds only the phrase**: "the economy" no longer counts every "economy", and words typed beside a quoted
+  phrase must be in the passage too. **Can change results.**
+- **Highlights land where their words stand** in a highlighted copy, and short mentions match whole words.
+- **The bibliography no longer renames a document after a work it cites.** A DOI links on its own only when it is in
+  the file name or on the title page; otherwise the pair waits under *Please confirm*. Decisions and *Confirm all* are
+  near-instant, matching is about four times faster, and BibTeX `@string` names are filled in. **Can change results.**
+- **Theme edits follow their themes** (by the passages they share, not by theme number). **Can change results.**
+- **A code you agreed with stays** after the AI reads the passage. **Can change results.**
+- **Codebooks from European Excel**: CSVs with semicolons or in a Windows code page are read, and a codebook file that
+  cannot be used is listed with the reason.
+
+### Adding documents
+
+- **One bad file no longer stops the whole add**: a password-protected or damaged zip, PDF or Word file is listed with
+  the reason, and the rest are added.
+- **Text in other code pages is read as written** (a Hungarian Notepad file, an old web page in Windows-1250 or
+  -1252). **Newly added documents only.**
+- *Stop* reaches the text recognition of a long scan; files picked during an add wait for the next one.
+- **A damaged project zip is refused** with a plain message and leaves nothing in your projects.
+
+### The app
+
+- **Notes typed on a waiting result are kept** (the page no longer rebuilds while you type).
+- **When Margin stops answering, a banner says so** and offers to reload.
+- **One Claude Code run per project, stopped on Quit** and on *Update and restart*; a reopened app sees a run still
+  going and can stop it (on Linux too).
+- **The Claude Code plugin follows an update** of a one-line install.
+- Smaller fixes: the Documents table shows *Open* and *Remove* under each title; a result of another project offers to
+  switch to it; *Check several* skips lines too short to check; the *Let the auditor use Fable* switch saves at once;
+  empty Search, Profile and Concepts say *Add documents first*; keyboard and contrast fixes (faint labels are easier to
+  read); an update on disk no longer mixes the new page with the old code; the look for a new version cannot hang on
+  a password prompt; on Windows, a user name with an accent works.
+
+### For developers
+
+- `.github/workflows/tests.yml` runs the tests on every push to `main`.
+- `tools/dev_server.py` never finds the real Claude Code.
+
+### In Margin
+
+- The shared-project parts of these releases are left out (`sync.py`, `people.py`, the bring-in dialog, sync-clash
+  notices, colleagues' judgements). Each excerpt's `my_verdict` is your verdict, and `judged_by` is "you" or null.
+- The server's errors can carry extra fields again (`ApiError(extra=…)`), which the "result of another project" notice
+  needs.
+- Tests from ENLENS: `tests/test_0_14_3_check_status.py`, `test_0_14_3_explore.py`, `test_0_14_3_pages.py`,
+  `test_0_14_3_privacy.py` (ENLENS's `…_privacy_and_sync.py` without its shared-project tests),
+  `test_0_14_3_setup_and_update.py`, `test_0_14_4_runs_on_linux.py`. `test_m0_9_0_practice_codebook.py` now quotes
+  whole words; `test_0_13_6_task_kinds.py` has the new prompt versions.
+- **Not yet done:** not tried with a real signed-in Claude Code or a real local model; the browser check covered
+  Overview, Documents, Results, a result, Projects and Settings (light, dark, 390 px, no console errors).
+
 ## 0.12.3 (November 2026): /margin-run waits for its helpers
 
 - **From ENLENS 0.14.2: the theme is a small icon beside Settings.** The *Theme: system* button at the foot of the

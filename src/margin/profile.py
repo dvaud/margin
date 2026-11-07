@@ -496,7 +496,8 @@ def _decisions(ws: Workspace, ids: list[str] | None = None) -> dict[str, dict]:
 def effective(ws: Workspace, framework: str, doc_ids: list[str] | None = None, passage_ids: list[str] | None = None,
               provisional: bool = True, code: str | None = None) -> list[dict]:
     """The labels that count: per passage, the model's once the model read it, else the strong pass-1 candidates
-    (when `provisional`); a person's rejection removes a label, a change replaces its fields, their own labels add.
+    (when `provisional`); a person's rejection removes a label, a change replaces its fields, their own labels add,
+    and a keyword label a person accepted or changed stays whether or not the model read the passage.
     `code` keeps the query to one code (the rule per passage and code is the same, so nothing else changes)."""
     where, args = ["l.framework=?"], [framework]
     if doc_ids:
@@ -533,9 +534,13 @@ def effective(ws: Workspace, framework: str, doc_ids: list[str] | None = None, p
             out.append(r)
         elif r["source"] == "model":
             out.append(r)
+        elif d and d["decision"] in ("accept", "change"):
+            # 0.14.3: a keyword label a person accepted or changed counts whether or not the AI has read the passage
+            # ("your labels always count"); it was dropped once the AI had read it
+            r["provisional"] = r["passage_id"] not in read
+            out.append(r)
         elif r["passage_id"] not in read and provisional and (
-                d and d["decision"] in ("accept", "change") or r["source"] == "both"
-                or (r["confidence"] or 0) >= PROVISIONAL):
+                r["source"] == "both" or (r["confidence"] or 0) >= PROVISIONAL):
             r["provisional"] = True
             out.append(r)
     # one label per passage and code: a person's, then the model's, then pass 1
@@ -811,7 +816,7 @@ def add_label(ws: Workspace, framework: str, passage_id: str, code: str, quote: 
               practice: str | None = None, element: str | None = None) -> str:
     """A label of a person's own (it always counts). `practice` and `element` (0.9): what it names besides the code,
     in the person's words (kept for codebooks with practice_and_element)."""
-    from .textutil import find_quote
+    from .textutil import find_selection
 
     fw = frameworks.get(framework, ws)
     c = fw.normalise(code)
@@ -823,7 +828,7 @@ def add_label(ws: Workspace, framework: str, passage_id: str, code: str, quote: 
     p = p[0]
     q = s = e = None
     if quote:
-        hit = find_quote(p["text"], quote)
+        hit = find_selection(p["text"], quote)  # 0.14.3: a selection cutting a word is widened to whole words
         if not hit:
             raise ValueError("The quote must be text from this passage.")
         q, s, e = p["text"][hit[0]:hit[1]], p["start"] + hit[0], p["start"] + hit[1]

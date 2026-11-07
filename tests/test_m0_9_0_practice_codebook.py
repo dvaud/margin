@@ -314,13 +314,14 @@ def test_element_relations_in_the_link_task(project):
     system, user = tasks.render(ws, t)
     assert "element_of" in system and "as elements of a practice" in user
     sa, sb = payload["terms"][0]["snippets"][0]["text"], payload["terms"][1]["snippets"][0]["text"]
-    word = {"relations": [{"a": 1, "b": 2, "relation": "broader", "confidence": 0.9, "quote_a": sa[:20],
-                           "quote_b": sb[:20]}]}
+    qa, qb = (" ".join(x.split()[:4]) for x in (sa, sb))  # quotes are whole words (ENLENS 0.14.3)
+    word = {"relations": [{"a": 1, "b": 2, "relation": "broader", "confidence": 0.9, "quote_a": qa,
+                           "quote_b": qb}]}
     ok, errors = tasks.ingest_result(ws, tid, json.dumps(word), model="test-model")
     assert not ok and any("relations asked for" in e for e in errors)
     # b requires a: stored from the smaller id, turned round
-    ans = {"relations": [{"a": 2, "b": 1, "relation": "needs", "confidence": 0.8, "quote_a": sb[:20],
-                          "quote_b": sa[:20]}]}
+    ans = {"relations": [{"a": 2, "b": 1, "relation": "needs", "confidence": 0.8, "quote_a": qb,
+                          "quote_b": qa}]}
     ok, errors = tasks.ingest_result(ws, tid, json.dumps(ans), model="test-model")
     assert ok, errors
     row = ws.query("SELECT a, b, relation FROM concept_links WHERE source='model'")[0]

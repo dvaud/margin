@@ -72,12 +72,15 @@ document, and in *Settings → Documents*). The one-line install brings the `ocr
 
 **Updating.** `margin update` updates Margin the way it was installed (0.10). Installed with the one-line install,
 it asks GitHub for the latest release, downloads its package, checks it against the release's checksums, installs it
-over this one with uv and brings the Claude Code plugin up to date; on Windows, where a running program cannot
+over this one with uv and brings the Claude Code plugin up to date (0.14.3: also in Claude Code itself, whose own copy of the
+plugin is updated too, so the new instructions are used from the next run); on Windows, where a running program cannot
 replace itself, it says to quit Margin and run the install line again (which does the same). The version you have
 is at the top of every *Settings* tab; *Settings → Technical* says how this copy was installed. Installed from the git copy of Margin (`git clone …`, then `pip install -e .` in a
 venv) every new version is also `margin update` (0.8.2): it fetches the version from GitHub into the same folder, reinstalls into the
 same Python only when the requirements changed (with the extras already installed), refreshes the Claude Code
-plugin if one was set up, and says to restart the app if it is running. It changes nothing if files of the copy
+plugin if one was set up, and says to restart the app if it is running. If installing the requirements fails (offline),
+the next `margin update` installs them (0.14.3; before, it said *up to date* and left the copy without them). A look
+for a new version never waits for a password and gives up after 90 seconds. It changes nothing if files of the copy
 were edited by hand, and never touches the data folder. `margin update --check` only looks.
 
 **Update Margin in the app (Margin 0.2.1).** *Update Margin* at the bottom of the sidebar does the same as `margin update`
@@ -172,13 +175,19 @@ The app speaks plain language; the command line, the API and the code use the te
 | Only uncertain evidence | `uncertain` | Excerpts were judged, but the AI was not sure enough about any of them for your strictness. Judge them yourself, or lower the strictness. |
 | No evidence found | `unsupported` | None of the excerpts read was about the hypothesis. This is not proof that no document says it: look for more evidence, search with other words, or add documents. |
 | Nothing in your documents matched | `no_passages` | No excerpt shares words (or meaning) with the hypothesis. |
+| Not finished yet | `not_checked` | No excerpt has been judged yet. *Waiting for your judgement* when the excerpts read all come from documents no AI may read: judge them yourself (0.14.3; before, this said *No evidence found*). |
 | The check did not work | `failed` | The AI's answers did not pass the checks three times. |
+
+Excerpts that wait for your own judgement (documents marked *No AI*) count towards no answer until you judge them;
+nobody has read them, so they are not "not about the hypothesis" (0.14.3).
 
 A split hypothesis combines its parts, which must all hold: a part contradicted → contradicted (even when other
 parts are supported); otherwise a part with mixed evidence → mixed evidence; every part supported → supported; some
 parts (partly) supported → partly supported; only uncertain evidence → only uncertain evidence; otherwise nothing
 found. The app says which part decides ("Part 2 has mixed evidence, so the whole hypothesis has mixed evidence").
-Parts whose check failed are left out (the result says it is incomplete).
+A part whose check failed, or that waits for your judgement, gives no evidence either way, but the whole hypothesis
+is then at most partly supported: it holds only if every part does, and that part is not known yet (a failed part
+makes the result say it is incomplete).
 
 **Who says what** lists the documents behind an answer by side. A document counts as supporting if one of its
 counted excerpts supports, as partly supporting only if none supports, and as contradicting if one contradicts, so a
@@ -254,8 +263,12 @@ project and the settings in one go (section 7). Then **add documents**: choose
 files (PDF, Word .docx, HTML, text, Markdown, zip) or a folder. A Word file keeps its paragraphs, headings and the pages
 Word marked (0.8); older .doc files are not read: save them as .docx or PDF. The list shows the
 title read from each file and warns about unreadable text and very short files (often a landing page instead of the
-report). *Open an existing Margin project folder (advanced)* links a project made with the command line, without
-copying it.
+report). A file that cannot be read is listed with the reason and the others are added (0.14.3: also a
+password-protected PDF or zip, a damaged zip or Word file; before, one of these stopped the whole add, and a
+password-protected PDF was called a file without text). Text and web page files that are not UTF-8, such as a
+Hungarian text saved by Notepad (Windows-1250) or an old Latin-1 page, are read as they were written (0.14.3; before,
+their accented letters were lost). *Stop* also stops the text recognition of a long scanned PDF. *Open an existing
+Margin project folder (advanced)* links a project made with the command line, without copying it.
 
 The sidebar always says where text goes: *Claude, on your plan · Only the passages of AI tasks leave this computer*
 (the default from 0.9), *Private · The AI runs on this computer* with a local model, or that excerpts are sent to the
@@ -372,9 +385,12 @@ matches has been read, the line above the buttons says so.
 
 Add **notes** (saved as you type). **Download**, one link per file: *Excel (.xlsx)*: a *Summary* sheet (one row per
 hypothesis: answer, answer per part, documents per side, excerpts counted and too uncertain, your reviews and
-changes, notes, strictness, the AI model for a methods section) and an *Excerpts* sheet (every excerpt read:
-judgement, judged by you or the AI, the AI's own judgement and certainty, counted or not, quote and who chose it,
-document, where, your comment, the AI's note about another group, its earlier judgement when it read an excerpt
+changes, notes, strictness, and for a methods section every AI model whose answers the check used, with what each
+did: search words, judging, judging again as the stronger model, the excerpts of documents marked *Only a local AI*)
+and an *Excerpts* sheet (every excerpt read: judgement, judged by you, the AI or nobody yet, the AI's own
+judgement and certainty, or why no AI judged it (*Not read by an AI: kept for your own judgement*, *Not read: the
+AI's answer could not be used*), counted or not, quote and who chose it, document, where, your comment, the AI's
+note about another group, its earlier judgement when it read an excerpt
 again, the second model's judgement when one was asked, the full excerpt); *Highlighted documents (.zip)*; *Whole
 project (.zip)*; and *CSV · JSON (for programmers)*. *Technical details* has the strictness slider (this page only),
 the models and settings of the check, what each search looked for and the AI's note on what it read.
@@ -398,9 +414,11 @@ answers that rest on one document, and documents that *decide* answers (leaving 
 which are the ones to read most carefully.
 
 **Projects** (the project menu → *Manage projects*): *Download as a zip* puts the whole project in one file (the
-database, the documents and their original files, the codebooks) for a co-author or another computer; *Import a
-project (.zip)* opens such a file as a new project. It also takes a project's folder zipped by hand (Finder's
-*Compress*, Windows' *Send to compressed folder*; 0.2.1): its documents are pointed at the unpacked copies.
+database, the documents and their original files, the codebooks) for a co-author or another computer; the file of a
+document you removed stays on this computer (0.14.3). *Import a project (.zip)* opens such a file as a new project; a
+damaged zip, or one whose database cannot be read, is refused with a plain message and leaves nothing behind.
+It also takes a project's folder zipped by hand (Finder's *Compress*, Windows' *Send to compressed folder*; 0.2.1):
+its documents are pointed at the unpacked copies.
 *Download the whole project (.zip)* is also on the Results page.
 
 **Check several** checks many hypotheses one after the other: paste them one per line, or load a CSV with a column
@@ -510,11 +528,11 @@ against it.
 
 **Search.** Every place words occur, one line per place with the words before and after (a concordance), with the
 count per document first. *Find* any of the words, all of them in one passage, a phrase, or words near each other
-(within N words). Without *exact words only*, a word also finds its other endings ("price" finds "prices"); forms the
+(within N words); in a phrase search, words typed next to a "quoted phrase" must also be in the passage. Without *exact words only*, a word also finds its other endings ("price" finds "prices"); forms the
 search does not include are listed under the count (*Other forms in the documents: commuters*), to add with one
 click. Click a word in a line to add it to the search, Shift-click to make a phrase. Sort by document, by the words
 before or by the words after. *Words that often appear nearby* lists the words within 2 to 10 words of the places
-found, most often or most typical first (point at one for both figures). Every line opens the document at its words,
+found, most often or most typical first (point at one for both figures; in one document or one code, "typical" is measured against that document's or code's own passages). Every line opens the document at its words,
 and its flask button starts a check of what the line says. Download all lines for Excel or as CSV. A *passage* is
 the stretch of text the app reads as one unit, up to about 1,100 characters; the location (page, paragraph) is that
 of the original.
@@ -530,7 +548,8 @@ whether the passage says it helps or hinders the aim), with a quote and a reason
 codes it confirmed, did not confirm, and added. Count by code or by group (a codebook's groups). The grid opens the passages
 behind each cell. In a document, the **Codes** panel shows every code with its passages, quotes, reasons or the
 words that found it (highlighted in the text): agree, change how it applies, reject (with Undo), or add a code of
-your own; your labels always count. *Technical details* show the model, its exact version (digest), the prompt and
+your own; your labels always count (a keyword label you agreed with or changed stays even after the AI has read the
+passage). *Technical details* show the model, its exact version (digest), the prompt and
 the seed, and warn when they differ from the last run.
 
 **Codebooks with more to say (Margin 0.9).** Besides `code` and `description` (and `group`, `group_name`), a
@@ -573,7 +592,8 @@ add them, or say *Not the same* and they are not proposed again.
 **Themes.** What the documents are about, grouped into themes (spherical k-means on the passages' embeddings, or on
 their terms without an embedding model; the same documents and settings always give the same themes). Each theme has
 key terms, a size, the documents it comes from and the passages that represent it best; grids show themes by document
-and by code. Rename, merge and move passages (kept and reapplied to a new set with the same settings); *Let the AI
+and by code. Rename, merge and move passages (kept, and carried to a new set with the same settings after documents were added:
+an edit follows its theme by the passages they share, and stays behind when no theme of the new set has them); *Let the AI
 name the themes* gives names and short descriptions with checked quotes. A small project gets fewer themes than
 asked (about three passages a theme).
 
@@ -693,7 +713,9 @@ managers (BibTeX or RIS). With Zotero's CSV and BibTeX the paths of the files Zo
 
 **The four lists.** Four tiles at the top count them and open each one:
 
-- *Please confirm*: a work whose title stands on the first pages of a document, with an author or the year. The work
+- *Please confirm*: a work whose title stands on the first pages of a document, with an author or the year (the
+  reference list of a short document is not read as its first pages), or whose DOI the document only mentions somewhere
+  on its first pages (it may cite the work). The work
   and the document are side by side, with the place on the document where the title stands, highlighted, and what was
   found (*Found on page 1: the whole title, the author Lindqvist, the year 2025*). *Same work* links them; *Not the
   same* means the pair is never proposed again. *Confirm all* takes every pair at once.
@@ -704,7 +726,7 @@ managers (BibTeX or RIS). With Zotero's CSV and BibTeX the paths of the files Zo
   (the project's choice is preselected), and each is linked to its work. *Link a document* says by hand which
   document a work is.
 - *Linked*: each work with its document, and how they were linked: *Same file* (a file Zotero keeps for the work is
-  the very file you added, by its checksum), *Same DOI* (the document prints the work's DOI), *You confirmed it* or
+  the very file you added, by its checksum), *Same DOI* (the document prints the work's DOI on its title page or in its file name), *You confirmed it* or
   *You linked it*. *Unlink* undoes a link for good (*Undo* in the message brings it back). A linked document is
   called by its work's title everywhere in Margin (0.13.3); when the file's own title says something else, it stays
   under the file name (*Title in the file: …*).
@@ -864,7 +886,9 @@ Settings has five tabs, each one page with nothing folded inside another (0.9):
   strictness ("When the AI was at least 70% sure, you agreed with it in 85% … *Use 70%*"); and how new checks start
   (other words, parts, how many excerpts to read and at most how many from one document).
 - **Exploring**: the codebook of the profiles, how many themes a new set looks for, and the **codebooks**: view the
-  codes, add a CSV codebook, remove one; a CSV codebook can be marked as aims a text can help or hinder, like policy
+  codes, add a CSV codebook, remove one (a CSV may use commas or semicolons, UTF-8 or a Windows code page: a spreadsheet saved
+  in Hungarian or another European setting works; a file in a codebooks folder that cannot be used is listed with the
+  reason); a CSV codebook can be marked as aims a text can help or hinder, like policy
   goals. The built-in SDG codebooks are listed last. Margin adds **Looking up literature online**: your optional
   e-mail address for *Find literature* (empty until you give one).
 - **Documents**: **reading scanned PDFs** (on or off, and the languages) and the embedding model for **search by
@@ -1085,7 +1109,11 @@ Claude Code: 120 passages to label · about 25 minutes*, with **Start Claude Cod
 in the background for that project (`claude -p "/margin-run:margin-run <project>"`, run in the Margin folder),
 allowed only the four Margin queue tools and its helpers, so a passage that tries to give it instructions can do
 nothing else. The page and the sidebar's queue panel say *Claude Code is working on it*, with *Stop Claude Code*;
-it stops by itself when nothing waits. *Stop Claude Code* returns the batches it had taken to the queue at once. If a
+it stops by itself when nothing waits. *Stop Claude Code* returns the batches it had taken to the queue at once.
+Pressing *Start* twice (or in two tabs) starts one run, and each project's run works in a folder of its own (0.14.3).
+*Quit Margin* and *Update and restart* stop the runs first; a run that was still working when Margin closed (it was
+closed some other way) is recognised when Margin opens again: the page shows it as working, *Stop Claude Code* stops it,
+and *Start* does not start a second one beside it. If a
 run ends with a problem (a usage limit, for example), the page shows the end of its report. The first start also
 adds the plugin if that was not done yet.
 
@@ -1208,7 +1236,8 @@ document keeps past checks intact (each check stores the passages it showed); re
 every check.
 
 **Moving to another computer (0.10).** *Projects → Move Margin to another computer → Download everything (.zip)*
-makes one file with every project (each as its own project zip: database, uploads, original files) and the settings.
+makes one file with every project (each as its own project zip: database, the original file of each document) and
+the settings.
 A saved Claude API key is left out, and so are quick looks not kept; projects used in place from another folder come
 along as copies. On the new computer, install Margin and choose the file under *Import from another computer* on the
 first screen (or *Projects → Import a project (.zip)*, which takes both kinds of zip). Each project keeps its name
@@ -1256,8 +1285,14 @@ reading is split. In a check, Claude reads the excerpts it may; those marked *On
 chosen in *Settings → AI → Local model for restricted documents*; those marked *No AI* (and the local ones when no
 local model is chosen, or it cannot be reached) are shown as *Waiting for your judgement*, with your own judgement
 open on the excerpt. The round stays one round, and each excerpt says who read it. The answer counts every
-excerpt; the AI's written note speaks only for the excerpts it read, and is told how many others there are. A second
-opinion, reading an excerpt again, the Profile's AI pass, theme names, concept links and references follow the same
+excerpt that was judged: the AI's, the local model's and yours. An excerpt waiting for your judgement counts once you
+judge it; until then the answer rests on the others, and when every excerpt waits for you it is *Waiting for your
+judgement* (0.14.3; before, those excerpts counted as not about the hypothesis). When the AI's own answers failed,
+the check *did not work*, whatever the local model read, and none of that search's AI judgements count in any
+answer, count, map or download (0.14.3; Excel marks them *Not counted: the check did not work*). The AI's written
+note speaks only for the excerpts
+it read, and is told how many others there are. A second opinion, reading an excerpt again, the Profile's AI pass,
+theme names, concept links and references follow the same
 rule: a task takes the setting of the most restricted document it touches. A theme whose passages are all
 restricted is named by the local model or keeps its key terms; two concepts found only in restricted documents are
 linked by the local model or not at all (a term's words are words of the documents). A check started in a Claude chat
@@ -1265,8 +1300,10 @@ linked by the local model or not at all (a term's words are words of the documen
 computer* for the local ones. When the local model's answers for its excerpts cannot be used (three tries), the
 result says so and shows them without a judgement; *Read them again on this computer* tries once more (0.11.1, for
 instance after choosing another local model), or you judge them yourself. The check's written summary is always the
-main model's, never the local model's note. Search by meaning: an embedding server on another computer does not
-receive the restricted passages (they are found by their words).
+main model's, never the local model's note. When the main model itself runs on this computer, it also reads the
+excerpts marked *Only a local AI*, so its summary and its notes on excerpts (*about another group*) are not shown in
+a Claude chat (the connector says it left them out; 0.14.3, before they were shown). Search by meaning: an embedding server on another computer does not receive the
+restricted passages (they are found by their words), nor the glossary's terms found only in them (0.14.3).
 
 **The local model and your computer's memory (0.13.11).** While Claude (or Claude Code) reads its excerpts, the
 progress says when your local model reads the ones marked *Only a local AI*: *Your local model (…) is reading 3
@@ -1283,9 +1320,11 @@ this way: you start it yourself and see it load.
 is labelled with the most restricted setting of the documents it names, a task is refused before any model is asked
 when its setting does not allow that model, and the queue for Claude Code only ever hands out tasks Claude may read.
 The connector's tools (search, concepts, document profiles, checks) give Claude counts instead of restricted text,
-and show a document marked *No AI* as *Restricted document 3*, because a title can name a person. The Claude Code run
-that Margin starts may not use Claude Code's own file, shell and web tools and starts in an empty folder, away from
-the projects' databases.
+leave out what a model wrote in its own words (a check's summary, its notes on excerpts) when it read restricted
+text, and show a document marked *No AI* as *Restricted document 3*, because a title can name a person. A project
+zip (*Download as a zip*) holds the files of the documents the project has now, not those of documents you removed
+(0.14.3). The Claude Code run that Margin starts may not use Claude Code's own file, shell and web tools and starts
+in an empty folder, away from the projects' databases.
 
 **What Claude has read.** Margin writes down every passage at the moment it leaves for Claude (Claude Code, the Claude
 API, a Claude chat through the connector). The column *Sent to Claude* shows the share of each document's text;
@@ -1362,6 +1401,6 @@ service, or keep to a local model.
 | "… sent nothing for 600 seconds" | The model did not start or stopped answering: usually too little memory. Close other apps or choose a smaller model. |
 | "… used its whole allowance … on reasoning" | The model kept reasoning without answering. Give reasoning a budget (Settings → AI, the default 1,500 tokens), choose *Only when judging excerpts*, or set it off. |
 | A check with reasoning takes half an hour | Set *Reasoning* to *Only when judging excerpts* with a budget (1,500 tokens is the default; lower it for a slow computer). |
-| "… got stuck writing blank space" | A known failure of some models with fixed-format answers. Try again, set *Reasoning* to off, or choose another model. |
+| "… got stuck writing blank space" | A known failure of some models with fixed-format answers. Try again, set *Reasoning* to off, or choose another model. From 0.14.3 this (and an answer cut off at the length limit) is one failed try of that task: it is asked again, and the check goes on with its other parts. |
 | "The Claude API rejected the key" | Copy the key again from console.anthropic.com; check it has credit. |
 | Two workers' answers ended up in one results file | Give each worker its own scratch folder. Move the stray lines to the right file; `import-results` accepts any order. |
