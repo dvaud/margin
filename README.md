@@ -45,32 +45,32 @@ use the install line). *Settings → Technical → Check for updates* looks at o
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.12: your draft against itself
+## New in 0.13: a sounder check, and fewer surprises
 
-- **See where your draft disagrees with itself.** *Check a draft* compared each claim with your documents; now a card
-  on the draft page also reads the draft against itself, without AI. It points out two sentences that say opposite
-  things or give two numbers for the same thing, a source passage that backs one of your claims and contradicts
-  another, abbreviations used before they are spelt out, words spelt two ways, and claims a reader may find
-  confusing ("This shows …", "probably … certainly", several claims in one sentence). Click a notice to see its
-  sentences highlighted in your draft, or press *Not a problem* to set it aside.
-- **0.12.1: a local model that cannot freeze your computer.** When a document marked *Only a local AI* needs the
-  local model and there is not enough memory free, Margin no longer starts it: it says so, Claude's part of the
-  check finishes, and those excerpts wait (*Read them now*, or *Start it anyway*). While the local model reads,
-  the progress shows it, with Stop. The one-line install works on a Mac again (both from ENLENS 0.13.11 and
-  0.14.1).
-- **0.12.2: tidier claim cards.** The claims beside a draft no longer scroll sideways (one PDF quote without
-  spaces used to widen every card and hide its right side). Each card now ends with *Your verdict* as one switch
-  (*Supported | Refuted | Dismiss*), then plain links (*Find literature*, *Open the result*), with *Remove* apart.
-- **0.12.3: Claude Code runs that finish their work.** Current Claude Code starts helpers in the background, so a
-  run started from Margin's *Start Claude Code* could end before its helpers were done. `/margin-run` now waits for
-  them, always uses the model Margin names for each task (Fable for second opinions too, when switched on), and its
-  helpers no longer read your own `CLAUDE.md`. Run `margin claude-setup` once to take it into Claude Code. The theme
-  is now a small icon beside *Settings* (from ENLENS 0.14.2).
+Margin 0.13 brings in a review of the whole of ENLENS (0.14.3 and 0.14.4) by five reviewers. Several fixes can
+change results; the full list is in `CHANGELOG.md`.
+
+- **A check says when it did not work.** When the AI's answers could not be used, the result says *The check did not
+  work* instead of *No evidence found*, and excerpts from documents no AI may read say *Waiting for your judgement*
+  instead of passing as "not about it". Excel says who judged each excerpt, or that nobody has yet.
+- **Stricter quotes.** A quote must match whole words ("legal" is no longer found inside "illegal") and have at least
+  three words; your own selections are widened to whole words.
+- **More careful with your documents.** Letting Claude read a document asks first. A local model's summary of
+  restricted text no longer reaches a Claude chat, and the project zip leaves out documents you removed.
+- **Exploring and the bibliography.** A quoted phrase finds only that phrase; a document is no longer renamed after a
+  work it only cites; your theme edits follow their themes when you find them again; codebooks saved by Excel in
+  Hungarian (semicolons, Windows code page) are read.
+- **Adding documents and the app.** One damaged or password-protected file no longer stops the whole add; Hungarian
+  and other accented text in old code pages is read as written; notes typed on a waiting result are kept; a banner
+  says when Margin stops answering; there is one Claude Code run per project, stopped when you quit.
 
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.12**: your draft read against itself without AI (sentences that disagree, two numbers for one thing,
+  abbreviations, spellings, confusing claims); a local model that waits for free memory (0.12.1); tidier claim cards
+  (0.12.2); `/margin-run` waits for its helpers (0.12.3).
 - **Margin 0.11**: *Skim*, a one-page report on one document made without AI, which a quick look now opens; Find
   literature's styles back on a computer screen.
 - **Margin 0.10**: an outline to write from, made from your themes (sections with key terms, passages, sources to

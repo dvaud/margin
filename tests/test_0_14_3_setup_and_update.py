@@ -67,10 +67,10 @@ def test_an_older_plugin_is_written_again_and_claude_code_takes_it(home, fake_cl
     plug = fake_claude.plugin_folder()
     pj = plug / ".claude-plugin" / "plugin.json"
     data = json.loads(pj.read_text())
-    data["version"] = "0.13.0"
+    data["version"] = "0.1.0"  # Margin: older than any release
     pj.write_text(json.dumps(data))
     (plug / "SKILL.md").write_text("an old skill text")
-    assert "0.13.0" in fake_claude.stale() and __version__ in fake_claude.stale()
+    assert "0.1.0" in fake_claude.stale() and __version__ in fake_claude.stale()
     r = fake_claude.repair()
     assert r["repaired"] is True and [s["ok"] for s in r["steps"]] == [True, True]
     assert (plug / "SKILL.md").read_text() != "an old skill text"
@@ -87,7 +87,7 @@ def test_the_install_line_run_again_brings_the_plugin_along(home, fake_claude, t
     (tmp_path / "prefix").mkdir()
     fake_claude.install()
     pj = fake_claude.plugin_folder() / ".claude-plugin" / "plugin.json"
-    pj.write_text(json.dumps({**json.loads(pj.read_text()), "version": "0.13.0"}))
+    pj.write_text(json.dumps({**json.loads(pj.read_text()), "version": "0.1.0"}))
     out = installation.post_install(by=None, icon=False)
     assert out["plugin"]["repaired"] is True and json.loads(pj.read_text())["version"] == __version__
     assert _fake_state(home)["updates"]

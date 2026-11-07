@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 (November 2026): a sounder check, and fewer surprises
 
 From ENLENS 0.14.3 and 0.14.4: fixes from a review of the whole app. Five reviewers each took one part of ENLENS
 (checking, privacy, the server and updates, exploring, the pages); most defects were reproduced before they were fixed,
@@ -91,7 +91,8 @@ as Margin has no shared projects.
 - Tests from ENLENS: `tests/test_0_14_3_check_status.py`, `test_0_14_3_explore.py`, `test_0_14_3_pages.py`,
   `test_0_14_3_privacy.py` (ENLENS's `…_privacy_and_sync.py` without its shared-project tests),
   `test_0_14_3_setup_and_update.py`, `test_0_14_4_runs_on_linux.py`. `test_m0_9_0_practice_codebook.py` now quotes
-  whole words; `test_0_13_6_task_kinds.py` has the new prompt versions.
+  whole words; `test_0_13_6_task_kinds.py` has the new prompt versions; `test_0_14_3_setup_and_update.py` fakes an
+  older plugin as 0.1.0 (its 0.13.0 is this release).
 - **Not yet done:** not tried with a real signed-in Claude Code or a real local model; the browser check covered
   Overview, Documents, Results, a result, Projects and Settings (light, dark, 390 px, no console errors).
 

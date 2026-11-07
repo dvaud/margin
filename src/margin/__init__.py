@@ -4,4 +4,4 @@ your draft and your hypotheses against them; every verdict comes with exact, che
 The SDG / value chain assessment pipeline of the green hydrogen pilot is included as an optional pack
 (`margin load-vca`, `make-tasks`, `report`, ...).
 """
-__version__ = "0.12.3"
+__version__ = "0.13.0"
