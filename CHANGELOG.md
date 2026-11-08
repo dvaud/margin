@@ -1,6 +1,66 @@
 # Changelog
 
-## Unreleased
+## 0.14.0 (November 2026): an outline from your research question
+
+Roadmap C4. *Outline* can now start from a research question and, optionally, hypotheses, instead of from every
+theme. It uses no AI (Level 0; closeness by meaning is the optional Level 1) and sends nothing off the computer.
+
+### An outline from a research question
+
+- **One section per hypothesis.** *Outline → From a research question*: the question, and up to 12 hypotheses (one
+  per line, or *Add one you checked*). Each hypothesis becomes a top-level section holding the themes that bear on it
+  most, in the suggested path order. Themes that bear on the question but on no hypothesis go under *Background*;
+  the rest stay out, under *Themes not in the outline*, with what they share with the question. Without hypotheses,
+  the themes that bear on the question make the outline. *From all the themes* makes the outline as before.
+- **How a theme bears on a sentence.** First the passages a check of the hypothesis counts for or against it (they
+  weigh most). Then the theme's key terms in the sentence: a term whose every word is there counts fully, one sharing
+  some words half as much, and a word found in the key terms of many themes counts less (divided by how many), so a
+  common word such as "region" places nothing alone. A key term of the same concept as a term of the sentence
+  (*Concepts*) counts fully. With *Also by meaning* and an embedding model **on this computer** that built the
+  project's vectors, a theme at least a standard deviation closer in meaning than the mean counts too; the question
+  is never sent to a model elsewhere. Each theme goes to the hypothesis it bears on most.
+- **A hypothesis section** shows its check's answer, the documents on each side with their quotes and APA citations,
+  and *Open the result*. It is linked to its check by its wording (case, spaces and a final full stop aside), so a
+  check made later shows up. Not checked yet: it says its themes are placed by words only and offers *Check it*,
+  which opens *Check a hypothesis* with the wording. Gaps: *Not checked yet*, *No theme bears on this hypothesis*,
+  *Its check found no evidence*.
+- **A theme section** says *Why here* (passages of the check, the key terms it shares, closeness by meaning when the
+  outline was made) and which other hypotheses it *also bears on*.
+- **Changing it.** *Add a hypothesis* puts a new one before *Background*; it takes the themes that bear on it from
+  *Background* and from the themes not in the outline, never from another hypothesis. *Reword* changes the question
+  (the sections stay). *Suggest the order again* orders the themes inside each hypothesis and *Background*, and keeps
+  your order of the hypotheses. A hypothesis section cannot be joined to another or split (its themes can), and a
+  theme joined into it keeps the hypothesis heading. Everything else (moving, notes, beside a draft) works as before.
+- **Downloads** add the research question, each hypothesis's check (answer and the documents on each side) and why
+  each theme is there (`include=checks`).
+
+### Fixed on the way
+
+- **A small primary button that is a link turned its text dark on hover** (dark blue on dark blue), because a
+  Margin rule for small link buttons outranked ENLENS's colour for primary ones. It affected *Check it* and the
+  model link on the Overview page; fixed in `margin.css` for both.
+
+### For developers
+
+- `outline.create_from_question`, `outline.add_hypothesis`, `outline.find_check` and `outline._Relevance` in
+  `margin/outline.py`; section kind `hypothesis`; new columns `outlines.question`, `outline_sections.hypothesis` and
+  `outline_sections.basis_json` (added to older projects when they open).
+- `POST /api/projects/<p>/outlines` takes `question`, `hypotheses` and `meaning`; new `POST …/outlines/<o>/hypotheses`;
+  `PUT …/outlines/<o>` takes `question` (`docs/API.md`).
+- Tests: `tests/test_m0_14_0_question_outline.py` (13): a checked hypothesis holds the themes its evidence is in; an
+  unchecked one is placed by words and finds its check later; the question alone picks themes; Background; each
+  theme goes where it bears most and names the others; rarer words weigh more and concepts count; meaning only when
+  asked and with a local, built model; adding a hypothesis takes only from Background and the unplaced; merge, split
+  and reorder rules; downloads; the new columns; the API; the page. Changed:
+  `tests/test_m0_10_0_outline.py::test_the_documentation_describes_every_route` (13 outline routes).
+
+### Not yet done
+
+- The placing was tried on a small made-up corpus and the demo pages, not on a real project of yours: whether the
+  word weights put the right themes under the right hypotheses with real key terms is to be seen, and the weights
+  may need tuning.
+- Research questions are kept with each outline, not once per project for *Find literature* and the planned matrix
+  to share.
 
 ### From ENLENS 0.14.5: install by double-clicking a file
 

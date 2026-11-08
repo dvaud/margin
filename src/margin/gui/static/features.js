@@ -71,8 +71,8 @@ export const FEATURES = {
   },
   outline: {  // roadmap C: a writing plan made from the themes, with no AI
     section: "write", title: "Outline", icon: "file-text", href: "#/outline", ai: "none",
-    what: "A writing plan made from your themes: one section for each, with its key terms, best passages, the sources to cite and where they disagree, in an order that reads as a path.",
-    use: "Before you write, or beside a draft: to see what each section needs and which of your sources it does not use yet.",
+    what: "A writing plan made from your themes, around your research question and hypotheses (each holds the themes that bear on it) or from all of them, with key terms, best passages, the sources to cite and where they disagree.",
+    use: "Before you write, or beside a draft: to see what each hypothesis has behind it, what each section needs and which sources it does not use yet.",
   },
   history: {
     section: "check", title: "Results", icon: "history", href: "#/history", ai: "optional",

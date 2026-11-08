@@ -285,7 +285,12 @@ MIGRATIONS = [("documents", "declared_ref", "TEXT"), ("vca_refs", "alias_of", "T
               # a theme a person removed as not relevant, and when (NULL: shown); a theme found in place of
               # a removed one (that theme's id; NULL: found by the run); a passage such a theme took from another
               # theme (the theme it was in before; NULL: where the run put it)
-              ("themes", "removed_at", "TEXT"), ("themes", "replaces", "INT"), ("theme_members", "found_in", "INT")]
+              ("themes", "removed_at", "TEXT"), ("themes", "replaces", "INT"), ("theme_members", "found_in", "INT"),
+              # Margin 0.14: an outline from a research question (NULL: an outline of every theme); a section of a
+              # hypothesis (kind 'hypothesis': its text, linked to a check by that text), and why a theme section was
+              # placed where it was when the outline was made (JSON: {"meaning": closeness}; NULL: nothing kept)
+              ("outlines", "question", "TEXT"), ("outline_sections", "hypothesis", "TEXT"),
+              ("outline_sections", "basis_json", "TEXT")]
 
 
 def _add_columns(cx: sqlite3.Connection, migrations) -> None:

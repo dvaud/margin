@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "margin"
-version = "0.13.0"
+version = "0.14.0"
 description = "Margin: a research and paper-writing companion. Explore your documents, check what your draft claims against them, and check hypotheses, with Claude Code on your own plan or a local model and every quote verified (grown from ENLENS)"
 readme = "README.md"
 requires-python = ">=3.10"

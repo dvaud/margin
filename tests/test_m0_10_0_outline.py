@@ -644,7 +644,7 @@ def test_the_documentation_describes_every_route():
     from margin.gui.server import ROUTES
 
     mine = [(m, rx.pattern) for m, rx, name in ROUTES if "outline" in name]
-    assert len(mine) == 12
+    assert len(mine) == 13                 # 0.14 added POST …/hypotheses
     for path in ("/outlines", "/outlines/<outline>", "outlines/<outline>/order", "outlines/<outline>/sections",
                  "sections/<section>", "sections/<section>/move", "sections/<section>/merge", "sections/<section>/split",
                  "outlines/<outline>/draft/<draft>", "outlines/<outline>/export.docx", "export.md"):

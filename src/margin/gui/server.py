@@ -2007,6 +2007,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("DELETE", rf"/api/projects/{P}/outlines/{P}", "delete_outline"),
     ("POST", rf"/api/projects/{P}/outlines/{P}/order", "post_outline_order"),
     ("POST", rf"/api/projects/{P}/outlines/{P}/sections", "post_outline_section"),
+    ("POST", rf"/api/projects/{P}/outlines/{P}/hypotheses", "post_outline_hypothesis"),
     ("PUT", rf"/api/projects/{P}/outlines/{P}/sections/{P}", "put_outline_section"),
     ("DELETE", rf"/api/projects/{P}/outlines/{P}/sections/{P}", "delete_outline_section"),
     ("POST", rf"/api/projects/{P}/outlines/{P}/sections/{P}/(move|merge|split)", "post_outline_change"),
@@ -3514,6 +3515,15 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler):
                 frameworks.get(fw, ws)
             except (KeyError, ValueError):
                 fw = ""
+        question = body.get("question")
+        if question is not None and str(question).strip():
+            hyps = body.get("hypotheses") or []
+            if not isinstance(hyps, list):
+                raise ApiError(400, "hypotheses must be a list.")
+            s = self.app.settings()
+            return outline.create_from_question(ws, run_id, str(question), [str(x) for x in hyps], body.get("title"),
+                                                fw, meaning=bool(body.get("meaning")), settings=s,
+                                                threshold=s["threshold"])
         oid = outline.create(ws, run_id, body.get("title"), fw, str(body.get("order") or "similarity"))
         return {"outline_id": oid}
 
@@ -3531,8 +3541,14 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler):
         ws = self.app.ws(name)
         if fw:
             frameworks.get(fw, ws)
-        outline.update(ws, oid, body.get("title"), fw)
+        outline.update(ws, oid, body.get("title"), fw, body.get("question"))
         return {"saved": True}
+
+    def post_outline_hypothesis(self, name, oid, q):
+        from .. import outline
+
+        body = self._body()
+        return outline.add_hypothesis(self.app.ws(name), oid, str(body.get("text") or ""), self.app.settings()["threshold"])
 
     def delete_outline(self, name, oid, q):
         from .. import outline

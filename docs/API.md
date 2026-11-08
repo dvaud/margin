@@ -790,6 +790,16 @@ or one of your own (`kind: "own"`). Sections nest three levels deep (`max_depth`
   the theme with most passages first, then always the most similar theme not used yet (half the cosine of the themes'
   passage counts per document, half the share of key-term words they have in common), improved by 2-opt; `size` lists
   the themes as the Themes page does. 409 when there is no set of themes yet.
+- `POST /api/projects/<p>/outlines {question, hypotheses?: [text], meaning?, run_id?, title?, framework?}` →
+  `{outline_id, placed, left_out, meaning}` (Margin 0.14): an outline from a research question. Each hypothesis (at
+  most 12) becomes a section (`kind: "hypothesis"`, linked to the latest check with the same wording) holding the
+  themes that bear on it most; a `Background` section holds the themes that bear on the question but on no
+  hypothesis; the others stay out (`available_themes`). Without hypotheses the themes that bear on the question make
+  the outline (400 when none does). A theme bears on a sentence through the passages its check counts for or against
+  it (none for the question), the key terms the sentence shares (rarer words count more; a concept's other wordings
+  count too), and, with `meaning: true` and an embedding model **on this computer** that built the project's vectors,
+  closeness by meaning (a theme at least a standard deviation above the mean); `meaning` in the answer is null unless
+  asked, else `{used, why}`. No AI.
 - `GET /api/projects/<p>/outlines/<outline>?framework=&threshold=` → `{outline, run (null when its themes were
   deleted), sections, available_themes, own_suggestions, max_depth, framework_missing}`. `sections` is a tree
   (`children`); each has `section_id`, `number` ("2.1"), `depth`, `index`, `siblings`, `parent_id`, `kind`, `title`,
@@ -804,8 +814,17 @@ or one of your own (`kind: "own"`). Sections nest three levels deep (`max_depth`
   supports, refutes}` with each side's documents, quote, place and citation), `decisions` (what you decided about
   claims of a draft that these documents touch), `gaps` (`kind` none, one-source, few, mostly-one, thin; `text`),
   `can_split`, `split_by_documents`, `link_to_next` (`{documents, terms}` it shares with the next section).
-  `framework` overrides the outline's codebook for this answer.
-- `PUT …/outlines/<outline> {title?, framework?}`; `DELETE …/outlines/<outline>`.
+  `framework` overrides the outline's codebook for this answer. An outline from a question has `outline.question`;
+  its hypothesis sections have `hypothesis` (`{text, hyp_id, checked, status, status_text, parts, evidence, sides:
+  {supports, partly, refutes: [{doc_id, title, apa, quote, location}]}}`) and gaps `unchecked`, `no-themes`,
+  `no-evidence`; its theme sections have `relevance` (`{to: hypothesis|question, evidence, terms, related, meaning,
+  also: [{number, text}]}`); each of `available_themes` has `shares` (key terms shared with the question) and
+  `bears_on` (numbers of the hypotheses it bears on).
+- `PUT …/outlines/<outline> {title?, framework?, question?}` (`question`: only for an outline from a question; the
+  sections stay); `DELETE …/outlines/<outline>`.
+- `POST …/outlines/<outline>/hypotheses {text}` → `{section_id, themes}`: a hypothesis added to an outline from a
+  question, before Background; it takes the themes that bear on it from Background and from the themes not in the
+  outline, never from another hypothesis.
 - `POST …/outlines/<outline>/sections {title?, note?, parent_id?, index?, theme_id?}` → `{section_id}`: a section of
   your own (`title` required), or with `theme_id` a theme of the set that the outline does not hold.
   `PUT …/sections/<section> {title?, note?}` (an empty `title` of a theme section is its theme's heading again);
@@ -816,7 +835,8 @@ or one of your own (`kind: "own"`). Sections nest three levels deep (`max_depth`
   several themes becomes one section per theme; a section of one theme is split by documents (`doc_ids` go to the new
   section; some, not all).
 - `POST …/outlines/<outline>/order {}` → `{moved}`: the theme sections at the top level are put back in the suggested
-  order; sections of your own and nested sections stay.
+  order; sections of your own and nested sections stay. In an outline from a question, the themes inside each top-level
+  section are ordered too, and the hypotheses keep your order.
 - `GET …/outlines/<outline>/draft/<draft>?meaning=1&threshold=` → the outline beside a draft: `{outline, draft:
   {draft_id, title, words, cited_documents, citations}, sections: {<section_id>: {level: none|little|partly|well,
   level_text, score, terms_used, terms_total, sources_used, sources_total, terms, used_sources, unused_sources,
@@ -828,7 +848,7 @@ or one of your own (`kind: "own"`). Sections nest three levels deep (`max_depth`
   computer), else `{available: true, model, sections}` and each section gains `closeness` (0–1, the nearest draft
   paragraph to the mean of the section's passage vectors) and `closest: {paragraph, excerpt}`.
 - `GET …/outlines/<outline>/export.docx` and `…/export.md` (downloads; `?token=` allowed; `?include=` a comma list of
-  terms, sources, quotes, codes, concepts, disagreements, gaps; default all; `?framework=`): headings numbered like
+  terms, sources, quotes, codes, concepts, disagreements, gaps, checks; default all; `?framework=`): headings numbered like
   the outline, your notes, key terms, the citation, quotes with their place, where the sources disagree and what you
   decided, gaps, and the sources named. The Word file is written without any library (Title and Heading 1–5 styles).
 

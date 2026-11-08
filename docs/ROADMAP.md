@@ -136,6 +136,12 @@ this), labels and checks read junk, and quotes fail to place.
 - Optional (Level 2, then 3): a heading phrased for each section from its key terms. The outline is complete without
   it.
 
+**C4. Outline from a research question** · Level 0, Level 1 optional · Margin · **Built in Margin 0.14.0**
+- Start from a research question and optional hypotheses: each hypothesis holds the themes that bear on it (the
+  passages its check counts, then shared key terms and concepts, then closeness by meaning with a local model);
+  themes of the question only go under Background; the rest stay out. Each theme says why it is there.
+- Later: research questions kept once per project, shared with *Find literature* and the literature matrix.
+
 ## D. Connecting concepts
 
 **D1. A concept map** · Level 0 · ENLENS candidate (`terms.py`, the Concepts page)

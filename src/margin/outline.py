@@ -40,7 +40,7 @@ MAX_CITED = 10         # documents named in a section's citation
 MAX_CHECKS = 300       # the latest checks read for disagreements and decisions
 MAX_SHOWN = 6          # disagreements shown with a section
 OWN_SUGGESTIONS = ("Introduction", "Methods", "Discussion", "Conclusion")
-INCLUDE = ("terms", "sources", "quotes", "codes", "concepts", "disagreements", "gaps")
+INCLUDE = ("terms", "sources", "quotes", "codes", "concepts", "disagreements", "gaps", "checks")
 TITLE_CHARS = 200
 NOTE_CHARS = 20_000
 
@@ -261,10 +261,15 @@ def create(ws: Workspace, run_id: str, title: str | None = None, framework: str 
     return oid
 
 
-def update(ws: Workspace, oid: str, title=None, framework=None) -> None:
-    """Rename an outline, or choose the codebook its sections show the codes of ('' for none)."""
-    _outline_row(ws, oid)
+def update(ws: Workspace, oid: str, title=None, framework=None, question=None) -> None:
+    """Rename an outline, choose the codebook its sections show the codes of ('' for none), or reword the research
+    question of an outline made from one (the sections stay where they are; their reasons are read again)."""
+    o = _outline_row(ws, oid)
+    if question is not None and not o.get("question"):
+        raise ValueError("This outline was made from all the themes, not from a research question.")
     with ws.connect() as cx:
+        if question is not None:
+            cx.execute("UPDATE outlines SET question=? WHERE outline_id=?", (_clean_sentence(question, "question"), oid))
         if title is not None:
             cx.execute("UPDATE outlines SET title=? WHERE outline_id=?", (_clean_title(title), oid))
         if framework is not None:
@@ -393,6 +398,8 @@ def merge(ws: Workspace, oid: str, sid: str, into: str) -> None:
     if _inside(rows, into, sid):
         raise ValueError("Choose a section that is not inside this one.")
     a, b = rows[sid], rows[into]
+    if a["kind"] == "hypothesis":
+        raise ValueError("A hypothesis section cannot be joined to another: move its themes instead, or take it out.")
     if _depth(rows, into) + _height(rows, sid) > MAX_DEPTH - 1:
         raise ValueError("Sections can be nested three levels deep at most.")
     parts = list(b["parts"])
@@ -400,10 +407,11 @@ def merge(ws: Workspace, oid: str, sid: str, into: str) -> None:
         if p not in parts:
             parts.append(p)
     note = "\n\n".join(x for x in (b["note"], a["note"]) if x)
+    kind = "hypothesis" if b["kind"] == "hypothesis" else "theme" if parts else "own"
     with ws.connect() as cx:
         kids = _siblings(cx, oid, sid)
         cx.execute("UPDATE outline_sections SET parts_json=?, note=?, kind=? WHERE section_id=?",
-                   (json.dumps(parts), note[:NOTE_CHARS], "theme" if parts else "own", into))
+                   (json.dumps(parts), note[:NOTE_CHARS], kind, into))
         _put_order(cx, oid, a["parent_id"], [x for x in _siblings(cx, oid, a["parent_id"]) if x != sid])
         cx.execute("DELETE FROM outline_sections WHERE section_id=?", (sid,))
         _put_order(cx, oid, into, _siblings(cx, oid, into) + kids)
@@ -416,7 +424,8 @@ def split(ws: Workspace, oid: str, sid: str, doc_ids: list[str] | None = None) -
     o = _outline_row(ws, oid)
     s = _section(ws, oid, sid)
     if not s["parts"]:
-        raise ValueError("A section of your own has no themes to split.")
+        raise ValueError("A section of your own has no themes to split." if s["kind"] != "hypothesis" else
+                         "A hypothesis section holds its themes as sections inside it: move or split those instead.")
     new_ids = []
     stamp = now()
     if len(s["parts"]) >= 2:
@@ -465,19 +474,24 @@ def reorder(ws: Workspace, oid: str) -> int:
     if not run.exists:
         raise ValueError("The set of themes was deleted, so there is nothing to order by.")
     rows = _sections(ws, oid)
-    top = [s for s in rows if s["parent_id"] is None]
-    movable = [s for s in top if s["parts"] and all(run.theme(p["theme"])[1] == "shown" for p in s["parts"])]
-    if len(movable) < 2:
-        return 0
-    items = {s["section_id"]: _item(run, s["parts"]) for s in movable}
-    path = similarity_order(items)
-    slots = [i for i, s in enumerate(top) if s in movable]
-    new = [s["section_id"] for s in top]
-    for i, sid in zip(slots, path):
-        new[i] = sid
-    changed = sum(1 for a, b in zip([s["section_id"] for s in top], new) if a != b)
+    # an outline from a question keeps its themes inside the hypothesis sections (and Background): those are ordered,
+    # each group on its own; the hypothesis sections keep the order you gave them
+    groups = [None] + ([s["section_id"] for s in rows if s["parent_id"] is None] if o.get("question") else [])
+    changed = 0
     with ws.connect() as cx:
-        _put_order(cx, oid, None, new)
+        for parent in groups:
+            sibs = sorted((s for s in rows if s["parent_id"] == parent), key=lambda s: s["seq"])
+            movable = [s for s in sibs if s["kind"] == "theme" and s["parts"]
+                       and all(run.theme(p["theme"])[1] == "shown" for p in s["parts"])]
+            if len(movable) < 2:
+                continue
+            path = similarity_order({s["section_id"]: _item(run, s["parts"]) for s in movable})
+            slots = [i for i, s in enumerate(sibs) if s in movable]
+            new = [s["section_id"] for s in sibs]
+            for i, sid in zip(slots, path):
+                new[i] = sid
+            changed += sum(1 for a, b in zip([s["section_id"] for s in sibs], new) if a != b)
+            _put_order(cx, oid, parent, new)
         _touch(cx, oid)
     return changed
 
@@ -625,7 +639,7 @@ class _Checks:
 
 
 def _gaps(kind: str, passages: int, docs: Counter, titles: dict) -> list[dict]:
-    if kind == "own":
+    if kind != "theme":     # a section of your own or of a hypothesis has gaps of its own kind (see _question_view)
         return []
     n = len(docs)
     out = []
@@ -698,8 +712,13 @@ def _build(ws: Workspace, o: dict, rows: list[dict], framework: str | None, thre
         s = b["row"]
         docs: Counter = b["docs"]
         first, state = (run.theme(s["parts"][0]["theme"]) if s["parts"] else (None, "own"))
-        default, source = (_heading(first) if s["parts"] else ("", "own"))
-        if s["parts"] and len(s["parts"]) > 1 and first is None:
+        if s["kind"] == "hypothesis":     # a hypothesis section is headed by the hypothesis itself
+            default, source = (s.get("hypothesis") or "A hypothesis"), "hypothesis"
+        elif s["parts"]:
+            default, source = _heading(first)
+        else:
+            default, source = "", "own"
+        if s["kind"] != "hypothesis" and s["parts"] and len(s["parts"]) > 1 and first is None:
             default, source = "Themes that are gone", "gone"
         title = s["title"] or default
         # key terms: those of the theme(s); a part of a theme keeps the terms found in its documents
@@ -746,7 +765,8 @@ def _build(ws: Workspace, o: dict, rows: list[dict], framework: str | None, thre
                                          ({"text": None, "missing": min(len(sources), MAX_CITED), "more": 0}
                                           if sources else None)),
             "codes": codes, "concepts": _concepts(ws, labels), "disagreements": dis, "decisions": dec,
-            "gaps": _gaps(s["kind"], n_pass, docs, titles),
+            "gaps": _gaps(s["kind"], n_pass, docs, titles), "hypothesis_text": s.get("hypothesis"),
+            "basis": json.loads(s.get("basis_json") or "null"),
             "parts": s["parts"], "split_by_documents": any(p["docs"] for p in s["parts"]),
             "can_split": bool(s["parts"]) and (len(s["parts"]) > 1 or len(docs) > 1),
             "_docs": dset, "_words": _words(labels)}
@@ -803,10 +823,12 @@ def view(ws: Workspace, oid: str, framework: str | None = None, threshold: float
     available = [{"theme_id": t["theme_id"], "name": _heading(t)[0], "size": t["size"],
                   "documents": len(t["documents"])} for t in (run.view["themes"] if run.exists else [])
                  if t["theme_id"] not in flat_ids]
+    if o.get("question"):
+        _question_view(ws, o, run, top, available, threshold)
     n_sections = len(rows)
     return {"outline": {"outline_id": oid, "title": o["title"], "run_id": o["run_id"], "framework": o["framework"] or "",
                         "created_at": o["created_at"], "updated_at": o["updated_at"], "sections": n_sections,
-                        "bibliography": bool(cites)},
+                        "bibliography": bool(cites), "question": o.get("question") or None},
             "run": ({"run_id": o["run_id"], "created_at": run.created_at, "mode": run.mode,
                      "stale": run.view["run"]["stale"]} if run.exists else None),
             "sections": top, "available_themes": available, "own_suggestions": list(OWN_SUGGESTIONS),
@@ -823,6 +845,394 @@ def list_outlines(ws: Workspace) -> list[dict]:
                     "created_at": r["created_at"], "updated_at": r["updated_at"], "run_exists": bool(r["run_created"]),
                     "run_created_at": r["run_created"]})
     return out
+
+
+# ---------------------------------------------------------------------------------------------
+# C4: an outline from a research question and hypotheses
+# ---------------------------------------------------------------------------------------------
+QUESTION_CHARS = 1000
+MAX_HYPOTHESES = 12
+WORDS_RELATED = 0.5      # the weight of shared key terms from which a theme counts as related by its words
+BACKGROUND = "Background"
+
+
+def _clean_sentence(text, what: str = "question") -> str:
+    t = " ".join(str(text or "").split())[:QUESTION_CHARS]
+    if not t:
+        raise ValueError("Write the research question." if what == "question" else "Write the hypothesis.")
+    return t
+
+
+def _norm(text: str) -> str:
+    return " ".join(str(text or "").lower().split()).rstrip(" .?!")
+
+
+def _content_stems(text: str) -> frozenset:
+    from .textutil import token_spans
+
+    return frozenset(t[2] for t in token_spans(text))      # without stop words: the words that carry meaning
+
+
+def find_check(ws: Workspace, text: str) -> str | None:
+    """The latest hypothesis checked with this wording (case, spaces and a final full stop aside), or None. A
+    hypothesis section is linked to its check by its text, so a check run later from the section is found."""
+    want = _norm(text)
+    for r in ws.query("SELECT hyp_id, text FROM hypotheses WHERE COALESCE(origin, '') != 'citation' "
+                      "ORDER BY created_at DESC, rowid DESC"):
+        if _norm(r["text"]) == want:
+            return r["hyp_id"]
+    return None
+
+
+def _counted_evidence(res: dict) -> list[str]:
+    """The passages a check counts for or against its hypothesis (as its answer counts them)."""
+    return [x["passage_id"] for p in res["parts"] for x in p["passages"]
+            if x.get("counted") and x.get("verdict") in ("supports", "partially_supports", "refutes")]
+
+
+class _Relevance:
+    """How the themes of a set bear on a sentence (the research question or a hypothesis), without AI:
+
+    - evidence: the passages a check of the hypothesis counts for or against it, and the theme each passage is in;
+    - words: the theme's key terms found among the sentence's words. A term whose every word is in the sentence
+      counts fully, one that shares some of them half as much in proportion; a word that runs through the key terms
+      of many themes counts less (divided by the number of themes whose key terms hold it). A key term that belongs to
+      the same concept as a term of the sentence (Concepts: terms joined by a 'same' link) counts fully too."""
+
+    def __init__(self, ws: Workspace, run: _Run):
+        self.ws, self.run = ws, run
+        self.theme_of = {pid: tid for tid, ms in run.members.items() for _s, pid, _d in ms}
+        self.terms = {tid: [(lab, _content_stems(lab)) for lab in t["terms"]] for tid, t in run.info.items()}
+        df: Counter = Counter()
+        for pairs in self.terms.values():
+            df.update({s for _lab, st in pairs for s in st})
+        self.df = df
+
+    def _concept_labels(self, stems: frozenset) -> set[str]:
+        """The wordings of every concept that a glossary term inside the sentence belongs to."""
+        if not stems:
+            return set()
+        inside = []
+        for r in self.ws.query("SELECT t.term_id, t.label, t.stems FROM terms t JOIN concept_terms ct "
+                               "ON ct.term_id=t.term_id"):
+            if set((r["stems"] or "").split()) & stems:
+                st = _content_stems(r["label"])
+                if st and st <= stems:
+                    inside.append(r["term_id"])
+        if not inside:
+            return set()
+        q = ",".join("?" * len(inside))
+        return {r[0] for r in self.ws.query(
+            "SELECT t.label FROM concept_terms a JOIN concept_terms b ON b.concept_id=a.concept_id JOIN terms t "
+            f"ON t.term_id=b.term_id WHERE a.term_id IN ({q})", inside)}
+
+    def of(self, text: str, evidence: list[str] | None = None) -> dict[int, dict]:
+        """{theme id: {"evidence": passages, "terms": [key terms found], "words": weight, "related": bool}} for
+        each theme shown."""
+        stems = _content_stems(text or "")
+        same = self._concept_labels(stems)
+        ev = Counter(self.theme_of[p] for p in (evidence or []) if p in self.theme_of)
+        out = {}
+        for tid, pairs in self.terms.items():
+            found, weight = [], 0.0
+            for lab, st in pairs:
+                if not st:
+                    continue
+                rare = sum(1.0 / max(1, self.df[s]) for s in st) / len(st)
+                if lab in same and not st <= stems:
+                    found.append(lab)
+                    weight += 1.0
+                elif st <= stems:
+                    found.append(lab)
+                    weight += rare
+                elif st & stems:
+                    weight += 0.5 * sum(1.0 / max(1, self.df[s]) for s in st & stems) / len(st)
+            weight = round(weight, 3)
+            out[tid] = {"evidence": ev.get(tid, 0), "terms": found, "words": weight,
+                        "related": ev.get(tid, 0) > 0 or weight >= WORDS_RELATED}
+        return out
+
+
+def _meaning_scores(ws: Workspace, run: _Run, texts: list[str], settings: dict | None) -> tuple[list | None, str]:
+    """Level 1, only when asked: the closeness of each text to each theme (the mean of its passages' vectors), with
+    the embedding model that built the project's vectors, when it is on this computer. ([{theme: closeness}], why not)."""
+    from . import embed, home
+
+    emb = home.make_embedder(settings or home.load_settings())
+    if emb is None:
+        return None, "Search by meaning is not set up: choose an embedding model under Settings."
+    if embed.remote(emb):
+        return None, "The embedding model is on another computer, so the question is not sent to it."
+    vs = embed.vectors(ws, emb.model)
+    if vs is None:
+        return None, "The documents have no vectors from this model yet: build the index for search by meaning first."
+    qprefix, _d = embed.prefixes(emb.model)
+    vecs = [embed._unit(v) for v in emb.embed([qprefix + t for t in texts])]
+    out: list[dict] = [{} for _ in texts]
+    for tid, ms in run.members.items():
+        if tid not in run.info:
+            continue
+        idx = [vs.pos[pid] for _s, pid, _d in ms if pid in vs.pos]
+        if not idx:
+            continue
+        if vs.np is not None:
+            c = vs.matrix[idx].mean(axis=0)
+            c = c / (float((c * c).sum()) ** 0.5 or 1.0)
+            sims = [float(vs.np.dot(c, vs.np.asarray(v, dtype=vs.np.float32))) for v in vecs]
+        else:
+            rows = [vs.rows[i] for i in idx]
+            c = [sum(r[k] for r in rows) / len(rows) for k in range(len(rows[0]))]
+            nrm = math.sqrt(sum(x * x for x in c)) or 1.0
+            sims = [sum(x / nrm * y for x, y in zip(c, v)) for v in vecs]
+        for i, s in enumerate(sims):
+            out[i][tid] = round(s, 3)
+    return out, ""
+
+
+def _close_by_meaning(sims: dict) -> set:
+    """The themes that stand out as close: at least a standard deviation above the mean closeness (3 themes or more)."""
+    if len(sims) < 3:
+        return set()
+    vals = list(sims.values())
+    mean = sum(vals) / len(vals)
+    sd = math.sqrt(sum((v - mean) ** 2 for v in vals) / len(vals))
+    return {t for t, v in sims.items() if v > 0 and sd > 0 and v >= mean + sd}
+
+
+def _score(r: dict, max_ev: int, meaning: bool) -> float:
+    return 2.0 * (r["evidence"] / max_ev if max_ev else 0.0) + min(1.0, r["words"] / 2.0) + (0.5 if meaning else 0.0)
+
+
+def _hyp_relevance(ws: Workspace, rel: _Relevance, text: str, threshold: float | None) -> tuple[dict, dict | None]:
+    """(how the themes bear on a hypothesis, its check's result or None)."""
+    from . import claimcheck
+
+    hid = find_check(ws, text)
+    res = None
+    if hid:
+        try:
+            res = claimcheck.hypothesis_result(ws, hid, threshold)
+        except KeyError:
+            res = None
+    return rel.of(text, _counted_evidence(res) if res else []), res
+
+
+def create_from_question(ws: Workspace, run_id: str, question: str, hypotheses=(), title: str | None = None,
+                         framework: str | None = None, meaning: bool = False, settings: dict | None = None,
+                         threshold: float | None = None) -> dict:
+    """An outline built around a research question: a section for each hypothesis, holding the themes that bear on it
+    most (the passages its check counts, then shared key terms and concepts, then - with `meaning` and a local
+    embedding model - closeness by meaning); a Background section for themes that bear on the question but on no
+    hypothesis; themes that bear on neither stay out (under "Themes not in the outline"). Without hypotheses the
+    themes that bear on the question make the outline. Returns {"outline_id", "placed", "left_out", "meaning"}."""
+    run = _Run(ws, run_id)
+    if not run.exists:
+        raise KeyError(run_id)
+    shown = [t["theme_id"] for t in run.view["themes"]]
+    if not shown:
+        raise ValueError("This set of themes has no theme shown. Bring one back, or find the themes again.")
+    q = _clean_sentence(question, "question")
+    hyps, seen = [], set()
+    for h in hypotheses or ():
+        t = " ".join(str(h or "").split())[:QUESTION_CHARS]
+        if t and _norm(t) not in seen:
+            seen.add(_norm(t))
+            hyps.append(t)
+    if len(hyps) > MAX_HYPOTHESES:
+        raise ValueError(f"Give at most {MAX_HYPOTHESES} hypotheses.")
+    rel = _Relevance(ws, run)
+    q_rel = rel.of(q)
+    h_rel = [_hyp_relevance(ws, rel, h, threshold)[0] for h in hyps]
+    sims, why = (None, "")
+    if meaning:
+        sims, why = _meaning_scores(ws, run, [q] + hyps, settings)
+    close = [_close_by_meaning(s) for s in sims] if sims else [set() for _ in range(len(hyps) + 1)]
+
+    place: dict[int, int | None] = {}      # theme -> index of its hypothesis; None: background
+    max_ev = [max((x["evidence"] for x in r.values()), default=0) for r in h_rel]
+    for t in shown:
+        best, best_score = None, 0.0
+        for i, r in enumerate(h_rel):
+            near = t in close[i + 1]
+            if not (r[t]["related"] or near):
+                continue
+            s = _score(r[t], max_ev[i], near)
+            if s > best_score:
+                best, best_score = i, s
+        if best is not None:
+            place[t] = best
+        elif q_rel[t]["related"] or t in close[0]:
+            place[t] = None
+    if not hyps and not place:
+        raise ValueError("No theme shares a key term with the question. Use the words your documents use (the Concepts "
+                         "page lists them), add hypotheses, or make an outline of all the themes.")
+
+    def basis(t, i):
+        if not sims:
+            return None
+        return json.dumps({"meaning": sims[0 if i is None else i + 1].get(t)})
+
+    oid = _id("o")
+    stamp = now()
+    title = _clean_title(title, required=False) or _clean_title(_clip(q, 120))
+    with ws.connect() as cx:
+        cx.execute("INSERT INTO outlines(outline_id, title, run_id, framework, created_at, updated_at, question) "
+                   "VALUES (?,?,?,?,?,?,?)", (oid, title, run_id, framework or None, stamp, stamp, q))
+
+        def themes_under(parent, members, i):
+            keys = similarity_order({t: _item(run, [_part(t)]) for t in members})
+            for j, t in enumerate(keys):
+                cx.execute("INSERT INTO outline_sections(section_id, outline_id, parent_id, seq, kind, parts_json, "
+                           "title, note, created_at, basis_json) VALUES (?,?,?,?,'theme',?,NULL,'',?,?)",
+                           (_id("s"), oid, parent, j, json.dumps([_part(t)]), stamp, basis(t, i)))
+
+        seq = 0
+        for i, h in enumerate(hyps):
+            sid = _id("s")
+            cx.execute("INSERT INTO outline_sections(section_id, outline_id, parent_id, seq, kind, parts_json, title, "
+                       "note, created_at, hypothesis) VALUES (?,?,NULL,?,'hypothesis','[]',NULL,'',?,?)",
+                       (sid, oid, seq, stamp, h))
+            seq += 1
+            themes_under(sid, [t for t, p in place.items() if p == i], i)
+        back = [t for t, p in place.items() if p is None]
+        if back and hyps:
+            sid = _id("s")
+            cx.execute("INSERT INTO outline_sections(section_id, outline_id, parent_id, seq, kind, parts_json, title, "
+                       "note, created_at) VALUES (?,?,NULL,?,'own','[]',?,'',?)", (sid, oid, seq, BACKGROUND, stamp))
+            themes_under(sid, back, None)
+        elif back:
+            keys = similarity_order({t: _item(run, [_part(t)]) for t in back})
+            for j, t in enumerate(keys):
+                cx.execute("INSERT INTO outline_sections(section_id, outline_id, parent_id, seq, kind, parts_json, "
+                           "title, note, created_at, basis_json) VALUES (?,?,NULL,?,'theme',?,NULL,'',?,?)",
+                           (_id("s"), oid, j, json.dumps([_part(t)]), stamp, basis(t, None)))
+    return {"outline_id": oid, "placed": len(place), "left_out": len(shown) - len(place),
+            "meaning": {"used": bool(sims), "why": why} if meaning else None}
+
+
+def add_hypothesis(ws: Workspace, oid: str, text: str, threshold: float | None = None) -> dict:
+    """A hypothesis section added to an outline made from a question, after the other hypotheses. It takes the themes
+    that bear on it from Background and from the themes not in the outline; it never takes a theme from another
+    hypothesis. Returns {"section_id", "themes": how many it took}."""
+    o = _outline_row(ws, oid)
+    if not o.get("question"):
+        raise ValueError("Hypotheses go in an outline made from a research question.")
+    h = _clean_sentence(text, "hypothesis")
+    rows = _sections(ws, oid)
+    if any(s["kind"] == "hypothesis" and _norm(s.get("hypothesis") or "") == _norm(h) for s in rows):
+        raise ValueError("This hypothesis is in the outline already.")
+    if sum(1 for s in rows if s["kind"] == "hypothesis") >= MAX_HYPOTHESES:
+        raise ValueError(f"An outline holds at most {MAX_HYPOTHESES} hypotheses.")
+    run = _Run(ws, o["run_id"])
+    taken: list[tuple[str | None, int]] = []   # (section id or None for a theme not in the outline, theme id)
+    if run.exists:
+        r, _res = _hyp_relevance(ws, _Relevance(ws, run), h, threshold)
+        back = {s["section_id"] for s in rows if s["parent_id"] is None and s["kind"] == "own"
+                and s["title"] == BACKGROUND}
+        in_outline = set()
+        for s in rows:
+            for p in s["parts"]:
+                in_outline.add(run.final(p["theme"]))
+            if s["parent_id"] in back and s["kind"] == "theme" and len(s["parts"]) == 1:
+                t = run.final(s["parts"][0]["theme"])
+                if t in r and r[t]["related"]:
+                    taken.append((s["section_id"], t))
+        taken += [(None, t) for t in run.info if t not in in_outline and r[t]["related"]]
+    top = [s for s in rows if s["parent_id"] is None]
+    at = next((i for i, s in enumerate(sorted(top, key=lambda s: s["seq"])) if s["kind"] == "own"
+               and s["title"] == BACKGROUND), None)
+    sid = _id("s")
+    stamp = now()
+    with ws.connect() as cx:
+        cx.execute("INSERT INTO outline_sections(section_id, outline_id, parent_id, seq, kind, parts_json, title, note, "
+                   "created_at, hypothesis) VALUES (?,?,NULL,?,'hypothesis','[]',NULL,'',?,?)", (sid, oid, 10 ** 6, stamp, h))
+        sibs = [x for x in _siblings(cx, oid, None) if x != sid]
+        sibs.insert(len(sibs) if at is None else at, sid)
+        _put_order(cx, oid, None, sibs)
+        ids = []
+        for old, t in taken:
+            if old is None:
+                old = _id("s")
+                cx.execute("INSERT INTO outline_sections(section_id, outline_id, parent_id, seq, kind, parts_json, "
+                           "title, note, created_at) VALUES (?,?,?,0,'theme',?,NULL,'',?)",
+                           (old, oid, sid, json.dumps([_part(t)]), stamp))
+            ids.append((old, t))
+        if ids:
+            order = similarity_order({t: _item(run, [_part(t)]) for _s, t in ids})
+            by_t = {t: s for s, t in ids}
+            _put_order(cx, oid, sid, [by_t[t] for t in order])
+        for b in {s["section_id"] for s in top if s["kind"] == "own" and s["title"] == BACKGROUND}:
+            _put_order(cx, oid, b, _siblings(cx, oid, b))
+        _touch(cx, oid)
+    return {"section_id": sid, "themes": len(taken)}
+
+
+def _question_view(ws: Workspace, o: dict, run: _Run, top: list[dict], available: list[dict],
+                   threshold: float | None) -> None:
+    """What an outline made from a question adds to its view: each hypothesis section's check (its answer, who says
+    what, how to check it when it is not checked yet) and gaps; each theme section's reasons for being where it is
+    (the passages of the check, the key terms shared, closeness by meaning when the outline was made) and the other
+    hypotheses it also bears on; and, for the themes not in the outline, what they share with the question."""
+    from . import bibliography, drafts
+
+    if not run.exists:
+        for n in top:
+            if n["kind"] == "hypothesis":
+                n["hypothesis"] = {"text": n["hypothesis_text"], "hyp_id": None, "checked": False}
+        return
+    rel = _Relevance(ws, run)
+    cites = bibliography.apa_citations(ws) if bibliography.has(ws) else {}
+    q_rel = rel.of(o["question"])
+    hyps = []      # (node, relevance)
+    for n in top:
+        if n["kind"] != "hypothesis":
+            continue
+        r, res = _hyp_relevance(ws, rel, n["hypothesis_text"] or "", threshold)
+        hyps.append((n, r))
+        info = {"text": n["hypothesis_text"], "hyp_id": res["hyp_id"] if res else None, "checked": bool(res)}
+        if res:
+            ev = drafts._evidence(res, cites)
+            info.update(status=res["status"], status_text=res["status_text"], parts=len(res["parts"]),
+                        evidence=len(_counted_evidence(res)),
+                        sides={k: [{"doc_id": e["doc_id"], "title": e["title"], "apa": (e["apa"] or {}).get("text"),
+                                    "quote": e["quote"], "location": e["location"]} for e in v] for k, v in ev.items()})
+        n["hypothesis"] = info
+        gaps = []
+        if not res:
+            gaps.append({"kind": "unchecked", "text": "Not checked yet: its themes are placed by shared key terms only. "
+                                                     "Check it to place them by the passages that bear on it."})
+        kids = [c for c in n["children"] if c["kind"] == "theme"]
+        if not kids:
+            gaps.append({"kind": "no-themes", "text": "No theme bears on this hypothesis: your documents may say "
+                                                     "little about it, or say it in other words."})
+        elif res and res["status"] in ("unsupported", "no_passages"):
+            gaps.append({"kind": "no-evidence", "text": "Its check found no evidence in your documents."})
+        n["gaps"] = gaps + n["gaps"]
+        n["documents"] = len({d["doc_id"] for v in (info.get("sides") or {}).values() for d in v})
+
+    def reasons(node, parent):
+        t = run.final(node["parts"][0]["theme"]) if node["parts"] else None
+        if t is None or t not in run.info:
+            return
+        to = parent["hypothesis_text"] if parent is not None and parent["kind"] == "hypothesis" else None
+        r = next((rr for nn, rr in hyps if nn is parent), None) if to else q_rel
+        x = r.get(t) if r else None
+        node["relevance"] = {"to": "hypothesis" if to else "question", "evidence": x["evidence"] if x else 0,
+                             "terms": (x["terms"] if x else [])[:6], "related": bool(x and x["related"]),
+                             "meaning": (node.get("basis") or {}).get("meaning"),
+                             "also": [{"number": nn["number"], "text": _clip(nn["hypothesis_text"] or "", 90)}
+                                      for nn, rr in hyps if nn is not parent and rr[t]["related"]]}
+
+    def walk(nodes, hyp):     # `hyp`: the hypothesis section the nodes are inside, at any depth (None: none)
+        for n in nodes:
+            if n["kind"] == "theme":
+                reasons(n, hyp)
+            walk(n["children"], n if n["kind"] == "hypothesis" else hyp)
+    walk(top, None)
+    for a in available:
+        x = q_rel.get(a["theme_id"])
+        a["shares"] = (x["terms"][:4] if x else [])
+        a["bears_on"] = [nn["number"] for nn, rr in hyps if rr[a["theme_id"]]["related"]]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1027,6 +1437,8 @@ def document(ws: Workspace, oid: str, include=INCLUDE, framework: str | None = N
     blocks.append(("small", f"Made with Margin from {len(v['sections'])} top-level sections"
                             + (f" of the themes found on {run['created_at'][:10]}" if run else "")
                             + f"; outline kept {(o['updated_at'] or '')[:10]}."))
+    if o.get("question"):
+        blocks.append(("field", "Research question", o["question"]))
     used_docs: dict[str, dict] = {}
 
     def write(nodes):
@@ -1034,6 +1446,27 @@ def document(ws: Workspace, oid: str, include=INCLUDE, framework: str | None = N
             blocks.append(("heading", min(n["depth"] + 1, 5), f"{n['number']} {n['title']}"))
             for para in [p for p in (n["note"] or "").split("\n\n") if p.strip()]:
                 blocks.append(("text", para.strip()))
+            hyp = n.get("hypothesis")
+            if "checks" in inc and hyp:
+                if hyp.get("checked"):
+                    blocks.append(("field", "Check", hyp.get("status_text") or ""))
+                    for side, label in (("supports", "Supported by"), ("partly", "Partly supported by"),
+                                        ("refutes", "Contradicted by")):
+                        docs = (hyp.get("sides") or {}).get(side) or []
+                        if docs:
+                            blocks.append(("bullet", f"{label}: " + "; ".join(d["apa"] or d["title"] for d in docs)))
+                else:
+                    blocks.append(("field", "Check", "Not checked yet."))
+            why = n.get("relevance")
+            if "checks" in inc and why and (why["evidence"] or why["terms"]):
+                bits = []
+                if why["evidence"]:
+                    bits.append(f"{why['evidence']} passage{'s' if why['evidence'] != 1 else ''} of the check")
+                if why["terms"]:
+                    bits.append("shares " + ", ".join(why["terms"]))
+                if why["also"]:
+                    bits.append("also bears on " + ", ".join(a["number"] for a in why["also"]))
+                blocks.append(("field", "Why here", "; ".join(bits) + "."))
             if "terms" in inc and n["terms"]:
                 blocks.append(("field", "Key terms", "; ".join(n["terms"])))
             if "sources" in inc and n["cite"] and n["cite"].get("text"):

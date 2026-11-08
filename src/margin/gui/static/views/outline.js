@@ -6,11 +6,13 @@
 // draft, each section says how much of it the draft covers and what is still unused. The outline downloads as Word or
 // Markdown.
 import { featureEyebrow } from "../features.js";
-import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, P, emptyState, dialog, confirmDialog, download, downloadLinks, plural, shortTitle, store, navigate } from "../lib.js";
+import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, P, emptyState, dialog, confirmDialog, download, downloadLinks, plural, shortTitle, store, navigate, statusBadge, STATUS_SHORT } from "../lib.js";
 
 const searchHref = (q) => `#/search?q=${encodeURIComponent(q)}&mode=phrase`;
 const docHref = (d, a, b) => `#/doc/${encodeURIComponent(d)}${Number.isInteger(a) && Number.isInteger(b) ? `?q=${a}-${b}` : ""}`;
 const outlineHref = (id) => `#/outline/${encodeURIComponent(id)}`;
+const checkHref = (text) => `#/check?text=${encodeURIComponent(text)}`;
+const MAX_HYPOTHESES = 12;
 const COVER_ICON = { well: "circle-check", partly: "circle-half", little: "circle-dot", none: "circle-dashed" };
 const openState = new Map();   // outline id -> Set of the section ids shown open (kept while the app is open)
 
@@ -51,8 +53,55 @@ export async function renderOutlines(view) {
   const box = h("div");
   view.append(pageHead("Outline", {
     eyebrow: featureEyebrow("outline"),
-    sub: "A writing plan made from the themes of your documents: one section for each theme, with what to cite and where your sources disagree. Made on this computer, without AI.",
+    sub: "A writing plan made from the themes of your documents, around your research question and hypotheses or from all the themes, with what to cite and where your sources disagree. Made on this computer, without AI.",
   }), box);
+
+  // the hypotheses already checked, to pick from (latest first)
+  let checked = [];
+  api("GET", `/api/projects/${P(project)}/hypotheses?limit=200`).then((r) => {
+    const seen = new Set();
+    checked = (r.hypotheses || []).filter((x) => x.text && !seen.has(x.text) && seen.add(x.text));
+    draw();
+  }).catch(() => {});
+  const qDraft = { question: store("outline.question") || "", hyps: store("outline.hypotheses") || "" };
+
+  function questionCard(runs, sel) {
+    const q = h("textarea", { class: "textarea", rows: 2, maxlength: 1000, id: "ol-q", placeholder: "How does green hydrogen production affect water use in arid regions?" }, qDraft.question);
+    const hy = h("textarea", { class: "textarea", rows: 3, id: "ol-hyps", placeholder: "One per line, for example:\nElectrolysis raises water stress where groundwater is scarce.\nDesalination makes the water demand manageable." }, qDraft.hyps);
+    q.addEventListener("input", () => store("outline.question", q.value || null));
+    hy.addEventListener("input", () => store("outline.hypotheses", hy.value || null));
+    const lines = () => hy.value.split("\n").map((x) => x.trim()).filter(Boolean);
+    const pick = checked.length ? h("select", { class: "select input-sm", "aria-label": "Add a hypothesis you checked", style: { width: "auto", maxWidth: "100%" } },
+      h("option", { value: "" }, `Add one you checked (${checked.length})…`),
+      checked.map((x) => h("option", { value: x.text }, `${shortTitle(x.text, 90)}${STATUS_SHORT[x.status] ? ` · ${STATUS_SHORT[x.status]}` : ""}`))) : null;
+    if (pick) pick.addEventListener("change", () => {
+      if (!pick.value) return;
+      if (!lines().includes(pick.value)) { hy.value = [...lines(), pick.value].join("\n"); store("outline.hypotheses", hy.value); }
+      pick.value = "";
+    });
+    const semantic = App.settings().embed_backend && App.settings().embed_backend !== "off";
+    const mean = semantic ? h("input", { type: "checkbox", checked: store("outline.qmeaning") === "1", onChange: (e) => store("outline.qmeaning", e.target.checked ? "1" : "0") }) : null;
+    const go = h("button", { class: "btn btn-primary", type: "button" }, icon("list-checks", { size: 14 }), "Make the outline");
+    go.addEventListener("click", async () => {
+      if (!q.value.trim()) { q.focus(); toast("Write the research question first.", "warn"); return; }
+      if (lines().length > MAX_HYPOTHESES) { toast(`Give at most ${MAX_HYPOTHESES} hypotheses.`, "warn"); return; }
+      go.disabled = true;
+      try {
+        const r = await api("POST", base, { run_id: sel.value || null, question: q.value, hypotheses: lines(), meaning: !!(mean && mean.checked) });
+        store("outline.question", null); store("outline.hypotheses", null);
+        if (r.meaning && !r.meaning.used) toast(`Placed without closeness by meaning: ${r.meaning.why}`, "info");
+        navigate(outlineHref(r.outline_id));
+      } catch (e) { go.disabled = false; showError(e); }
+    });
+    return h("section", { class: "card ol-make", "aria-labelledby": "ol-q-h" },
+      h("div", { class: "card-head" }, h("h2", { id: "ol-q-h" }, "From a research question")),
+      h("p", { class: "muted", style: { marginTop: 0 } }, "Each hypothesis becomes a section holding the themes that bear on it: first the themes where its check found evidence, then those that share its key terms or concepts. Themes that bear only on the question go under Background; the others stay out, so the outline is about your question."),
+      h("label", { class: "field-label", for: "ol-q" }, "Research question"), q,
+      h("label", { class: "field-label", for: "ol-hyps" }, "Hypotheses ", h("span", { class: "muted small" }, "(optional, one per line)")), hy,
+      h("div", { class: "row ol-make-row" }, pick, mean ? h("label", { class: "field-inline small", title: "Also places themes by meaning, using the embedding model on this computer. Nothing leaves it." }, mean, "Also by meaning") : null,
+        runs.length > 1 ? sel : null, go),
+      h("p", { class: "muted small", style: { margin: "8px 0 0" } }, "A hypothesis you have not checked yet is placed by its words only; check it later and the outline shows its evidence."));
+  }
 
   async function draw() {
     const { outlines, runs } = info;
@@ -68,10 +117,11 @@ export async function renderOutlines(view) {
         try { const r = await api("POST", base, { run_id: sel.value }); navigate(outlineHref(r.outline_id)); }
         catch (e) { go.disabled = false; showError(e); }
       });
+      parts.push(questionCard(runs, sel));
       parts.push(h("section", { class: "card", "aria-labelledby": "ol-make-h" },
-        h("div", { class: "card-head" }, h("h2", { id: "ol-make-h" }, "Make an outline")),
+        h("div", { class: "card-head" }, h("h2", { id: "ol-make-h" }, "From all the themes")),
         h("p", { class: "muted", style: { marginTop: 0 } }, "Each theme becomes a section. Themes that share documents and key terms sit next to each other, so the outline reads as a path. You can then move, merge, split and add sections."),
-        h("div", { class: "row", style: { gap: "10px" } }, runs.length > 1 ? sel : null, go)));
+        h("div", { class: "row", style: { gap: "10px" } }, go)));
     }
     if (outlines.length) {
       parts.push(h("section", { class: "section", "aria-labelledby": "ol-list-h" },
@@ -161,10 +211,21 @@ export async function renderOutline(view, [oid], query) {
     const nTop = v.sections.length;
     replace(head, pageHead(o.title, {
       eyebrow: h("span", {}, featureEyebrow("outline"), " · ", h("a", { href: "#/outline" }, "All outlines")),
-      sub: `${plural(o.sections, "section")}${v.run ? `, made from the themes found on ${fmt.date(v.run.created_at)}` : ""}. The order is a suggestion: themes that share documents and key terms are next to each other. Everything on this page is made on your computer, without AI.`,
+      sub: o.question
+        ? `${plural(o.sections, "section")}${v.run ? `, made from the themes found on ${fmt.date(v.run.created_at)}` : ""}, around your research question. Each hypothesis holds the themes that bear on it most. Everything on this page is made on your computer, without AI.`
+        : `${plural(o.sections, "section")}${v.run ? `, made from the themes found on ${fmt.date(v.run.created_at)}` : ""}. The order is a suggestion: themes that share documents and key terms are next to each other. Everything on this page is made on your computer, without AI.`,
       actions: [rename, downloadLinks([dl("docx", "Word (.docx)"), dl("md", "Markdown (.md)")]), trash],
     }));
     clear(notes);
+    if (o.question) {
+      const edit = h("button", { class: "btn btn-sm btn-ghost", type: "button" }, icon("note", { size: 13 }), "Reword");
+      edit.addEventListener("click", async () => {
+        const input = h("textarea", { class: "textarea", rows: 3, maxlength: 1000, "aria-label": "Research question" }, o.question);
+        const ok = await dialog({ title: "Reword the research question", body: h("div", {}, input, h("p", { class: "muted small" }, "The sections stay where they are; the reasons each theme shows are read again from the new words.")), actions: [{ text: "Cancel", value: null }, { text: "Save", value: true, primary: true }], onOpen: () => input.focus() });
+        if (ok && input.value.trim()) act("PUT", "", { question: input.value });
+      });
+      notes.appendChild(h("div", { class: "ol-question" }, h("div", { class: "ol-fact-label" }, "Research question"), h("p", { class: "ol-question-text" }, o.question), edit));
+    }
     if (!v.run) notes.appendChild(h("div", { class: "notice notice-warn", style: { marginBottom: "12px" } }, icon("alert-triangle"), h("p", {}, "The set of themes this outline came from was deleted. The sections keep their titles and notes, but their passages, sources and key terms are gone.")));
     else if (v.run.stale) notes.appendChild(h("div", { class: "notice notice-warn", style: { marginBottom: "12px" } }, icon("alert-triangle"), h("p", {}, "Documents were added or removed since these themes were found, so the outline leaves out the changes. Find the themes again and make a new outline; this one is kept.")));
     if (!nTop) notes.appendChild(emptyState("file-text", "This outline has no sections", "Add a section of your own below, or bring a theme back."));
@@ -192,9 +253,10 @@ export async function renderOutline(view, [oid], query) {
     add.addEventListener("click", doAdd);
     nameIn.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doAdd(); } });
 
-    const reorder = h("button", { class: "btn btn-sm", type: "button", title: "Put the theme sections at the top level back in the suggested order. Sections of your own and nested sections stay where they are." }, icon("refresh", { size: 13 }), "Suggest the order again");
+    const reorderWhat = v.outline.question ? "The themes inside each hypothesis and in Background are put back in the order of the similarity path. The hypotheses keep your order." : "The theme sections at the top level are put back in the order of the similarity path. Sections of your own and nested sections stay where they are.";
+    const reorder = h("button", { class: "btn btn-sm", type: "button", title: reorderWhat }, icon("refresh", { size: 13 }), "Suggest the order again");
     reorder.addEventListener("click", async () => {
-      if (!(await confirmDialog({ title: "Suggest the order again?", message: "The theme sections at the top level are put back in the order of the similarity path. Sections of your own and nested sections stay where they are.", confirmText: "Reorder", danger: false }))) return;
+      if (!(await confirmDialog({ title: "Suggest the order again?", message: reorderWhat, confirmText: "Reorder", danger: false }))) return;
       act("POST", "/order", {}, (r) => toast(r.moved ? `${plural(r.moved, "section")} moved.` : "They were in that order already.", "ok", { ttl: 2200 }));
     });
     const allOpen = flat().length && flat().every((n) => open.has(n.section_id));
@@ -207,7 +269,19 @@ export async function renderOutline(view, [oid], query) {
         h("select", { class: "select input-sm", style: { width: "auto", maxWidth: "100%" }, onChange: (e) => act("PUT", "", { framework: e.target.value }) },
           h("option", { value: "" }, "no codebook"), frameworks.map((f) => h("option", { value: f.name, selected: f.name === v.outline.framework }, f.title || f.name))));
     }
-    replace(tools, h("section", { class: "card ol-tools", "aria-label": "Tools for the outline" },
+    let hypRow = null;
+    if (v.outline.question) {
+      const hIn = h("input", { class: "input input-sm", type: "text", maxlength: 1000, placeholder: "Another hypothesis…", "aria-label": "A hypothesis to add", style: { flex: "1 1 18em", minWidth: "0" } });
+      const hAdd = h("button", { class: "btn btn-sm", type: "button", title: "A section for this hypothesis. It takes the themes that bear on it from Background and from the themes not in the outline." }, icon("plus", { size: 13 }), "Add a hypothesis");
+      const doH = () => {
+        if (!hIn.value.trim()) { hIn.focus(); return; }
+        act("POST", "/hypotheses", { text: hIn.value }, (r) => { hIn.value = ""; open.add(r.section_id); toast(r.themes ? `It took ${plural(r.themes, "theme")}.` : "No theme bears on it yet.", "ok", { ttl: 2400 }); });
+      };
+      hAdd.addEventListener("click", doH);
+      hIn.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doH(); } });
+      hypRow = h("div", { class: "ol-tool-row" }, hIn, hAdd);
+    }
+    replace(tools, h("section", { class: "card ol-tools", "aria-label": "Tools for the outline" }, hypRow,
       h("div", { class: "ol-tool-row" }, h("label", { class: "row small", style: { gap: "6px" } }, h("span", { class: "muted" }, "Beside a draft"), draftSel), mean,
         h("span", { class: "muted small ol-tool-hint" }, draftId ? "Each section says how much of it the draft covers." : "Pick a draft to see how much of each section it covers.")),
       h("div", { class: "ol-tool-row" }, nameIn, h("datalist", { id: "ol-own" }, (v.own_suggestions || []).map((s) => h("option", { value: s }))), where, add, reorder, fw, fold)));
@@ -253,6 +327,36 @@ export async function renderOutline(view, [oid], query) {
     return group("You decided", h("ul", { class: "ol-docs" }, s.decisions.map((d) => h("li", {}, h("strong", {}, d.decision_text), ": ", shortTitle(d.claim, 150), " ", h("a", { class: "muted small", href: `#/drafts/${encodeURIComponent(d.draft_id)}` }, d.draft)))));
   }
 
+  function hypothesisBox(s) {
+    const x = s.hypothesis;
+    if (!x) return null;
+    if (!x.checked) {
+      return group("Check", h("p", { class: "muted", style: { margin: 0 } }, "Not checked yet. Its themes are placed by the key terms it shares with them."),
+        h("div", {}, h("a", { class: "btn btn-sm btn-primary", href: checkHref(x.text), title: "Opens Check a hypothesis with this wording. Keep the wording, so the outline finds the check." }, icon("flask", { size: 13 }), "Check it")));
+    }
+    const side = (key, label, cls) => {
+      const list = (x.sides || {})[key] || [];
+      return list.length ? h("div", { class: `ol-side ${cls}` }, h("div", { class: "ol-side-h" }, label),
+        h("ul", { class: "ol-side-list" }, list.map((d) => h("li", {}, h("a", { href: docHref(d.doc_id) }, shortTitle(d.title, 60)), d.apa ? ` ${d.apa}` : "", d.quote ? h("div", { class: "ol-q small" }, `“${shortTitle(d.quote, 160)}”`) : null)))) : null;
+    };
+    const sides = [side("supports", "Supports", "ol-side-pro"), side("partly", "Partly supports", "ol-side-partly"), side("refutes", "Contradicts", "ol-side-con")].filter(Boolean);
+    return group("Check", h("div", { class: "ol-hyp-status" }, statusBadge(x.status, { text: x.status_text }), h("a", { class: "small", href: `#/h/${encodeURIComponent(x.hyp_id)}` }, "Open the result"),
+      h("span", { class: "muted small" }, `${plural(x.evidence || 0, "passage")} counted${x.parts > 1 ? ` over ${x.parts} parts` : ""}`)),
+      sides.length ? h("div", { class: "ol-sides ol-sides-3" }, sides) : null);
+  }
+
+  function whyHere(s) {
+    const r = s.relevance;
+    if (!r) return null;
+    const bits = [];
+    if (r.evidence) bits.push(h("span", { class: "chip chip-flag" }, icon("flask", { size: 11 }), ` ${plural(r.evidence, "passage")} of the check`));
+    if (r.terms.length) bits.push(h("span", { class: "muted small" }, "shares "), ...r.terms.map(termChip));
+    if (r.meaning != null) bits.push(h("span", { class: "muted small", title: "When the outline was made, with the embedding model on this computer" }, `close in meaning (${Math.round(r.meaning * 100)}%)`));
+    if (!bits.length) bits.push(h("span", { class: "muted small" }, r.related ? "" : `It no longer shares a key term with the ${r.to}; you placed it here, or the wording changed.`));
+    const also = r.also.length ? h("p", { class: "muted small", style: { margin: 0 } }, "Also bears on ", r.also.map((a, i) => [i ? ", " : "", h("span", { title: a.text }, a.number)])) : null;
+    return group("Why here", bits, also);
+  }
+
   function draftBox(s) {
     const c = cmp && cmp.sections[s.section_id];
     if (!c) return null;
@@ -269,7 +373,7 @@ export async function renderOutline(view, [oid], query) {
   }
 
   function body(s) {
-    const note = h("textarea", { class: "textarea ol-note", rows: 2, "aria-label": `Your notes for “${s.title}”`, placeholder: s.kind === "own" ? "What this part of the text should say." : "What this section should argue, or what to remember when you write it." }, s.note || "");
+    const note = h("textarea", { class: "textarea ol-note", rows: 2, "aria-label": `Your notes for “${s.title}”`, placeholder: s.kind === "hypothesis" ? "What you expect, and what would change your mind." : s.kind === "own" ? "What this part of the text should say." : "What this section should argue, or what to remember when you write it." }, s.note || "");
     let saved = s.note || "";
     note.addEventListener("blur", async () => {
       if (note.value === saved) return;
@@ -279,7 +383,7 @@ export async function renderOutline(view, [oid], query) {
     const stateNote = s.state === "gone" ? h("div", { class: "notice notice-warn" }, icon("alert-triangle"), h("p", {}, "Its theme is gone, so only the title and your notes are left.")) :
       s.state === "removed" ? h("div", { class: "notice notice-warn" }, icon("alert-triangle"), h("p", {}, "Its theme was removed from the set. Bring it back on the Themes page, or take this section out.")) : null;
     return h("div", { class: "ol-body" },
-      h("label", { class: "ol-note-label small muted" }, "Your notes"), note, stateNote, parts,
+      h("label", { class: "ol-note-label small muted" }, "Your notes"), note, stateNote, hypothesisBox(s), whyHere(s), parts,
       group("Key terms", s.terms.map(termChip)),
       group("Concepts", s.concepts.map((c) => h("a", { class: "chip chip-term", href: `#/concepts/${encodeURIComponent(c.term_id)}`, title: c.wordings.length > 1 ? `Also written: ${c.wordings.filter((w) => w !== c.label).join(", ")}` : null }, c.label))),
       s.codes && s.codes.length ? group("Codes", s.codes.map((c) => h("span", { class: "chip chip-code", title: c.description || null }, c.code, " ", h("span", { class: "muted" }, c.passages)))) : null,
@@ -294,9 +398,15 @@ export async function renderOutline(view, [oid], query) {
     const toggle = h("button", { class: "ol-title", type: "button", "aria-expanded": isOpen ? "true" : "false", "aria-controls": `ol-b-${s.section_id}` },
       icon(isOpen ? "chevron-down" : "chevron-right", { size: 15 }), h("span", { class: "ol-num" }, s.number), h("span", { class: "ol-name" }, s.title));
     const flags = [];
-    if (s.kind === "own") flags.push(chip("your own", { class: "chip-yours" }));
+    if (s.kind === "hypothesis") {
+      flags.push(s.hypothesis && s.hypothesis.checked ? statusBadge(s.hypothesis.status, { short: true }) : chip("not checked yet", { class: "chip-weak", title: "Check it to place its themes by the passages that bear on it" }));
+      const n = s.children.filter((c) => c.kind === "theme").length;
+      flags.push(h("span", { class: "muted small ol-counts" }, plural(n, "theme")));
+      if (s.gaps.some((g) => g.kind === "no-themes")) flags.push(chip(h("span", {}, icon("alert-triangle", { size: 11 }), " no theme"), { title: s.gaps.map((g) => g.text).join(" "), class: "chip-flag" }));
+    } else if (s.kind === "own") flags.push(chip("your own", { class: "chip-yours" }));
     else {
       flags.push(h("span", { class: "muted small ol-counts" }, `${plural(s.documents, "document")} · ${plural(s.passages, "passage")}`));
+      if (s.relevance && s.relevance.evidence) flags.push(chip(h("span", {}, icon("flask", { size: 11 }), ` ${s.relevance.evidence} evidence`), { title: `${plural(s.relevance.evidence, "passage")} that the check of the hypothesis counts are in this theme`, class: "chip-ev" }));
       if (s.disagreements.length) flags.push(chip(h("span", {}, icon("arrows-opposed", { size: 11 }), ` ${s.disagreements.length} disagree`), { title: "Documents on both sides of a claim you checked", class: "chip-flag" }));
       if (s.gaps.length) flags.push(chip(h("span", {}, icon("alert-triangle", { size: 11 }), ` ${s.gaps[0].kind === "one-source" ? "one source" : "gap"}`), { title: s.gaps.map((g) => g.text).join(" "), class: "chip-flag" }));
     }
@@ -315,7 +425,7 @@ export async function renderOutline(view, [oid], query) {
       menu(s));
     const handle = h("span", { class: "ol-grip", "aria-hidden": "true", title: "Drag to move" }, icon("grip", { size: 15 }));
     const bar = h("div", { class: "ol-bar" }, handle, toggle, h("div", { class: "ol-flags" }, flags), controls);
-    const li = h("li", { class: `ol-item${s.state === "gone" || s.state === "removed" ? " ol-broken" : ""}`, "data-id": s.section_id });
+    const li = h("li", { class: `ol-item${s.state === "gone" || s.state === "removed" ? " ol-broken" : ""}${s.kind === "hypothesis" ? " ol-hyp" : ""}`, "data-id": s.section_id });
     const bodyEl = isOpen ? body(s) : null;
     if (bodyEl) bodyEl.id = `ol-b-${s.section_id}`;
     li.append(bar);
@@ -352,8 +462,9 @@ export async function renderOutline(view, [oid], query) {
     const item = (ic, text, fn, title) => h("button", { type: "button", class: "ol-more-item", title: title || null, onClick: () => { d.open = false; fn(); } }, icon(ic, { size: 14 }), text);
     d.append(h("div", { class: "ol-more-menu" },
       item("note", "Rename", () => renameSection(s)),
-      flat().length > 1 ? item("layers", "Join to another section…", () => mergeSection(s), "Their themes, notes and inner sections become one section") : null,
+      flat().length > 1 && s.kind !== "hypothesis" ? item("layers", "Join to another section…", () => mergeSection(s), "Their themes, notes and inner sections become one section") : null,
       s.can_split ? item("split", s.themes.length > 1 ? "Split into its themes" : "Split by documents…", () => splitSection(s)) : null,
+      s.kind === "hypothesis" && !(s.hypothesis && s.hypothesis.checked) ? item("flask", "Check it", () => navigate(checkHref(s.hypothesis_text || s.title))) : null,
       item("trash", "Take out of the outline", () => removeSection(s))));
     document.addEventListener("click", (e) => { if (d.open && !d.contains(e.target)) d.open = false; });
     return d;
@@ -409,13 +520,16 @@ export async function renderOutline(view, [oid], query) {
     const a = v.available_themes || [];
     if (!a.length) { clear(spare); return; }
     replace(spare, h("details", { class: "fold ol-spare" }, h("summary", {}, `Themes not in the outline (${a.length})`),
-      h("ul", { class: "ol-list" }, a.map((t) => h("li", { class: "ol-list-item" }, h("div", { class: "grow" }, h("strong", {}, t.name), h("span", { class: "muted small" }, ` · ${plural(t.documents, "document")}, ${plural(t.size, "passage")}`)),
+      v.outline.question ? h("p", { class: "muted small" }, "These themes share no key term with your question or hypotheses (or you took them out). Add one if it belongs.") : null,
+      h("ul", { class: "ol-list" }, a.map((t) => h("li", { class: "ol-list-item" }, h("div", { class: "grow" }, h("strong", {}, t.name), h("span", { class: "muted small" }, ` · ${plural(t.documents, "document")}, ${plural(t.size, "passage")}`),
+        t.bears_on && t.bears_on.length ? h("span", { class: "muted small" }, ` · bears on ${t.bears_on.join(", ")}`) : null),
         h("button", { class: "btn btn-sm", type: "button", onClick: () => act("POST", "/sections", { theme_id: t.theme_id }) }, icon("plus", { size: 13 }), "Add"))))));
   }
   function drawTech() {
     replace(tech, h("details", { class: "fold" }, h("summary", {}, "Technical details"),
       h("div", { class: "small" },
         h("p", {}, "The order is a path through the themes. It starts with the theme that has most passages and goes on to the most similar theme not used yet; then stretches of the path are reversed while that raises the total similarity between neighbours (2-opt). The similarity of two themes is half the cosine of their passage counts per document and half the share of key-term words they have in common. The same themes always give the same order."),
+        v.outline.question ? h("p", {}, "In an outline from a research question, a theme bears on a hypothesis through the passages its check counts for or against it (they weigh most), and through the key terms they share: a term whose every word is in the hypothesis counts fully, one sharing some words half as much, and a word found in the key terms of many themes counts less. A key term of the same concept as a term of the hypothesis (Concepts) counts fully. Each theme goes to the hypothesis it bears on most; themes that bear only on the question go under Background; the rest stay out. A hypothesis section is linked to its check by its wording.") : null,
         h("p", {}, "Headings come from the themes: the name the AI gave (Themes → Let the AI name the themes), your own rename, or else the first key terms. The outline is stored in the project and survives a reload; it does not change when you find the themes again."),
         h("p", { class: "mono" }, `outline ${oid} · themes ${v.outline.run_id}`))));
   }

@@ -17,7 +17,11 @@ a local model. It grew out of ENLENS, and can sit beside it on the same computer
 
    It needs no git, no Python and no administrator rights. When it is done, Margin opens in your browser and its
    icon is in the usual place (macOS: Applications and Desktop; Windows: Start menu and Desktop; Linux: the
-   applications menu).
+   applications menu). **Or download a file and double-click it:**
+   [Install-Margin-Windows.cmd](https://github.com/dvaud/margin/releases/latest/download/Install-Margin-Windows.cmd)
+   on Windows,
+   [Install-Margin-macOS.zip](https://github.com/dvaud/margin/releases/latest/download/Install-Margin-macOS.zip)
+   on a Mac. Windows and macOS ask you to allow it the first time: [how](docs/MANUAL.md#1-install).
 2. **Press *Set up Claude*** on the first screen. It installs Claude Code if it is missing (it shows you the command
    first), opens a window where you sign in once with your Claude plan, and adds the Margin plugin (beside the ENLENS
    one, if you have it).
@@ -38,36 +42,33 @@ corner the first time): click it and Margin installs the new version and restart
 use the install line). *Settings → Technical → Check for updates* looks at once. Or do it by hand:
 
 1. **Quit Margin** (*Quit Margin* at the bottom of the sidebar).
-2. **Get the new version:** in Terminal or PowerShell type `margin update`, or paste the install line again. On
-   Windows, use the install line.
+2. **Get the new version:** in Terminal or PowerShell type `margin update`, or run the install line or file again.
+   On Windows, use the install line or double-click the newest `Install-Margin-Windows.cmd`.
 3. **Open Margin again** from its icon.
 
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.13: a sounder check, and fewer surprises
+## New in 0.14: an outline from your research question
 
-Margin 0.13 brings in a review of the whole of ENLENS (0.14.3 and 0.14.4) by five reviewers. Several fixes can
-change results; the full list is in `CHANGELOG.md`.
-
-- **A check says when it did not work.** When the AI's answers could not be used, the result says *The check did not
-  work* instead of *No evidence found*, and excerpts from documents no AI may read say *Waiting for your judgement*
-  instead of passing as "not about it". Excel says who judged each excerpt, or that nobody has yet.
-- **Stricter quotes.** A quote must match whole words ("legal" is no longer found inside "illegal") and have at least
-  three words; your own selections are widened to whole words.
-- **More careful with your documents.** Letting Claude read a document asks first. A local model's summary of
-  restricted text no longer reaches a Claude chat, and the project zip leaves out documents you removed.
-- **Exploring and the bibliography.** A quoted phrase finds only that phrase; a document is no longer renamed after a
-  work it only cites; your theme edits follow their themes when you find them again; codebooks saved by Excel in
-  Hungarian (semicolons, Windows code page) are read.
-- **Adding documents and the app.** One damaged or password-protected file no longer stops the whole add; Hungarian
-  and other accented text in old code pages is read as written; notes typed on a waiting result are kept; a banner
-  says when Margin stops answering; there is one Claude Code run per project, stopped when you quit.
+- **Start from your question.** *Outline → From a research question*: write the question and, if you like, your
+  hypotheses (or pick ones you have checked). Each hypothesis becomes a section holding the themes that bear on it,
+  so the plan follows your argument; themes that bear only on the question go under *Background*, and the rest stay
+  out. No AI is used.
+- **Evidence first.** A checked hypothesis shows its answer and the documents on each side, and its themes are the
+  ones its evidence sits in. Then shared key terms count (rare words more than common ones), and the other wordings
+  of a concept. *Also by meaning* adds closeness by meaning with an embedding model on this computer.
+- **Says why, and what is missing.** Each theme says why it is there (passages of the check, key terms it shares) and
+  which other hypotheses it also bears on. A hypothesis not checked yet has a *Check it* button, and one with no
+  theme behind it says so. *Add a hypothesis* later takes its themes from *Background*.
+- **Install by double-clicking a file** on Windows or a Mac, beside the install line (from ENLENS 0.14.5).
 
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.13**: a review of the whole app brought in from ENLENS 0.14.3 and 0.14.4: a check says when it did not
+  work, stricter quotes, more care with restricted documents, and sturdier adding of documents.
 - **Margin 0.12**: your draft read against itself without AI (sentences that disagree, two numbers for one thing,
   abbreviations, spellings, confusing claims); a local model that waits for free memory (0.12.1); tidier claim cards
   (0.12.2); `/margin-run` waits for its helpers (0.12.3).

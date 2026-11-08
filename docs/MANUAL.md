@@ -628,6 +628,35 @@ set of themes only.
 plan to write from. It uses no AI: everything is made on your computer from what Margin already knows, so it gives
 the same outline twice.
 
+**From a research question** (Margin 0.14; the first way offered). Write your research question and, if you like,
+hypotheses (up to 12, one per line, or pick ones you have checked). Each hypothesis becomes a section holding the
+themes that bear on it most, so the outline follows your argument instead of listing every theme:
+
+- **Evidence first.** When a hypothesis has been checked, the passages its check counts for or against it show which
+  themes it rests on, and those weigh most. A hypothesis section shows its answer (*Supported*, *Mixed evidence*…),
+  the documents on each side with their citations, and *Open the result*.
+- **Then shared words.** A theme also bears on a sentence through its key terms: a term whose every word is in the
+  sentence counts fully, one that shares some words half as much, and a word found in the key terms of many themes
+  counts less (so "region" or "study" alone places nothing). A key term of the same concept as a word you used
+  (*Concepts*) counts fully too.
+- **By meaning, if you ask.** *Also by meaning* places themes close in meaning to a hypothesis, with the embedding
+  model **on this computer**; the question is never sent to a model elsewhere.
+- **Where each theme goes.** To the hypothesis it bears on most; under *Background* when it bears on the question but
+  on no hypothesis; otherwise it stays out (under *Themes not in the outline*, with what it shares with the question).
+  Each theme section says **why it is here** (how many passages of the check, which key terms it shares) and which
+  other hypotheses it also bears on.
+- **Not checked yet?** A hypothesis you have not checked is placed by its words only, and says so. *Check it* opens
+  *Check a hypothesis* with its wording; keep the wording and the outline finds the check (case, spaces and a final
+  full stop do not matter). *No theme bears on this hypothesis* means your documents say little about it, or say it
+  in other words.
+- **Later.** *Add a hypothesis* puts a new one before *Background*; it takes the themes that bear on it from
+  *Background* and from the themes not in the outline, never from another hypothesis. *Reword* changes the question.
+  *Suggest the order again* orders the themes inside each hypothesis and keeps your order of the hypotheses. Everything
+  below (moving, notes, beside a draft, downloads) works the same; the downloads add the question, each check's answer
+  and why each theme is there.
+
+**From all the themes** makes one section for each theme, as described next.
+
 **One section for each theme.** A section shows the theme's key terms, the passages that represent it best (with
 their place in the document), the documents to cite (with an APA in-text citation such as *(Haugen, 2024; Okafor,
 2023)* and a *Copy* button when the documents are linked to your bibliography), the codes of your codebook that its
