@@ -42,6 +42,40 @@ function Install-Margin {
             }
             return $null
         }
+        # 0.15.2: where uv put margin.exe. uv writes the folder in UTF-8, but PowerShell reads what a program writes
+        # in the console's code page (437, 850, 852...), so a user folder with an accent came back garbled (the a with
+        # an acute accent of C:\Users\David became two box-drawing characters) and the install stopped at "margin.exe
+        # is missing" although it was there. So uv's answer is read as UTF-8 bytes, and the folders uv itself would
+        # choose, in its order, are looked at too, should the answer still be unreadable.
+        function Get-Utf8Output([string]$Exe, [string]$Arguments) {
+            try {
+                $psi = New-Object System.Diagnostics.ProcessStartInfo $Exe, $Arguments
+                $psi.UseShellExecute = $false
+                $psi.CreateNoWindow = $true
+                $psi.RedirectStandardOutput = $true
+                $psi.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
+                $p = [System.Diagnostics.Process]::Start($psi)
+                $text = $p.StandardOutput.ReadToEnd()
+                $p.WaitForExit()
+                if ($p.ExitCode -eq 0) { return $text.Trim() }
+            } catch { }
+            return ''
+        }
+        function Get-MarginBinFolders([string]$Uv) {
+            $folders = @((Get-Utf8Output $Uv 'tool dir --bin'), $env:UV_TOOL_BIN_DIR, $env:XDG_BIN_HOME)
+            try { if ($env:XDG_DATA_HOME) { $folders += Join-Path (Split-Path $env:XDG_DATA_HOME -Parent) 'bin' } } catch { }
+            if ($env:USERPROFILE) { $folders += Join-Path (Join-Path $env:USERPROFILE '.local') 'bin' }
+            return @($folders | Where-Object { $_ } | Select-Object -Unique)
+        }
+        function Find-MarginExe([string]$Uv) {
+            foreach ($folder in (Get-MarginBinFolders $Uv)) {
+                try {
+                    $exe = Join-Path $folder 'margin.exe'
+                    if (Test-Path -LiteralPath $exe) { return $exe }
+                } catch { }
+            }
+            return $null
+        }
         $uv = Find-Uv
         if (-not $uv) {
             Write-Host '1/4  Getting uv, which installs Margin and its own Python...'
@@ -88,9 +122,10 @@ function Install-Margin {
         if ($LASTEXITCODE -ne 0) {
             throw 'uv could not install Margin (see the lines above). If Margin is running, choose Quit Margin in it and run the line again.'
         }
-        $bin = (& $uv tool dir --bin).Trim()
-        $margin = Join-Path $bin 'margin.exe'
-        if (-not (Test-Path $margin)) { throw "Margin was installed, but $margin is missing." }
+        $margin = Find-MarginExe $uv
+        if (-not $margin) {
+            throw "Margin was installed, but margin.exe is in none of these folders: $((Get-MarginBinFolders $uv) -join '; ')"
+        }
 
         # 4. the icon, the Claude Code plugin, and open -------------------------------------------
         Write-Host '4/4  Making the Margin icon...'
