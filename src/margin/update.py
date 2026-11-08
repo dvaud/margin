@@ -401,8 +401,9 @@ def update_release(check_only: bool = False, run: Runner = _run, fetch: Fetch = 
         return {"updated": False, "version": have, "waiting": rel["version"],
                 "message": f"Margin {rel['version']} is ready to install (you have {have}). Run `margin update`."}
     if windows if windows is not None else os.name == "nt":
-        raise UpdateError(f"Margin {rel['version']} is ready. On Windows, quit Margin (Quit Margin in the app) and run "
-                          f"the install line again in PowerShell:\n  {installation.install_line('windows')}")
+        raise UpdateError(f"Margin {rel['version']} is ready. On Windows, quit Margin (Quit Margin in the app), then "
+                          f"download this file and double-click it:\n  {installation.double_click_file('windows')}\n"
+                          f"or run the install line again in PowerShell:\n  {installation.install_line('windows')}")
     if not rel["wheel_url"] or not rel["sums_url"]:
         raise UpdateError(f"The release {rel['tag']} has no Margin package or no checksums: see {rel['url']}.")
     uv = find_uv()

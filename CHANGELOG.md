@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### From ENLENS 0.14.5: install by double-clicking a file
+
+**Install without Terminal or PowerShell.** Every release now also has the install as a file to download and
+double-click, beside the install line, which stays as it was. Each file does what the line does (gets uv, downloads
+the Margin package and checks it, installs it, makes the icon and opens Margin) in a window of its own:
+
+- **Windows: `Install-Margin-Windows.cmd`.** Double-click it. The window waits for a key at the end. The file is not
+  signed, so the browser may warn about it (keep it), and Windows may say it protected your PC (*More info*, then
+  *Run anyway*). It is also the easy way to update on Windows, where Margin cannot replace itself while it runs: quit
+  Margin, then double-click the newest copy. The app's update message on Windows now says so and gives the file's
+  address.
+- **macOS: `Install-Margin-macOS.zip`.** Open it and double-click *Install Margin.command*. The file is not signed, so
+  the first time macOS says it could not verify it: click *Done*, open *System Settings → Privacy & Security*, click
+  *Open Anyway* and confirm. The install line needs none of this, so on a Mac it stays the quicker way.
+- Linux keeps the install line.
+
+For developers: `tools/release.py assets` builds both files (`install/Install-Margin-Windows.cmd` with `install.ps1`
+below it; `install.sh` in a zip marked as runnable), and `.github/workflows/release.yml` tries each on Windows and
+macOS. `installation.double_click_file()` gives the address of the latest release's file. `docs/DEVELOPING.md`, which
+came with ENLENS 0.14.0, stays out as before. Tests: `tests/test_0_14_5_double_click_install.py` (11); changed
+`tests/test_0100_setup_and_moving.py::test_release_check_notes_and_assets`.
+
+**Not yet done:** the Windows file has not been double-clicked on a real Windows computer, and Gatekeeper's *Open
+Anyway* was not clicked through on a Mac.
+
 ## 0.13.0 (November 2026): a sounder check, and fewer surprises
 
 From ENLENS 0.14.3 and 0.14.4: fixes from a review of the whole app. Five reviewers each took one part of ENLENS
