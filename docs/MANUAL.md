@@ -86,9 +86,10 @@ scanned page. Section 3, *For whoever installs the app*, has the rest.
 **Updating.** `margin update` updates Margin the way it was installed (0.10). Installed with the one-line install,
 it asks GitHub for the latest release, downloads its package, checks it against the release's checksums, installs it
 over this one with uv and brings the Claude Code plugin up to date (0.14.3: also in Claude Code itself, whose own copy of the
-plugin is updated too, so the new instructions are used from the next run); on Windows, where a running program cannot
-replace itself, it says to quit Margin and run the install line again, or double-click a newly downloaded
-`Install-Margin-Windows.cmd` (0.14.5); either does the same. The version you have
+plugin is updated too, so the new instructions are used from the next run). On Windows, where a running program's
+files cannot be replaced, `margin update` in PowerShell says to press *Update* in the app instead (0.15.4, below), or
+to quit Margin and run the install line again, or double-click a newly downloaded `Install-Margin-Windows.cmd`
+(0.14.5); each does the same. The version you have
 is at the top of every *Settings* tab; *Settings → Technical* says how this copy was installed. Installed from the git copy of Margin (`git clone …`, then `pip install -e .` in a
 venv) every new version is also `margin update` (0.8.2): it fetches the version from GitHub into the same folder, reinstalls into the
 same Python only when the requirements changed (with the extras already installed), refreshes the Claude Code
@@ -102,9 +103,16 @@ without a terminal: it looks for a new version (the latest release, or new commi
 ready, and with *Update and restart* installs it and restarts Margin on the same address. The open page shows
 *Starting Margin …* and opens the new version by itself; started from the icon, Margin is restarted the same way,
 without a new browser tab. Anything still running (a check, documents being added) stops first, as with *Quit
-Margin*, and the dialog says so. If the update fails, the reason is shown and nothing restarts. With the one-line
-install on Windows it says to quit Margin and run the install line or the Windows file again (a running program cannot
-replace itself there).
+Margin*, and the dialog says so. If the update fails, the reason is shown and nothing restarts.
+
+**On Windows too (0.15.4).** Windows does not let a running program's files be replaced, so there *Update and
+restart* downloads the new version and checks it, then closes Margin, installs the new version and opens Margin again
+by itself: the page says *Installing Margin …* and follows in a minute or two. (Before 0.15.4 it said to quit Margin
+and run the install line by hand; the update to 0.15.4 itself is still made that way, as it runs 0.15.3's code.) If
+the install cannot finish, Margin opens again as it was and a note in the corner says why and what to do: most often
+Claude Code still had Margin connected, which holds its files (close Claude Code, then press *Update* again). What
+happened is in `logs/update.log` in the data folder. If Margin cannot open at all after an update, a PowerShell window
+opens by itself and installs it again.
 
 **Only when there is an update (0.13.6).** The button is not in the sidebar all the time any more. Margin looks for a
 new version when the page opens, every two minutes after, and when you come back to a tab that was in the
@@ -1804,7 +1812,8 @@ For checking hypotheses about any subject, no pack is needed: sections 3 and 4.
 | The Margin icon is a blank square (macOS) or a plain shortcut (Windows) | It was made before 0.10.2 without Pillow. Open Margin once with 0.10.2 or later: it gives the icon its picture (macOS: if Finder still shows the blank one, `killall Finder`). Or make the icon again: `margin-gui --make-launcher`. |
 | Settings shows an older version after updating | That copy was still running. Choose *Restart now* on the notice at the top of the page (0.13.1), or *Quit Margin* and open Margin from its icon (0.10.2 does this by itself when nothing runs). |
 | There is no *Update* button in the sidebar | It shows only when there is an update (0.13.6). To look now, or to see why a look failed: *Settings → Technical → Check for updates*. |
-| *Update* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows: choose *Quit Margin* and run the install line again in PowerShell. |
+| *Update* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows before 0.15.4: choose *Quit Margin* and run the install line again in PowerShell. |
+| On Windows, a note says *The update to … did not finish* | Margin closed to install the new version, but could not (0.15.4). Most often Claude Code still had Margin connected: close Claude Code, then press *Update* again. The details are in `logs/update.log` in the data folder. |
 | The page keeps saying *Starting Margin …* | After 90 seconds it says Margin did not come back: open it again from its icon (or with `margin-gui`), and look at `logs/margin.log` in the data folder for the reason. |
 | Double-clicking the Margin icon does nothing | Look at `logs/margin.log` in the data folder. Run the install line again (one-line install), or `margin-gui --make-launcher` again after moving or reinstalling Python (git copy). On macOS, if the icon was copied from another computer, right-click it and choose *Open* once. |
 | The install line stops with "does not match the release's checksum" | The download was cut off or changed on the way; nothing was installed. Run the line again later. |

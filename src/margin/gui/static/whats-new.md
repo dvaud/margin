@@ -1,5 +1,5 @@
-# 0.15.3: No flashing windows on Windows
-*The programs Margin starts no longer open windows that take the focus.*
-- Checking Claude Code no longer flashes a window every half minute
-- Reading scanned pages and updating Margin open no windows either
+# 0.15.4: Update works on Windows too
+*Update and restart now installs the new version on Windows, as on a Mac.*
+- Margin closes for a minute or two and opens again by itself
+- If it cannot finish, a note says why and what to do
 - Nothing changes for results
