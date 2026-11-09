@@ -236,6 +236,7 @@ function keepInView(details, summary) {
 
 let jobsTimer = null;
 let jobsBusy = false, jobsAgain = false;
+let jobsKey = "";  // 0.15.6: what the panel drawn last shows, all but the seconds
 async function renderJobs() {
   if (jobsBusy) { jobsAgain = true; return; }
   jobsBusy = true;
@@ -249,6 +250,23 @@ async function drawJobs() {
   const active = jobs.filter((j) => !TERMINAL.has(j.state));
   const recent = jobs.filter((j) => TERMINAL.has(j.state)).slice(0, 5);
   box.hidden = !active.length && !recent.length;  // 0.9: nothing to show yet: no empty box in the sidebar
+  const stateText = (j) => j.on_hold ? "not running"
+    : j.state === "running" ? `running · ${fmt.secs(j.seconds)}` : j.state === "queued" ? "waiting its turn"
+    : j.state === "done" ? "done" : j.state === "error" ? "did not work" : "stopped";
+  // 0.15.6: while work runs the panel is drawn again every 2 s. When only the seconds changed, the rows stay and only
+  // their times change: a new row under the pointer closed its tooltip (the whole name) as soon as it opened.
+  const key = JSON.stringify([App.project, [...active, ...recent].map((j) => [j.id, j.kind, j.title, j.scope, j.project, j.state, !!j.on_hold])]);
+  const old = box.querySelector("details");
+  if (old && key === jobsKey) {
+    old.querySelectorAll(".job-row[data-job]").forEach((r) => {
+      const j = active.find((a) => a.id === r.dataset.job);
+      const s = r.querySelector(".job-state");
+      if (j && s && s.textContent !== stateText(j)) s.textContent = stateText(j);
+    });
+    clearTimeout(jobsTimer);
+    if (active.length) jobsTimer = setTimeout(renderJobs, 2000);
+    return;
+  }
   // 0.12: work that waits for Claude Code with nothing answering it is not running: it says so, in its own colour,
   // with a still pause mark instead of the pulsing dot
   const hold = active.filter((j) => j.on_hold);
@@ -266,9 +284,8 @@ async function drawJobs() {
   // 0.13.6: each kind's link, icon and name are in registry.js (JOB_KINDS), where an add-on adds its own
   const row = (j) => {
     const v = jobRow(j);
-    return h("a", { class: "job-row", href: v.href, title: v.tooltip }, icon(v.icon, { size: 14 }), h("span", { class: "job-title" }, v.text),
-    j.on_hold ? h("span", { class: "job-state job-hold" }, "not running")
-      : h("span", { class: "job-state" }, j.state === "running" ? `running · ${fmt.secs(j.seconds)}` : j.state === "queued" ? "waiting its turn" : j.state === "done" ? "done" : j.state === "error" ? "did not work" : "stopped"));
+    return h("a", { class: "job-row", href: v.href, title: v.tooltip, dataset: { job: j.id } }, icon(v.icon, { size: 14 }), h("span", { class: "job-title" }, v.text),
+      h("span", { class: "job-state" + (j.on_hold ? " job-hold" : "") }, stateText(j)));
   };
   if (!active.length && !recent.length) menu.appendChild(h("div", { class: "muted small", style: { padding: "6px 8px" } }, "Work that takes a while (checks, adding documents) shows up here, so you can move around the app and come back to it."));
   if (hold.some((j) => j.project === App.project)) {
@@ -282,9 +299,9 @@ async function drawJobs() {
   recent.forEach((j) => menu.appendChild(row(j)));
   keepInView(details, summary);
   details.append(summary, menu);
-  const old = box.querySelector("details");
   if (old && old.open) details.open = true;
   replace(box, details);
+  jobsKey = key;
   clearTimeout(jobsTimer);
   if (active.length) jobsTimer = setTimeout(renderJobs, 2000);
 }
@@ -424,10 +441,11 @@ function showUpdate(btn, info) {
   if (btn.disabled) return;  // updating now: the button says so
   if (!info || !info.available) { btn.hidden = true; return; }
   const to = info.latest ? `Update to ${info.latest}` : `Update ${appName()}`;
+  const rc = info.candidate ? "release candidate " : "";
   replace(btn, icon("arrow-up", { size: 15 }), h("span", {}, to));
   btn.classList.add("update-ready");
   btn.title = info.on_disk ? `${appName()} ${info.latest} is installed: restart to use it`
-    : info.latest ? `${appName()} ${info.latest} is ready (you have ${info.version})`
+    : info.latest ? `${appName()} ${rc}${info.latest} is ready (you have ${info.version})`
     : `${info.changes} new change${info.changes === 1 ? "" : "s"} for this copy of ${appName()}`;
   btn.hidden = false;
   if (!info.on_disk) updatePopup(info);  // a version already on disk has the banner above the page
@@ -438,11 +456,14 @@ function updatePopup(info) {
   const box = document.getElementById("toasts");
   const key = info.latest || `changes-${info.changes}`;
   if (!box || box.querySelector(".update-popup") || store("update-later") === key) return;
+  if (document.querySelector(".release-note-problem")) return;  // 0.15.4: the note says what to do; the button stays
   const later = () => { store("update-later", key); t.remove(); };
   const t = h("div", { class: "toast toast-info update-popup", role: "status" }, icon("arrow-up"),
     h("div", { class: "toast-body" },
-      h("div", {}, h("strong", {}, info.latest ? `${appName()} ${info.latest} is available.` : `An update for ${appName()} is available.`),
-        ` You have ${info.version}. Updating restarts ${appName()}; your projects and results are kept.`),
+      h("div", {}, h("strong", {}, info.latest ? `${appName()} ${info.candidate ? "release candidate " : ""}${info.latest} is available.` : `An update for ${appName()} is available.`),
+        ` You have ${info.version}. Updating restarts ${appName()}; your projects and results are kept.`,
+        // 0.15: what a candidate is, said where it is offered
+        info.candidate ? ` A release candidate is a try-out of the next version.` : null),
       h("div", { class: "update-popup-actions" },
         h("button", { class: "btn btn-sm btn-primary", type: "button", onClick: () => { t.remove(); Updates.install(); } }, "Update and restart"),
         h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: later }, "Later"))),
@@ -466,7 +487,7 @@ async function updateApp(btn) {
   if (!info.available) { toast(`${appName()} ${info.version} is the newest version.`, "ok"); done(); btn.hidden = true; return; }
   const running = await runningJobs();
   const what = info.on_disk ? `${appName()} ${info.latest} is installed already; ${appName()} restarts to use it.`
-    : info.latest ? `${appName()} ${info.latest} is ready (you have ${info.version}). ${appName()} downloads it, installs it and restarts.`
+    : info.latest ? `${appName()} ${info.candidate ? "release candidate " : ""}${info.latest} is ready (you have ${info.version}). ${appName()} downloads it, installs it and restarts.`
     : `${info.changes} new change${info.changes === 1 ? " is" : "s are"} waiting (you have ${info.version}). ${appName()} fetches ${info.changes === 1 ? "it" : "them"} and restarts.`;
   const ok = await confirmDialog({
     title: info.on_disk ? `Restart ${appName()}?` : `Update ${appName()}?`,
@@ -478,7 +499,7 @@ async function updateApp(btn) {
   let r;
   try { r = await api("POST", "/api/update", {}); } catch (e) { showError(e); return done(); }
   if (!r.restarting) { toast(`${appName()} ${r.version} is the newest version.`, "ok"); done(); btn.hidden = true; return; }
-  waitForRestart(r.version);
+  waitForRestart(r.version, r.handover);
 
   function done() { btn.disabled = false; if (btn.lastChild && label) btn.lastChild.textContent = label; }
 }
@@ -496,14 +517,18 @@ async function restartApp(version) {
   waitForRestart(version);
 }
 
-function waitForRestart(version) {
+// `handover` (0.15.4, Windows): the app quits and the new version is installed before it starts again, which takes
+// longer than a restart
+function waitForRestart(version, handover = false) {
   const meta = (name) => (document.querySelector(`meta[name="${name}"]`) || {}).content || "";
   const oldToken = meta("margin-token");
-  const status = h("p", { class: "muted" }, "This page opens the new version by itself in a moment.");
-  document.title = `${appName()} is restarting`;
+  const status = h("p", { class: "muted" }, handover
+    ? `${appName()} closes while Windows installs the new version, then opens again by itself. This page follows in a minute or two.`
+    : "This page opens the new version by itself in a moment.");
+  document.title = `${appName()} is ${handover ? "updating" : "restarting"}`;
   replace(document.body, h("main", { class: "stopped-page", id: "main" },
     h("img", { src: brand().logo, alt: "", width: 48, height: 48 }),
-    h("h1", {}, `Starting ${appName()} ${version || ""}…`),
+    h("h1", {}, `${handover ? "Installing" : "Starting"} ${appName()} ${version || ""}…`),
     h("p", {}, "Your projects and results are kept."),
     status));
   const t0 = Date.now();
@@ -518,7 +543,7 @@ function waitForRestart(version) {
         return;
       }
     } catch (_) { wentDown = true; }
-    if (Date.now() - t0 > 90000) {
+    if (Date.now() - t0 > (handover ? 300000 : 90000)) {
       replace(status, App.state.launcher
         ? `${appName()} did not come back. Open it again from its icon (on your Desktop, or in Applications).`
         : `${appName()} did not come back. Start it again the way you started it before (for example with margin-gui).`);
@@ -700,6 +725,28 @@ function connectionInit() {
   setInterval(() => { if (Connection.down) api("GET", "/api/state").catch(() => {}); }, 5000);
 }
 
+// 0.15.1: a small note of what is new, once, on the first start after an update (the app marks it seen when it serves it)
+// 0.15.4: or, also once, why an update on Windows did not finish (`kind: "problem"`)
+async function whatsNewInit() {
+  let note = null;
+  try { note = (await api("GET", "/api/whats-new")).note; } catch (e) { return; }
+  if (!note || !Array.isArray(note.points) || !note.points.length) return;
+  const problem = note.kind === "problem";
+  const onKey = (ev) => { if (ev.key === "Escape") close(); };
+  const close = () => { document.removeEventListener("keydown", onKey); card.remove(); };
+  const card = h("div", { class: problem ? "release-note release-note-problem" : "release-note", role: "status",
+    "aria-live": "polite", "aria-label": problem ? "The update did not finish" : "What is new" },
+    h("div", { class: "release-note-head" },
+      problem ? icon("alert-triangle", { size: 15 }) : null,
+      h("p", { class: "release-note-title" }, problem ? note.title : `${note.version}: ${note.title}`),
+      h("button", { class: "icon-btn release-note-close", type: "button", "aria-label": "Close", onClick: close }, icon("x", { size: 14 }))),
+    note.subtitle ? h("p", { class: "release-note-sub" }, note.subtitle) : null,
+    h("ul", { class: "release-note-list" }, ...note.points.map((t) => h("li", {}, t))));
+  document.addEventListener("keydown", onKey);
+  if (problem) document.querySelectorAll(".update-popup").forEach((el) => el.remove());  // the same corner
+  document.body.appendChild(card);
+}
+
 async function boot() {
   skipLinkInit();
   connectionInit();
@@ -721,6 +768,7 @@ async function boot() {
   updateInit();
   quitInit();
   route();
+  whatsNewInit();
   // keep the sidebar fresh when the window regains focus
   window.addEventListener("focus", () => { renderJobs(); renderQueue(); });
 }

@@ -32,9 +32,9 @@ import statistics
 from collections import Counter, defaultdict
 from typing import Callable
 
-from . import frameworks
+from . import __version__, frameworks
 from .store import Workspace, now
-from .textutil import surface_words, tokens
+from .textutil import STOPWORDS, _TOKEN_RE, fast_normalise, stem, tokens
 
 MAX_CANDIDATES = 8
 KEYWORD_FLOOR = 0.2       # share of a code text's (idf-weighted) words a passage must have to be a candidate
@@ -45,6 +45,13 @@ SOURCES = ("keywords", "meaning", "both", "model", "person")
 RELEVANCE = ("main", "mentioned")
 DIRECTIONS = ("helps", "hinders", "mixed", "not_stated")
 KEYWORD_HIT = 0.45        # confidence of a candidate found by the codebook's own keywords (below PROVISIONAL)
+
+
+# 0.15: a label row as this module writes it, with the Margin version that made it (the table may have more columns:
+# an add-on's); named, so a column added later does not break the writes
+_LABEL_COLS = ("label_id, passage_id, doc_id, framework, code, relevance, direction, confidence, quote, start, end, page, "
+               "source, model, prompt_version, reason, matched_json, score, similarity, task_id, created_at")
+_INSERT_LABEL = f"INSERT OR REPLACE INTO labels({_LABEL_COLS}, app_version) VALUES ({','.join('?' * 22)})"
 
 
 def _h(*parts: str) -> str:
@@ -99,6 +106,19 @@ def code_vectors(ws: Workspace, fw: frameworks.Framework, embedder) -> dict[str,
     from array import array
 
     return {c: list(array("f", b)) for c, (_t, b) in have.items() if c in fw.codes}
+
+
+def _words(text: str) -> tuple[list[str], dict[str, str]]:
+    """`tokens(text)` and `surface_words(text)` from one reading of the text: the same words, stop words and stems.
+    0.16: the keyword pass normalised and split each passage twice for them."""
+    toks: list[str] = []
+    surface: dict[str, str] = {}
+    for w in _TOKEN_RE.findall(fast_normalise(text)):
+        if len(w) > 1 and w not in STOPWORDS:
+            s = stem(w)
+            toks.append(s)
+            surface.setdefault(s, w)
+    return toks, surface
 
 
 def _meaning_candidates(ws: Workspace, fw, embedder, pids: list[str]) -> dict[str, list[tuple[str, float]]]:
@@ -157,14 +177,14 @@ def keyword_pass(ws: Workspace, framework: str = "sdg", embedder=None, doc_ids: 
     fw = frameworks.get(framework, ws)
     idx = passage_index(ws)
     only = set(doc_ids) if doc_ids else None
-    rows = [r for r in idx.rows if only is None or r["doc_id"] in only]
+    rows = idx.read([i for i, d in enumerate(idx.doc_of) if only is None or d in only])
     idf = idx.bm25.idf
     meaning = _meaning_candidates(ws, fw, embedder, [r["passage_id"] for r in rows]) if embedder is not None else {}
     out_rows = []
     stamp = now()
     totals: dict[str, float] = {}
     for n, r in enumerate(rows, 1):
-        toks = tokens(r["text"])
+        toks, words = _words(r["text"])
         have = set(toks)
         lex_hits = fw.lexicon_hits(r["text"]) if fw.lexicon else set()
         kw_hits = fw.keyword_hits(r["text"])  # 0.9: the codebook's own keywords, as whole words
@@ -187,7 +207,7 @@ def keyword_pass(ws: Workspace, framework: str = "sdg", embedder=None, doc_ids: 
 
         ranked = sorted(cands.items(), key=lambda x: (-(("similarity" in x[1]) and strength(x[1]) > 0),
                                                       -strength(x[1]), -x[1].get("similarity", 0), x[0]))[:MAX_CANDIDATES]
-        surface = surface_words(r["text"]) if ranked else {}
+        surface = words if ranked else {}
         for code, c in ranked:
             kw = strength(c) > 0
             source = "both" if kw and "similarity" in c else "keywords" if kw else "meaning"
@@ -216,7 +236,7 @@ def keyword_pass(ws: Workspace, framework: str = "sdg", embedder=None, doc_ids: 
             chunk = pids[i:i + 500]
             cx.execute(f"DELETE FROM labels WHERE framework=? AND source IN ('keywords','meaning','both') AND passage_id "
                        f"IN ({','.join('?' * len(chunk))})", (fw.name, *chunk))
-        cx.executemany("INSERT OR REPLACE INTO labels VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", out_rows)
+        cx.executemany(_INSERT_LABEL, [(*r, __version__) for r in out_rows])
         meta = ws.meta("profile_pass1") or {}
         meta[fw.name] = {"at": stamp, "corpus_version": ws.corpus_version(), "passages": len(rows),
                          "meaning_model": getattr(embedder, "model", None) if meaning else None}
@@ -363,8 +383,10 @@ def store_labels(cx, t, payload: dict, obj: dict, model: str) -> tuple[bool, lis
     parts = []
     seen = set()
     named = bool(payload.get("practice_and_element"))
+    from .tasks import doc_span
+
     base = cx.execute("SELECT start, page FROM passages WHERE passage_id=?", (payload["passage_id"],)).fetchone()
-    p_start, p_page = (base["start"], base["page"]) if base else (None, payload.get("page"))
+    p_page = base["page"] if base else payload.get("page")
     for i, lb in enumerate(out.labels):
         code = fw.normalise(lb.code)
         if not code:
@@ -392,11 +414,11 @@ def store_labels(cx, t, payload: dict, obj: dict, model: str) -> tuple[bool, lis
             if words:
                 parts.append((label_id(fw.name, payload["passage_id"], code, "model"), payload["doc_id"], fw.name,
                               words.get("practice"), words.get("element")))
+        # 0.15: a passage of an earlier reading (a task kept by Read with the new reader) is placed in the new text
+        start, end = doc_span(cx, payload["passage_id"], text, hit[0], hit[1])
         rows.append((label_id(fw.name, payload["passage_id"], code, "model"), payload["passage_id"], payload["doc_id"],
-                     fw.name, code, lb.relevance, direction, lb.confidence, text[hit[0]:hit[1]],
-                     (p_start + hit[0]) if p_start is not None else None,
-                     (p_start + hit[1]) if p_start is not None else None, p_page, "model", model, t["prompt_version"],
-                     lb.reason, None, None, None, t["task_id"], now()))
+                     fw.name, code, lb.relevance, direction, lb.confidence, text[hit[0]:hit[1]], start, end, p_page,
+                     "model", model, t["prompt_version"], lb.reason, None, None, None, t["task_id"], now()))
     if payload.get("one_main") and sum(1 for r in rows if r[5] == "main") > 1:
         errors.append("this codebook takes one main code per passage: mark only the best one as main, the others "
                       "as mentioned")
@@ -405,7 +427,7 @@ def store_labels(cx, t, payload: dict, obj: dict, model: str) -> tuple[bool, lis
     old = [r[0] for r in cx.execute("SELECT label_id FROM labels WHERE task_id=? AND source='model'", (t["task_id"],))]
     cx.execute("DELETE FROM labels WHERE task_id=? AND source='model'", (t["task_id"],))
     cx.executemany("DELETE FROM label_parts WHERE label_id=?", [(x,) for x in old])
-    cx.executemany("INSERT OR REPLACE INTO labels VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    cx.executemany(_INSERT_LABEL, [(*r, __version__) for r in rows])
     cx.executemany("INSERT OR REPLACE INTO label_parts(label_id, doc_id, framework, practice, element) "
                    "VALUES (?,?,?,?,?)", parts)
     return True, []
@@ -493,12 +515,17 @@ def _decisions(ws: Workspace, ids: list[str] | None = None) -> dict[str, dict]:
     return out
 
 
+# 0.16: what `effective(light=True)` reads of each label: what the rule needs and what the grid and the counts show
+_LIGHT = "l.label_id, l.passage_id, l.doc_id, l.code, l.source, l.confidence, l.relevance, l.direction"
+
+
 def effective(ws: Workspace, framework: str, doc_ids: list[str] | None = None, passage_ids: list[str] | None = None,
-              provisional: bool = True, code: str | None = None) -> list[dict]:
+              provisional: bool = True, code: str | None = None, light: bool = False) -> list[dict]:
     """The labels that count: per passage, the model's once the model read it, else the strong pass-1 candidates
     (when `provisional`); a person's rejection removes a label, a change replaces its fields, their own labels add,
     and a keyword label a person accepted or changed stays whether or not the model read the passage.
-    `code` keeps the query to one code (the rule per passage and code is the same, so nothing else changes)."""
+    `code` keeps the query to one code (the rule per passage and code is the same, so nothing else changes).
+    0.16: `light` reads only the fields of `_LIGHT` (the same labels, for the grid and the counts: a quicker page)."""
     where, args = ["l.framework=?"], [framework]
     if doc_ids:
         where.append(f"l.doc_id IN ({','.join('?' * len(doc_ids))})")
@@ -509,7 +536,8 @@ def effective(ws: Workspace, framework: str, doc_ids: list[str] | None = None, p
     if code:
         where.append("l.code=?")
         args.append(code)
-    rows = [dict(r) for r in ws.query("SELECT l.*, p.seq, p.start AS pstart FROM labels l JOIN passages p ON "
+    cols = _LIGHT if light else "l.*, p.seq, p.start AS pstart"
+    rows = [dict(r) for r in ws.query(f"SELECT {cols} FROM labels l JOIN passages p ON "
                                       f"p.passage_id=l.passage_id WHERE {' AND '.join(where)}", args)]
     head = f"label:{framework}:"
     read = {r[0][len(head):] for r in ws.query(
@@ -665,13 +693,17 @@ def practice_key(text: str | None) -> str:
     return t
 
 
-def grid(ws: Workspace, framework: str, doc_ids: list[str] | None = None, level: str = "code") -> dict:
+def grid(ws: Workspace, framework: str, doc_ids: list[str] | None = None, level: str = "code",
+         labs: list[dict] | None = None) -> dict:
     """Documents × codes: in each cell the number of passages of the document with that code (`level` "group":
-    codes added up by their group, the 17 goals for the SDG targets; 0.9 "practice": practices × codes, below)."""
+    codes added up by their group, the 17 goals for the SDG targets; 0.9 "practice": practices × codes, below).
+    0.16: `labs`, the labels that count for these documents when already known (`effective(..., light=True)`), so
+    the profile page works them out once."""
     if level == "practice":
         return practice_grid(ws, framework, doc_ids)
     fw = frameworks.get(framework, ws)
-    labs = effective(ws, framework, doc_ids=doc_ids)
+    if labs is None:
+        labs = effective(ws, framework, doc_ids=doc_ids, light=True)
     titles = {r["doc_id"]: r["title"] or "" for r in ws.query("SELECT doc_id, title FROM documents")}
     cells: dict[str, dict[str, set]] = defaultdict(lambda: defaultdict(set))
     for r in labs:
@@ -834,10 +866,10 @@ def add_label(ws: Workspace, framework: str, passage_id: str, code: str, quote: 
         q, s, e = p["text"][hit[0]:hit[1]], p["start"] + hit[0], p["start"] + hit[1]
     lid = label_id(fw.name, passage_id, c, "person")
     with ws.connect() as cx:
-        cx.execute("INSERT OR REPLACE INTO labels VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        cx.execute(_INSERT_LABEL,
                    (lid, passage_id, p["doc_id"], fw.name, c, relevance, direction if fw.directional else "not_stated",
                     1.0, q, s, e, p["page"], "person", None, None, (note or "").strip()[:200] or "added by you", None,
-                    None, None, None, now()))
+                    None, None, None, now(), __version__))
         words = [" ".join(str(v or "").split())[:120] or None for v in (practice, element)]
         cx.execute("DELETE FROM label_parts WHERE label_id=?", (lid,))
         if fw.practice_and_element and any(words):
@@ -963,8 +995,11 @@ def recall_at_candidates(ws: Workspace, framework: str, gold: dict[str, set[str]
             "passages_all_found": round(per_passage / len(gold), 3) if gold else None}
 
 
-def stats(ws: Workspace, framework: str) -> dict:
-    labs = effective(ws, framework)
+def stats(ws: Workspace, framework: str, labs: list[dict] | None = None) -> dict:
+    """How many labels count, in how many documents and passages, by where they come from. 0.16: `labs`, the labels
+    that count in the whole project when already known (see `grid`)."""
+    if labs is None:
+        labs = effective(ws, framework, light=True)
     return {"labels": len(labs), "documents": len({r["doc_id"] for r in labs}),
             "passages": len({r["passage_id"] for r in labs}),
             "by_source": dict(Counter(r["source"] for r in labs)), "pass1": pass1_status(ws, framework)}

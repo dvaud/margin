@@ -74,7 +74,8 @@ def test_an_older_plugin_is_written_again_and_claude_code_takes_it(home, fake_cl
     r = fake_claude.repair()
     assert r["repaired"] is True and [s["ok"] for s in r["steps"]] == [True, True]
     assert (plug / "SKILL.md").read_text() != "an old skill text"
-    assert json.loads(pj.read_text())["version"] == __version__
+    # a release candidate's number in the form a plugin's version takes (0.16.0rc1 -> 0.16.0-rc.1); a release as it is
+    assert json.loads(pj.read_text())["version"] == update.semver(__version__)
     assert [s["ok"] for s in r["refreshed"]] == [True, True]
     assert _fake_state(home)["updates"] == ["plugin marketplace update margin", "plugin update margin-run@margin"]
     assert fake_claude.stale() == "" and fake_claude.repair()["repaired"] is False  # once is enough: idempotent
@@ -89,7 +90,7 @@ def test_the_install_line_run_again_brings_the_plugin_along(home, fake_claude, t
     pj = fake_claude.plugin_folder() / ".claude-plugin" / "plugin.json"
     pj.write_text(json.dumps({**json.loads(pj.read_text()), "version": "0.1.0"}))
     out = installation.post_install(by=None, icon=False)
-    assert out["plugin"]["repaired"] is True and json.loads(pj.read_text())["version"] == __version__
+    assert out["plugin"]["repaired"] is True and json.loads(pj.read_text())["version"] == update.semver(__version__)
     assert _fake_state(home)["updates"]
 
 
@@ -418,6 +419,7 @@ def test_the_windows_command_file_switches_to_utf8(tmp_path, monkeypatch, home):
         raise OSError("no PowerShell")
 
     monkeypatch.setattr(subprocess, "run", no_powershell)
+    monkeypatch.setattr(launcher, "_com_shortcut", lambda *a: False)  # 0.15.2: nor the Shell's own interface
     python = str(tmp_path / "Kovács" / "Scripts" / "python.exe")
     cmd = launcher._windows_shortcut(tmp_path, python, ["-m", "margin.gui.launch", "--launcher"])
     raw = cmd.read_bytes()
@@ -459,6 +461,7 @@ def _dev_server(tmp_path, *flags):
     return proc, base, token, marker
 
 
+@pytest.mark.skipif(os.name == "nt", reason="the stand-in `claude` is a /bin/sh script")
 @pytest.mark.parametrize("flags", [(), ("--claude-code",), ("--claude-code-paused",)])
 def test_no_dev_server_mode_finds_the_real_claude(tmp_path, flags):
     proc, base, token, marker = _dev_server(tmp_path, *flags)

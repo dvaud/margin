@@ -6,6 +6,8 @@
 # stay unavailable for hours. Check that it is green (or re-run it) before pressing Publish.
 # 0.14.5: the Windows and macOS jobs also try the files to double-click (Install-Margin-Windows.cmd,
 # Install-Margin-macOS.zip), from a removed install, the way a double-click runs them.
+# 0.15: a tag of a release candidate (v0.15.0rc1) drafts a pre-release. The install line and the app's Update take
+# the latest full release (GitHub's "latest" leaves pre-releases out), so only someone who asks gets the candidate.
 name: Release
 
 on:
@@ -20,17 +22,22 @@ jobs:
   build:
     name: Test and build
     runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Check the version (tag, pyproject.toml, __init__.py, CHANGELOG.md)
-        run: python tools/release.py check "${{ github.ref_type == 'tag' && github.ref_name || '' }}"
+        id: version
+        run: |
+          python tools/release.py check "${{ github.ref_type == 'tag' && github.ref_name || '' }}"
+          echo "prerelease=$(python tools/release.py prerelease)" >> "$GITHUB_OUTPUT"
       - name: Test
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev,connector,fast]'
+          pip install -e '.[dev,connector,fast,pdfminer]'
           python -m pytest -q
       - name: Build the package and the install scripts
         run: |
@@ -38,6 +45,10 @@ jobs:
           python -m build --wheel --outdir dist
           python tools/release.py assets dist
           python tools/release.py notes > release-notes.md
+      # 0.15 (roadmap J4.3): the validation report's half that needs no AI: how well each reader reads documents of
+      # known text, and that reading is the same twice; a file of the release, beside its notes
+      - name: Measure how documents are read
+        run: python -m margin.cli measure --report dist/validation-report.md
       - uses: actions/upload-artifact@v4
         with:
           name: margin-release
@@ -85,6 +96,65 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "not recorded as a one-line install" }
           & $py -c "from margin import claude_setup as c; c.write_plugin(); r = c.check_connector(); print(r); assert r['ok']"
           if ($LASTEXITCODE -ne 0) { throw "the connector did not start" }
+      # 0.15.5: on the user's PC the install line ran while Claude Code had Margin connected (its connector runs
+      # Margin's own python.exe): uv removed part of Margin's folder, stopped with "Access is denied", and Margin no
+      # longer started ("uv trampoline failed to canonicalize script path"). Here a stand-in for the connector runs
+      # Margin's own Python while the install line runs in Windows PowerShell, as on that PC. One that closes: the
+      # line waits for it and then installs. One that stays: the line stops, and Margin still starts.
+      - name: Install while a program runs from Margin's folder
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $env:MARGIN_WHEEL = (Get-ChildItem dist\margin-*.whl).FullName
+          $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+          $bin = (uv tool dir --bin).Trim()
+          $py = Join-Path (uv tool dir).Trim() 'margin\Scripts\python.exe'
+          function Start-Connector([int]$Seconds) {
+            # its command line names the connector's module, as Claude Code's does; it only sleeps
+            Start-Process -FilePath $py -PassThru -WindowStyle Hidden `
+              -ArgumentList "-c `"import sys, time; time.sleep(int(sys.argv[1]))`" $Seconds margin.mcp_server"
+          }
+          # 1. a connector that closes after 25 s: the line waits for it, then installs
+          $c = Start-Connector 25
+          Start-Sleep -Seconds 3
+          if ($c.HasExited) { throw "the stand-in did not start" }
+          $out = powershell -NoProfile -ExecutionPolicy Bypass -File dist\install.ps1 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch "Claude Code's Margin connector \(python\.exe, process $($c.Id)\)") { throw "the line did not name the connector" }
+          if ($out -notmatch 'They have closed' -or $out -notmatch '4/4' -or $out -notmatch 'Done\. Next time' -or $out -match 'could not be installed') {
+            throw "the line did not wait for the connector and then install"
+          }
+          & "$bin\margin.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "margin did not start" }
+          # 2. a connector that stays: the line stops before uv touches anything, and Margin still starts
+          $c = Start-Connector 600
+          Start-Sleep -Seconds 3
+          $env:MARGIN_FREE_WAIT = '8'
+          $out = powershell -NoProfile -ExecutionPolicy Bypass -File dist\install.ps1 2>&1 | Out-String
+          Remove-Item Env:MARGIN_FREE_WAIT
+          Write-Host $out
+          $alive = -not $c.HasExited
+          taskkill /pid $c.Id /t /f | Out-Null
+          if (-not $alive) { throw "the stand-in ended early, so this showed nothing" }
+          if ($out -notmatch "could not be installed: these programs still run from Margin's folder") { throw "the line did not stop" }
+          if ($out -notmatch "process $($c.Id)" -or $out -notmatch 'Nothing was changed' -or $out -match '3/4') {
+            throw "the line did not stop before installing, or did not say what to close"
+          }
+          & "$bin\margin.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Margin no longer starts: the line changed its folder after all" }
+          & $py -c "import margin, pydantic; print('Margin', margin.__version__, 'is whole')"
+          if ($LASTEXITCODE -ne 0) { throw "Margin's folder is not whole" }
+          # 3. a Margin half removed by an older line (most of Scripts and Lib gone): the line installs it whole again
+          $envDir = Split-Path (Split-Path $py -Parent) -Parent
+          Remove-Item -Recurse -Force (Join-Path $envDir 'Lib\site-packages\margin'), (Join-Path $envDir 'Scripts\margin.exe')
+          & "$bin\margin.exe" --help 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "the half-removed Margin still started, so this showed nothing" }
+          $out = powershell -NoProfile -ExecutionPolicy Bypass -File dist\install.ps1 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch 'Done\. Next time' -or $out -match 'could not be installed') { throw "the line did not repair Margin" }
+          & "$bin\margin.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Margin still does not start after the line" }
       - name: Install with Install-Margin-Windows.cmd, as a double-click runs it
         if: runner.os == 'Windows'
         shell: pwsh
@@ -107,7 +177,73 @@ jobs:
           $py = Join-Path (uv tool dir).Trim() 'margin\Scripts\python.exe'
           & $py -c "from margin import installation as i; assert i.kind() == 'script', i.kind(); print(i.info())"
           if ($LASTEXITCODE -ne 0) { throw "not recorded as a one-line install" }
-
+      # 0.15.2: 0.15.1 stopped at "margin.exe is missing" for C:\Users\D<a-acute>vid (PowerShell read uv's UTF-8
+      # answer in the console's code page), and would have put the Desktop icon in a folder that does not exist. Here
+      # the user folder is "<A-acute>bel Gerg<o-double-acute>": a letter whose UTF-8 has a byte Windows-1252 lacks, a
+      # letter Windows-1252 lacks (WScript.Shell cannot store it in a shortcut), and a space. uv itself, uv's folders,
+      # the temporary folder, the Start menu, the Desktop and the downloaded install file are all in it, and the
+      # console uses code page 852 (Hungarian), as on such a user's computer.
+      - name: Install with Install-Margin-Windows.cmd for a user folder with accents and a space
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $env:MARGIN_WHEEL = (Get-ChildItem dist\margin-*.whl).FullName
+          $uvHere = "$env:USERPROFILE\.local\bin"   # the uv the steps above installed
+          $user = Join-Path $env:RUNNER_TEMP "$([char]0xC1)bel Gerg$([char]0x151)"
+          $userBin = Join-Path $user '.local\bin'
+          $downloads = Join-Path $user 'Downloads'
+          New-Item -ItemType Directory -Force -Path $userBin, $downloads | Out-Null
+          Copy-Item "$uvHere\uv*.exe" $userBin   # uv where its installer puts it for this user
+          $env:Path = "$userBin;$env:Path"
+          Copy-Item dist\Install-Margin-Windows.cmd $downloads
+          $env:USERPROFILE = $user
+          $env:HOME = $user
+          $env:APPDATA = Join-Path $user 'AppData\Roaming'
+          $env:LOCALAPPDATA = Join-Path $user 'AppData\Local'
+          $env:TEMP = Join-Path $user 'AppData\Local\Temp'
+          $env:TMP = $env:TEMP
+          $desk = Join-Path $user 'Desktop'
+          New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:TEMP, $desk | Out-Null
+          $shell = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
+          if (-not (Test-Path $shell)) { New-Item -Path $shell -Force | Out-Null }
+          New-ItemProperty -Path $shell -Name Desktop -Value $desk -PropertyType ExpandString -Force | Out-Null
+          $out = cmd /d /c "chcp 852 >nul & `"$downloads\Install-Margin-Windows.cmd`" < NUL" 2>&1 | Out-String
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { throw "the file ended with $LASTEXITCODE" }
+          # (the printed path may lose its accents in this pipe: its start, the ASCII runner folder, is enough)
+          if ($out -notmatch "uv is here already \($([regex]::Escape($env:RUNNER_TEMP))") { throw "the install did not use this user's uv" }
+          if ($out -notmatch '4/4' -or $out -notmatch 'Done\. Next time' -or $out -match 'could not be installed') {
+            throw "the file did not install Margin"
+          }
+          # Does Windows PowerShell here still garble uv's answer as 0.15.1 read it? Otherwise this step no longer
+          # shows that failure (it still checks everything else).
+          Set-Content -Encoding ascii old-read.ps1 "if (Test-Path -LiteralPath (Join-Path ((& uv tool dir --bin) -join '').Trim() 'margin.exe')) { 'read right' } else { 'garbled' }"
+          $old = (cmd /d /c "chcp 852 >nul & powershell -NoProfile -ExecutionPolicy Bypass -File old-read.ps1" | Out-String).Trim()
+          Write-Host "uv's answer as 0.15.1 read it: $old"
+          if ($old -ne 'garbled') { Write-Host "::warning::uv's answer was read right the 0.15.1 way: this step no longer shows the 0.15.1 failure" }
+          $env:PYTHONIOENCODING = 'utf-8'   # this step's own checks print the folder
+          try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+          $margin = Join-Path $userBin 'margin.exe'
+          if (-not (Test-Path -LiteralPath $margin)) { throw "margin.exe is not in $userBin" }
+          & $margin --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "margin did not start" }
+          $py = Join-Path (uv tool dir).Trim() 'margin\Scripts\python.exe'
+          if (-not $py.StartsWith($user)) { throw "uv keeps Margin in $py, not in the user folder" }
+          & $py -c "from margin import installation as i; assert i.kind() == 'script', i.kind(); print(i.info())"
+          if ($LASTEXITCODE -ne 0) { throw "not recorded as a one-line install" }
+          # both icons are shortcuts (not the command file made when no shortcut can be) that start this Margin;
+          # Shell.Application reads them in UTF-16 (WScript.Shell would garble the target it reads back)
+          $app = New-Object -ComObject Shell.Application
+          foreach ($folder in @($desk, (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'))) {
+            $link = Join-Path $folder 'Margin.lnk'
+            if (-not (Test-Path -LiteralPath $link)) { throw "no Margin shortcut at $link" }
+            $target = $app.Namespace($folder).ParseName('Margin.lnk').GetLink.Path
+            if (-not $target.StartsWith($user) -or -not (Test-Path -LiteralPath $target)) {
+              throw "the shortcut $link starts $target, which is not this Margin"
+            }
+            Write-Host "icon: $link -> $target"
+          }
   try-install-mac:
     name: One-line install on macos-latest (does not hold up the draft)
     needs: build
@@ -161,4 +297,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release create "${{ github.ref_name }}" dist/* --draft --verify-tag \
+            ${{ needs.build.outputs.prerelease == 'true' && '--prerelease' || '' }} \
             --title "Margin ${GITHUB_REF_NAME#v}" --notes-file release-notes.md

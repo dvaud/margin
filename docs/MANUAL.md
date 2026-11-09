@@ -44,7 +44,9 @@ the computer (no administrator rights); and makes the **Margin icon** (macOS: Ap
 the Start menu and the Desktop; Linux: the applications menu) and opens Margin. The package includes the connector,
 faster search (numpy), pdfminer and the Python parts of text recognition, so no feature needs a later install. Then
 press **Set up Claude** on the first screen (section 3, *First use*). Running the same line again installs the newest
-release over this one (on Windows quit Margin first); your projects in `~/margin` stay as they are. Options go before
+release over this one; your projects in `~/margin` stay as they are. On Windows, quit Margin and close Claude Code
+first: both run programs from Margin's folder, which Windows does not let the install replace. If one still runs, the
+line names it and waits until it has closed (0.15.5). Options go before
 the line as environment variables: `MARGIN_LOCAL_ONLY=1` (nothing may leave the computer, built into the icon),
 `MARGIN_HOME=<folder>` (another data folder, built into the icon), `MARGIN_VERSION=0.10.0` (that release).
 
@@ -87,9 +89,10 @@ document, and in *Settings → Documents*). The one-line install brings the `ocr
 **Updating.** `margin update` updates Margin the way it was installed (0.10). Installed with the one-line install,
 it asks GitHub for the latest release, downloads its package, checks it against the release's checksums, installs it
 over this one with uv and brings the Claude Code plugin up to date (0.14.3: also in Claude Code itself, whose own copy of the
-plugin is updated too, so the new instructions are used from the next run); on Windows, where a running program cannot
-replace itself, it says to quit Margin and run the install line again, or double-click a newly downloaded
-`Install-Margin-Windows.cmd` (0.14.5); either does the same. The version you have
+plugin is updated too, so the new instructions are used from the next run). On Windows, where a running program's
+files cannot be replaced, `margin update` in PowerShell says to press *Update* in the app instead (0.15.4, below), or
+to quit Margin, close Claude Code and run the install line again, or double-click a newly downloaded
+`Install-Margin-Windows.cmd` (0.14.5); each does the same. The version you have
 is at the top of every *Settings* tab; *Settings → Technical* says how this copy was installed. Installed from the git copy of Margin (`git clone …`, then `pip install -e .` in a
 venv) every new version is also `margin update` (0.8.2): it fetches the version from GitHub into the same folder, reinstalls into the
 same Python only when the requirements changed (with the extras already installed), refreshes the Claude Code
@@ -103,9 +106,16 @@ without a terminal: it looks for a new version (the latest release, or new commi
 ready, and with *Update and restart* installs it and restarts Margin on the same address. The open page shows
 *Starting Margin …* and opens the new version by itself; started from the icon, Margin is restarted the same way,
 without a new browser tab. Anything still running (a check, documents being added) stops first, as with *Quit
-Margin*, and the dialog says so. If the update fails, the reason is shown and nothing restarts. With the one-line
-install on Windows it says to quit Margin and run the install line or the Windows file again (a running program cannot
-replace itself there).
+Margin*, and the dialog says so. If the update fails, the reason is shown and nothing restarts.
+
+**On Windows too (0.15.4).** Windows does not let a running program's files be replaced, so there *Update and
+restart* downloads the new version and checks it, then closes Margin, installs the new version and opens Margin again
+by itself: the page says *Installing Margin …* and follows in a minute or two. (Margin 0.14 and earlier said to quit
+Margin and run the install line by hand; the update from one of them is still made that way, as it runs their code.) If
+the install cannot finish, Margin opens again as it was and a note in the corner says why and what to do: most often
+Claude Code still had Margin connected, which holds its files (close Claude Code, then press *Update* again). What
+happened is in `logs/update.log` in the data folder. If Margin cannot open at all after an update, a PowerShell window
+opens by itself and installs it again.
 
 **Only when there is an update (0.13.6).** The button is not in the sidebar all the time any more. Margin looks for a
 new version when the page opens, every two minutes after, and when you come back to a tab that was in the
@@ -146,8 +156,8 @@ Check the install with the tests (about 15 seconds, no network):
 pytest
 ```
 
-A local model server: install [Ollama](https://ollama.com) and open it; the app then downloads a chat model with one
-button (*Download qwen3:8b*, about 5 GB, 0.13.7), and with it, if you like, an embedding model for search by meaning
+A local model server: the app installs [Ollama](https://ollama.com) with one button (*Install Ollama*, 0.15.6) and
+then downloads a chat model with another (*Download qwen3:8b*, about 5 GB, 0.13.7), and with it, if you like, an embedding model for search by meaning
 (nomic-embed-text). In a terminal it is `ollama pull qwen3:8b` and `ollama pull nomic-embed-text` (English) or
 `ollama pull bge-m3` (many languages, so an English hypothesis also finds Dutch or French passages). Or start the
 server of [LM Studio](https://lmstudio.ai) (Developer → Start server) with a model loaded. Section 5 helps choose.
@@ -259,16 +269,26 @@ Claude** (0.10), that does every step still open, in order:
 1. Claude Code is not on the computer: Margin shows the command of Anthropic's installer (`curl -fsSL
    https://claude.ai/install.sh | bash`, or `irm https://claude.ai/install.ps1 | iex` on Windows) and runs it when you
    choose *Install Claude Code*. It needs no administrator rights and takes a minute or two. *Anthropic's set-up
-   page* is linked for doing it yourself.
-2. Not signed in: Margin opens a Terminal (macOS) or PowerShell (Windows) window already running Claude Code. Sign in
-   there with your Claude plan (it opens a page in your browser) and close the window; Margin checks every few
-   seconds and continues by itself (*I have signed in* checks at once). Margin never sees your login. If no window
-   can be opened, the page shows the line to type.
+   page* is linked for doing it yourself. Where the program is kept does not decide what it can read: what Claude
+   Code may open depends on the folder it starts in and on its tools and permissions, and Margin starts it only in an
+   empty folder of its own, with its tools for reading files, running commands and browsing switched off (see
+   *How it is enforced* in section 8).
+2. Not signed in: Margin opens a Terminal (macOS) or PowerShell (Windows) window already running Claude Code, in an
+   empty folder of Margin (`claude-runs/sign-in` in the data folder) and with the same tools switched off, so it
+   cannot open your files. Sign in there with your Claude plan (it opens a page in your browser) and close the
+   window; Margin checks every few seconds and continues by itself (*I have signed in* checks at once). Margin never
+   sees your login. If no window can be opened, the page shows the line to type, which goes to that folder first.
 3. The plugin is not added: Margin adds it (as in 0.9).
 
 *Set it up yourself instead* keeps the lines to type. *No Claude plan? Other options* offers a model on this computer
-or no AI for now. **A model on this computer needs no terminal (0.13.7):** with no model server running, the step says
-how to get Ollama (free, from ollama.com) and notices by itself when it starts; with Ollama running but no model yet,
+or no AI for now. **A model on this computer needs no terminal (0.13.7):** with no model server running, *Install
+Ollama* gets **Ollama** (free, 0.15.6): it says the size of the download first (about 1.7 GB on Windows, 230 MB on a
+Mac) and the free disk space it needs (about four times that), then downloads Ollama's own installer from ollama.com,
+checks that Ollama signed it, installs it (Windows: in your user folder, no administrator rights; Mac: in
+*Applications*) and starts it, with a progress bar and *Stop*. On Linux, Ollama's installer asks for your password,
+so Margin opens a terminal window running it. Ollama installed but not running: *Start Ollama*. Rather do it
+yourself? *Download Ollama's installer* gets the file. The step notices Ollama by itself when it starts; with Ollama
+running but no model yet,
 *Download qwen3:8b* (about 5 GB) downloads one, with *Also nomic-embed-text* for search by meaning, a progress bar
 and *Stop* (Ollama keeps what it has and goes on from there). Ollama fetches the model from ollama.com; none of your
 documents are sent. The downloaded model becomes the AI and is tested at once. When whoever installed the app chose a
@@ -282,7 +302,10 @@ report). A file that cannot be read is listed with the reason and the others are
 password-protected PDF or zip, a damaged zip or Word file; before, one of these stopped the whole add, and a
 password-protected PDF was called a file without text). Text and web page files that are not UTF-8, such as a
 Hungarian text saved by Notepad (Windows-1250) or an old Latin-1 page, are read as they were written (0.14.3; before,
-their accented letters were lost). *Stop* also stops the text recognition of a long scanned PDF. *Open an existing
+their accented letters were lost). *Stop* also stops the text recognition of a long scanned PDF. A large batch is
+read up to three files at a time, on the computer's spare processors, and added in the order of the files; the result
+is the same as reading them one by one (0.16). The list draws its first rows at once and the rest as you scroll;
+*Select every document* selects all of them. *Open an existing
 Margin project folder (advanced)* links a project made with the command line, without copying it.
 
 The sidebar always says where text goes: *Claude, on your plan · Only the passages of AI tasks leave this computer*
@@ -549,8 +572,8 @@ click. Click a word in a line to add it to the search, Shift-click to make a phr
 before or by the words after. *Words that often appear nearby* lists the words within 2 to 10 words of the places
 found, most often or most typical first (point at one for both figures; in one document or one code, "typical" is measured against that document's or code's own passages). Every line opens the document at its words,
 and its flask button starts a check of what the line says. Download all lines for Excel or as CSV. A *passage* is
-the stretch of text the app reads as one unit, up to about 1,100 characters; the location (page, paragraph) is that
-of the original.
+the stretch of text the app reads as one unit, up to about 1,100 characters (from 0.15 a paragraph: see *How
+documents are read*); the location (page, paragraph) is that of the original.
 
 **Profile.** Which codes of a codebook (your own CSV, or a built-in one: social practice theory, framings of
 conduct and change, the 169 SDG targets or their 17 goals) each
@@ -561,7 +584,8 @@ keywords (and by meaning, with an embedding model): a *provisional* profile. *Le
 AI read each passage with a candidate code and say which codes really apply (main topic or mentioned; for a codebook of aims,
 whether the passage says it helps or hinders the aim), with a quote and a reason; afterwards it says how many keyword
 codes it confirmed, did not confirm, and added. Count by code or by group (a codebook's groups). The grid opens the passages
-behind each cell. In a document, the **Codes** panel shows every code with its passages, quotes, reasons or the
+behind each cell; a long grid draws its first documents at once and the rest as you scroll down (or *Show more
+documents*, 0.16). In a document, the **Codes** panel shows every code with its passages, quotes, reasons or the
 words that found it (highlighted in the text): agree, change how it applies, reject (with Undo), or add a code of
 your own; your labels always count (a keyword label you agreed with or changed stays even after the AI has read the
 passage). *Technical details* show the model, its exact version (digest), the prompt and
@@ -737,6 +761,121 @@ other document: what compares documents elsewhere has a single-document version 
 Every sentence opens the document at its place. *Markdown (.md)* downloads the report as notes to keep. In a quick look,
 *Ask it something* leads to *Check a hypothesis* (which uses the AI) and *Search*.
 
+### How documents are read (0.15)
+
+Before anything else, Margin turns each file into text and cuts the text into passages: what search, codes,
+themes, concepts and checks read. The part that does this is the *reader*. Margin has a new one, from ENLENS 0.15
+(reader 2, with reader 3 for text files and books, below); documents added with Margin 0.14 or earlier keep the
+reading they have until you move them over (below).
+
+**What the new reader does with a PDF.** It looks at where each line stands on the page (with the `pdfminer` extra,
+which the one-line install has; without it, it reads the PDF's text layer, without columns or tables):
+
+- **Columns** are read one after the other, not across, and a title or abstract set across the page comes first.
+- **What is not the document's own text is set aside**: running heads and footers, page numbers, line numbers in the
+  margin, the words inside charts and diagrams, author names, affiliations, e-mail addresses and dates on the first
+  page (*author and article details*), acknowledgements, funding, conflicts of interest, data availability and
+  licence notes (*end notes*), footnotes, and the reference list. They stay in the document and in a search of all its text, but searches, codes, themes and checks
+  do not read them, so themes no longer form around journal names and checks no longer read a funding note.
+- **Tables are kept as tables**, with their caption, rows and cells; they are left out of the passages (a table read
+  as prose is what made most garbled passages), and each can be downloaded for Excel.
+- **Words are repaired**: a word cut at a line end is joined ("exam-ple" → "example"), a compound keeps its hyphen
+  ("long-term", "non-fiction"), words that ran together are split only where the document itself writes them apart
+  ("ofthe" → "of the"), and ligatures (ﬁ, ﬂ), odd spaces and accents set apart from their letter are put right.
+- **A passage is a paragraph** (long ones are cut into parts of about equal size, short ones put together), and a
+  heading starts a new passage with the text under it. Paragraphs are numbered as quotes are cited: per page in a
+  PDF, a heading with the text under it counting as one; every block between blank lines in a text file.
+
+Word files, web pages and text files are read as before, with the same repairs, their headings and the reference
+list set aside in the same way.
+
+**Text files and books (0.15.1, reader 3).** Many `.txt` and `.md` files are text copied out of a PDF by a converter:
+every running head and page number is still in the text, while the pages, the headings and often the spaces between
+words are gone. Reader 3 reads such files with rules on the text alone (no AI):
+
+- **Running heads and footers** are found because they come back about once a page, next to a page break or at
+  regular intervals ("Frontiers in Neurology 04 frontiersin.org", a printer's line drawn twice letter by letter);
+  a short one in capitals with its page number ("2 INTRODUCTION") is found from two pages, or from the contents.
+  Answers that come back in an interview ("[P] Ja.") come back irregularly, in the middle of the text: they stay.
+- **Page numbers**: lines that are only a number, counting up a page apart.
+- **Paragraphs and headings**: a short line that ends a sentence ends its paragraph, and a short line standing on
+  its own is a heading. A Markdown file, web page or Word file that marks fewer than three headings gets headings
+  this way too (before, a Markdown file without marked headings had none).
+- **Books and theses**: the table of contents is found (lines ending in page numbers that go up) and set aside, and
+  its entries find the chapter headings in the text. What comes before the first chapter (half title, other books
+  by the author, the copyright page, the dedication, lists of figures) is set aside as *front matter*, but an
+  abstract, summary or preface stays. The notes, the bibliography, the index, *About the author* and the
+  acknowledgements at the end are set aside. An index is also known by its lines ("archetypes, 112–116, 191").
+- **Repairs**: text printed twice ("TTIISS ffiinnaall" → "TIS final"), ligatures a converter broke with a space ("fi
+  nd" → "find"), and, only in a file that lost many of its spaces, words run together ("peoplelivingwithdementia" →
+  "people living with dementia", using the words the document itself writes apart; never into word endings).
+
+*Reading* says when a text file looks copied out of a PDF, when many of its words still run together, and when a PDF
+was read without its layout (the `pdfminer` extra missing). If you have the PDF, add it instead: it reads better. A
+git copy of Margin gets the `pdfminer` extra at its next `margin update` (0.15.1), as the one-line install always
+has.
+
+**The reading view.** A document's page shows its text the way the new reader found it: headings, paragraphs,
+captions and tables, a mark where each page begins, and what was set aside folded under *Left out of the text* on
+each page. Point at a block, and under where it is cited comes **Leave out** (searches, codes, themes and checks
+will not read it: the block greys and folds away into the line *Left out of the text*, which lights up for a
+moment, and the rest of the page stays still) or **Restore** (they will); a table also has **Excel**. A heading goes with the text under it, and short paragraphs that share a passage go together. Your
+choice is kept by the block's words, so it holds when the document is read again; *restored by you* or *left out by
+you* stands beside it. Changing what counts makes keyword codes, key terms and themes out of date, as adding a
+document does.
+
+Two more, from 0.15.1. **All like this** (on a short block that comes back, such as a running head or a page number)
+leaves out, or restores, every block that looks the same, their numbers aside: one click for a running head on every
+page. **Text starts here** (on a block in the first third of the document) and **Text ends here** (in the last third)
+leave out everything before or after it: a book's title pages, or its notes, bibliography and index, when the reader
+did not find them. *the text starts here (you said)* stands beside the block, with *Undo start* (or *Undo end*). A
+block you restore before the start or after the end still counts. Both are kept by the block's words, so they hold
+when the document is read again.
+
+**Reading** (a panel beside the text) says how well the document was read: *Read well*, *Read, with something to
+check* or *Read badly*, with the reasons (pages without text, text recognised from scanned pages, a garbled text
+layer, most of the text set aside), how many pages had columns, what was repaired, the tables found, and how many
+of its passages features read. *Show what was left out in the text* unfolds everything that was set aside.
+
+The list of documents marks the ones that need a look (*something to check in its reading*, *read badly*). Each reason
+in the *Reading* panel takes you to what it is about: **Look at the pages** opens the *Page* panel, **Show what was
+left out** unfolds the text set aside. When you have looked and the text is good enough for your work, choose
+**Checked: it reads well enough**: the mark in the list goes away, and the panel says when you checked it (*Undo*
+takes it back). A new reading of the document asks again (0.15.7).
+
+**Page** (beside the text, for PDFs, with the OCR extra) shows the page of the original PDF with every block the
+reader found outlined: solid for what counts, dashed for what was left out. It follows the text as you scroll; click
+an outline to go to that block in the text.
+
+**Read with the new reader.** A document added with Margin 0.14 or earlier keeps the reading it has, so every quote
+and judgement in it stays where it is, and the list of documents marks it (*read before 0.15*). Its *Reading* panel
+offers **Read with the new reader** (the mark in the list opens it with the preview already started). Margin first
+reads the original file
+again and shows what would happen, changing nothing: how many of your results (a check's grades and your
+judgements, codes and your reviews of them, themes, references) find their place in the new text, and which do not.
+**Move it to the new reader** then does it in one step, or not at all: each result follows its quote to the same
+words in the new text; a check keeps the excerpt it showed; keyword codes, key terms and the document's search index
+are made again; work still waiting for the AI about it is asked again; a set of themes is marked out of date where
+its passages changed. What cannot be placed is kept without a place in the text and listed (its check marks it *no
+place in the new reading*). It needs the original
+file, unchanged, and no task of the document out with Claude Code.
+
+**Several at once (0.15.7).** Above the list of documents, **Read all with the new reader** (or *Read the selected with
+the new reader*, when you tick some) moves them one after the other. A document moves only when every one of its
+results finds its place; one where any would not, and one that cannot be read again now (its file is missing or
+changed, or Claude Code is working on it), is left as it was. The note afterwards lists them with the reason, each
+linked to its page, where the preview shows what would be lost. You can work on meanwhile, or stop it: documents
+already moved stay moved.
+
+**`margin measure`** shows in figures how well Margin reads, with no AI: it makes small PDFs whose text it knows (one
+and two columns, running heads, line numbers, front and back matter, a table, footnotes), reads them with each
+reader, and reports the share of the words kept, the share that belong, whether they come in order, words run
+together or broken apart, and leftover boilerplate. `--folder DIR` measures PDFs with a `.txt` of their true text
+beside them; `--ws PROJECT` checks how many of a project's quotes still find their place in each reader's text (on a
+copy: the project is never changed), `--timings` adds how long reading, search, *Words nearby*, the keyword pass, the Profile page, key terms and themes
+take, and
+`--report FILE.md` writes it as a report. Each release carries this report as `validation-report.md`.
+
 ### The bibliography: Zotero (0.13)
 
 *Bibliography* (in the sidebar, under *Documents*) puts your Zotero library, one collection of it, or just the works
@@ -759,7 +898,9 @@ managers (BibTeX or RIS). With Zotero's CSV and BibTeX the paths of the files Zo
 
 - *Please confirm*: a work whose title stands on the first pages of a document, with an author or the year (the
   reference list of a short document is not read as its first pages), or whose DOI the document only mentions somewhere
-  on its first pages (it may cite the work). The work
+  on its first pages (it may cite the work). A work with neither author nor year (Zotero often saves a *Web Page*
+  that way) is proposed when its title is long (six words that count or more) and stands whole on the document's
+  title page (0.15.1). The work
   and the document are side by side, with the place on the document where the title stands, highlighted, and what was
   found (*Found on page 1: the whole title, the author Lindqvist, the year 2025*). *Same work* links them; *Not the
   same* means the pair is never proposed again. *Confirm all* takes every pair at once.
@@ -767,7 +908,9 @@ managers (BibTeX or RIS). With Zotero's CSV and BibTeX the paths of the files Zo
   their web address and *Open in Zotero*. *Download the list* gives them as a spreadsheet, your to-download list.
   When Zotero keeps a file (a PDF, a saved web page, a Word file) for some of them, a card offers *Add these files to
   the project*: they are read where Zotero keeps them (nothing is copied), after you say who may read them with AI
-  (the project's choice is preselected), and each is linked to its work. *Link a document* says by hand which
+  (the project's choice is preselected), and each is linked to its work. When a work has several, the real document
+  is added (0.15.1): its PDF first, then a Word file, then a text file, and a saved web page (Zotero's snapshot of a
+  landing page) only when nothing else can be read. *Link a document* says by hand which
   document a work is.
 - *Linked*: each work with its document, and how they were linked: *Same file* (a file Zotero keeps for the work is
   the very file you added, by its checksum), *Same DOI* (the document prints the work's DOI on its title page or in its file name), *You confirmed it* or
@@ -921,7 +1064,7 @@ Settings has five tabs, each one page with nothing folded inside another (0.9):
   installation, behind a confirmation and *Allow cloud models*. With Claude Code: the set-up checklist and *Set up
   Claude Code* (section 6) and *Let the auditor use Fable*. *Save and test* says whether the AI answers (with Claude
   Code: whether it is set up). With a model on this computer chosen but none installed, the same steps as on the
-  first screen: get Ollama, then *Download qwen3:8b* (0.13.7). *Local model for restricted documents* offers the
+  first screen: *Install Ollama* (or *Start Ollama*, 0.15.6), then *Download qwen3:8b* (0.13.7). *Local model for restricted documents* offers the
   download too, and *Settings → Documents* downloads nomic-embed-text for search by meaning when Ollama has no
   embedding model.
 - **Checking**: the **strictness** (how sure the AI must be before a judgement counts; it saves at once, applies to
@@ -943,7 +1086,19 @@ Settings has five tabs, each one page with nothing folded inside another (0.9):
   Claude plan* below); with a local model, the **model for second opinions** and the **context length** (automatic by default, see section
   5) with *Sort the best excerpts again by wording* (off; see the changelog of 0.6.0); **Repeatable results** (the
   seed sent with every request, 42 by default, and a test of whether the server gives the same answer twice); *Test a
-  model before trusting it* (section 5); and where your data is.
+  model before trusting it* (section 5); and where your data is. 0.15: **Which new versions to offer** and **Copy
+  technical details** (below).
+
+**Trying new versions early (0.15).** Margin offers full releases only, by default. To be offered *release
+candidates* too (try-outs of the next version, when there are any), choose *Try new versions early* under *Settings →
+Technical → Which new versions to offer*; *Stable (recommended)* goes back. A copy installed from git follows its
+branch and has no such choice.
+
+**Reporting a problem (0.15).** *Settings → Technical → Copy technical details* copies a few lines for a problem
+report: the Margin version, how it was installed, the system and Python, the AI route, whether cloud models are
+switched off and the update channel; never a path, a project or document name, or a key. *Report a problem* opens a
+short form on GitHub (a free GitHub account is needed) to paste them in; please paste no text from documents that
+must stay private. A security or privacy problem is reported privately instead: see `SECURITY.md` in the repository.
 
 Old links to a section (`#/settings/second`, `#/settings/calibration`…) open its tab.
 
@@ -1270,14 +1425,24 @@ claimed for 30 minutes), `submit_answers` (each answer quote-checked: stored, or
 | paragraphs, headings | Where each paragraph (with its page) and heading of a document starts, found when it was added |
 | second_opinions | A second model's grade of each excerpt it read again (never used for an answer) |
 | task_claims | 0.8: the batches of queued tasks handed out to Claude Code: who took them, when, model, helper; `tasks.queued`, `claimed_by`, `step`, `again` and `results.route`, `helper`, `step` belong with it |
-| meta | Thresholds, and the corpus version (search indexes are rebuilt when it changes) |
+| meta | Thresholds, and the corpus version (the search index and the glossary are brought up to date when it changes) |
 | drafts, draft_claims, draft_sent | Margin 0.1: your drafts (text, AI setting), their claims (offsets in `drafts.text`, the quote, the claim checked, who found it, the hypothesis that checks it) and every time Claude read part of a draft |
+| `reader`, `app_version` | 0.15: `documents.reader` is the reader that read a document's text (1 for every document read before 0.15) and `documents.app_version` the Margin version that read it; `app_version` in `results`, `runs`, `labels`, `theme_runs` and `hypotheses` is the version that made each (empty: made before 0.15) |
 | bib_items, bib_links | 0.13: the bibliography's works (title, creators, year, DOI, web address, Zotero link, the files Zotero keeps with their checksums) and which document each is (`status`: `auto` for the same file or DOI, `probable`, `confirmed` or `rejected` by a person; `method`: `file`, `doi`, `title`, `person`); where it came from is in `meta` (`bibliography`); 0.13.3: `documents.file_title` keeps the file's own title while a linked work's title replaces it (`meta` `titles_version` rebuilds the keyword index) |
 | vca_targets, vca_refs, doc_refs, claims, claim_targets, evidence, interactions, vca_claims, reviews | ENLENS's SDG pack: empty in Margin, kept so a project copied from ENLENS opens |
 
 Open it with any SQLite tool. Offsets in `evidence` and `verifications` index into `documents.text`. Removing one
 document keeps past checks intact (each check stores the passages it showed); removing all documents also removes
 every check.
+
+The folder also has `cache/` (0.16): each document's words for the keyword index (`search.sqlite`) and each
+document's reading for the glossary (`glossary.sqlite`), kept so that adding a document does not read every other one
+again. Both are made from the documents and brought up to date by themselves; neither goes into a project's zip, and
+the folder can be deleted at any time (the next search and the next glossary are a little slower, once). A project
+folder that a cloud service copies (Dropbox, OneDrive) copies `cache/` too; it can be left out there.
+
+Adding documents reads up to three files at a time in reading processes of their own; `MARGIN_READ_WORKERS=1` reads
+them one at a time (any number sets how many at once).
 
 **Moving to another computer (0.10).** *Projects → Move Margin to another computer → Download everything (.zip)*
 makes one file with every project (each as its own project zip: database, the original file of each document) and
@@ -1367,8 +1532,14 @@ The connector's tools (search, concepts, document profiles, checks) give Claude 
 leave out what a model wrote in its own words (a check's summary, its notes on excerpts) when it read restricted
 text, and show a document marked *No AI* as *Restricted document 3*, because a title can name a person. A project
 zip (*Download as a zip*) holds the files of the documents the project has now, not those of documents you removed
-(0.14.3). The Claude Code run that Margin starts may not use Claude Code's own file, shell and web tools and starts
-in an empty folder, away from the projects' databases.
+(0.14.3). The Claude Code run that Margin starts works in a box of its own (0.14.6): it starts in an empty folder, away from
+the projects' databases, and has no tool that reads, writes or searches files, runs commands or browses, only the
+one that starts the helpers. It takes nothing from your own Claude Code either: not your settings, hooks or
+`CLAUDE.md` instructions, not your other plugins or the connectors of your claude.ai account; it loads only
+Margin's plugin. So all it can see are the passages Margin puts in its tasks. These are options of Claude Code itself
+(`--tools`, `--restricted`, `--plugin-dir`), used when your Claude Code knows them; an older Claude Code is only
+denied the file, shell and web tools by name. The window Margin opens for the sign-in also starts in an empty folder
+without those tools (it used to start in your home folder, where Claude Code could read your files without asking).
 
 **What Claude has read.** Margin writes down every passage at the moment it leaves for Claude (Claude Code, the Claude
 API, a Claude chat through the connector). The column *Sent to Claude* shows the share of each document's text;
@@ -1428,17 +1599,23 @@ service, or keep to a local model.
 | The Margin icon is a blank square (macOS) or a plain shortcut (Windows) | It was made before 0.10.2 without Pillow. Open Margin once with 0.10.2 or later: it gives the icon its picture (macOS: if Finder still shows the blank one, `killall Finder`). Or make the icon again: `margin-gui --make-launcher`. |
 | Settings shows an older version after updating | That copy was still running. Choose *Restart now* on the notice at the top of the page (0.13.1), or *Quit Margin* and open Margin from its icon (0.10.2 does this by itself when nothing runs). |
 | There is no *Update* button in the sidebar | It shows only when there is an update (0.13.6). To look now, or to see why a look failed: *Settings → Technical → Check for updates*. |
-| *Update* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows: choose *Quit Margin* and run the install line again in PowerShell. |
+| *Update* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows, Margin 0.14 and earlier: choose *Quit Margin* and run the install line again in PowerShell. |
+| On Windows, a note says *The update to … did not finish* | Margin closed to install the new version, but could not (0.15.4). Most often Claude Code still had Margin connected: close Claude Code, then press *Update* again. The details are in `logs/update.log` in the data folder. |
 | The page keeps saying *Starting Margin …* | After 90 seconds it says Margin did not come back: open it again from its icon (or with `margin-gui`), and look at `logs/margin.log` in the data folder for the reason. |
 | Double-clicking the Margin icon does nothing | Look at `logs/margin.log` in the data folder. Run the install line again (one-line install), or `margin-gui --make-launcher` again after moving or reinstalling Python (git copy). On macOS, if the icon was copied from another computer, right-click it and choose *Open* once. |
 | The install line stops with "does not match the release's checksum" | The download was cut off or changed on the way; nothing was installed. Run the line again later. |
-| The install line on Windows says uv could not install Margin | Margin is probably running: choose *Quit Margin* in it and run the line again. |
+| The install line on Windows says *Margin cannot be replaced while these programs run from its folder* | Margin or Claude Code is still running (Claude Code keeps Margin connected, which runs Margin's own Python). Choose *Quit Margin* and close Claude Code: the Claude app and every terminal or editor where it runs. The line goes on by itself once they have closed; nothing was changed before. If one does not close, end it with the `Stop-Process` line it shows. |
+| The install line on Windows says uv could not install Margin, "Access is denied" | A program still used Margin's folder (the lines of Margin 0.14 and earlier did not wait for it). Quit Margin, close Claude Code and run the line again. |
+| On Windows, every `margin` command says "uv trampoline failed to canonicalize script path", and the icon does nothing | An install of Margin 0.14 or earlier ran while Claude Code had Margin connected and left Margin's folder half removed. Close Claude Code and run the install line (or *Install-Margin-Windows.cmd*) again: it installs Margin whole. Your projects were not touched. |
+| The install on Windows says "Margin was installed, but C:\Users\…\margin.exe is missing", with odd letters in the name | Your user folder has a letter with an accent (C:\Users\Dávid), which the installers of Margin 0.14 and earlier misread. Run the install line or *Install-Margin-Windows.cmd* of a later Margin: it installs over the half-done copy and makes the icons. |
+| On Windows, black windows flash open and closed while Margin runs, taking the focus | Margin 0.14 and earlier started Claude Code, Tesseract and its updates in windows of their own (with Claude Code as the AI, every half minute while a task queue was open). Update Margin. |
 | macOS says *Install Margin.command* was "Not Opened" | The file is not signed by an Apple developer. Click *Done*, then allow it once in *System Settings → Privacy & Security → Open Anyway* (section 1), or paste the install line in Terminal instead. |
 | Windows says it protected your PC, or the browser calls *Install-Margin-Windows.cmd* uncommon | The file is not signed. Keep it, then *More info → Run anyway* (section 1), or paste the install line in PowerShell instead. |
 | *Set up Claude* cannot install Claude Code | No network, or the installer was blocked. Install it with Anthropic's set-up page (linked under *Technical details*), then press *Set up Claude* again. |
 | Claude Code answers with the wrong Claude account | The sidebar card (hover *Claude, on your plan*) and *Settings → AI* name the account it uses. To switch, type `claude auth logout` in Terminal or PowerShell, then press *Check again* and *Set up Claude* in *Settings → AI*: it opens the sign-in window, where you sign in with the other account. |
-| *Set up Claude* keeps waiting for the sign-in | Finish signing in in the window it opened (and in the browser page that window opened), then press *I have signed in*. No window? Open Terminal or PowerShell, type `claude`, and sign in. |
+| *Set up Claude* keeps waiting for the sign-in | Finish signing in in the window it opened (and in the browser page that window opened), then press *I have signed in*. No window? Open Terminal or PowerShell, type the line the page shows (it goes to an empty folder of Margin, then starts `claude`), and sign in. |
 | "The original file is no longer at …" | The file was moved or renamed after it was added; the app still has its text. Put it back, or add it again. |
+| On Windows, removing a project says "a file in it is still open" | Another program still has a file of the project open: a sync tool (OneDrive, Dropbox), a search index or an antivirus check. Wait a moment and try again. Margin 0.14 and earlier held the project open itself on Windows, and removing it failed with an error: update Margin. |
 | The app says it cannot reach Ollama | Start the Ollama app (or `ollama serve`) and check the address in Settings (default `http://localhost:11434`). |
 | "Ollama has no model ..." | Download it: `ollama pull <model>`, then pick it again in Settings. |
 | Test connection warns about Ollama's cloud | The model runs on Ollama's servers, which do not support the JSON format the app needs, and the text leaves your computer. Pick a model downloaded with `ollama pull`. |

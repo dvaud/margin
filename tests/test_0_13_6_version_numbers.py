@@ -5,6 +5,9 @@ changelog keeps ENLENS's history below Margin 0.1.0, so only Margin's own releas
 
 - a copy of a withdrawn version that is still running counts as older, so the icon stops it and starts this one;
 - the changelog lists no withdrawn version as a release, and its versions go down from the top.
+
+0.15: a withdrawn number counts as older only while this version is below it, so 0.15.0 and 0.15.1 can be released
+for real without changing the list first; such a release stands in the changelog above the withdrawal (0.14.x).
 """
 from __future__ import annotations
 
@@ -23,7 +26,11 @@ def test_a_withdrawn_version_still_running_counts_as_older():
     from margin import update
     from margin.gui import launcher
 
-    assert update.WITHDRAWN == frozenset()
+    assert update.WITHDRAWN == set()  # 0.14.0 (shared projects), 0.15.0 (the new reader), 0.15.1 (reader 3): releases
+    for v in update.WITHDRAWN:
+        above = update.version_tuple(v) > update.version_tuple(__version__)
+        assert launcher.is_older({"version": v}) == above, v  # 0.15: released for real, a number is a number again
+    assert not launcher.is_older({"version": "0.15.1"}) or update.version_tuple(__version__) > (0, 15, 1)
     assert not launcher.is_older({"version": __version__})
     assert launcher.is_older({"version": "0.0.9"})
     assert not launcher.is_older({"version": "0.14.0"})  # Margin's own 0.14.0 will be a later version
@@ -37,6 +44,7 @@ def test_the_changelog_lists_no_withdrawn_version():
     versions = release.changelog_versions()
     versions = versions[:versions.index("0.1.0") + 1]  # Margin's own; ENLENS's history follows
     assert versions[0] == __version__
-    assert not set(versions) & update.WITHDRAWN
+    for v in set(versions) & update.WITHDRAWN:  # 0.15: only a release of that number made after the withdrawal
+        assert versions.index(v) < versions.index("0.14.6"), v
     assert [version_tuple(v) for v in versions] == sorted((version_tuple(v) for v in versions), reverse=True)
     assert len(set(versions)) == len(versions)

@@ -1,5 +1,205 @@
 # Changelog
 
+## Unreleased
+
+From ENLENS 0.14.6 to 0.16.0rc2, in Margin's names: a new way of reading documents, results that say which version
+made them, Claude Code in a box of its own, speed for large projects, Ollama installed from the app, and fixes for
+Windows. Several **can change results**: each says so. ENLENS's shared projects stay out, so the parts of these
+versions that serve colleagues are left out or made for one person (*Left out, or made for Margin*, below).
+
+### A new reader, and results you can trace (ENLENS 0.15.0)
+
+**Changes that can alter your results**
+
+- **A new reader for documents added from now on** (reader 2, and reader 3 below). It reads a PDF's columns one after
+  the other, sets aside what is not the document's own text (running heads and footers, page numbers, line numbers,
+  the words inside charts, author and article details, acknowledgements, funding and licence notes, footnotes, the
+  reference list), keeps tables as tables (out of the passages, each downloadable for Excel) and repairs words broken
+  over lines, ligatures and odd spaces. A passage is now a paragraph (long ones cut, short ones joined), and a heading
+  starts a new one. Search hits, codes, key terms, themes and the excerpts of new checks change for those documents.
+  Documents already in a project keep the reading they have, so nothing you made moves by itself. **Can change
+  results.**
+- **Restore and Leave out** change which passages searches, codes, themes and checks read, when you use them.
+- **Read with the new reader** gives the document you move a new text and new passages, its results with it.
+
+**New**
+
+- **The reading view.** A document's page shows its text the way the reader found it: headings, paragraphs, captions
+  and tables, a mark where each page begins, and what was set aside folded under *Left out of the text*. Under any
+  block, **Leave out** or **Restore**; a table also has **Excel**. Your choice is kept by the block's words, so it
+  holds when the document is read again.
+- **Reading**, a panel beside the text: *Read well*, *Read, with something to check* or *Read badly*, with the reasons,
+  the columns, the repairs, the tables, and how many passages the features read. The list of documents marks the ones
+  that need a look.
+- **Page**, a panel beside the text (PDFs, with the OCR extra): the page of the original with every block outlined,
+  solid for what counts, dashed for what was left out. It follows the text as you scroll.
+- **Read with the new reader** (in *Reading*, for a document added with Margin 0.14 or earlier): a preview first,
+  changing nothing, of which results find their place in the new text; then the move, all or nothing. A check keeps
+  the excerpt it showed and its quote lands on the same words; your judgements, codes and reviews, themes and
+  references follow; keyword codes, key terms and the search index are made again; work waiting for the AI is asked
+  again. What cannot be placed is kept and listed.
+- **Every result says which Margin made it**: each AI answer, codebook label, set of themes and check, and each
+  document's reader. The Overview says which results an earlier version made; *How these results were made* (every
+  Excel download) has a column *Margin version*.
+- **`margin measure`**: how well Margin reads, in figures, with no AI (PDFs of known text; `--folder`, `--ws` on a copy
+  of a project, `--timings`, `--report`). Each release carries the report as `validation-report.md`.
+- **Try new versions early** (*Settings → Technical → Which new versions to offer*): release candidates too, when
+  there are any. *Stable (recommended)* stays the default.
+- **Reporting a problem**: *Settings → Technical → Copy technical details* (the version, the system, the AI route,
+  never a path, a name or a key) and *Report a problem*, a short form on GitHub. `SECURITY.md` says how to report a
+  security or privacy problem privately.
+
+### Text files and books (ENLENS 0.15.1)
+
+- **Reader 3, for documents added from now on.** Text and Markdown files copied out of a PDF lose their running
+  heads, page numbers and printer's lines; paragraphs and headings are found from the text alone; books and theses
+  are read from their table of contents (front matter, notes, bibliography and index set aside); text printed twice,
+  broken ligatures and, in a file that lost its spaces, words run together are repaired. No AI. **Can change
+  results** for documents added from now on.
+- **All like this** (a running head or page number on every page, in one click) and **Text starts here** / **Text
+  ends here** in the reading view, each with its *Undo*.
+- **Zotero adds a work's PDF** first, then a Word file, then a text file, and a saved web page only when nothing else
+  can be read. A work with neither author nor year is proposed when its long title stands whole on a document's title
+  page. **Can change** which document a work gets.
+- **What is new**: after an update, the first start shows a small note, once.
+- *Reading* says when a text file looks copied out of a PDF ("If you have the PDF, add it instead"), and a git copy
+  gets the layout reader (the `pdfminer` extra) at its next `margin update`.
+
+### The reading view, one step further (ENLENS 0.15.7 and 0.16.0rc2)
+
+- **Read several documents with the new reader**, from the Documents page: *Read all with the new reader* (or the
+  selected ones). A document moves only when every result in it finds its place; the others are listed with the
+  reason. **Can change results** for the documents moved.
+- **Something to check, then checked.** Each warning in *Reading* takes you to what it is about (*Look at the pages*,
+  *Show what was left out*); **Checked: it reads well enough** takes the mark off the list, and *Undo* puts it back.
+  The mark *read before 0.15* in the list opens the preview of the move.
+- **Leave out without the flash.** The paragraph greys and folds away where it is, into the line *Left out of the text*,
+  which lights up for a moment; the rest of the page stays still. *Restore*, *All like this* and the start and end
+  marks change the text in place the same way. Past the first 1000 blocks of a long book, the message now names
+  every block that changed with the one you clicked.
+
+### Speed for large projects (ENLENS 0.16.0rc1)
+
+Nothing changes for results: each step was compared with the code before it, number for number.
+
+- **Adding many documents is quicker**: up to three files are read at the same time, each in a reading process of its
+  own, and stored in the order of the files. A small batch, one file or a computer short of memory reads one at a time.
+- **The glossary** keeps what it read in each document (`cache/glossary.sqlite`) and reads only new or changed ones.
+- **Search** keeps each document's words on disk (`cache/search.sqlite`) instead of every passage's text in memory:
+  ready sooner, in far less memory. Neither cache goes into a project's zip; both can be deleted at any time.
+- **The Profile page opens about five times quicker**, and **long lists** (Documents, the Profile grid) draw their first
+  rows at once and the rest as you scroll. *Words nearby*, the codebook's keyword pass and themes by words do less
+  work for the same answer.
+
+### Claude Code works in a box of its own (ENLENS 0.14.6)
+
+- **Privacy.** A run started with *Start Claude Code* has only the tool that starts the helpers (`--tools Agent`): no
+  tool that reads, writes or searches files, runs commands or browses. It takes nothing from your own Claude Code
+  (`--restricted`: not your settings, hooks, `CLAUDE.md`, other plugins or claude.ai connectors) and loads only
+  Margin's plugin (`--plugin-dir`), when your Claude Code knows these options. Can change results slightly: the
+  helpers no longer receive your own Claude Code instructions.
+- **The sign-in window keeps Claude Code out of your files**: it starts in an empty folder of Margin's
+  (`claude-runs/sign-in` in the data folder) without those tools, not in your home folder.
+
+### Windows, Ollama and smaller fixes (ENLENS 0.15.2 to 0.15.6)
+
+- **Update works on Windows**: *Update and restart* downloads and checks the new version, closes Margin, has a small
+  helper install it and opens Margin again. If it cannot finish, Margin opens as it was and says why (most often
+  Claude Code still had Margin connected). The update from Margin 0.14 is still made by hand, as it runs 0.14's code.
+- **The Windows install waits for Claude Code**: the install line names the programs that still use Margin's folder
+  and waits for them, instead of half-removing Margin. An install broken that way is repaired by running the line
+  again.
+- **Windows user folders with accents** (C:\Users\Dávid) install, and the icons go where they should.
+- **No console windows flash open on Windows** while Margin checks Claude Code, reads a scanned page or updates.
+- **Windows: removing a project** no longer fails once the app has opened it, the connector no longer holds projects
+  open, and a Claude Code run left going is recognised by its command line, not its process number alone.
+- **Install Ollama with one button** (*A model on this computer*): it says the download's size and the free space it
+  needs first, then downloads Ollama's own signed installer, installs and starts it, with a progress bar and *Stop*.
+  *Start Ollama* when it is installed but not running; on Linux a terminal window runs Ollama's own line.
+- Hovering a task in the sidebar shows its whole name.
+
+### Left out, or made for Margin
+
+- **Shared projects stay out** (as with ENLENS 0.14.0). Where the new code names a person, Margin has one: *Leave out*
+  and the start and end marks name nobody, a move to the new reader is logged without a person, and *Checked* says
+  when, not who. A person's own judgement stays on its excerpt (`verifications.user_*`, as before), so *Read with the
+  new reader* moves it there and counts it, and `margin measure --ws` counts its quotes there. ENLENS's shared-project
+  tables (`people`, `judgements`, `sync_*`) and columns (`verifications.user_by`, `reviews.person_id`) are not added;
+  `documents.text_fp` is, because the move keeps a document's earlier fingerprints.
+- **The manual stays one page.** ENLENS made its manual a hub with a short page per task and pictures of ENLENS
+  (`docs/manual/`, `docs/images/manual/`, `tests/test_manual.py`, `tools/manual_screenshots.py`); Margin keeps
+  `docs/MANUAL.md` whole, in its own look, with ENLENS's new text carried into it (the reader, the reading view,
+  Ollama, Windows updates and installs, release candidates, problem reports, the caches, troubleshooting).
+  `docs/DEVELOPING.md` stays out, as before.
+- **Release candidates without colleagues.** The help under *Which new versions to offer* and the update note of a
+  candidate no longer speak of projects shared with colleagues or of sync clashes.
+- `static/whats-new.md` is still ENLENS's note for 0.16.0rc2. It is never shown in Margin (only a note for the running
+  version is), so the next Margin release writes its own.
+
+### Fixed on the way (Margin)
+
+- **Skim keeps the reference list as a section.** The new reader sets a reference list aside with its heading, so
+  *Skim*'s list of sections lost *References* and counted the list under the last section. It now takes the heading
+  from the reader's first block of the list (`skim._Doc`).
+- **A document's title has no line break.** For a text file whose first line is short ("Notes 1"), the title is its
+  first sentence; with the new reader it kept the line break after that line, which broke the source line of a quote
+  in an outline's Markdown. It is one line again, as reader 1 gave it (`ingest.guess_title`). A candidate fix for
+  ENLENS too.
+
+### For developers
+
+- **`gui/server.py` is split** as in ENLENS: endpoints in `Handler` mixins (`api_documents.py`, `api_explore.py`,
+  `api_checks.py`, `api_setup.py`), parts of `App` in `app_library.py` and `app_queue.py`, shared helpers in
+  `api_common.py`. Margin's own endpoints (drafts, outlines, citations, skim, literature, import from ENLENS) stay in
+  `server.py`; Margin's changes to moved functions went with them (each merged against ENLENS 0.14.5 function by
+  function). `_codebook` and `NO_CODEBOOK` moved to `api_common.py` (still importable from `gui.server`).
+- New modules: `reader.py` (reader 2), `reader3.py`, `readworker.py` (reading processes), `reread.py` (Read with the
+  new reader; `reread.text_fp` in place of ENLENS's `sync.text_fp`), `measure.py`, `pdfmake.py`, `searchindex.py`,
+  `handover.py` (the Windows update), `ollama_setup.py`, `procs.py`.
+- New tables `blocks`, `doc_tables`, `block_choices`; new columns `documents.reader`, `app_version` (documents,
+  results, runs, labels, theme_runs, hypotheses), `passages.block`, `documents.reading_json`, `text_fp`, `old_fps`,
+  `sent_share`. Labels are written by column name (`profile._INSERT_LABEL`), so Margin's `label_parts` stays apart.
+- Settings `update_channel` and `whats_new_seen`; `MARGIN_READ_WORKERS`. `docs/API.md` has the new routes (the
+  reading view's blocks and bounds, `new-reader`, `reading-checked`, `whats-new`, Ollama install, results across
+  versions).
+- `.github/workflows/tests.yml` runs on Linux, macOS and Windows; `release.yml` builds release candidates and the
+  validation report; issue forms under `.github/ISSUE_TEMPLATE/`.
+
+### Tests
+
+- From ENLENS, in Margin's names: `tests/test_0_14_6_claude_code_box.py`, `test_0_15_0_measure.py`,
+  `test_0_15_0_read_with_new_reader.py`, `test_0_15_0_reader.py`, `test_0_15_0_release_candidates.py`,
+  `test_0_15_0_testing_and_updates.py`, `test_0_15_0_versions_on_results.py`, `test_0_15_1_reader3.py`,
+  `test_0_15_1_updates.py`, `test_0_15_1_whats_new.py`, `test_0_15_1_zotero_files.py`,
+  `test_0_15_2_accented_user_folder.py`, `test_0_15_3_no_console_windows.py`, `test_0_15_4_windows_update.py`,
+  `test_0_15_5_install_waits.py`, `test_0_15_6_ollama_install.py`, `test_0_15_7_documents_reading.py`,
+  `test_0_16_0_leave_out_in_place.py`, `test_0_16_0_recompute.py`, `test_0_16_0_search_index.py`,
+  `test_0_16_0_speed.py`, and ENLENS's changes to earlier tests.
+- Changed for Margin: `test_0_15_0_read_with_new_reader.py` (a person's judgement is read from its excerpt, not
+  from `judgements`), `test_0_15_0_versions_on_results.py` (without the sync-fingerprint test),
+  `test_0_15_7_documents_reading.py` (*Checked* names no person), `test_0_15_1_updates.py` (ENLENS's withdrawn
+  numbers compared against Margin's own version), `test_0_15_0_testing_and_updates.py` (without the test of the
+  rollback runbook in `docs/DEVELOPING.md`), `test_0_13_6_version_numbers.py`, `test_0_14_3_check_status.py`. Left
+  out: `tests/test_manual.py` (the manual's pages) and, as before, `test_0_14_0_shared_projects.py` and
+  `test_0_13_8_citations_removed.py` (Margin keeps *Check citations*).
+- **The new reader's tests need the `pdfminer` extra**, as CI installs it (`pip install -e ".[dev,connector,fast,
+  pdfminer]"`). With it: 1114 passed, 23 skipped, 1 failed only because that run added pdfminer through `PYTHONPATH`,
+  which `test_0_16_0_speed.py`'s reading process replaces. Without it, 9 of ENLENS's reader tests fail (running heads
+  stay in the text): an environment without the layout reader, not a fault. Before the merge: 846 passed; nothing
+  that passed then fails now.
+- Checked on the dev server (`--reading`) with Playwright in light, dark and at 390 px: the reading view, *Leave out*
+  folding in place, the Documents page's note on the earlier reader, Skim, Outline, Check a draft and Settings keep
+  Margin's look (`margin.css`), with no console errors and no sideways scroll.
+
+### Not yet done
+
+- ENLENS's own list stands: the Windows changes were tried on GitHub's Windows machine, not on a real PC; the reading
+  view's animation in Chromium only, not Safari or Firefox; reading three files at once not by hand on Windows; very
+  long PDFs side by side not measured on a computer short of memory; themes still go out of date when documents are
+  added.
+- Margin's own pages on the new reader's documents (drafts, outlines, *Skim*, *Check citations*, *Find literature*)
+  were checked by the test suite and on the dev server, not on a real project of yours read by both readers.
+
 ## 0.14.0 (November 2026): an outline from your research question
 
 Roadmap C4. *Outline* can now start from a research question and, optionally, hypotheses, instead of from every

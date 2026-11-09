@@ -181,11 +181,33 @@ and since ENLENS 0.13.6 only when there is an update).
   0.14.3: while an update runs the answer is the kept one (or `available: true`) with `"updating": true`, and no
   `git fetch` is made beside the update's own git commands; a git command never asks for a password (stdin closed,
   `GIT_TERMINAL_PROMPT=0`, ssh in batch mode) and is stopped after 90 s.
-- `POST /api/update` `{}` → `{"updated": true, "restarting": true, "from", "version", "jobs_stopped": n}`: installs it
-  as `margin update` does, then restarts on the same address and port (running jobs are stopped first, as for Quit;
-  at most 20 s); `{"updated": false, "restarting": false, "version"}` when nothing newer waits. 409 when the update
-  fails (nothing restarts; the reason is the error), on Windows with the one-line install (quit, then run the install
-  line again), when this copy cannot restart itself, and for a second request while one is updating or restarting.
+- `GET /api/whats-new` (0.15.1) → `{"note": {"version", "title", "subtitle", "points": [...]}}` or `{"note": null}`. The
+  note is `gui/static/whats-new.md` (`# 0.15.1: Title`, `*subtitle*`, a few lines starting with `-`). It is served only
+  when its version is the running one and the setting `whats_new_seen` is not that version, and that setting is set
+  the moment it is served, so the page shows it once, on the first start after an update. A new installation (no
+  project yet, or no settings file) is marked silently and gets `null`; a malformed file is `null`, never an error.
+  0.15.4: before it, once, an update on Windows that did not finish: `{"note": {"kind": "problem", "version":
+  running, "title": "The update to X did not finish", "subtitle", "points": [what happened, what to do]}}`, from the
+  result `handover.py` left in `updates/result.json` of the data folder (removed when read; a result that says the
+  update worked is only removed).
+
+- `POST /api/update` `{}` → `{"updated": true, "restarting": true, "handover": false, "from", "version",
+  "jobs_stopped": n}`: installs it as `margin update` does, then restarts on the same address and port (running jobs
+  are stopped first, as for Quit; at most 20 s); `{"updated": false, "restarting": false, "version"}` when nothing
+  newer waits. 409 when the update fails (nothing restarts; the reason is the error), when this copy cannot restart
+  itself, and for a second request while one is updating or restarting. 0.15.4, the one-line install on Windows:
+  `"handover": true`: the new version is downloaded and checked, then the app quits and `handover.py` installs it and
+  starts the app again on the same address (`server.handover_command`); the page waits up to five minutes. Before
+  0.15.4 this was a 409 that said to quit and run the install line again.
+- 0.15: *Try new versions early*: the setting `update_channel` (`"stable"`, the default, or `"early"`, validated by
+  `PUT /api/settings`) says whether the check and `margin update` of a one-line install also take release candidates:
+  `early` asks GitHub's list of releases (`/releases?per_page=30`, drafts skipped) and takes the highest version
+  (`update.version_tuple`); `stable` asks `/releases/latest`, which is never a pre-release. A git copy follows
+  `main` and ignores it. `GET /api/update` carries `"candidate": true` when `latest` is a release candidate, and
+  changing the channel makes the next look ask again.
+- `GET /api/technical-details` (0.15) → `{"text": "Margin version: …\nInstalled: …\nSystem: …\nPython: …\nAI route: …\nLocal
+  only: yes|no\nUpdate channel: …"}`: a short block for a problem report (*Copy technical details* in Settings →
+  Technical). It holds no path, project or document name, user name or key.
 - `POST /api/restart` `{}` → `{"restarting": true, "jobs_stopped": n}`: restarts into the version on disk (*Restart
   now* on the banner *Margin X is installed, but Y is still running*); 409 when this copy cannot restart itself.
 
@@ -203,7 +225,34 @@ as the icon starts it (`--launcher`, output to `logs/margin.log`), without openi
  "suggested": [{"name": "qwen3:8b", "use": "chat", "size": "about 5 GB"},
                {"name": "nomic-embed-text", "use": "embed", "size": "about 0.3 GB"}]}
 ```
-`suggested` (0.13.7): the models the page offers to download into Ollama with one button.
+`suggested` (0.13.7): the models the page offers to download into Ollama with one button. `ollama_app` (0.15.6):
+whether Ollama is on this computer, running or not: `{"installed", "path", "system": "windows" | "mac" | "linux",
+"how": "app" | "terminal", "line", "manual"}` (`how`: the app installs it itself, or on Linux opens a terminal window
+running Ollama's own `line`; `manual`: Ollama's installer file, for doing it by hand).
+
+`GET /api/ollama` (0.15.6) → what the page shows before Ollama is installed from the app: `ollama_app`'s fields plus
+`"size": {"bytes", "exact"}` (the download for this kind of computer, as ollama.com says it now, kept an hour; when
+ollama.com cannot be asked, the size known in November 2026, `exact` false: 1.7 GB for Windows, 230 MB for macOS),
+`"needs"` (the free disk space asked for: four times the download, for the file and Ollama unpacked), `"free"` (free
+space in the temporary folder) and `"from"` (the address it downloads).
+
+`POST /api/ollama/install` (0.15.6) → installs Ollama without a terminal, as `POST /api/claude-setup/claude-code` installs
+Claude Code. Windows and macOS: `{"job": …}` of kind `ollama-install` (one at a time) that downloads Ollama's own
+installer (`OllamaSetup.exe`, `Ollama-darwin.zip`: the files ollama.com's install lines download), checks that it is
+Ollama's (Windows: the Authenticode signature is valid and its signer is `O=Ollama Inc.`, as Ollama's install.ps1
+checks; macOS: `codesign --verify --deep --strict` against Ollama's Developer ID team, 3MU9H2V9Y9), installs it for this
+user (Windows: the installer's silent per-user mode, `%LOCALAPPDATA%\Programs\Ollama`, no administrator rights; macOS:
+`/Applications`, else `~/Applications`) and starts it hidden. Its `progress` is `{"step": "download" | "check" |
+"install" | "start", "done", "total"}` (bytes while downloading); `POST /api/jobs/<id>/cancel` stops it while it
+downloads, and nothing is installed. Its `result` is `{"path", "running"}` (`running`: Ollama answered within a
+minute). An Ollama already on the computer is only started (`"already": true`). A failed install is a job `error` in
+plain words (not enough disk space, offline, a file that is not Ollama's: nothing is installed from it). Linux:
+`{"terminal": {"opened", "window", "command"}}`: a terminal window runs Ollama's own line, which asks for the password
+(it installs for everyone and sets up a service); `command` is the line to type when no window could be opened.
+Nothing of the person's is sent, so it is allowed with `--local-only` too.
+
+`POST /api/ollama/start` (0.15.6) → starts the Ollama that is on this computer but not running, hidden: `{"started",
+"path"}`; 409 when Ollama is not on this computer. The page notices it within a few seconds.
 
 `POST /api/servers/pull` (0.13.7) → downloads models into the Ollama running on this computer, so a local model needs
 no terminal. Body `{"models": ["qwen3:8b", "nomic-embed-text"]}` (one to four names as Ollama's library writes them;
@@ -326,6 +375,86 @@ Opening it at the quote: for a PDF add `#page=N`; for a text file add `&quote=<t
 then shown as a page with the quote highlighted (found as quotes are), scrolled to it (no script; the same sandbox
 policy as web pages; without a match the plain file is sent); for a web page add a text fragment,
 `#:~:text=<first words>,<last words>` (browsers that support it scroll to and highlight that text).
+
+**0.15: how a document was read, and the reading view.** The detail adds `"reader"` (1: read before 0.15; 2: the new
+reader), `"new_reader"` (the reader new documents get), `"reading"` (the reading report: `{"reader", "engine":
+"pdfminer"|"pypdf"|"text", "pages", "pages_with_text", "ocr_pages", "scanned_pages", "multi_column_pages",
+"repairs": {"hyphens_joined", "hyphens_kept", "words_split", "ligatures", "spaces", "accents"}, "tables", "blocks":
+{kind: n}, "left_out_chars": {kind: n}, "included_share", "passages", "body_passages", "unreadable_passages", "words",
+"warnings": [sentence], "quality": "good"|"fair"|"poor"}`; for a document read before 0.15 `{"reader": 1, "older":
+true, "pages", "ocr_pages", "scanned_pages", "passages", "body_passages", "unreadable_passages", "warnings": [],
+"quality": null}`), `"page_images"` (a picture of each page can be had), `"tables"` and `"paragraphs"` (counts).
+With `&view=blocks`, a document read by the new reader comes block by block in reading order (`limit` up to 1000):
+each block adds `"kind"` (`title`, `heading`, `abstract`, `body`, `caption`, `table`, `footnote`, `front`, `back`,
+`references`, `figure`, `furniture`), `"kind_text"` (in words), `"included"` (searches, codes, themes and checks read
+it), `"changed"` (a person restored or left it out), `"box"` (`[x0, top, x1, bottom]` on the page in points from the
+top left, or null) and, for a table, `"table": {"n", "caption", "rows": [[cell]]}`. `label` is "Page 2, paragraph 3"
+where a paragraph begins, empty where the paragraph above goes on (under its heading, or across a column), and the
+kind in words for a block left out. Passages add `"block"` (the kind of block they were made from; null for reader 1),
+and their `section` may be `"left_out"`.
+
+`PUT /api/projects/<p>/documents/<doc_id>/blocks/<n>` `{"included": true|false, "alike": false}` → *Restore* or
+*Leave out* a block: `{"blocks": [block], "group": [n], "together": n, "alike": n, "doc": {...}}`. `group`: the blocks
+chosen (those sharing a passage with it change together). `blocks`: every block that changed, as `?view=blocks` lists
+them now, wherever they are in the document (0.16: the first 1000 blocks of the group only before); since a choice is
+kept by the block's words, that includes blocks elsewhere with the same words. `doc`: the reading's figures now
+(`left_out`, `passages_read`, `passages_all`, as the document's own answer has them), so the reading view shows the
+change in place. The choice is kept by the block's words (`block_choices`) and applied again when the document is
+read again; choosing what the reader chose (and the start and end marks below imply) removes it. 0.15.1: with
+`"alike": true`, every block that looks the same (blocks of up to 200 characters, their numbers and roman numerals
+aside: a running head, a page number) changes too; `alike` in the answer is how many. 404 for no such block, 400 when
+`included` or `alike` is not a boolean.
+
+`PUT /api/projects/<p>/documents/<doc_id>/bounds` (0.15.1) `{"side": "start"|"end", "block": n|null}` → *Text starts
+here* or *Text ends here* at block `n` (`null`: undo): what comes before the start, or after the end, is left out; a
+block the person restored there still counts. Kept in `block_choices` as `<side>:<fingerprint>:<k>` (the k-th block
+with those words), so it holds when the document is read again. `{"side", "block", "changed", "left_out",
+"restored", "blocks", "doc"}`: 0.16: `blocks` are the blocks that changed and the blocks that carry or carried the
+mark, as `?view=blocks` lists them now; `doc` as above. 400 for another side, a start after the end (or an end before the start), or a block that is not a
+number; 404 for no such block, or a document without blocks (read before 0.15).
+
+In `?view=blocks` (0.15.1), each block also has `alike` (how many other blocks look the same), `share` (where it
+stands in the document, 0 to 1) and `bound` (`"start"`, `"end"` or null); `changed` is also true for a block with a
+choice of its own.
+
+`GET /api/projects/<p>/documents/<doc_id>/pages/<n>.png?scale=1.5` (also `?token=`, for an `<img>`) → page `n` of the
+original PDF as a PNG (`scale` 0.5 to 3 times 72 dots per inch), drawn with pypdfium2 (the OCR extra); 404 with the
+reason when the original is missing or not a PDF, the extra is not installed, or there is no such page. A block's
+`box` times `scale` is its place in pixels.
+
+`GET /api/projects/<p>/documents/<doc_id>/tables/<n>.xlsx` → a table the reader found, for Excel: its caption, where
+it comes from, then its rows (cells that read as numbers are numbers).
+
+`GET /api/projects/<p>/documents/<doc_id>/reread` → whether the document can be read with the new reader now and what
+that would do, changing nothing: `{"ok": false, "reason", "reader", "new_reader", "doc_id", "title"}` when it cannot
+(read by the new reader already, the original missing or changed, a task of it waiting or out with Claude Code, almost
+no text in the new reading), otherwise the report: `{"ok": true, "moved": false, "doc_id", "title", "reader",
+"new_reader", "counts": {kind: {"moved", "not_placed", "left_out"}}` (kinds: `check`, `judgement`, `second_opinion`,
+`label`, `claim`, `sdg_check`, `theme_member`), `"not_placed": [{"kind", "kind_text", "what", "quote", "page", "where",
+"left_out_kind", "why"}]` (page in the old reading), `"left_out": [{… "note"}]` (placed, in text the new reader leaves
+out; page in the new reading), `"remade"`, `"tasks": {"asked_again", "moved", "kept_as_records"}`, `"themes":
+{"runs_kept_up_to_date", "runs_out_of_date", "runs"}`, `"passages": {"before", "after", "one_to_one", "body_before",
+"body_after"}`, `"ai_share": {"before", "after"}`, `"addons": [{"table", "rows"}]`, `"reading"` (the new reading
+report), `"warnings": [sentence]}` (`reread.py`). `POST …/reread` → `{"job"}` (kind `reread`): the move in one
+transaction (all or nothing), then the document's search by meaning, the glossary and the keyword pass, as after adding
+a document; the job's result is `{"report": {… "moved": true}, "glossary", "codes", …}`. 409 with the reason when it
+cannot be done, or while another job of the project runs.
+
+`POST /api/projects/<p>/new-reader` `{"doc_ids"?: [doc_id]}` (0.15.7) → `{"job"}` (kind `new_reader`): the documents an
+earlier reader read (only those of `doc_ids`, when given; others are ignored) moved one after the other, each as `POST
+…/reread` does, but only when every result finds its place (`reread.move(keep_all=True)`); then, once, search by
+meaning, the glossary and the keyword pass. The job's result is `{"moved": [{"doc_id", "title", "results",
+"left_out"}], "kept": [{"doc_id", "title", "reason", "not_placed"?}], "stopped", "glossary", "codes", …}`: `kept` are
+left as they were, `not_placed` (how many results would have had no place) when that is the reason. Stopping it keeps
+the documents moved so far. 400 for `doc_ids` that is not a list; 409 when none is left to move, or while another job
+of the project runs. The list of documents (`GET …/documents`) gives `new_reader` (`ingest.READER`) beside each
+document's `reader`.
+
+`PUT /api/projects/<p>/documents/<doc_id>/reading-checked` `{"checked": bool}` (0.15.7) → `{"checked": {"by", "name",
+"at"} | null}`: the person marks the reading as checked (or takes it back). It is kept in the reading report, so a new
+reading asks again; the list of documents gives `reading_checked` beside `reading_quality`. 400 for a `checked` that is
+not true or false; 404 for no such document; 409 for one read before 0.15 (it has no reading report). The document's
+`reading` also has `places` (0.15.7, not stored): for each warning, `"page"`, `"left_out"` or null, where to look.
 
 `DELETE /api/projects/<p>/documents/<doc_id>` → `{"removed": {...counts}}` (past checks keep their evidence).
 `DELETE /api/projects/<p>/documents` `{"confirm": true}` → removes every document **and every check**.
@@ -944,8 +1073,11 @@ that no session has taken yet out of the queue; a check by queue is removed whol
   the plugin (as 0.8); `{"check": true}` also starts the connector to check it.
 - `POST /api/projects/<p>/queue/claude-code` → `{"running", "started_at", "seconds", "exit_code", "report",
   "stopped"}`: starts Claude Code headless for the project's queue (`claude -p "/margin-run:margin-run <p>"
-  --allowedTools Agent mcp__plugin_margin-run_margin__{queue_status,next_tasks,submit_answers,release}`), one run per
-  project; adds the plugin first if needed. 400 when Settings do not name Claude Code, when Claude Code is not found,
+  --tools Agent --restricted --plugin-dir <plugin folder> --allowedTools Agent
+  mcp__plugin_margin-run_margin__{queue_status,next_tasks,submit_answers,release}`, with
+  `ENABLE_CLAUDEAI_MCP_SERVERS=false`, in an empty folder; an older Claude Code without those options gets
+  `--disallowedTools` with the file, shell and web tools instead), one run per project; adds the plugin first if
+  needed. 400 when Settings do not name Claude Code, when Claude Code is not found,
   or with `--local-only`.
 - `POST /api/projects/<p>/queue/claude-code/stop` → the same object: stops it, and gives the batches it had taken
   back to the queue at once.
@@ -965,9 +1097,11 @@ that no session has taken yet out of the queue; a check by queue is removed whol
 - `POST /api/claude-setup/claude-code` `{}` → job (kind `claude-install`): runs that installer (the page shows the
   command and asks first). `result`: `{"ok", "text", "status"}`; the job ends in `error` when Claude Code could not
   be installed. 409 when Claude Code is already found; 403 with `--local-only`.
-- `POST /api/claude-setup/sign-in` `{}` → `{"opened", "window", "command": "claude"}`: opens a terminal window
+- `POST /api/claude-setup/sign-in` `{}` → `{"opened", "window", "command", "folder"}`: opens a terminal window
   (Terminal on macOS, PowerShell on Windows, the first terminal found on Linux) already running `claude`, for the
-  one-time sign-in; `opened: false` when no window could be opened (the page then shows the line to type). The page
+  one-time sign-in, in the empty `folder` (`<data folder>/claude-runs/sign-in`) and without the file, shell and web
+  tools; `opened: false` when no window could be opened (the page then shows `command`, the line to type, which goes
+  to that folder first). The page
   then reads `GET /api/claude-setup?refresh=1` every few seconds until `status.signed_in` is true, and adds the
   plugin. 400 when Claude Code is not found, or with `--local-only`.
 - On start, the app writes the Claude Code plugin again (and runs the two set-up commands again, quietly) when the
@@ -1290,6 +1424,20 @@ wait), `refused` (502), `failed` (502), `no_email` (409, for Unpaywall); `bad_re
 - `POST /api/literature/export` `{"works": [...], "format": "ris" | "bibtex"}` → the file as a download.
 - `GET /api/projects/<p>/overview` adds `"literature": {"searches", "new"}` (counted from what is kept: it asks no
   service).
+
+### Results across versions (0.15)
+
+- `GET /api/projects/<p>/documents` adds `"reader"` (the reader that read the document's text: 1 for every document
+  read before 0.15, 2 from 0.15), `"app_version"` (the Margin version that read it; null before 0.15),
+  `"reading_quality"` (`"good"`, `"fair"`, `"poor"`; null for a document read before 0.15) and `"reading_warnings"`
+  (sentences) per document. The reading view's routes are under *Documents* above.
+- `GET /api/projects/<p>/overview` adds `"made_with"`: `{"version": "0.15.0", "reader": 2, "documents": [{"reader",
+  "app_version", "label", "n", "older"}], "results": [{"what": "checks" | "theme_runs" | "labels" | "answers",
+  "app_version", "label", "n", "older"}], "older": bool}`. `label` is the version as people read it ("before 0.15"
+  when it was not recorded); `older` marks results an earlier version made, and documents an earlier reader read.
+  People's own labels are not counted: they do not depend on a version.
+- The sheet *How these results were made* of every Excel download has a column *Margin version* and ends with a row
+  saying which reader read the project's documents.
 
 ### Jobs
 

@@ -141,6 +141,15 @@ class _Doc:
         self.page_starts = [r["start"] for r in ws.query("SELECT start FROM pages WHERE doc_id=? ORDER BY page", (doc_id,))]
         self.heads = [dict(r) for r in ws.query("SELECT start, end, text FROM headings WHERE doc_id=? ORDER BY start",
                                                 (doc_id,))]
+        # the new reader (from ENLENS 0.15) sets the reference list aside as blocks of its own, its heading with it, so
+        # that heading is no longer among the headings: its first block heads the list again when it is one
+        first_ref = ws.query("SELECT start, end FROM blocks WHERE doc_id=? AND kind='references' ORDER BY n LIMIT 1",
+                             (doc_id,))
+        if first_ref:
+            a, b = first_ref[0]["start"], first_ref[0]["end"]
+            if citations._HEADINGS.fullmatch(self.text[a:b].strip()) and all(h["start"] != a for h in self.heads):
+                self.heads = sorted(self.heads + [{"start": a, "end": b, "text": self.text[a:b].strip()}],
+                                    key=lambda h: h["start"])
         breaks: set[int] = set()
         for h in self.heads:
             breaks.update({h["start"] - 1, h["end"]})

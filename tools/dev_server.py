@@ -30,11 +30,16 @@
   installed: the install takes 2 s) and restarts the app in this process, with a new token, so the page's wait and
   reload can be watched. `--update commits` is a git copy with 3 new commits, `--update on-disk` a newer version
   installed while this one ran (the banner with *Restart now*), `--update none` a Margin that is up to date, and
-  `--update fails` an install that fails.
+  `--update fails` an install that fails. `--update windows` (0.15.4) is the hand-over of Windows: the app quits and
+  comes back 6 s later (the install), `--update windows-fails` the same with an install that did not finish (the
+  note that says why).
 - with `--ollama` (0.13.7): a model on this computer chosen, but no model yet. `--ollama empty` is an Ollama with no
   model (its *Download* takes 12 s, then the model answers), `--ollama later` an Ollama that starts 15 s after the
   app (the page notices it by itself), `--ollama none` no Ollama at all. Other servers on this computer (LM Studio…)
-  are not looked for. Combine with `--empty` for a new user's first screen.
+  are not looked for. Combine with `--empty` for a new user's first screen. 0.15.6: `--ollama install` is no Ollama on
+  the computer: *Install Ollama* shows the real size of Ollama's download for this computer (asked of ollama.com), then
+  a stand-in install (nothing is downloaded or installed: 12 s of download, 2 s each to check and install), after which
+  the stand-in Ollama answers; `--ollama stopped` is an Ollama installed but not running (*Start Ollama*, 3 s).
 - with `--low-memory` (0.13.11): the computer has 2.7 GB free and every local model needs 8.1 GB, so the local model
   for documents marked Only a local AI is not started (use it with `--mixed --claude-code`): see the note on the
   progress, the excerpts that wait, and *Read them now* → *Start it anyway*.
@@ -42,6 +47,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import tempfile
@@ -128,10 +134,16 @@ def main() -> int:
                          "(implies --corpus social --zotero)")
     ap.add_argument("--literature-mode", default="ok", choices=["ok", "rate_limited", "down", "no_created_filter", "refused"],
                     help="how the stand-in literature services behave")
-    ap.add_argument("--update", nargs="?", const="release", choices=["release", "commits", "on-disk", "none", "fails"],
+    ap.add_argument("--update", nargs="?", const="release",
+                    choices=["release", "commits", "on-disk", "none", "fails", "windows", "windows-fails"],
                     help="0.13.1: Update Margin finds a stand-in newer version and restarts the app in this process")
-    ap.add_argument("--ollama", nargs="?", const="empty", choices=["empty", "later", "none"],
-                    help="0.13.7: a model on this computer chosen, but no model yet (empty), Ollama later, or none")
+    ap.add_argument("--ollama", nargs="?", const="empty", choices=["empty", "later", "none", "install", "stopped"],
+                    help="0.13.7: a model on this computer chosen, but no model yet (empty), Ollama later, or none; "
+                         "0.15.6: Ollama not on the computer (install, a stand-in install) or not running (stopped)")
+    ap.add_argument("--reading", action="store_true",
+                    help="0.15: a project 'Reading' with PDFs of known text (columns, running heads, line numbers, front and "
+                         "back matter, a table, footnotes) read by the new reader, and one read by the old reader with a check "
+                         "on it, to try the reading view and Read with the new reader")
     ap.add_argument("--low-memory", action="store_true",
                     help="0.13.11: too little memory free for the local model (2.7 GB free, 8.1 GB needed)")
     a = ap.parse_args()
@@ -205,6 +217,26 @@ def main() -> int:
         for text, dec in checks:
             claimcheck.check_hypothesis(ws, text, be, chat_model, decompose=dec, embedder=emb)
         home.update_settings({"project": "Demo"})
+    if a.reading and "Reading" not in home.list_projects():
+        from margin import measure
+
+        folder = home_dir / "reading_sources"
+        folder.mkdir(exist_ok=True)
+        cases = measure.make_known_texts(folder)
+        ws = home.create_project("Reading")
+        old = [c.path for c in cases if c.name.startswith("d_")]
+        reader_now = ingest.READER
+        ingest.READER = 1  # one document as Margin 0.14 read it, to move to the new reader
+        try:
+            ingest.ingest(ws, old, ai_access="cloud")
+        finally:
+            ingest.READER = reader_now
+        ingest.ingest(ws, [c.path for c in cases if c.path not in old], ai_access="cloud")
+        emb = home.make_embedder(home.load_settings())
+        embed.build(ws, emb)
+        claimcheck.check_hypothesis(ws, "Coastal residents overestimate how fast their cliffs retreat.",
+                                    OllamaBackend(base_url=fake_url), chat_model, embedder=emb)
+        home.update_settings({"project": "Reading"})
     if a.pilot:
         try:
             home.link_existing(a.pilot, "Pilot")
@@ -226,6 +258,40 @@ def main() -> int:
                 home.update_settings({"ollama_url": fake_url})
                 print(f"stand-in Ollama now answers at {fake_url}, with no model")
             threading.Thread(target=start_later, daemon=True).start()
+    if a.ollama in ("install", "stopped"):   # 0.15.6: the real Ollama of this computer is never found, started or replaced
+        from margin import ollama_setup
+
+        there = {"installed": a.ollama == "stopped"}
+        fake_app = home_dir / "Ollama.app"
+        ollama_setup.app_path = lambda sys_name=None: fake_app if there["installed"] else None
+
+        def fake_start(sys_name=None):
+            def later():
+                time.sleep(3)
+                home.update_settings({"ollama_url": fake_url})
+                print(f"stand-in Ollama started: it answers at {fake_url}, with no model")
+            threading.Thread(target=later, daemon=True).start()
+            return {"started": True, "path": str(fake_app), "serve": False}
+
+        def fake_download(url, dest, on_progress, should_stop):   # nothing is fetched: 12 s at the real size
+            total = ollama_setup.download_size()["bytes"]
+            for i in range(61):
+                if should_stop():
+                    return False
+                on_progress({"step": "download", "done": total * i // 60, "total": total})
+                time.sleep(0.2)
+            return True
+
+        def fake_install(app):
+            time.sleep(2)
+            there["installed"] = True
+            return fake_app
+
+        ollama_setup.start = fake_start
+        ollama_setup._download = fake_download
+        ollama_setup._unpack_mac = lambda zip_path, work: work
+        ollama_setup.check_mac = ollama_setup.check_windows = lambda path: time.sleep(2) or ""
+        ollama_setup._install_mac = ollama_setup._install_windows = fake_install
     if a.no_tesseract:
         ingest.find_tesseract = lambda: ""
         ingest._OCR_STATUS[:] = [0.0, None]
@@ -351,6 +417,18 @@ def main() -> int:
                 break
             finally:
                 srv.server_close()
+            if HANDOVER["pending"]:  # 0.15.4: the app quit for the Windows hand-over: "install", then come back
+                HANDOVER["pending"] = False
+                drop()
+                time.sleep(6)
+                if a.update == "windows-fails":
+                    from margin import update as _upd
+
+                    _upd.updates_folder().mkdir(parents=True, exist_ok=True)
+                    _upd.result_path().write_text(json.dumps({"ok": False, "hint": "in_use",
+                                                              "version": HANDOVER["version"]}), encoding="utf-8")
+                print("started again after the stand-in hand-over", flush=True)
+                continue
             if not again.is_set():
                 break
             drop()
@@ -386,6 +464,9 @@ def track_connections(srv):
     return drop
 
 
+HANDOVER = {"pending": False, "version": ""}  # 0.15.4: --update windows: the app quit for the hand-over
+
+
 def stand_in_update(mode: str) -> None:
     """0.13.1: `--update`: what update.update() would say, without GitHub, git or uv."""
     from margin import __version__, update
@@ -406,6 +487,10 @@ def stand_in_update(mode: str) -> None:
         time.sleep(2)
         if mode == "fails":
             raise update.UpdateError("Could not ask GitHub for the newest Margin (URLError: timed out). Are you online?")
+        if mode.startswith("windows"):
+            HANDOVER.update(pending=True, version=newer)
+            return {"updated": True, "from": __version__, "version": newer, "route": "release", "handover": True,
+                    "message": "handed over"}
         return {"updated": True, "from": __version__, "version": newer, "message": f"Margin updated to {newer}."}
 
     update.update = fake

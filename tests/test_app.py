@@ -39,7 +39,7 @@ def test_settings_projects_and_key(home, tmp_path):
 
     home.remember_key("sk-test")
     p = home.home() / "credentials.json"
-    assert home.stored_key() == "sk-test" and stat.S_IMODE(os.stat(p).st_mode) == 0o600
+    assert home.stored_key() == "sk-test" and (os.name == "nt" or stat.S_IMODE(os.stat(p).st_mode) == 0o600)  # Windows has no file modes
     home.forget_key()
     assert home.stored_key() == ""
 
@@ -708,7 +708,9 @@ def test_the_icon_starts_one_copy_without_a_terminal_and_quit_stops_it(home, tmp
     assert "--launcher" in script and "--local-only" in script and str(tmp_path / "data") in script and "&" in script
     lin = launcher.make_launcher(None, False, [tmp_path / "lin"], python=sys.executable, platform="linux")[0]
     entry = lin.read_text()
-    assert "Terminal=false" in entry and "margin.gui.launch --launcher" in entry and sys.executable in entry
+    # (a menu entry doubles backslashes: a Windows path, when this runs on Windows)
+    assert "Terminal=false" in entry and "margin.gui.launch --launcher" in entry and \
+        (sys.executable in entry or sys.executable.replace("\\", "\\\\") in entry)
     win = launcher.make_launcher(None, False, [tmp_path / "win"], python=sys.executable, platform="win32")[0]
     assert win.suffix in (".lnk", ".cmd") and (win.suffix == ".lnk" or "--launcher" in win.read_text())
     assert launcher.draw_icon(64) is None or launcher.draw_icon(64).size == (64, 64)
@@ -721,7 +723,7 @@ def test_the_icon_starts_one_copy_without_a_terminal_and_quit_stops_it(home, tmp
            "--port", str(port)]
     first = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        for _ in range(100):
+        for _ in range(600):  # 0.15: up to a minute (a cold start on a CI machine is slow)
             if launcher.running():
                 break
             time.sleep(0.1)

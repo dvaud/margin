@@ -867,7 +867,7 @@ function updatesSection() {
       return;
     }
     const what = info.on_disk ? `${name} ${info.latest} is installed, but ${info.version} is still running.`
-      : info.latest ? `${name} ${info.latest} is available (you have ${info.version}).`
+      : info.latest ? `${name} ${info.candidate ? "release candidate " : ""}${info.latest} is available (you have ${info.version}).`
       : `${info.changes} new change${info.changes === 1 ? " is" : "s are"} waiting for this copy of ${name} (version ${info.version}).`;
     replace(out, h("div", { class: "notice notice-info" }, icon("arrow-up"),
       h("div", {}, h("p", {}, h("strong", {}, what)),
@@ -885,7 +885,36 @@ function updatesSection() {
   return sectionCard("updates", "Updates", st.can_restart
     ? `${name} looks for a new version when it opens and every two minutes after. When there is one, it says so in a pop-up, and an Update button appears at the bottom of the sidebar until you install it. Your projects and results are kept.`
     : `Look for a new version of ${name}. Your projects and results are kept when you update.`,
-    h("div", { class: "save-row" }, btn), out);
+    channelField(st), h("div", { class: "save-row" }, btn), out, problemRow());
+}
+
+// 0.15: which versions the update check offers. A git copy follows main and has no choice.
+function channelField(st) {
+  if (st.installation && st.installation.kind === "git")
+    return h("p", { class: "muted small" }, icon("info", { size: 13 }), ` This copy of ${appName()} is a git copy: it follows the main branch, so there is no choice of versions here.`);
+  const state = h("span", { class: "save-state", "aria-live": "polite" });
+  const sel = h("select", { class: "select", id: "update-channel" },
+    [["stable", "Stable (recommended)"], ["early", "Try new versions early"]].map(([v, t]) => h("option", { value: v, selected: ((st.settings || {}).update_channel || "stable") === v }, t)));
+  sel.addEventListener("change", async () => {
+    try { await save({ update_channel: sel.value }, state); checkUpdate(true).catch(() => {}); } catch (_) { /* shown */ }
+  });
+  return h("div", {}, field("Which new versions to offer", sel, { help: "A release candidate is a try-out of the next version, when there is one, so you can try it on your own projects before it is released." }), state);
+}
+
+// 0.15: a problem report without knowing GitHub: the technical details to paste, and the form to paste them in
+function problemRow() {
+  const btn = h("button", { class: "btn", type: "button" }, icon("copy", { size: 14 }), "Copy technical details");
+  btn.addEventListener("click", async () => {
+    try {
+      const r = await api("GET", "/api/technical-details");
+      try { await navigator.clipboard.writeText(r.text); toast("Copied. Paste it in your problem report.", "ok", { ttl: 2500 }); }
+      catch (_) { replace(box, h("pre", { class: "mono small" }, r.text)); toast("Select the text and copy it with Ctrl+C (or Cmd+C).", "info"); }
+    } catch (e) { showError(e); }
+  });
+  const box = h("div", {});
+  return h("div", {}, h("p", { class: "muted small", style: { marginTop: "12px" } }, "Something does not work? Copy the technical details (the version, the system and the AI route: no file names, project names or keys) and paste them in a report."),
+    h("div", { class: "save-row" }, btn,
+      h("a", { class: "btn btn-ghost", href: "https://github.com/dvaud/margin/issues/new?template=problem.yml", target: "_blank", rel: "noopener" }, icon("external-link", { size: 14 }), "Report a problem (on GitHub)")), box);
 }
 
 // 0.11: every passage sent to Claude, as a table for records such as a data management plan
@@ -944,6 +973,8 @@ export function claudeSetupCard(opts = {}) {
       title: "Install Claude Code?", confirmText: "Install Claude Code", danger: false,
       message: h("div", { class: "stack", style: { gap: "10px" } },
         h("p", {}, "Claude Code is the program that lets Claude work on your own Claude plan. Margin will run Anthropic's installer for it, which downloads Claude Code from claude.ai and puts it in your user folder. It needs no administrator rights and takes a minute or two."),
+        // the place a program is kept does not limit what it can open: the folder it starts in and its permissions do
+        h("p", { class: "small" }, icon("shield", { size: 13 }), " Where the program is kept does not decide what it can read. Margin starts Claude Code only in an empty folder of its own, with its tools for reading files, running commands and browsing switched off, so it cannot look through your computer: it sees only the passages in Margin's tasks."),
         h("p", { class: "small muted" }, "The command it runs:"), copyLine(line, "Copy", "a terminal"),
         h("p", { class: "small muted" }, "Prefer to do it yourself? Follow ", h("a", { href: info.docs || "https://code.claude.com/docs/en/setup", target: "_blank", rel: "noopener" }, "Anthropic's set-up page"), ", then press Set up Claude again.")),
     });
@@ -974,7 +1005,7 @@ export function claudeSetupCard(opts = {}) {
       const cancel = h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => { finish(false); replace(log); } }, "Stop waiting");
       say(h("span", { class: "spinner" }, icon("loader", { size: 13 })), h("div", {},
         opened.opened ? h("p", {}, `A ${opened.window} window opened with Claude Code. Sign in there with your Claude plan (it opens a page in your browser), then close that window. Margin is waiting and continues by itself.`)
-          : h("div", {}, h("p", {}, "Sign in to Claude Code once: open a terminal (Terminal on a Mac, PowerShell on Windows), type the line below, and follow the steps."), copyLine("claude", "Copy", "a terminal")),
+          : h("div", {}, h("p", {}, "Sign in to Claude Code once: open a terminal (Terminal on a Mac, PowerShell on Windows), type the line below, and follow the steps. It starts Claude Code in an empty folder of Margin, away from your files."), copyLine(opened.command || "claude", "Copy", "a terminal")),
         h("p", { class: "small muted" }, "Margin never sees your login: Claude Code keeps it."),
         h("div", { class: "btn-row", style: { marginTop: "6px" } }, checkNow, cancel)));
       const started = Date.now();

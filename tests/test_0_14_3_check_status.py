@@ -21,6 +21,7 @@ import pytest
 from helpers_0110 import Cloud, Local, mixed_project, use_local_model
 
 import fake_servers
+from helpers import manual_text
 from margin import access, claimcheck, home, routing, taskqueue, tasks
 from margin.llm import AnswerError, OllamaBackend
 from margin.textutil import find_quote, find_selection, grade_quote_problem
@@ -649,7 +650,7 @@ def test_a_failed_part_keeps_a_split_hypothesis_at_most_partly_supported():
     assert claimcheck.aggregate(["supported", "failed"]) == "partially_supported"
     assert claimcheck.aggregate(["contradicted", "failed"]) == "contradicted"
     assert claimcheck.aggregate(["failed", "failed"]) == "failed"
-    manual = (Path(__file__).parent.parent / "docs" / "MANUAL.md").read_text(encoding="utf-8")
+    manual = manual_text()  # the hub and its pages
     assert "Parts whose check failed are left out" not in manual
     assert "is then at most partly supported" in manual
 

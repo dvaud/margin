@@ -40,6 +40,7 @@ import uuid
 from collections import Counter, defaultdict
 from typing import Callable
 
+from . import __version__
 from .store import Workspace, now
 from .textutil import fast_normalise
 
@@ -142,6 +143,27 @@ def _sdot(a: dict, inv: dict, k: int) -> list[float]:
     return acc
 
 
+def _assign(vecs: list[dict], inv: dict, k: int) -> tuple[list[int], list[float]]:
+    """Each vector's nearest centre and its similarity: `_sdot` for each vector, the same sums in the same order, and
+    the first of the highest (as `max(range(k), key=lambda x: (acc[x], -x))` found it). 0.16: in one loop, with the
+    centres' words looked up once per word; about twice as quick."""
+    new: list[int] = []
+    sim: list[float] = []
+    zero = [0.0] * k
+    get = inv.get
+    for v in vecs:
+        acc = zero[:]
+        for t, w in v.items():
+            lst = get(t)
+            if lst:
+                for j, cw in lst:
+                    acc[j] += w * cw
+        m = max(acc)
+        new.append(acc.index(m))
+        sim.append(m)
+    return new, sim
+
+
 def _inverted(centres: list[dict]) -> dict:
     inv: dict[str, list[tuple[int, float]]] = defaultdict(list)
     for j, c in enumerate(centres):
@@ -182,13 +204,7 @@ def kmeans_sparse(vecs: list[dict], k: int, seed: int = 0, should_stop: Callable
     for _it in range(MAX_ITER):
         if should_stop and should_stop():
             raise _stopped()
-        inv = _inverted(centres)
-        new, sim = [], []
-        for v in vecs:
-            acc = _sdot(v, inv, k)
-            j = max(range(k), key=lambda x: (acc[x], -x))
-            new.append(j)
-            sim.append(acc[j])
+        new, sim = _assign(vecs, _inverted(centres), k)
         if new == assign:
             break
         assign = new
@@ -204,13 +220,7 @@ def kmeans_sparse(vecs: list[dict], k: int, seed: int = 0, should_stop: Callable
                 assign[far] = j
             top = sorted(sums[j].items(), key=lambda x: (-x[1], x[0]))[:CENTROID_TERMS]
             centres[j] = _unit_sparse(dict(top))
-    inv = _inverted(centres)
-    assign, sim = [], []
-    for v in vecs:
-        acc = _sdot(v, inv, k)
-        j = max(range(k), key=lambda x: (acc[x], -x))
-        assign.append(j)
-        sim.append(acc[j])
+    assign, sim = _assign(vecs, _inverted(centres), k)
     return assign, sim, centres
 
 
@@ -303,9 +313,10 @@ def run(ws: Workspace, k: int = DEFAULT_K, seed: int = 0, mode: str = "auto", em
                 without_vector, "asked_k": asked_k}  # recorded with the run (0.11.1: it was counted and then written as None)
     with ws.connect() as cx:
         previous = _previous_run(cx, mode, seed, embed_model if mode == "meaning" else None, asked_k, k, rkey)
-        cx.execute("INSERT INTO theme_runs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        cx.execute("INSERT INTO theme_runs(run_id, mode, k, seed, embed_model, chat_model, created_at, passages, run_key, "
+                   "settings_json, corpus_version, app_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                    (rid, mode, k, seed, embed_model if mode == "meaning" else None, None, created, len(rows), rkey,
-                    json.dumps(settings), ws.corpus_version()))
+                    json.dumps(settings), ws.corpus_version(), __version__))
         cx.executemany(f"INSERT INTO themes({_THEME_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?)", theme_rows)
         cx.executemany("INSERT INTO theme_members(run_id, theme_id, passage_id, similarity) VALUES (?,?,?,?)",
                        member_rows)

@@ -8,7 +8,7 @@ venv for a new version: the editable install runs the code in the git copy, so f
 2. stops if files of the copy were changed by hand (so an update never overwrites them);
 3. fetches and moves forward only (`git merge --ff-only`): nothing is merged or rewritten;
 4. runs `pip install -e .` again only when `pyproject.toml` changed (new dependencies or commands), with the extras
-   already installed (connector, fast, ocr, …), into the same Python;
+   already installed (connector, fast, ocr, …) and, from 0.15.1, the layout reader (pdfminer), into the same Python;
 5. refreshes the Claude Code plugin in the data folder if `margin claude-setup` wrote one;
 6. says to restart the app if it is running (the browser is told not to cache the page, so a restart is all).
 
@@ -18,8 +18,10 @@ The data folder (MARGIN_HOME, default ~/margin) is never touched: projects, sett
 0.10: Margin installed with the one-line install (installation.py, kind "script") updates from GitHub Releases
 instead (`update_release`): it asks for the latest release, downloads its wheel, checks it against the release's
 SHA256SUMS, installs it with `uv tool install` into the same place (so the icon and the plugin keep working), and runs
-`margin post-install` from the new version. On Windows the running `margin` program cannot replace itself, so there
-it says to run the install line again.
+`margin post-install` from the new version. On Windows a running program's files cannot be replaced: there the app's
+*Update* button downloads and checks the new version, then hands the install over to handover.py and quits; that
+script installs it once the app has gone and starts the app again (0.15.4). `margin update` in a terminal on Windows
+says to press that button, or to run the install line again.
 """
 from __future__ import annotations
 
@@ -32,6 +34,8 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Callable
+
+from .procs import no_window
 
 Runner = Callable[[list[str], Path], subprocess.CompletedProcess]
 
@@ -54,15 +58,16 @@ GIT_TIMEOUT = 90  # seconds a git command may take (0.14.3)
 def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
     """Run a command. 0.14.3: it never reads from the terminal (stdin is closed), and a git command never asks for a
     password or a passphrase (a remote that wants credentials fails instead of waiting for ever) and gives up after
-    GIT_TIMEOUT seconds: the app looks every two minutes, and one stuck look held up every later one."""
+    GIT_TIMEOUT seconds: the app looks every two minutes, and one stuck look held up every later one. 0.15.3: without
+    a window on Windows (procs)."""
     env, timeout = None, None
     if cmd and cmd[0] == "git":
         env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
         env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
         timeout = GIT_TIMEOUT
     try:
-        return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env,
-                              timeout=timeout)
+        return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, errors="replace",
+                              stdin=subprocess.DEVNULL, env=env, timeout=timeout, **no_window())
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(cmd, 124, "", f"{' '.join(cmd[:2])} took longer than {timeout} s and was "
                                                           "stopped (is the network or the remote not answering?)")
@@ -163,10 +168,11 @@ def installed_extras(pyproject: Path) -> list[str]:
 
 
 def update(check_only: bool = False, root: Path | None = None, run: Runner = _run,
-           python: str | None = None, quick: bool = False) -> dict:
+           python: str | None = None, quick: bool = False, restart: list[str] | None = None) -> dict:
     """Bring this Margin up to date, the way it was installed (see the module's notes). Returns what happened.
     `quick` (0.13.6, the app's check every two minutes): a one-line install learns the newest version from GitHub's
-    release page, which GitHub's limit of 60 API requests an hour does not count."""
+    release page, which GitHub's limit of 60 API requests an hour does not count. `restart` (0.15.4, the app on
+    Windows): the command that starts the app again, for the hand-over (update_release)."""
     if root is None and source_root() is None:
         from . import installation
 
@@ -174,7 +180,7 @@ def update(check_only: bool = False, root: Path | None = None, run: Runner = _ru
         if k == "script":
             if quick and check_only:
                 return update_release(check_only=True, run=run, peek=_peek)
-            return update_release(check_only=check_only, run=run)
+            return update_release(check_only=check_only, run=run, **({"restart": restart} if restart else {}))
         if k == "package":
             raise UpdateError("This Margin came as a download for this system: download the newest one from "
                               f"https://github.com/{installation.REPO}/releases and install it over this one (your "
@@ -230,7 +236,10 @@ def update_git(check_only: bool = False, root: Path | None = None, run: Runner =
         extras = installed_extras(py)  # before the merge (0.11.1): an extra whose packages grew must stay installed
         _git(run, root, "merge", "--ff-only", "--quiet", upstream)
         if _digest(py) != deps_before:
-            pending = sorted(set(pending or []) | set(extras))
+            # 0.15.1: and the layout reader (pdfminer), which the one-line install has always brought: without it
+            # PDFs are read from their text alone (a git copy installed with `pip install -e .` lacked it)
+            layout = {"pdfminer"} if "pdfminer" in _extras_in(py.read_text("utf-8")) else set()
+            pending = sorted(set(pending or []) | set(extras) | layout)
             try:
                 _pending_path(root).write_text(json.dumps({"extras": pending}), encoding="utf-8")
             except OSError:
@@ -306,33 +315,92 @@ def _fetch(url: str) -> bytes:
         return r.read()
 
 
+# 0.15: a pre-release (development, alpha, beta, release candidate) comes before the release it leads to
+_STAGES = {"dev": 0, "a": 1, "alpha": 1, "b": 2, "beta": 2, "c": 3, "rc": 3}
+_RELEASE = 9
+
+
 def version_tuple(v: str) -> tuple[int, ...]:
-    """'v0.10.1' -> (0, 10, 1); anything after the numbers is ignored."""
-    m = re.match(r"v?(\d+(?:\.\d+)*)", v.strip())
-    return tuple(int(x) for x in m.group(1).split(".")) if m else ()
+    """What orders versions: four numbers, then the stage and its number. 'v0.10.1' -> (0, 10, 1, 0, 9, 0);
+    0.15: a release candidate comes after every earlier release and before its own, '0.15.0rc1' ->
+    (0, 15, 0, 0, 3, 1) (before, it counted as 0.15.0, so a copy of it never heard of 0.15.0 itself). Other words after
+    the numbers are ignored ('0.15.0candidate' is 0.15.0). () for no version."""
+    m = re.match(r"v?(\d+(?:\.\d+)*)(?:[-_.]?(dev|alpha|beta|rc|a|b|c)[-_.]?(\d*)(?![A-Za-z]))?", v.strip(), re.I)
+    if not m:
+        return ()
+    nums = [int(x) for x in m.group(1).split(".")][:4]
+    stage = _STAGES[m.group(2).lower()] if m.group(2) else _RELEASE
+    return (*nums, *[0] * (4 - len(nums)), stage, int(m.group(3) or 0) if m.group(2) else 0)
+
+
+def semver(v: str) -> str:
+    """0.15: a version as semantic versioning writes it, for files read by other programs (the Claude Code
+    plugin): '0.15.0rc1' -> '0.15.0-rc.1'; a release stays as it is."""
+    return re.sub(r"^(\d+\.\d+\.\d+)[-_.]?(rc|a|b)[-_.]?(\d+)$", r"\1-\2.\3", v)
 
 
 # ENLENS 0.13.6: versions withdrawn after their release; a copy of one that is still running is older than any later
 # version, whatever its number says. ENLENS withdrew its 0.14.0, 0.15.0 and 0.15.1; Margin never had those numbers
-# (its own 0.14.0 will be a real release), so Margin has none.
+# (its own 0.14.0 is a real release), so Margin has none. (ENLENS 0.15: a withdrawn number counts as older only while
+# this version is below it, gui/launcher.is_older.)
 WITHDRAWN: frozenset[str] = frozenset()
 
 
-def latest_release(fetch: Fetch = _fetch, repo: str | None = None) -> dict:
-    """The latest published release: {"version", "tag", "wheel_url", "wheel", "sums_url", "notes", "url"}."""
+def is_candidate(v: str) -> bool:
+    """0.15: whether a version is a pre-release (a release candidate, beta, alpha or development version)."""
+    t = version_tuple(v)
+    return bool(t) and t[4] != _RELEASE
+
+
+def update_channel() -> str:
+    """0.15: "stable" (the default) or "early" (also release candidates), from the settings (Settings → Technical)."""
+    try:
+        from . import home
+
+        c = str(home.load_settings().get("update_channel") or "stable")
+    except Exception:  # noqa: BLE001 - unreadable settings: the cautious channel
+        return "stable"
+    return c if c in ("stable", "early") else "stable"
+
+
+def highest_release(releases: list) -> dict:
+    """0.15: of GitHub's list of releases (newest first, drafts included when the person may see them), the published
+    one with the highest version, a pre-release too. {} when there is none."""
+    best: dict = {}
+    for r in releases if isinstance(releases, list) else []:
+        if not isinstance(r, dict) or r.get("draft") or not version_tuple(str(r.get("tag_name") or "")):
+            continue
+        if not best or version_tuple(str(r["tag_name"])) > version_tuple(str(best["tag_name"])):
+            best = r
+    return best
+
+
+def latest_release(fetch: Fetch = _fetch, repo: str | None = None, channel: str | None = None) -> dict:
+    """The latest published release: {"version", "tag", "wheel_url", "wheel", "sums_url", "notes", "url"}.
+    0.15: on the "early" channel (default from the settings) the highest version of all published releases,
+    a pre-release too; on "stable" GitHub's *latest*, which is never a pre-release."""
     from .installation import REPO
 
-    url = f"https://api.github.com/repos/{repo or REPO}/releases/latest"
+    early = (channel or update_channel()) == "early"
+    url = f"{_release_api(repo or REPO)}/releases" + ("?per_page=30" if early else "/latest")
     try:
         data = json.loads(fetch(url).decode("utf-8"))
     except Exception as e:  # noqa: BLE001 - offline, rate limited, no release yet: say it plainly
         raise UpdateError(f"Could not ask GitHub for the newest Margin ({type(e).__name__}: {e}). Are you online?") from e
+    if early:
+        data = highest_release(data)
     assets = {a.get("name", ""): a.get("browser_download_url", "") for a in data.get("assets") or []}
     wheel = next((n for n in assets if n.startswith("margin-") and n.endswith(".whl")), "")
     tag = str(data.get("tag_name") or "")
     return {"version": tag.lstrip("v"), "tag": tag, "wheel": wheel, "wheel_url": assets.get(wheel, ""),
             "sums_url": assets.get("SHA256SUMS", ""), "notes": str(data.get("body") or ""),
             "url": str(data.get("html_url") or "")}
+
+
+def _release_api(repo: str) -> str:
+    """Where the releases are asked for: GitHub's API, or (0.15.4, for the release's Windows test of the hand-over)
+    a stand-in named by MARGIN_RELEASE_API that answers as GitHub does."""
+    return os.environ.get("MARGIN_RELEASE_API", "").strip().rstrip("/") or f"https://api.github.com/repos/{repo}"
 
 
 def _peek(url: str) -> str:
@@ -357,12 +425,15 @@ def _peek(url: str) -> str:
 Peek = Callable[[str], str]
 
 
-def latest_version(peek: Peek = _peek, repo: str | None = None) -> str:
+def latest_version(peek: Peek = _peek, repo: str | None = None, channel: str | None = None) -> str:
     """0.13.6: the newest release's version, from where github.com/…/releases/latest redirects to
     (…/releases/tag/v0.13.6). A web page, not the API: GitHub's limit of 60 API requests an hour for each address
-    does not count it, so the app can ask every two minutes on every computer in an office. "" when it cannot tell."""
+    does not count it, so the app can ask every two minutes on every computer in an office. "" when it cannot tell.
+    0.15: "" on the "early" channel: that page never shows a pre-release, so the API list is asked instead."""
     from .installation import REPO
 
+    if (channel or update_channel()) == "early" or os.environ.get("MARGIN_RELEASE_API", "").strip():
+        return ""
     try:
         where = peek(f"https://github.com/{repo or REPO}/releases/latest")
     except Exception as e:  # noqa: BLE001 - offline, GitHub down: say it plainly
@@ -383,26 +454,106 @@ def find_uv() -> str:
     return ""
 
 
+# ---------------------------------------------------------------------------------------------
+# 0.15.4: the hand-over on Windows (handover.py)
+# ---------------------------------------------------------------------------------------------
+def updates_folder() -> Path:
+    """Where a hand-over keeps the new version, its job and what came of it (in the data folder)."""
+    from . import home
+
+    return home.home() / "updates"
+
+
+def result_path() -> Path:
+    """What the last hand-over did (handover.py writes it; the app shows a failure once: update_note)."""
+    return updates_folder() / "result.json"
+
+
+def handover_folder(version: str) -> Path:
+    """A clean folder for the hand-over to `version`: what earlier hand-overs left is removed first."""
+    top = updates_folder()
+    top.mkdir(parents=True, exist_ok=True)
+    for child in top.iterdir():
+        try:
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink()
+        except OSError:
+            pass
+    d = top / re.sub(r"[^0-9A-Za-z.+-]", "_", version)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def outside_python() -> str:
+    """A Python that the update does not replace: the one uv installed, from which Margin's own environment was made
+    (pythonw on Windows, which opens no window). This one when it is not in an environment of its own."""
+    base = Path(sys.base_prefix)
+    names = ("pythonw.exe", "python.exe") if os.name == "nt" else ("python3", "python")
+    for name in names:
+        for p in (base / name, base / "bin" / name):
+            if p.is_file():
+                return str(p)
+    return sys.executable
+
+
+def handover_job(rel: dict, have: str, folder: Path, install: list[str], restart: list[str]) -> dict:
+    """What handover.py is to do (see its notes)."""
+    from . import home
+    from .gui import launcher
+    from .installation import REPO
+
+    exe = Path(sys.executable)
+    post_py = exe.with_name("python.exe") if exe.name.lower() == "pythonw.exe" else exe  # its output is read
+    return {"from": have, "version": rel["version"], "folder": str(folder), "pids": [os.getpid()], "env_dir": sys.prefix,
+            "install": install, "env": {"UV_PYTHON_PREFERENCE": "only-managed"},
+            "post": [str(post_py), "-m", "margin.cli", "post-install", "--by", "script", "--no-icon"],
+            "start": list(restart), "info": str(launcher.info_path()), "result": str(result_path()),
+            "log": str(home.home() / "logs" / "update.log"),
+            "install_url": f"https://github.com/{REPO}/releases/download/{rel.get('tag') or 'v' + rel['version']}/install.ps1",
+            "wait": 120, "free_wait": 60, "tries": 4, "retry_after": 5, "come_back": 90}
+
+
+def start_handover(job: dict) -> None:
+    """Copy handover.py next to the job and start it with outside_python(); it waits for this app to quit."""
+    from . import handover
+
+    folder = Path(job["folder"])
+    script = folder / "handover.py"
+    shutil.copyfile(Path(handover.__file__), script)
+    (folder / "job.json").write_text(json.dumps(job, indent=1), encoding="utf-8")
+    handover._start([outside_python(), str(script), str(folder / "job.json")], str(folder))
+
+
 def update_release(check_only: bool = False, run: Runner = _run, fetch: Fetch = _fetch, workdir: Path | None = None,
-                   windows: bool | None = None, peek: Peek | None = None) -> dict:
+                   windows: bool | None = None, peek: Peek | None = None, channel: str | None = None,
+                   restart: list[str] | None = None, start: Callable[[dict], None] | None = None) -> dict:
     """Install the newest GitHub Release over a one-line install (see the module's notes). With `peek` (0.13.6), a
     check reads the newest version from the release page (`latest_version`), and asks the API only when the page does
-    not say."""
+    not say. 0.15: `channel` ("stable" or "early", default from the settings) says whether a release candidate counts.
+    0.15.4, Windows: with `restart` (the app's command to start again) the download is checked here and the install
+    handed over to handover.py (`start`, default start_handover), which runs once the app has quit; the answer then
+    has `"handover": True` and the app is to quit, not restart. Without it, the person is told what to do."""
     import tempfile
 
     from . import __version__, installation
 
     have = __version__
-    seen = latest_version(peek) if check_only and peek is not None else ""
-    rel = {"version": seen} if seen else latest_release(fetch)
+    channel = channel or update_channel()
+    seen = latest_version(peek, channel=channel) if check_only and peek is not None else ""
+    rel = {"version": seen} if seen else latest_release(fetch, channel=channel)
     if not rel["version"] or version_tuple(rel["version"]) <= version_tuple(have):
         return {"updated": False, "version": have, "message": f"Margin {have} is up to date."}
     if check_only:
         return {"updated": False, "version": have, "waiting": rel["version"],
                 "message": f"Margin {rel['version']} is ready to install (you have {have}). Run `margin update`."}
-    if windows if windows is not None else os.name == "nt":
-        raise UpdateError(f"Margin {rel['version']} is ready. On Windows, quit Margin (Quit Margin in the app), then "
-                          f"download this file and double-click it:\n  {installation.double_click_file('windows')}\n"
+    windows = os.name == "nt" if windows is None else windows
+    if windows and not restart:
+        raise UpdateError(f"Margin {rel['version']} is ready. In the Margin app, press Update to {rel['version']}: it "
+                          "installs it and opens Margin again. Or quit Margin (Quit Margin in the app) and close "
+                          "Claude Code, then download "
+                          f"this file and double-click it:\n  {installation.double_click_file('windows')}\n"
                           f"or run the install line again in PowerShell:\n  {installation.install_line('windows')}")
     if not rel["wheel_url"] or not rel["sums_url"]:
         raise UpdateError(f"The release {rel['tag']} has no Margin package or no checksums: see {rel['url']}.")
@@ -410,7 +561,8 @@ def update_release(check_only: bool = False, run: Runner = _run, fetch: Fetch = 
     if not uv:
         raise UpdateError("uv, which installed Margin, was not found. Run the install line again:\n  "
                           + installation.install_line())
-    tmp = Path(workdir or tempfile.mkdtemp(prefix="margin-update-"))
+    tmp = Path(workdir or (handover_folder(rel["version"]) if windows else tempfile.mkdtemp(prefix="margin-update-")))
+    handed = False
     try:
         wheel = tmp / rel["wheel"]
         wheel.write_bytes(fetch(rel["wheel_url"]))
@@ -422,9 +574,15 @@ def update_release(check_only: bool = False, run: Runner = _run, fetch: Fetch = 
             raise UpdateError(f"The downloaded {rel['wheel']} does not match the release's checksum, so it was not "
                               "installed. Try again later.")
         spec = f"margin[{','.join(installation.EXTRAS)}] @ {wheel.resolve().as_uri()}"
+        install = [uv, "tool", "install", "--force", "--quiet", "--python", "3.12", spec]
+        if windows:  # 0.15.4: handover.py installs it once this app has quit, and starts the app again
+            (start or start_handover)(handover_job(rel, have, tmp, install, restart or []))
+            handed = True
+            return {"updated": True, "from": have, "version": rel["version"], "route": "release", "handover": True,
+                    "message": f"Margin {rel['version']} is installed as soon as Margin has quit; it then opens again."}
         # uv's own Python, as the install line chose (0.11.1): never a system Python 3.12 that may go away
         os.environ.setdefault("UV_PYTHON_PREFERENCE", "only-managed")
-        r = run([uv, "tool", "install", "--force", "--quiet", "--python", "3.12", spec], tmp)
+        r = run(install, tmp)
         if r.returncode != 0:
             raise UpdateError(f"Installing Margin {rel['version']} failed:\n{(r.stderr or r.stdout or '').strip()[-2000:]}")
         # the new version finishes the job: the marker, the plugin (the icon points at the same Python)
@@ -434,7 +592,7 @@ def update_release(check_only: bool = False, run: Runner = _run, fetch: Fetch = 
                               f"{(post.stderr or post.stdout or '').strip()[-2000:]}\nRun `margin post-install` to try "
                               "that part again.")
     finally:
-        if workdir is None:
+        if workdir is None and not handed:
             shutil.rmtree(tmp, ignore_errors=True)
     out = {"updated": True, "from": have, "version": rel["version"], "route": "release",
            "post_install": (post.stdout or "").strip(), "running": _app_running()}

@@ -34,7 +34,9 @@ from pathlib import Path
 
 from . import __version__
 from . import home as core
+from .procs import no_window
 from .store import now
+from .update import semver as _semver
 
 PLUGIN = "margin-run"        # the plugin's name: its root skill is /margin-run
 MARKETPLACE = "margin"
@@ -65,7 +67,8 @@ def mcp_config() -> dict:
 
 
 def _fill(text: str) -> str:
-    return text.replace("{{TOOL_PREFIX}}", TOOL_PREFIX).replace("{{VERSION}}", __version__)
+    # 0.15: a release candidate's number in semantic-versioning form (0.15.0-rc.1), which a plugin's version is
+    return text.replace("{{TOOL_PREFIX}}", TOOL_PREFIX).replace("{{VERSION}}", _semver(__version__))
 
 
 def write_plugin(target: Path | None = None) -> Path:
@@ -214,10 +217,14 @@ def _cmd(path: str) -> list[str]:
 
 
 def _run(args: list[str], timeout: float = 60) -> tuple[int, str]:
+    """Run Claude Code and return its exit code and what it wrote. 0.15.2: what it writes is UTF-8 (on Windows too),
+    and is read as such: in this Python's code page a path like C:\\Users\\Ábel came back garbled, or stopped the
+    status with an error (the second byte of "Á" is no letter in Windows-1252). 0.15.3: without a window on
+    Windows: the app's status ran it three times every half minute, and each run flashed a console window."""
     args = _cmd(args[0]) + list(args[1:])
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout, cwd=str(core.home()),
-                           stdin=subprocess.DEVNULL)
+        r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                           cwd=str(core.home()), stdin=subprocess.DEVNULL, **no_window())
     except (OSError, subprocess.SubprocessError) as e:
         return 1, f"{type(e).__name__}: {e}"
     return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
@@ -375,12 +382,52 @@ def work_folder(project: str = "") -> Path:
     return d
 
 
-def run_args(project: str, claude: str = "", plan: dict | None = None) -> list[str]:
+# The box: Claude Code started by Margin needs nothing from the computer but the passages in its tasks, which reach it
+# through the Margin connector. With a Claude Code that knows these options (they are read from `claude --help`):
+# --tools Agent       the only built-in tool is the one that starts the helpers: no tool that reads, writes or searches
+#                     files, runs commands or browses exists in the run at all (a list of tools to deny misses the ones
+#                     a later Claude Code adds);
+# --restricted        Claude Code ignores the person's own Claude Code settings, hooks and CLAUDE.md files, so nothing
+#                     of theirs is read into the run or sent with it, and only Margin's plugin is loaded;
+# --plugin-dir        the plugin as Margin wrote it, for this run only (the person's other plugins stay out);
+# ENABLE_CLAUDEAI_MCP_SERVERS=false   the connectors of the person's claude.ai account stay out as well.
+# An older Claude Code that lacks them runs as before: denied the tools in DENIED_TOOLS, in an empty folder.
+BOX_ENV = {"ENABLE_CLAUDEAI_MCP_SERVERS": "false"}
+_OPTIONS: dict = {}
+
+
+def known_options(claude: str) -> set[str]:
+    """The long options this Claude Code knows, from `claude --help` (read once per program file, which an update
+    replaces). Empty when its help cannot be read: then nothing new is passed to it."""
+    try:
+        st = Path(claude).stat()
+        key = (claude, st.st_size, st.st_mtime_ns)
+    except OSError:
+        return set()
+    if key not in _OPTIONS:
+        code, text = _run([claude, "--help"], timeout=30)
+        _OPTIONS[key] = set(re.findall(r"(?<![\w-])--[A-Za-z][A-Za-z-]+", text)) if code == 0 else set()
+    return _OPTIONS[key]
+
+
+def box_args(claude: str, run: bool = True, options: set[str] | None = None) -> list[str]:
+    """The options that close Claude Code in (see above). `run`: a headless run of the queue, which also loads the
+    Margin plugin alone; otherwise the sign-in window, which needs no plugin."""
+    opts = known_options(claude) if options is None else options
+    args = ["--tools", "Agent"] if "--tools" in opts else ["--disallowedTools", ",".join(DENIED_TOOLS)]
+    if run and {"--restricted", "--plugin-dir"} <= opts and (plugin_folder() / ".mcp.json").exists():
+        args += ["--restricted", "--plugin-dir", str(plugin_folder())]
+    return args
+
+
+def run_args(project: str, claude: str = "", plan: dict | None = None, options: set[str] | None = None) -> list[str]:
     """The command that answers one project's queue headless, allowed only the Margin queue tools and the helpers, and
-    denied every built-in tool that reads files, runs commands or fetches pages. `plan` (taskqueue.run_plan): how
-    many helpers at once, and which (0.13.10)."""
+    without any built-in tool that reads files, runs commands or fetches pages (box_args). `plan`
+    (taskqueue.run_plan): how many helpers at once, and which (0.13.10). `options`: what this Claude Code knows
+    (known_options, read when not given)."""
     from . import taskqueue
 
+    claude = claude or find_claude() or "claude"
     tools = ["Agent"] + [TOOL_PREFIX + t for t in QUEUE_TOOLS]
     quoted = '"' + project.replace('"', "") + '"'
     prompt = f"{SLASH} {quoted}"
@@ -388,9 +435,8 @@ def run_args(project: str, claude: str = "", plan: dict | None = None) -> list[s
         prompt += f" --parallel {int(plan['parallel'])}"
         if plan.get("helpers"):
             prompt += f" --helpers {taskqueue.helpers_arg(plan['helpers'])}"
-    return _cmd(claude or find_claude() or "claude") + ["-p", prompt, "--output-format", "text",
-                                                       "--disallowedTools", ",".join(DENIED_TOOLS),
-                                                       "--allowedTools", *tools]
+    return _cmd(claude) + ["-p", prompt, "--output-format", "text", *box_args(claude, options=options),
+                           "--allowedTools", *tools]
 
 
 def _log_path(project: str) -> Path:
@@ -438,13 +484,14 @@ def _pid_runs_margin(pid: int) -> bool:
     since)."""
     if pid <= 0:
         return False
-    if os.name == "nt":
+    if os.name == "nt":  # 0.15.7: by its command line, as below (it was the number alone, from tasklist)
+        from .procs import windows_command_line
+
         try:
-            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, timeout=15,
-                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        except (OSError, subprocess.SubprocessError):
+            cmd = windows_command_line(pid)
+        except (OSError, AttributeError, ValueError):
             return False
-        return str(pid) in (r.stdout or "")
+        return cmd is not None and SLASH in cmd
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -456,7 +503,8 @@ def _pid_runs_margin(pid: int) -> bool:
     try:
         # 0.14.4: -ww, the whole command line: on Linux, ps cuts it at 80 characters when it writes to a pipe, which cut
         # off the slash command after Claude Code's long path, so a run left going was not recognised
-        r = subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=15)
+        r = subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True,
+                           timeout=15)  # console: not on Windows
     except (OSError, subprocess.SubprocessError):
         return True  # no ps: the number is all there is
     cmd = r.stdout or ""
@@ -474,8 +522,7 @@ def _end_process(pid: int, proc=None, wait: float = 10.0) -> None:
 
     if os.name == "nt":
         try:
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=30,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=30, **no_window())
         except (OSError, subprocess.SubprocessError):
             pass
         return
@@ -569,11 +616,10 @@ def start_run(project: str, parallel=None, helpers=None) -> dict:
             install()  # the plugin is prepared and added on the first start: no separate set-up needed
         log = _log_path(project)
         fh = open(log, "w", encoding="utf-8")
-        kwargs = {"start_new_session": True} if os.name != "nt" else {
-            "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
         try:
             proc = subprocess.Popen(run_args(project, path, plan), cwd=str(work_folder(project)), stdout=fh,
-                                    stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **kwargs)
+                                    stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env={**os.environ, **BOX_ENV},
+                                    start_new_session=os.name != "nt", **no_window())
         finally:
             fh.close()
         t0, started = time.time(), now()
@@ -654,7 +700,7 @@ def stale() -> str:
         written = json.loads((plug / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")).get("version")
     except (OSError, ValueError, AttributeError):
         return "the plugin's version cannot be read"
-    if written != __version__:
+    if written not in (__version__, _semver(__version__)):
         return f"it was written by Margin {written}, and this is Margin {__version__}"
     return ""
 
@@ -733,8 +779,8 @@ def install_claude_code(timeout: float = 900) -> dict:
         raise ValueError("Cloud models are switched off on this computer: Claude Code is not available.")
     cmd = installer_command()
     try:
-        r = subprocess.run(cmd["args"], capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
-                           cwd=str(Path.home()))
+        r = subprocess.run(cmd["args"], capture_output=True, text=True, errors="replace", timeout=timeout,
+                           stdin=subprocess.DEVNULL, cwd=str(Path.home()), **no_window())
         code, text = r.returncode, ((r.stdout or "") + (r.stderr or ""))
     except (OSError, subprocess.SubprocessError) as e:
         code, text = 1, f"{type(e).__name__}: {e}"
@@ -747,15 +793,56 @@ def install_claude_code(timeout: float = 900) -> dict:
     return {"ok": ok, "text": text[-1500:], "status": st}
 
 
-def _sign_in_script(claude: str) -> Path:
+# Where the claude program is installed does not limit what it can read: what it may open is set by the folder it
+# starts in (Read, Grep and Glob need no approval inside it) and by its permission rules. So the sign-in window, like
+# the headless runs, starts Claude Code in an empty folder of Margin's own without the tools that read, write or fetch
+# files or run commands (box_args). Before, it started in the home folder, where Claude Code could read every file of
+# the person without asking.
+def sign_in_folder() -> Path:
+    """The empty folder the sign-in window starts Claude Code in. Anything found in it is removed first, but the folder
+    itself stays, so a sign-in window still open from an earlier press keeps a folder to work in."""
+    d = core.home() / "claude-runs" / "sign-in"
+    d.mkdir(parents=True, exist_ok=True)
+    for child in d.iterdir():
+        try:
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink()
+        except OSError:
+            pass
+    return d
+
+
+def sign_in_line(folder: Path, windows: bool | None = None) -> str:
+    """The line a person types to sign in by hand (when no window can be opened): go to the empty folder first."""
+    windows = os.name == "nt" if windows is None else windows
+    if windows:   # PowerShell 5.1 has no &&
+        from .gui.launcher import _ps_quote
+
+        return f"cd {_ps_quote(str(folder))}; claude"
+    import shlex
+
+    return f"cd {shlex.quote(str(folder))} && claude"
+
+
+def _sign_in_script(claude: str, work: Path | None = None, options: set[str] | None = None) -> Path:
     d = core.home() / "claude-runs"
     d.mkdir(parents=True, exist_ok=True)
+    work = work or sign_in_folder()
+    box = box_args(claude, run=False, options=options)
     if os.name == "nt":
+        from .gui.launcher import _ps_quote
+
+        q = lambda s: _ps_quote(str(s))  # noqa: E731 - a PowerShell string
         p = d / "sign-in.ps1"
         p.write_text("Write-Host 'Margin: sign in to Claude Code with your Claude plan.'\r\n"
                      "Write-Host 'Follow the steps below; when Claude Code shows its prompt, close this window.'\r\n"
-                     f"& '{claude.replace(chr(39), chr(39) * 2)}'\r\n",
-                     encoding="utf-8-sig")  # 0.14.3: Windows PowerShell 5.1 reads a file without a BOM as ANSI
+                     "Write-Host 'It runs in an empty folder of Margin and cannot open your files.'\r\n"
+                     f"Set-Location -LiteralPath {q(work)}\r\n"
+                     f"& {' '.join(q(x) for x in [claude, *box])}\r\n",
+                     encoding="utf-8-sig", newline="")  # 0.14.3: Windows PowerShell 5.1 reads a file without a BOM
+        # as ANSI; 0.15.7: newline="" keeps "\r\n" as written (Windows made it "\r\r\n")
         return p
     import shlex
 
@@ -763,9 +850,11 @@ def _sign_in_script(claude: str) -> Path:
     p.write_text("#!/bin/sh\n"
                  "echo 'Margin: sign in to Claude Code with your Claude plan.'\n"
                  "echo 'Follow the steps below; when Claude Code shows its prompt, close this window.'\n"
+                 "echo 'It runs in an empty folder of Margin and cannot open your files.'\n"
                  "echo\n"
-                 f"cd {shlex.quote(str(Path.home()))}\n"
-                 f"exec {' '.join(shlex.quote(x) for x in _cmd(claude))}\n", encoding="utf-8")
+                 f"cd {shlex.quote(str(work))} || exit 1\n"
+                 f"exec {' '.join(shlex.quote(x) for x in _cmd(claude) + box)}\n",
+                 encoding="utf-8")
     p.chmod(0o755)
     return p
 
@@ -774,19 +863,23 @@ def _open_window(script: Path) -> str:
     """Open a terminal window running the sign-in script. Returns the window's name, or "" when none could open."""
     try:
         if sys.platform == "darwin":
-            subprocess.Popen(["open", "-a", "Terminal", str(script)])
+            subprocess.Popen(["open", "-a", "Terminal", str(script)])  # console: macOS
             return "Terminal"
         if os.name == "nt":
+            from .gui.launcher import _ps_quote
+
+            # 0.15.2: Windows PowerShell's Start-Process joins these with spaces and quotes none of them, so the
+            # script's path is quoted here (C:\\Users\\Ábel Gergő\\margin\\... was cut at the space)
             subprocess.Popen(["powershell", "-NoProfile", "-Command",
                               f"Start-Process powershell -ArgumentList '-NoExit','-ExecutionPolicy','Bypass','-File',"
-                              f"'{str(script).replace(chr(39), chr(39) * 2)}'"],
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                              f"{_ps_quote(chr(34) + str(script) + chr(34))}"],
+                             **no_window())  # the window it opens is Start-Process's own
             return "PowerShell"
         for term, flag in (("x-terminal-emulator", "-e"), ("gnome-terminal", "--"), ("konsole", "-e"),
                            ("xfce4-terminal", "-x"), ("xterm", "-e")):
             exe = shutil.which(term)
             if exe:
-                subprocess.Popen([exe, flag, str(script)], start_new_session=True)
+                subprocess.Popen([exe, flag, str(script)], start_new_session=True)  # console: Linux
                 return term
     except OSError:
         return ""
@@ -801,6 +894,7 @@ def open_sign_in() -> dict:
     path = find_claude()
     if not path:
         raise ValueError("Claude Code is not on this computer yet: install it first.")
-    window = _open_window(_sign_in_script(path))
+    work = sign_in_folder()
+    window = _open_window(_sign_in_script(path, work))
     _STATUS["value"] = None
-    return {"opened": bool(window), "window": window, "command": "claude"}
+    return {"opened": bool(window), "window": window, "command": sign_in_line(work), "folder": str(work)}

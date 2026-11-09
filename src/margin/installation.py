@@ -93,6 +93,45 @@ def info() -> dict:
             "updates": how, "install_line": install_line(), "releases": f"https://github.com/{REPO}/releases"}
 
 
+def technical_details(settings: dict | None = None, local_only: bool | None = None) -> str:
+    """0.15: a short plain-text block a person pastes into a problem report (Settings → Technical → Copy technical
+    details). The version, how Margin was installed, the operating system, Python, the AI route, whether
+    --local-only is on and the update channel. Never a path, a project or document name, a user name or a key."""
+    import platform
+
+    from . import home
+
+    s = settings if settings is not None else home.load_settings()
+    off = home.local_only() if local_only is None else local_only
+    route = home.BACKEND_LABELS.get(s.get("backend", ""), str(s.get("backend", "")))
+    if kind() == "git":
+        channel = "follows main (git copy)"
+    else:
+        channel = "early (release candidates too)" if s.get("update_channel") == "early" else "stable"
+    shown = {"windows": "Windows", "mac": "macOS", "linux": "Linux"}[system()]
+    return "\n".join([
+        f"Margin version: {__version__}",
+        f"Installed: {kind()}",
+        f"System: {shown} {platform.release()} ({platform.machine()})",
+        f"Python: {platform.python_version()}",
+        f"AI route: {route}",
+        f"Local only: {'yes' if off else 'no'}",
+        f"Update channel: {channel}",
+    ])
+
+
+def printable_streams() -> None:
+    """0.15.2: on Windows, when what Margin prints goes to a pipe (an installer reading it, say), Python writes it in
+    the computer's code page, and a letter that page lacks ("ő" in C:\\Users\\Gergő, on an English Windows) stopped
+    the command with an error after its work was done. Such a letter is now written as an escape instead."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None and (stream.encoding or "").lower().replace("-", "") != "utf8":
+                stream.reconfigure(errors="backslashreplace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def post_install(by: str | None = "script", icon: bool = True, open_app: bool = False, home: str | None = None,
                  local_only: bool | None = None) -> dict:
     """What an installer does last (`margin post-install`). Returns what was done, with a message to print."""
@@ -151,7 +190,8 @@ def _open(running: dict | None, home: str | None, local_only: bool) -> bool:
     cmd = [str(pyw if os.name == "nt" and pyw.exists() else exe), *_args(home, local_only)]
     kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": 0x00000008 | 0x00000200}
     try:
-        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs)
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         **kwargs)  # console: Windows starts pythonw, a program without one, detached
     except OSError:
         return False
     return True
