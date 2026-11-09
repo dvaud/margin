@@ -129,7 +129,10 @@ def test_the_page_offers_no_sdg_default_nor_the_pack():
 
 
 def test_the_manual_and_readme_have_no_sdg_pack():
-    manual = (ROOT / "docs" / "MANUAL.md").read_text(encoding="utf-8")
-    assert "## 9. Limits" in manual and "The SDG pack:" not in manual and "load-vca" not in manual
+    from helpers import manual_text
+
+    manual = manual_text()
+    assert not (ROOT / "docs" / "manual" / "sdg-pack.md").exists()
+    assert "The SDG pack:" not in manual and "load-vca" not in manual
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "optional pack" not in readme and "export-flexiconc" not in readme

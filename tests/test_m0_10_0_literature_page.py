@@ -74,8 +74,10 @@ def test_every_endpoint_is_documented():
     for env in ("MARGIN_OPENALEX_URL", "MARGIN_CROSSREF_URL", "MARGIN_S2_URL", "MARGIN_UNPAYWALL_URL", "contact_email",
                 "/connector/saveItems", "from_created_date", "local_only"):
         assert env in api_md, env
-    manual = (ROOT / "docs" / "MANUAL.md").read_text(encoding="utf-8")
-    assert "### Finding literature (Margin)" in manual and "Find literature" in manual and "--local-only" in manual
+    from helpers import manual_text
+
+    page = (ROOT / "docs" / "manual" / "literature.md").read_text(encoding="utf-8")
+    assert "# Find literature" in page and "--local-only" in manual_text()
 
 
 def test_the_dev_server_can_run_the_stand_ins():

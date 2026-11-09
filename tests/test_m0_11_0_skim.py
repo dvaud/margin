@@ -230,7 +230,7 @@ def test_page_files_and_docs():
     css = (STATIC / "margin.css").read_text()
     assert ".sk-grid" in css and "@media (max-width: 600px)" in css.split("==== skim")[1]
     assert "/skim" in (ROOT / "docs" / "API.md").read_text()
-    assert "Skim" in (ROOT / "docs" / "MANUAL.md").read_text()
+    assert "Skim" in (ROOT / "docs" / "manual" / "skim.md").read_text(encoding="utf-8")
     from margin.gui.server import ROUTES
     names = {r[2] for r in ROUTES}
     assert {"get_document_skim", "get_document_skim_md"} <= names

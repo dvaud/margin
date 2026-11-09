@@ -649,4 +649,4 @@ def test_the_documentation_describes_every_route():
                  "sections/<section>", "sections/<section>/move", "sections/<section>/merge", "sections/<section>/split",
                  "outlines/<outline>/draft/<draft>", "outlines/<outline>/export.docx", "export.md"):
         assert path in api_md, path
-    assert "Outline" in (ROOT / "docs" / "MANUAL.md").read_text(encoding="utf-8")
+    assert "Outline" in (ROOT / "docs" / "manual" / "outline.md").read_text(encoding="utf-8")

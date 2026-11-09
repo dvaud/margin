@@ -320,6 +320,6 @@ def test_the_page_offers_it():
     assert ".ol-question" in css and ".ol-item.ol-hyp" in css
     features = (STATIC / "features.js").read_text(encoding="utf-8")
     assert "research question" in features.split("outline: {")[1].split("},")[0]
-    manual = (ROOT / "docs" / "MANUAL.md").read_text(encoding="utf-8")
+    manual = (ROOT / "docs" / "manual" / "outline.md").read_text(encoding="utf-8")
     assert "From a research question" in manual
     assert "/hypotheses {text}" in (ROOT / "docs" / "API.md").read_text(encoding="utf-8")

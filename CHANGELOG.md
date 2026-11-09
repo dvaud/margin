@@ -121,6 +121,22 @@ Nothing changes for results: each step was compared with the code before it, num
   *Start Ollama* when it is installed but not running; on Linux a terminal window runs Ollama's own line.
 - Hovering a task in the sidebar shows its whole name.
 
+### Documentation
+
+- **The manual is a start page and a short page per task**, as ENLENS's is: `docs/MANUAL.md` says what Margin is, how
+  it fits together, a five-minute start, the table of pages and *I want to…*; 21 pages in `docs/manual/` follow
+  Margin's sidebar (*Explore the documents*, *Your writing*, *Check hypotheses*), with Margin's own pages for
+  *Check a draft*, *Check citations*, *Make an outline*, *Find literature*, *Skim* and *Projects and other
+  computers* (in place of ENLENS's *Work together* and *SDG pack*). Each page opens with *In short*; the version
+  tags and "before, it…" history are gone from the manual (this changelog keeps them).
+- **Pictures of Margin**: 17 screenshots in `docs/images/manual/`, made by `tools/manual_screenshots.py` from the dev
+  server (ENLENS's 12, taken in Margin, and five of Margin's own pages: the Overview, a draft, Skim, an outline,
+  *Find literature*). The script's description holds the rules for keeping the manual, as Margin has no
+  `docs/DEVELOPING.md`.
+- `tests/test_manual.py` (from ENLENS, without `DEVELOPING.md`) holds it together: every page reached from the start
+  page, every link and anchor of the manual and the README, the pictures, each page's shape and length. Margin's
+  tests that looked for a heading of the one-page manual now read its pages.
+
 ### Left out, or made for Margin
 
 - **Shared projects stay out** (as with ENLENS 0.14.0). Where the new code names a person, Margin has one: *Leave out*
@@ -129,11 +145,7 @@ Nothing changes for results: each step was compared with the code before it, num
   new reader* moves it there and counts it, and `margin measure --ws` counts its quotes there. ENLENS's shared-project
   tables (`people`, `judgements`, `sync_*`) and columns (`verifications.user_by`, `reviews.person_id`) are not added;
   `documents.text_fp` is, because the move keeps a document's earlier fingerprints.
-- **The manual stays one page.** ENLENS made its manual a hub with a short page per task and pictures of ENLENS
-  (`docs/manual/`, `docs/images/manual/`, `tests/test_manual.py`, `tools/manual_screenshots.py`); Margin keeps
-  `docs/MANUAL.md` whole, in its own look, with ENLENS's new text carried into it (the reader, the reading view,
-  Ollama, Windows updates and installs, release candidates, problem reports, the caches, troubleshooting).
-  `docs/DEVELOPING.md` stays out, as before.
+- `docs/DEVELOPING.md` stays out, as before.
 - **Release candidates without colleagues.** The help under *Which new versions to offer* and the update note of a
   candidate no longer speak of projects shared with colleagues or of sync clashes.
 - `static/whats-new.md` is still ENLENS's note for 0.16.0rc2. It is never shown in Margin (only a note for the running
@@ -183,8 +195,8 @@ Nothing changes for results: each step was compared with the code before it, num
   `test_0_15_7_documents_reading.py` (*Checked* names no person), `test_0_15_1_updates.py` (ENLENS's withdrawn
   numbers compared against Margin's own version), `test_0_15_0_testing_and_updates.py` (without the test of the
   rollback runbook in `docs/DEVELOPING.md`), `test_0_13_6_version_numbers.py`, `test_0_14_3_check_status.py`. Left
-  out: `tests/test_manual.py` (the manual's pages) and, as before, `test_0_14_0_shared_projects.py` and
-  `test_0_13_8_citations_removed.py` (Margin keeps *Check citations*).
+  out, as before: `test_0_14_0_shared_projects.py` and `test_0_13_8_citations_removed.py` (Margin keeps *Check
+  citations*).
 - **The new reader's tests need the `pdfminer` extra**, as CI installs it (`pip install -e ".[dev,connector,fast,
   pdfminer]"`). With it: 1114 passed, 23 skipped, 1 failed only because that run added pdfminer through `PYTHONPATH`,
   which `test_0_16_0_speed.py`'s reading process replaces. Without it, 9 of ENLENS's reader tests fail (running heads
