@@ -24,6 +24,9 @@ import { renderCitations } from "./views/citations.js";
 import { renderOutlines, renderOutline } from "./views/outline.js";
 import { renderLiterature } from "./views/literature.js";   // finding literature
 import { renderSkim, renderSkimIndex } from "./views/skim.js";   // skim one document
+import { renderLog } from "./views/log.js";
+import { renderNotes } from "./views/notes.js";
+import { renderCodebooks, renderCodebook } from "./views/codebooks.js";
 
 const ROUTES = [
   [/^\/?$/, "overview", renderOverview],
@@ -57,6 +60,11 @@ const ROUTES = [
   // roadmap C: an outline from the themes
   [/^\/outline$/, "outline", renderOutlines],
   [/^\/outline\/([^/]+)$/, "outline", renderOutline],
+  // 0.16: your own codebooks, notes and the research log
+  [/^\/codebooks$/, "codebooks", renderCodebooks],
+  [/^\/codebooks\/([^/]+)$/, "codebooks", renderCodebook],
+  [/^\/notes$/, "annotations", renderNotes],
+  [/^\/log$/, "researchlog", renderLog],
 ];
 
 let cleanup = null;
@@ -87,7 +95,7 @@ async function route() {
   setNav(nav);
   closeDrawer();
   for (const d of document.querySelectorAll("#project-switch details[open], #jobs-indicator details[open], #queue-indicator details[open]")) d.open = false;
-  const pageName = { overview: "Overview", check: "Check a hypothesis", history: "Results", batch: "Check several", sources: "Documents", settings: "Settings", search: "Search", profile: "Profile", concepts: "Concepts", themes: "Themes" }[nav]
+  const pageName = { overview: "Overview", check: "Check a hypothesis", history: "Results", batch: "Check several", sources: "Documents", settings: "Settings", search: "Search", profile: "Profile", concepts: "Concepts", themes: "Themes", codebooks: "Codebooks", annotations: "Notes", researchlog: "Research log" }[nav]
     || { "/setup": "Set up", "/projects": "Projects" }[pathPart] || (FEATURES[nav] && FEATURES[nav].title) || "";
   document.title = pageName ? `${pageName} · ${appName()}` : appName();
   quickLookBanner(document.getElementById("quicklook-banner"));
@@ -175,7 +183,7 @@ export async function switchProject(name) {
     await api("PUT", "/api/settings", { project: name });
     await App.refresh();
     toast(`Project: ${name}`, "ok", { ttl: 2000 });
-    if (/^#\/(h|doc|themes|concepts)\//.test(location.hash)) navigate("#/overview"); else route();
+    if (/^#\/(h|doc|themes|concepts|codebooks)\//.test(location.hash)) navigate("#/overview"); else route();
   } catch (e) { showError(e); }
 }
 

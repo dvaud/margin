@@ -9,6 +9,8 @@ export const SECTIONS = {
   write: { title: "Your writing", short: "Write", sub: "Which claims of your draft the documents back, and whether the sources you cite say what you say.", compact: true },
   check: { title: "Check hypotheses", short: "Check", sub: "When you have a statement to test against the documents.", compact: true },
   project: { title: "Your project", short: "Project" },
+  // 0.16: what you note and decide, kept as you work (notes and highlights, the research log)
+  record: { title: "Your notes and decisions", short: "Notes", sub: "Kept as you work, with the date.", compact: true },
 };
 
 // ai: "none" (never uses the AI), "optional" (works without it; the AI can add to it), "uses" (the AI does the work).
@@ -29,6 +31,12 @@ export const FEATURES = {
     section: "explore", title: "Skim", icon: "eye", href: "#/skim", ai: "none",
     what: "A one-page report on one document: what it sets out to do and says it found, its key sentences, the claims it makes without a citation and the works it cites most.",
     use: "To skim a publication before deciding to read it, without setting up a project (Quick look).",
+  },
+  codebooks: {
+    section: "project", title: "Codebooks", icon: "book-marked", href: "#/codebooks", ai: "none",
+    what: "Make and change your own codebooks: codes with a definition, when to use them and when not, the words they are matched by and examples from the documents. Start fresh or from the themes found.",
+    use: "To code the documents with your own categories, and see before any AI labels what each code would pick.",
+    overview: { section: "explore", order: 5.5, title: "Your own codebook" },
   },
   search: {
     section: "explore", title: "Search", icon: "text-search", href: "#/search", ai: "none",
@@ -88,6 +96,15 @@ export const FEATURES = {
     },
     what: "Finds works to cite for the claims no document supports, the works your documents cite and those citing them, and what is new on a search you keep. Works you choose go to Zotero.",
     use: "When a claim needs a source you do not have yet.",
+  },
+  // 0.16 (F2, F4)
+  annotations: {
+    section: "record", title: "Notes", icon: "highlighter", href: "#/notes", ai: "none",
+    what: "Your highlights and notes on exact words of the documents, in one searchable list. A note can be evidence in a check.",
+  },
+  researchlog: {
+    section: "record", title: "Research log", icon: "notebook", href: "#/log", ai: "none",
+    what: "A dated record of what was decided: documents added, checks made and dropped, themes removed, codebook changes. Add your own entries, say why, and go back to an earlier version.",
   },
 };
 

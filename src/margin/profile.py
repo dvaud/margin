@@ -167,6 +167,41 @@ def _meaning_candidates(ws: Workspace, fw, embedder, pids: list[str]) -> dict[st
     return out
 
 
+def keyword_candidates(fw: frameworks.Framework, text: str, idf: dict[str, float], totals: dict,
+                       toks: list[str] | None = None) -> dict[str, dict]:
+    """The codes the keyword pass finds in one passage's text, before meaning is added: {code: {score, coverage,
+    matched, lexicon[, keywords]}}. 0.16: one function for the keyword pass and the codebook editor's *Try it*
+    (codebooks.py). Margin 0.9: a code whose own keywords occur as whole words is a candidate too."""
+    if toks is None:
+        toks, _words_of = _words(text)
+    have = set(toks)
+    lex_hits = fw.lexicon_hits(text) if fw.lexicon else set()
+    kw_hits = fw.keyword_hits(text)  # 0.9: the codebook's own keywords, as whole words
+    scores = fw.scores(text, toks, lex_hits)  # the phrasings matched once, not twice (0.11.1)
+    cands: dict[str, dict] = {}
+    for code, sc in sorted(scores.items(), key=lambda x: -x[1])[:MAX_CANDIDATES * 3]:
+        cov, shared = _coverage(fw, code, have, idf, totals)
+        lexicon = code in lex_hits
+        if cov < KEYWORD_FLOOR and not lexicon and code not in kw_hits:
+            continue
+        cands[code] = {"score": round(sc, 3), "coverage": round(cov, 3), "matched": shared, "lexicon": lexicon}
+    for code, found in kw_hits.items():
+        cands.setdefault(code, {"score": round(scores.get(code, 0.0), 3), "coverage": 0.0, "matched": [],
+                                "lexicon": False})["keywords"] = found
+    return cands
+
+
+def strength(c: dict) -> float:
+    """How strongly the keyword pass found a candidate: its coverage, a lexicon phrase, or its own keywords (0.9)."""
+    return max(c["coverage"], 0.6 if c["lexicon"] else 0, KEYWORD_HIT if c.get("keywords") else 0)
+
+
+def rank_candidates(cands: dict[str, dict]) -> list[tuple[str, dict]]:
+    """A passage's candidates, best first, as the keyword pass keeps them (the first MAX_CANDIDATES)."""
+    return sorted(cands.items(), key=lambda x: (-(("similarity" in x[1]) and strength(x[1]) > 0),
+                                                -strength(x[1]), -x[1].get("similarity", 0), x[0]))
+
+
 def keyword_pass(ws: Workspace, framework: str = "sdg", embedder=None, doc_ids: list[str] | None = None,
                  progress: Callable[[int, int], None] | None = None) -> dict:
     """Pass 1 for every body passage (or those of `doc_ids`): store the candidates as labels with source keywords,
@@ -185,28 +220,10 @@ def keyword_pass(ws: Workspace, framework: str = "sdg", embedder=None, doc_ids: 
     totals: dict[str, float] = {}
     for n, r in enumerate(rows, 1):
         toks, words = _words(r["text"])
-        have = set(toks)
-        lex_hits = fw.lexicon_hits(r["text"]) if fw.lexicon else set()
-        kw_hits = fw.keyword_hits(r["text"])  # 0.9: the codebook's own keywords, as whole words
-        scores = fw.scores(r["text"], toks, lex_hits)  # the phrasings matched once, not twice (0.11.1)
-        cands: dict[str, dict] = {}
-        for code, sc in sorted(scores.items(), key=lambda x: -x[1])[:MAX_CANDIDATES * 3]:
-            cov, shared = _coverage(fw, code, have, idf, totals)
-            lexicon = code in lex_hits
-            if cov < KEYWORD_FLOOR and not lexicon and code not in kw_hits:
-                continue
-            cands[code] = {"score": round(sc, 3), "coverage": round(cov, 3), "matched": shared, "lexicon": lexicon}
-        for code, found in kw_hits.items():
-            cands.setdefault(code, {"score": round(scores.get(code, 0.0), 3), "coverage": 0.0, "matched": [],
-                                    "lexicon": False})["keywords"] = found
+        cands = keyword_candidates(fw, r["text"], idf, totals, toks)
         for code, sim in meaning.get(r["passage_id"], []):
             cands.setdefault(code, {"score": 0.0, "coverage": 0.0, "matched": [], "lexicon": False})["similarity"] = sim
-
-        def strength(c: dict) -> float:
-            return max(c["coverage"], 0.6 if c["lexicon"] else 0, KEYWORD_HIT if c.get("keywords") else 0)
-
-        ranked = sorted(cands.items(), key=lambda x: (-(("similarity" in x[1]) and strength(x[1]) > 0),
-                                                      -strength(x[1]), -x[1].get("similarity", 0), x[0]))[:MAX_CANDIDATES]
+        ranked = rank_candidates(cands)[:MAX_CANDIDATES]
         surface = words if ranked else {}
         for code, c in ranked:
             kw = strength(c) > 0
@@ -239,7 +256,8 @@ def keyword_pass(ws: Workspace, framework: str = "sdg", embedder=None, doc_ids: 
         cx.executemany(_INSERT_LABEL, [(*r, __version__) for r in out_rows])
         meta = ws.meta("profile_pass1") or {}
         meta[fw.name] = {"at": stamp, "corpus_version": ws.corpus_version(), "passages": len(rows),
-                         "meaning_model": getattr(embedder, "model", None) if meaning else None}
+                         "meaning_model": getattr(embedder, "model", None) if meaning else None,
+                         "codes_fp": codes_fp(fw)}
         ws.set_meta("profile_pass1", meta, cx)
     return {"framework": fw.name, "passages": len(rows), "candidates": len(out_rows),
             "with_candidates": len({x[1] for x in out_rows}), "meaning": bool(meaning)}
@@ -247,7 +265,14 @@ def keyword_pass(ws: Workspace, framework: str = "sdg", embedder=None, doc_ids: 
 
 def pass1_status(ws: Workspace, framework: str) -> dict:
     m = (ws.meta("profile_pass1") or {}).get(framework)
-    return {"done": m is not None, "stale": bool(m) and m.get("corpus_version") != ws.corpus_version(), **(m or {})}
+    changed = False
+    if m and m.get("codes_fp"):  # 0.16: the codebook's codes or their words changed since (a pass before 0.16 has none)
+        try:
+            changed = codes_fp(frameworks.get(framework, ws)) != m["codes_fp"]
+        except ValueError:
+            changed = False
+    return {"done": m is not None, "stale": bool(m) and m.get("corpus_version") != ws.corpus_version(), **(m or {}),
+            "codebook_changed": changed}
 
 
 def ensure_pass1(ws: Workspace, framework: str, embedder=None) -> dict:
@@ -276,7 +301,8 @@ def reads_every_passage(fw: frameworks.Framework) -> bool:
 
 
 def label_plan(ws: Workspace, framework: str = "sdg", doc_ids: list[str] | None = None,
-               all_passages: bool | None = None, limit: int | None = None) -> dict:
+               all_passages: bool | None = None, limit: int | None = None,
+               passage_ids: list[str] | None = None) -> dict:
     """What a model pass would read: the passages (with at least one candidate unless `all_passages`) not read yet,
     and how long it is likely to take (from this project's recent label tasks, or the model test). `all_passages`
     None: the codebook's default (`reads_every_passage`)."""
@@ -287,6 +313,9 @@ def label_plan(ws: Workspace, framework: str = "sdg", doc_ids: list[str] | None 
     sql = ("SELECT p.passage_id FROM passages p WHERE p.section='body'" +
            (f" AND p.doc_id IN ({','.join('?' * len(doc_ids))})" if doc_ids else "") + " ORDER BY p.doc_id, p.seq")
     pids = [r[0] for r in ws.query(sql, doc_ids or [])]
+    if passage_ids is not None:  # 0.16: only these (a code's passages labelled with its earlier wording)
+        only = set(passage_ids)
+        pids = [p for p in pids if p in only]
     with_cands = {r[0] for r in ws.query("SELECT DISTINCT passage_id FROM labels WHERE framework=? AND source IN "
                                          "('keywords','meaning','both')", (framework,))}
     chosen = pids if all_passages else [p for p in pids if p in with_cands]
@@ -424,9 +453,18 @@ def store_labels(cx, t, payload: dict, obj: dict, model: str) -> tuple[bool, lis
                       "as mentioned")
     if errors:
         return False, errors
-    old = [r[0] for r in cx.execute("SELECT label_id FROM labels WHERE task_id=? AND source='model'", (t["task_id"],))]
-    cx.execute("DELETE FROM labels WHERE task_id=? AND source='model'", (t["task_id"],))
+    # 0.16: a label of a code the codebook no longer has (removed, or kept under its name by a merge) waits for its
+    # code (codebooks.py): the new answer replaces the task's labels of the codebook's codes only
+    old = []
+    for lid, code in cx.execute("SELECT label_id, code FROM labels WHERE task_id=? AND source='model'",
+                                (t["task_id"],)).fetchall():
+        if code in fw.codes:
+            cx.execute("DELETE FROM labels WHERE label_id=?", (lid,))
+            old.append(lid)
     cx.executemany("DELETE FROM label_parts WHERE label_id=?", [(x,) for x in old])
+    keep = {r[0] for r in cx.execute("SELECT label_id FROM labels WHERE task_id=?", (t["task_id"],))}
+    rows = [r for r in rows if r[0] not in keep]
+    parts = [p for p in parts if p[0] not in keep]
     cx.executemany(_INSERT_LABEL, [(*r, __version__) for r in rows])
     cx.executemany("INSERT OR REPLACE INTO label_parts(label_id, doc_id, framework, practice, element) "
                    "VALUES (?,?,?,?,?)", parts)
@@ -445,13 +483,14 @@ class _WsShim:
 
 def run_labels(ws: Workspace, framework: str, backend, model: str, doc_ids: list[str] | None = None,
                all_passages: bool = False, limit: int | None = None, progress: Callable | None = None,
-               should_stop: Callable[[], bool] | None = None) -> dict:
-    """The model pass as a job: make the tasks, answer them one by one (resumable), record the run."""
+               should_stop: Callable[[], bool] | None = None, passage_ids: list[str] | None = None) -> dict:
+    """The model pass as a job: make the tasks, answer them one by one (resumable), record the run. `passage_ids`:
+    only these passages (0.16)."""
     from . import runs, tasks
 
     from . import access
 
-    plan = label_plan(ws, framework, doc_ids, all_passages, limit)
+    plan = label_plan(ws, framework, doc_ids, all_passages, limit, passage_ids)
     readers = access.Readers(backend, model)
     lv = access.levels(ws)
     doc_of = access.doc_of_passages(ws._conn(), plan["passage_ids"]) if plan["passage_ids"] else {}
@@ -578,7 +617,18 @@ def effective(ws: Workspace, framework: str, doc_ids: list[str] | None = None, p
         k = (r["passage_id"], r["code"])
         if k not in best or rank[r["source"]] < rank[best[k]["source"]]:
             best[k] = r
-    return list(best.values())
+    # 0.16 (K1): the labels of a code taken out of the codebook wait (codebooks.removed_codes): they do not count
+    try:
+        known = frameworks.get(framework, ws).codes
+    except ValueError:
+        known = None
+    return [r for r in best.values() if known is None or r["code"] in known]
+
+
+def codes_fp(fw: frameworks.Framework) -> str:
+    """0.16: a fingerprint of the words each code is matched by, so the Profile page can say when the codebook changed
+    since its keyword pass."""
+    return _h(*(f"{c.code}\x00{fw.code_text(c.code)}" for c in fw.sorted_codes()))
 
 
 def _parts(ws: Workspace, framework: str) -> dict[str, dict]:

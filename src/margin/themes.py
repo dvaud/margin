@@ -324,6 +324,12 @@ def run(ws: Workspace, k: int = DEFAULT_K, seed: int = 0, mode: str = "auto", em
             carried = _carry_edits(cx, previous, rid, rkey, {p: t for _r, t, p, _s in member_rows})
             settings.update(carried)
             cx.execute("UPDATE theme_runs SET settings_json=? WHERE run_id=?", (json.dumps(settings), rid))
+        from . import researchlog  # 0.16
+
+        how = {"meaning": "by meaning", "words": "by words"}.get(mode, mode)
+        researchlog.record(cx, "themes-found", f"Found {len(theme_rows)} themes {how} in {len(rows):,} passages.",
+                           "themes", rid, f"themes found on {researchlog.day(created)}",
+                           data={"k": k, "mode": mode, "passages": len(rows)})
     return rid
 
 
@@ -499,10 +505,16 @@ def runs(ws: Workspace) -> list[dict]:
     return out
 
 
-def delete_run(ws: Workspace, run_id: str) -> None:
+def delete_run(ws: Workspace, run_id: str, why: str | None = None) -> None:
     with ws.connect() as cx:
-        if not cx.execute("SELECT 1 FROM theme_runs WHERE run_id=?", (run_id,)).fetchone():
+        r = cx.execute("SELECT created_at, k FROM theme_runs WHERE run_id=?", (run_id,)).fetchone()
+        if not r:
             raise KeyError(run_id)
+        from . import researchlog  # 0.16: the research log says so, with the person's reason
+
+        n = cx.execute("SELECT COUNT(*) FROM themes WHERE run_id=?", (run_id,)).fetchone()[0]
+        researchlog.record(cx, "themes-removed", f"Removed the set of {n} themes found on {researchlog.day(r[0])}.",
+                           "themes", run_id, f"themes found on {researchlog.day(r[0])}", why=why)
         for t in ("theme_members", "themes", "theme_runs"):
             cx.execute(f"DELETE FROM {t} WHERE run_id=?", (run_id,))
         for tbl in ("results", "tasks"):
@@ -529,7 +541,7 @@ def _edits(ws: Workspace, rkey: str) -> dict:
 
 
 def edit(ws: Workspace, run_id: str, what: str, theme_id: int | None = None, value=None,
-         passage_id: str | None = None, reviewer: str = "") -> None:
+         passage_id: str | None = None, reviewer: str = "", reason: str | None = None) -> None:
     """rename (value: the new name, "" to undo), merge (theme_id into value; None to undo), move (passage_id to
     the theme `value`; None to undo), or remove (value true: leave the theme and its passages out of the themes;
     false: bring it back). A removed theme takes no merge and no passage; a passage can be moved out of it."""
@@ -542,7 +554,32 @@ def edit(ws: Workspace, run_id: str, what: str, theme_id: int | None = None, val
                                       (run_id,))}
     merges = _edits(ws, rkey)["merges"] if what == "remove" else {}
     gone = "That theme was removed: bring it back first."
+    from . import history, researchlog
+
+    names = {x[0]: x[1] for x in ws.query("SELECT theme_id, name FROM themes WHERE run_id=?", (run_id,))}
+    shown = _edits(ws, rkey)["names"]
+
+    def called(t) -> str:
+        return researchlog.quoted(shown.get(t) or names.get(t) or f"Theme {t}", 80)
+
     with ws.connect() as cx:
+        # 0.16: the set as it was (history.py), and what changed, in the research log
+        label = {"rename": "renaming a theme", "merge": "merging themes", "move": "moving a passage",
+                 "remove": "removing a theme" if value else "bringing a theme back"}.get(what, what)
+        before = history.snapshot(ws, cx, "themes", run_id, label)
+        title = f"themes found on {researchlog.day(ws.scalar('SELECT created_at FROM theme_runs WHERE run_id=?', (run_id,)))}"
+        entry = None
+        if what == "rename" and theme_id in ids:
+            new_name = " ".join(str(value or "").split())[:80]
+            entry = ("theme-renamed", f"Renamed the theme {called(theme_id)} "
+                     + (f"to {researchlog.quoted(new_name, 80)}." if new_name else "back to its found name."))
+        elif what == "merge" and theme_id in ids:
+            entry = (("theme-merged", f"Merged the theme {called(theme_id)} into {called(int(value))}.")
+                     if value is not None and int(value) in ids else
+                     ("theme-separated", f"Separated the theme {called(theme_id)} again."))
+        elif what == "remove" and theme_id in ids:
+            entry = (("theme-removed", f"Removed the theme {called(theme_id)} from the themes shown.") if value else
+                     ("theme-restored", f"Brought the theme {called(theme_id)} back."))
         if what == "rename":
             if theme_id not in ids:
                 raise KeyError(theme_id)
@@ -582,6 +619,9 @@ def edit(ws: Workspace, run_id: str, what: str, theme_id: int | None = None, val
                 cx.execute("UPDATE themes SET removed_at=NULL WHERE run_id=? AND theme_id=?", (run_id, theme_id))
         else:
             raise ValueError("what must be rename, merge, move or remove.")
+        if entry:
+            researchlog.record(cx, entry[0], entry[1], "themes", run_id, title, version_id=before,
+                               why=reason or None, data={"theme_id": theme_id})
 
 
 def _final(merges: dict[int, int], t: int) -> int:

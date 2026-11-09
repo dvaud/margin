@@ -45,9 +45,9 @@ that of the original.
 
 Which codes of a codebook each document addresses, how much and where. A **codebook** is a list of codes, each with a
 description. Margin has **no default codebook**: you choose one, and the Profile page, the *Codes* panel of a document
-and the themes' code grid ask for it until you do. Choose your own CSV, or a built-in one: *Social practice theory*,
-*Framings of conduct and change*, the 169 SDG targets or their 17 goals ([Settings →
-Exploring](settings.md#the-five-tabs) can set it to none again).
+and the themes' code grid ask for it until you do. Choose a built-in one (*Social practice theory*, *Framings of
+conduct and change*, the 169 SDG targets or their 17 goals), or one of your own ([Make your own codebook](codebooks.md));
+[Settings → Exploring](settings.md#the-five-tabs) can set it to none again.
 
 1. **Keywords first.** When documents are added, the app finds candidate codes in seconds by their keywords (and by
    meaning, with an embedding model): a *provisional* profile.
@@ -77,7 +77,7 @@ Besides `code` and `description` (and `group`, `group_name`), a codebook's CSV m
 
 The AI reads `include`, `exclude` and `source` with each code. A codebook of 30 codes or fewer is sent to the AI whole
 with every passage, and the AI reads every passage by default (*Options* switches it), since a keyword search misses
-codes whose words are not in the text. *Settings → Exploring → Codebooks → View codes* shows all of it.
+codes whose words are not in the text. *Codebooks* (in the sidebar) shows all of it, code by code.
 
 <details>
 <summary>The JSON file next to the CSV</summary>
@@ -124,6 +124,10 @@ Concepts that show only across a body of material (a practice's trajectory, prot
 structure) are not codes. Check them as hypotheses ([Check a hypothesis](check.md)), tagged with a code: "Use of the
 table lasted only where a staff member made it part of the daily care routine" (DY2).
 
+When you change the codebook, a notice above the grid says so: the codebook changed since the keyword pass (*Find the
+codes again* takes seconds), codes were reworded after the AI labelled with them, or labels of removed codes wait and
+are not counted. *Open the codebook* goes to its editor ([What happens to labels](codebooks.md#what-happens-to-labels)).
+
 ## Concepts
 
 A **glossary** of the terms the documents use (one or more words, found by the C-value method; running heads and page
@@ -151,6 +155,8 @@ model). A small project gets fewer themes than asked: about three passages a the
   documents were added: an edit follows its theme by the passages they share, and stays behind when no theme of the
   new set has them.
 - *Let the AI name the themes* gives names and short descriptions, with checked quotes.
+- **History** on a set of themes lists its earlier versions, to compare and restore
+  ([Earlier versions](notes-and-log.md#earlier-versions)); removing a theme or a set asks *Why?* for the research log.
 - **Remove** a theme that is not relevant to you (running headers, reference lists, a topic outside your question):
   its passages are left out of the themes, the grids and the downloads. It waits under *Removed themes* at the foot
   of the list, where *Bring it back* undoes it.
@@ -178,6 +184,7 @@ it:
 | **Key terms** | The terms that set the document apart; point at one to underline it in the text. |
 | **References** | *Follow the references*: the AI reads the document three passages at a time and links "it", "they" or "the study" to the name they stand for. Select a name in the text to see every later mention. |
 | **Search** | Search within the document. |
+| **Notes** | Your highlights and notes on this document's words ([Notes, the research log and earlier versions](notes-and-log.md#highlights-and-notes)). |
 | **Reading**, **Page** | How well it was read, and the original page beside the text ([How documents are read](reading.md)). |
 
 *Download a highlighted copy* gives the PDF with highlights for the judgements, codes, concepts or references you

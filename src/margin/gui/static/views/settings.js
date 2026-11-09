@@ -1,6 +1,5 @@
 // Settings: model service, embeddings, check defaults, frameworks, model test, data folder.
 import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, field, switchControl, rangeControl, confirmDialog, dialog, download, VERSION, TERMINAL, strictness, statusBadge, copyLine, tesseractHelp, helpMark, rememberClaude, claudeAccount, appName, Updates, checkUpdate, speedPicker, saveSpeed, planTier } from "../lib.js";
-import { forgetFrameworks, loadFramework } from "./options.js";
 import { simpleProgress } from "./progress.js";
 import { restrictedModelCard, termsPanel } from "./ai-access.js";
 import { localModelHelp } from "./local-model.js";
@@ -40,7 +39,7 @@ export async function renderSettings(view, [section]) {
     if (s.backend === "anthropic") main.append(sectionCard("terms", "Your Claude account and your documents", "", termsPanel({ account: "commercial" })));
   }
   else if (tab === "basics") main.append(basicsSection(s));
-  else if (tab === "explore") main.append(exploreSection(s), literatureSettings(s, save, sectionCard), await frameworksSection());
+  else if (tab === "explore") main.append(exploreSection(s), literatureSettings(s, save, sectionCard), frameworksSection());
   else if (tab === "documents") main.append(sectionCard("ocr", "Reading scanned PDFs", "", ocrBlock(s)), embedSection(s, servers, info));
   else {
     // a local model's own settings (second model, context length) only when a local model answers
@@ -625,96 +624,10 @@ function embedSection(s, servers, info = { servers }) {
 
 // ---------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------
-async function frameworksSection() {
-  const project = App.project;
-  const list = h("div", {});
-  const card = sectionCard("frameworks", "Codebooks", "Optional. A codebook is a list of codes, like in NVivo or Atlas.ti; a hypothesis can be tagged with one code, and the AI reads the code's description alongside it, and the Profile page counts the codes each document addresses. Add your own as a spreadsheet (CSV) with columns code and description, and optionally group, group_name, keywords (separated by ;), include, exclude and source.", list);
-  async function reload() {
-    clear(list);
-    if (!project) { list.appendChild(h("p", { class: "muted" }, "Create a project first: codebooks belong to a project.")); return; }
-    let fws = [], bad = [];
-    try { const r = await api("GET", `/api/projects/${P(project)}/frameworks`); fws = r.frameworks || []; bad = r.problems || []; } catch (e) { showError(e); }
-    for (const b of bad) list.appendChild(h("div", { class: "notice notice-warn" }, icon("alert-triangle"), h("p", {}, `The codebook file ${b.file} (${b.source === "home" ? "for all projects" : "in this project"}) cannot be used: ${b.error}`)));
-    for (const f of fws) {
-      list.appendChild(h("div", { class: "fw-row" },
-        h("div", { class: "grow" }, h("div", { class: "fw-title" }, f.title || f.name), h("div", { class: "fw-sub" }, `${f.codes} codes · each is called ${/^[aeiouAEIOU]|^SDG/.test(f.label) ? "an" : "a"} “${f.label}” · ${f.source === "bundled" ? "built in" : "added by you"} · short name ${f.name}`),
-          f.name === "sdg" ? h("div", { class: "fw-sub" }, "Built in, as an example: the 169 targets of the UN Sustainable Development Goals (and their 17 goals below).") : null,
-          f.name === "practice" ? h("div", { class: "fw-sub" }, "Built in: social practice theory (Shove, Pantzar and Watson; Giddens; Nicolini; Spaargaren et al.). Each label also names the practice and the element, and says whether the passage holds the practice together or pulls it apart.") : null,
-          f.name === "change_framing" ? h("div", { class: "fw-sub" }, "Built in: how a text explains what people do, or why it changes (through practices, individual choice, structure or technology). For policy documents; one main framing per passage.") : null),
-        h("button", { class: "btn btn-sm", type: "button", onClick: () => viewFramework(f) }, icon("eye", { size: 13 }), "View codes"),
-        f.source !== "bundled" ? h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: async () => {
-          const ok = await confirmDialog({ title: `Delete the codebook “${f.title || f.name}”?`, message: "Results tagged with its codes keep the code's text.", confirmText: "Delete" });
-          if (!ok) return;
-          try { await api("DELETE", `/api/projects/${P(project)}/frameworks/${P(f.name)}`); forgetFrameworks(); toast("Codebook deleted.", "ok"); reload(); } catch (e) { showError(e); }
-        } }, icon("trash", { size: 13 }), "Delete") : null));
-    }
-    list.appendChild(h("div", { style: { marginTop: "10px" } }, h("button", { class: "btn", type: "button", onClick: () => uploadFramework(reload) }, icon("upload", { size: 14 }), "Add a codebook from a spreadsheet (CSV)")));
-  }
-  async function viewFramework(f) {
-    let fw;
-    try { fw = await loadFramework(project, f.name); } catch (e) { showError(e); return; }
-    const input = h("input", { class: "input", type: "search", placeholder: "Filter…", "aria-label": "Filter codes" });
-    const tbl = h("div", { class: "picker-list" });
-    const draw = () => {
-      clear(tbl);
-      const q = input.value.trim().toLowerCase();
-      let n = 0;
-      for (const i of fw.items || []) {
-        if (q && !(`${i.code} ${i.description} ${i.group_name || ""} ${(i.keywords || []).join(" ")}`.toLowerCase().includes(q))) continue;
-        n++;
-        // 0.9: a code's notes (when to use it, when not, keywords, source) one click away
-        const notes = [["Use when", i.include], ["Not when", i.exclude], ["Keywords", (i.keywords || []).join(", ")], ["Source", i.source]].filter(([, v]) => v);
-        tbl.appendChild(h("div", { class: "picker-item", style: { cursor: "default" } }, h("span", { class: "pi-code" }, i.code), h("span", { class: "pi-desc" }, i.description, i.group_name ? h("span", { class: "muted" }, ` — ${i.group_name}`) : null,
-          notes.length ? h("details", { class: "fold fw-notes" }, h("summary", {}, "Notes"), h("dl", { class: "ev-tech-list" }, notes.map(([k, v]) => h("div", {}, h("dt", {}, k), h("dd", {}, v))))) : null)));
-        if (n > 500) break;
-      }
-      if (!n) tbl.appendChild(h("div", { class: "muted small", style: { padding: "8px" } }, "No code matches."));
-    };
-    input.addEventListener("input", draw); draw();
-    const dw = fw.direction_words || {};
-    const about = [
-      fw.directional ? h("p", { class: "small", style: { margin: "4px 0" } }, `Directions: ${dw.helps || "helps"} or ${dw.hinders || "hinders"}.`, fw.direction_note ? ` ${fw.direction_note}` : "") : null,
-      fw.practice_and_element ? h("p", { class: "small", style: { margin: "4px 0" } }, "Each label also names the practice and the element, in the passage's words.") : null,
-      fw.one_main ? h("p", { class: "small", style: { margin: "4px 0" } }, "One main code per passage.") : null,
-      fw.send_all ? h("p", { class: "small", style: { margin: "4px 0" } }, "Small enough to go to the AI whole, with every passage.") : null,
-      fw.stance ? h("p", { class: "small", style: { margin: "4px 0" } }, h("span", { class: "muted" }, "How it is meant: "), fw.stance) : null,
-      fw.sources && fw.sources.length ? h("details", { class: "fold" }, h("summary", {}, "Sources"), h("ul", { class: "small" }, fw.sources.map((x) => h("li", {}, x)))) : null,
-    ].filter(Boolean);
-    await dialog({ title: fw.title || fw.name, body: h("div", {}, h("p", { class: "muted small" }, `${fw.codes} codes · label “${fw.label}”`), about, input, tbl), wide: true });
-  }
-  await reload();
-  return card;
-}
-
-// A CSV file as text: UTF-8, else the Windows code page of a spreadsheet saved in Europe (f.text() read every file as
-// UTF-8 and garbled the others: ő and ű mark the Central European page).
-async function readCsv(f) {
-  const bytes = new Uint8Array(await f.arrayBuffer());
-  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^\uFEFF/, ""); }
-  catch (_) { return new TextDecoder(bytes.some((b) => b === 0xF5 || b === 0xD5) ? "windows-1250" : "windows-1252").decode(bytes); }
-}
-
-function uploadFramework(done) {
-  const name = h("input", { class: "input", type: "text", placeholder: "e.g. remote", pattern: "[A-Za-z0-9_-]+", maxlength: 30 });
-  const title = h("input", { class: "input", type: "text", placeholder: "e.g. Hydrogen value-chain hypotheses" });
-  const label = h("input", { class: "input", type: "text", placeholder: "e.g. hypothesis code" });
-  const csv = h("textarea", { class: "textarea input-mono", rows: 6, placeholder: "code,description,group,group_name\nR1,Working from home reduces commuting,C,Commuting" });
-  const file = h("input", { type: "file", accept: ".csv,text/csv", class: "input" });
-  file.addEventListener("change", async () => { const f = file.files && file.files[0]; if (f) { csv.value = await readCsv(f); if (!name.value) name.value = f.name.replace(/\.csv$/i, "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 30); } });
-  const err = h("div", { class: "field-error", role: "alert" });
-  const directional = switchControl("The codes are aims a text can help or hinder", false, { help: "For example policy goals. Labels then also say whether a passage helps the aim, hinders it, or does not say." });
-  dialog({
-    title: "Add a codebook", wide: true,
-    body: h("div", {}, h("div", { class: "fields-3" }, field("Short name", name, { help: "letters, digits, - and _" }), field("Title", title), field("Label", label, { help: "shown before a code" })),
-      field("CSV file", file), field("…or paste the CSV", csv), directional, err),
-    actions: [{ text: "Cancel", value: null }, { text: "Add", value: true, primary: true, async onClick() {
-      err.textContent = "";
-      try { await api("POST", `/api/projects/${P(App.project)}/frameworks`, { name: name.value.trim(), csv: csv.value, title: title.value.trim() || undefined, label: label.value.trim() || undefined, directional: directional.input.checked }); forgetFrameworks(); toast("Codebook added.", "ok"); done(); }
-      catch (e) { err.textContent = e.message; return false; }
-      return true;
-    } }],
-    onOpen() { name.focus(); },
-  });
+// 0.16 (K1): codebooks have a page of their own (Codebooks, in the sidebar): made, changed, copied and removed there
+function frameworksSection() {
+  return sectionCard("frameworks", "Codebooks", "Your own codebooks, and the built-in ones (social practice theory, framings of conduct and change, the SDG targets), are on a page of their own: make one fresh or from the themes found, change its codes, try it without AI, and go back to an earlier version.",
+    h("a", { class: "btn", href: "#/codebooks" }, icon("book-marked", { size: 14 }), "Open Codebooks"));
 }
 
 // ---------------------------------------------------------------------------------------------

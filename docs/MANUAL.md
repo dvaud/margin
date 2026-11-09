@@ -49,6 +49,7 @@ Three things hold everywhere:
 | **Get going** | [Install and update](manual/install.md) | The one-line install, the files to double-click, scanned PDFs, updating, the icon |
 | | [First steps](manual/first-steps.md) | The first screen, adding documents, finding your way in the app |
 | **Explore the documents** | [Explore your documents](manual/explore.md) | Search, Profile and codebooks, Concepts, Themes, a document's panels, Quick look |
+| | [Make your own codebook](manual/codebooks.md) | From the themes, a copy or a CSV; try it, change it, labels follow |
 | | [Skim one document](manual/skim.md) | A one-page report: aims, findings, key sentences, claims, the works it cites |
 | | [How documents are read](manual/reading.md) | What is read and what is left out, the reading view, moving to a new reader |
 | | [Your bibliography](manual/bibliography.md) | Zotero next to your documents: what you have, what to find |
@@ -58,6 +59,7 @@ Three things hold everywhere:
 | | [Find literature](manual/literature.md) | Works you do not have yet, looked up online without AI |
 | **Check hypotheses** | [Check a hypothesis](manual/check.md) | What a check does, the answers, hypotheses in parts, checking many at once |
 | | [Read and review a result](manual/review.md) | The result page, excerpt cards, second opinions, downloads, the map |
+| **Your notes and decisions** | [Notes, the research log and earlier versions](manual/notes-and-log.md) | Highlights, the log, compare and restore |
 | **The AI and your privacy** | [Privacy](manual/privacy.md) | What leaves your computer, who may read each document with AI, how it is enforced |
 | | [Claude Code](manual/claude-code.md) | Starting it, its speed and helpers, the queue; Claude in a chat (the connector) |
 | | [A model on your own computer](manual/local-models.md) | Getting one, choosing and tuning it, testing it |

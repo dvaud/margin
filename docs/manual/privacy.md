@@ -12,7 +12,7 @@
 
 | Where it goes | What |
 | --- | --- |
-| **Stays on your computer** | Projects (plain folders with one SQLite database each) and settings, in `~/margin` or `MARGIN_HOME`. The documents themselves, your judgements, notes and reviews. |
+| **Stays on your computer** | Projects (plain folders with one SQLite database each) and settings, in `~/margin` or `MARGIN_HOME`. The documents themselves, your judgements, notes, highlights, the research log and reviews. |
 | **To Anthropic, on your Claude plan** | With Claude Code: only the passages inside the tasks it takes, from documents Claude may read. Margin never sees your Claude login. |
 | **To Anthropic, on a team key** | With the Claude API, only after *Allow cloud models* is switched on (or `--backend anthropic` on the command line): the hypothesis and the passages read. |
 | **To OpenAlex, and the other services you choose** | *Find literature* only: search words and, to follow citations, the DOIs of your documents. See below. |

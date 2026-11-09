@@ -1,5 +1,96 @@
 # Changelog
 
+## Unreleased
+
+From ENLENS 0.16.0 and 0.16.1, and one fix that will be in ENLENS 0.16.2: notes and highlights on a document's words,
+a research log, history (compare and restore), your own codebook in the app, and short code names from the themes.
+Margin has no shared projects, so everything here is made for one person (*Left out, or made for Margin*, below).
+
+### Notes, a research log, history and your own codebook (ENLENS 0.16.0)
+
+**New**
+
+- **The research log** (sidebar: *Research log*). A dated record of what was decided in a project, written as it
+  happens: documents added and removed, who may read a document with AI, a document read again with the new reader,
+  a hypothesis checked or a check removed, themes found, removed, renamed or merged, a codebook made, changed, moved or
+  removed, a note used as evidence, an earlier version restored. Add entries of your own, and *Say why* beside what the
+  app wrote down. Removing a document, a check, a set of themes or a theme asks *Why?* (optional). The app's entries
+  cannot be removed. Filter, search, and download it as Markdown (a heading per day) or Excel.
+- **Notes and highlights on the words of a document.** Select words in a document's text: *Highlight* and *Note*, in
+  four colours. A document's *Notes* panel lists its notes; the *Notes* page lists them all, searchable, with Markdown
+  and Excel downloads. A note's words are checked against the document as every quote is, follow their words when the
+  document is read again, and stay when the document is removed. No AI.
+- **A note as evidence in a check.** *Use as evidence* on a note, or *Add one of your notes* under each part of a
+  result: the passage holding the note's words becomes an excerpt you judged, marked *found by: your note*.
+- **History: compare and restore.** *History* on a set of themes, *History of your judgements* at the foot of a result,
+  and *History* on a codebook list the states before each change you made; *Compare with now* and *Restore this
+  version* (which keeps the present state as a version too, so a restore can be undone).
+- **Your own codebook** (sidebar: *Codebooks*). *New codebook*: start fresh, from the themes, as a copy (of a built-in
+  one too) or from a CSV file; keep it with this project or with all projects. Each code has a name, a definition,
+  *When to use it*, *When not to use it*, *Words it is matched by* and *Examples from the documents* (checked against
+  the documents). Groups, drag to reorder, *Split*, *Merge into…*, *Remove*; *Save* asks an optional *Why?*.
+- **Try a codebook before labelling.** *Try it* counts, without AI and in seconds, which passages and documents the
+  keyword pass would pick for each code.
+- **Changing a codebook in use.** Labels follow a rename and a merge; a removed code's labels wait under *Removed codes*
+  and come back with *Bring it back*; a code reworded after the AI labelled with it says so, and *Label them again*
+  sends only those passages to the AI. Profile says when the codebook changed since its keyword pass.
+
+**Changes that can alter your results**
+
+- **The labels of a code removed from a codebook no longer count** in Profile, a document's *Codes* panel and the Excel
+  file. They are kept under *Removed codes* and count again when the code comes back.
+- **Labels follow renames and merges** made in the editor.
+- Margin's AI already read a code's *include* and *exclude* (since 0.9): the editor's *When to use it* and *When not to
+  use it* are the same thing, so the prompt (`label-v2`) does not change.
+
+### Short code names from the themes (ENLENS 0.16.1)
+
+- A codebook made *From the themes* gets short code names made of words of each theme's name, one or two words when
+  the documents allow it ("Hydrogen strategies", "Clean cooking"), longer only when a shorter name is too generic for
+  your documents. A name you gave a theme comes first. In *Start from the themes*, − and + make each name less or more
+  specific, and *Shorter* and *Longer* move every ticked theme. No AI; nothing you already have changes.
+
+### Update when GitHub's download links are busy (ENLENS, coming in 0.16.2)
+
+- *Update* fetches each file from the download link, else through GitHub's API, and tries both again a few seconds
+  later; if it still cannot, it says so in plain words (nothing was changed, try again in a few minutes). This works
+  from the version that has it on: the update *to* that version still downloads the old way.
+
+### Left out, or made for Margin
+
+- **One person.** ENLENS's notes, research log, history and codebook editor ask its `people.py` (shared projects) who
+  made something. Margin answers from a small module of its own, `solo.py`: always you. Your judgements stay on their
+  excerpts (`verifications.user_*`), so the history of a check reads and restores them there. What ENLENS keeps so a
+  colleague's copy does not bring back something removed (`sync_removed`, `sync_copies`, `ws.removed`) is left out;
+  a note on a removed document takes the document's title from the research log instead. The log's *Work together*
+  group, a colleague's name on an entry or note, and the manual's lines about colleagues are left out.
+- **Codebooks.** Margin still has no default codebook (the editor's "used by Profile" mark follows your choice), and its
+  built-in codebooks (*Social practice theory*, *Framings of conduct and change*, the SDG targets and goals) are listed
+  as built in and cannot be changed. A copy of a built-in one keeps its settings (directions, one main code, practice
+  and element, stance, sources) and each code's `source`, which the editor now writes as a CSV column of its own.
+  Margin's 0.9 columns (`include`, `exclude`, `keywords`, `source`) are read in every codebook as before; the editor's
+  `when_to_use` and `when_not_to_use` in codebooks made in the editor. The editor's *Try it* counts a code's own
+  keywords as the keyword pass does.
+- **Settings → Exploring → Codebooks** now links to the Codebooks page, as in ENLENS. The old *View codes* dialog, which
+  also showed a codebook's stance and sources, is gone; the codebook page shows each code's fields.
+- The Overview gains *Your own codebook* in *Explore* and a section *Your notes and decisions*, after Margin's *Your
+  writing* and *Check hypotheses*.
+- ENLENS's tests of things travelling to a colleague (notes, log entries, versions, a colleague's labels following a
+  codebook) are left out; the rest of its 0.16 tests run as they are, with Margin's wording where Margin differs (the
+  label prompt's layout, keywords read in every codebook, a small codebook sent to the AI whole).
+
+### Tests
+
+From ENLENS: `test_0_16_0_research_log.py`, `test_0_16_0_notes.py`, `test_0_16_0_history.py`,
+`test_0_16_0_codebook_editor.py`, `test_0_16_1_code_names.py`, `test_0_16_2_update_download.py` (adapted as above).
+`test_0_13_6_page_extensions.py` checks the Overview with the new section.
+
+### Not yet done
+
+- The new pages (Codebooks, Notes, Research log, History) were tried by the tests and in screenshots, not yet in a
+  week of use on a real project.
+- Highlights were not tried in Safari (WebKit) or on Windows.
+
 ## 0.15.0 (November 2026): a new reader, and a manual of short pages
 
 Margin 0.15 brings in ENLENS 0.14.6 to 0.16.0rc2, and its manual becomes a start page with a short page per task.
