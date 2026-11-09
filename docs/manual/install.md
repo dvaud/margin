@@ -31,8 +31,9 @@ The package has everything: the connector for Claude, faster search, the PDF lay
 text recognition, so no feature needs a later install. Only the program Tesseract, for scanned PDFs, is separate
 ([below](#scanned-pdfs-optional)).
 
-Running the same line again installs the newest release over the one you have (on Windows, quit Margin first). Your
-projects in `~/margin` stay as they are.
+Running the same line again installs the newest release over the one you have. Your projects in `~/margin` stay as
+they are. On Windows, quit Margin and close Claude Code first: both run programs from Margin's folder, which Windows
+does not let the install replace. If one still runs, the line names it and waits until it has closed (0.15.5).
 
 **Options** are environment variables placed before `sh`, for example
 `curl -fsSL …/install.sh | MARGIN_LOCAL_ONLY=1 sh`. In PowerShell, first type `$env:MARGIN_LOCAL_ONLY = "1"` in the
@@ -144,7 +145,7 @@ computers in one office can all look every two minutes.
 
 | Installed with | What `margin update` does |
 | --- | --- |
-| The one-line install | Asks GitHub for the latest release, downloads its package, checks it against the checksums, installs it with uv, and brings the Claude Code plugin up to date (also Claude Code's own copy, so the next run uses the new instructions). On Windows it says to press *Update* in the app, or to quit Margin and run the install line again (or a newly downloaded `Install-Margin-Windows.cmd`). |
+| The one-line install | Asks GitHub for the latest release, downloads its package, checks it against the checksums, installs it with uv, and brings the Claude Code plugin up to date (also Claude Code's own copy, so the next run uses the new instructions). On Windows it says to press *Update* in the app, or to quit Margin, close Claude Code and run the install line again (or a newly downloaded `Install-Margin-Windows.cmd`). |
 | A git copy | Fetches the new version into the same folder, reinstalls into the same Python only when the requirements changed (with the extras you have), refreshes the Claude Code plugin, and says to restart the app if it runs. If installing the requirements fails (offline), the next `margin update` installs them. It changes nothing when files of the copy were edited by hand. |
 
 Either way, the data folder is never touched. The version you have is at the top of every *Settings* tab, and

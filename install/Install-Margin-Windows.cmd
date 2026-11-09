@@ -4,7 +4,7 @@ rem Margin @MARGIN_VERSION@: the one-line install for Windows as a file to doubl
 rem PowerShell part below, which is install.ps1 of the same release, so it does what the install line does: it gets
 rem uv, downloads the Margin package and checks it, installs it, makes the Margin icon and opens Margin.
 rem Windows may ask first, as for any program from the internet: click "More info", then "Run anyway".
-rem To update Margin later, quit it and run the newest copy of this file. Your projects stay where they are.
+rem To update Margin later, quit it, close Claude Code and run the newest copy of this file. Your projects stay.
 rem
 rem How it is made: tools/release.py puts install/install.ps1 below the last line of install/Install-Margin-Windows.cmd.
 rem cmd runs the lines up to "exit /b" and stops there; PowerShell reads the whole file, in which everything up to the
