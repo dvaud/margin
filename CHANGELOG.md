@@ -189,7 +189,8 @@ Nothing changes for results: each step was compared with the code before it, num
   `test_0_15_2_accented_user_folder.py`, `test_0_15_3_no_console_windows.py`, `test_0_15_4_windows_update.py`,
   `test_0_15_5_install_waits.py`, `test_0_15_6_ollama_install.py`, `test_0_15_7_documents_reading.py`,
   `test_0_16_0_leave_out_in_place.py`, `test_0_16_0_recompute.py`, `test_0_16_0_search_index.py`,
-  `test_0_16_0_speed.py`, `test_0_16_0_scratch_copy_removal.py`, and ENLENS's changes to earlier tests.
+  `test_0_16_0_speed.py` (its reading-process test now cleans up as `ingest` does, so it no longer fails now and
+  then), `test_0_16_0_scratch_copy_removal.py`, and ENLENS's changes to earlier tests.
 - Changed for Margin: `test_0_15_0_read_with_new_reader.py` (a person's judgement is read from its excerpt, not
   from `judgements`), `test_0_15_0_versions_on_results.py` (without the sync-fingerprint test),
   `test_0_15_7_documents_reading.py` (*Checked* names no person), `test_0_15_1_updates.py` (ENLENS's withdrawn
