@@ -113,6 +113,9 @@ Nothing changes for results: each step was compared with the code before it, num
 - **No console windows flash open on Windows** while Margin checks Claude Code, reads a scanned page or updates.
 - **Windows: removing a project** no longer fails once the app has opened it, the connector no longer holds projects
   open, and a Claude Code run left going is recognised by its command line, not its process number alone.
+- **Windows: the scratch copy of a model test is removed** (ENLENS 0.16.0rc2). A model test or a comparison of labels
+  with Claude Code answers from a copy of the project; when a helper read it just as it was removed, Windows kept it
+  and it stayed in the list of projects. The removal is now tried again for a few seconds (`taskqueue.remove_copy`).
 - **Install Ollama with one button** (*A model on this computer*): it says the download's size and the free space it
   needs first, then downloads Ollama's own signed installer, installs and starts it, with a progress bar and *Stop*.
   *Start Ollama* when it is installed but not running; on Linux a terminal window runs Ollama's own line.
@@ -174,7 +177,7 @@ Nothing changes for results: each step was compared with the code before it, num
   `test_0_15_2_accented_user_folder.py`, `test_0_15_3_no_console_windows.py`, `test_0_15_4_windows_update.py`,
   `test_0_15_5_install_waits.py`, `test_0_15_6_ollama_install.py`, `test_0_15_7_documents_reading.py`,
   `test_0_16_0_leave_out_in_place.py`, `test_0_16_0_recompute.py`, `test_0_16_0_search_index.py`,
-  `test_0_16_0_speed.py`, and ENLENS's changes to earlier tests.
+  `test_0_16_0_speed.py`, `test_0_16_0_scratch_copy_removal.py`, and ENLENS's changes to earlier tests.
 - Changed for Margin: `test_0_15_0_read_with_new_reader.py` (a person's judgement is read from its excerpt, not
   from `judgements`), `test_0_15_0_versions_on_results.py` (without the sync-fingerprint test),
   `test_0_15_7_documents_reading.py` (*Checked* names no person), `test_0_15_1_updates.py` (ENLENS's withdrawn
