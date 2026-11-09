@@ -37,7 +37,9 @@ def topics_corpus(folder: Path, per_topic: int = 10) -> Path:
         paras = [" ".join(rng.choice(SENTENCES).format(*rng.sample(words, 3)) for _ in range(12))
                  for _ in range(per_topic)]
         for i in (0, 1):
-            (folder / f"{t}_{i}.txt").write_text(f"Notes {i + 1}\n\n" + "\n\n".join(paras[i::2]) + "\n")
+            # "\n" on every system, as ENLENS 0.15.7 does in its copy: Windows writes "\r\n" otherwise, so other bytes,
+            # other document ids (a file's sha1), another passage order and other themes than these tests expect
+            (folder / f"{t}_{i}.txt").write_text(f"Notes {i + 1}\n\n" + "\n\n".join(paras[i::2]) + "\n", newline="\n")
     return folder
 
 
