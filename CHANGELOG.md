@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 (November 2026): a new reader, and a manual of short pages
 
-From ENLENS 0.14.6 to 0.16.0rc2, in Margin's names: a new way of reading documents, results that say which version
+Margin 0.15 brings in ENLENS 0.14.6 to 0.16.0rc2, and its manual becomes a start page with a short page per task.
+From ENLENS, in Margin's names: a new way of reading documents, results that say which version
 made them, Claude Code in a box of its own, speed for large projects, Ollama installed from the app, and fixes for
 Windows. Several **can change results**: each says so. ENLENS's shared projects stay out, so the parts of these
 versions that serve colleagues are left out or made for one person (*Left out, or made for Margin*, below).
@@ -148,8 +149,7 @@ Nothing changes for results: each step was compared with the code before it, num
 - `docs/DEVELOPING.md` stays out, as before.
 - **Release candidates without colleagues.** The help under *Which new versions to offer* and the update note of a
   candidate no longer speak of projects shared with colleagues or of sync clashes.
-- `static/whats-new.md` is still ENLENS's note for 0.16.0rc2. It is never shown in Margin (only a note for the running
-  version is), so the next Margin release writes its own.
+- `static/whats-new.md` is Margin's own note for 0.15.0, shown once after the update.
 
 ### Fixed on the way (Margin)
 

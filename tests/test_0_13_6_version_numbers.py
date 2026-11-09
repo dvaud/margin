@@ -33,8 +33,8 @@ def test_a_withdrawn_version_still_running_counts_as_older():
     assert not launcher.is_older({"version": "0.15.1"}) or update.version_tuple(__version__) > (0, 15, 1)
     assert not launcher.is_older({"version": __version__})
     assert launcher.is_older({"version": "0.0.9"})
-    assert not launcher.is_older({"version": "0.14.0"})  # Margin's own 0.14.0 will be a later version
-    assert not launcher.is_older({"version": "0.16.0"})
+    for v in ("0.14.0", "0.16.0"):  # Margin: a number is compared as any number, against the running version
+        assert launcher.is_older({"version": v}) is (update.version_tuple(v) < update.version_tuple(__version__)), v
 
 
 def test_the_changelog_lists_no_withdrawn_version():

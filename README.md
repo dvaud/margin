@@ -21,7 +21,8 @@ a local model. It grew out of ENLENS, and can sit beside it on the same computer
    [Install-Margin-Windows.cmd](https://github.com/dvaud/margin/releases/latest/download/Install-Margin-Windows.cmd)
    on Windows,
    [Install-Margin-macOS.zip](https://github.com/dvaud/margin/releases/latest/download/Install-Margin-macOS.zip)
-   on a Mac. Windows and macOS ask you to allow it the first time: [how](docs/MANUAL.md#1-install).
+   on a Mac. Windows and macOS ask you to allow it the first time:
+   [how](docs/manual/install.md#or-download-a-file-and-double-click-it).
 2. **Press *Set up Claude*** on the first screen. It installs Claude Code if it is missing (it shows you the command
    first), opens a window where you sign in once with your Claude plan, and adds the Margin plugin (beside the ENLENS
    one, if you have it).
@@ -37,11 +38,12 @@ Used Margin on another computer? Choose *Import from another computer* on the fi
 
 ## Update
 
-When a new version is out, **Update to 0.x.y** appears at the bottom of the sidebar (from 0.6, with a note in the
-corner the first time): click it and Margin installs the new version and restarts by itself (on Windows it says to
-use the install line). *Settings → Technical → Check for updates* looks at once. Or do it by hand:
+When a new version is out, **Update to 0.x.y** appears at the bottom of the sidebar, with a note in the corner the
+first time: click it and Margin installs the new version and restarts by itself, on Windows too from 0.15 on (the
+update *to* 0.15 on Windows is still made by hand, below). *Settings → Technical → Updates → Check for updates* looks
+at once. Or do it by hand:
 
-1. **Quit Margin** (*Quit Margin* at the bottom of the sidebar).
+1. **Quit Margin** (*Quit Margin* at the bottom of the sidebar). On Windows, close Claude Code too.
 2. **Get the new version:** in Terminal or PowerShell type `margin update`, or run the install line or file again.
    On Windows, use the install line or double-click the newest `Install-Margin-Windows.cmd`.
 3. **Open Margin again** from its icon.
@@ -49,24 +51,29 @@ use the install line). *Settings → Technical → Check for updates* looks at o
 Your projects and settings (in the folder `margin` in your home folder) are never touched. Installed from a git copy
 instead? `margin update` pulls the new version (see *For developers*).
 
-## New in 0.14: an outline from your research question
+## New in 0.15: a new reader, and a manual of short pages
 
-- **Start from your question.** *Outline → From a research question*: write the question and, if you like, your
-  hypotheses (or pick ones you have checked). Each hypothesis becomes a section holding the themes that bear on it,
-  so the plan follows your argument; themes that bear only on the question go under *Background*, and the rest stay
-  out. No AI is used.
-- **Evidence first.** A checked hypothesis shows its answer and the documents on each side, and its themes are the
-  ones its evidence sits in. Then shared key terms count (rare words more than common ones), and the other wordings
-  of a concept. *Also by meaning* adds closeness by meaning with an embedding model on this computer.
-- **Says why, and what is missing.** Each theme says why it is there (passages of the check, key terms it shares) and
-  which other hypotheses it also bears on. A hypothesis not checked yet has a *Check it* button, and one with no
-  theme behind it says so. *Add a hypothesis* later takes its themes from *Background*.
-- **Install by double-clicking a file** on Windows or a Mac, beside the install line (from ENLENS 0.14.5).
+- **A new reader** for documents you add from now on: two columns are read in order; running heads, page numbers,
+  author details, acknowledgements, footnotes and the reference list are set aside; tables stay tables; words broken
+  over lines are joined. Text copied out of a PDF, and books, lose their clutter too. **Can change results** for new
+  documents; those already in a project keep their reading.
+- **See how each document was read** ([How documents are read](docs/manual/reading.md)): the text as the reader
+  found it, the PDF page beside it, and a warning when it read badly. *Leave out* or *Restore* any part, every running
+  head at once with *All like this*, or mark where the text starts and ends. *Read with the new reader* moves an older
+  document, or several, with their quotes, judgements and codes.
+- **Results say which Margin made them**, and large projects are quicker: documents are read three at a time, and
+  search, the glossary and the Profile page do less work for the same answer.
+- **Claude Code works in a box of its own**: no tool that could open your files, and nothing from your own Claude
+  Code set-up. **Ollama with one button** for a model on your own computer. **Windows**: *Update* installs by itself,
+  the install waits for Claude Code to close, and user folders with accents work.
+- **The manual is a start page and a short page per task**, with pictures of Margin: [docs/MANUAL.md](docs/MANUAL.md).
 
 Full notes: `CHANGELOG.md`.
 
 ## Earlier releases
 
+- **Margin 0.14**: an outline from your research question (each hypothesis a section with the themes that bear
+  on it); install by double-clicking a file (from ENLENS 0.14.5).
 - **Margin 0.13**: a review of the whole app brought in from ENLENS 0.14.3 and 0.14.4: a check says when it did not
   work, stricter quotes, more care with restricted documents, and sturdier adding of documents.
 - **Margin 0.12**: your draft read against itself without AI (sentences that disagree, two numbers for one thing,
@@ -285,7 +292,8 @@ see docs/MODEL_CHOICE.md) set them.
 
 ## Documentation
 
-- [docs/MANUAL.md](docs/MANUAL.md): the manual (app, command line, connector, models).
+- [docs/MANUAL.md](docs/MANUAL.md): the manual, a start page and a short page per task (installing, exploring, your
+  writing, checks, privacy and the AI, settings, the command line).
 - [docs/API.md](docs/API.md): the local app's HTTP API.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each release (ENLENS 0.5 to 0.11.1, then Margin from 0.1.0, which takes in ENLENS 0.11.2 and later), including the defects fixed.
 - [docs/USER_TESTS.md](docs/USER_TESTS.md): the first-time user tests behind the app (0.5.1 to 0.7.0).
