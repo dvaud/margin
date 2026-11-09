@@ -33,7 +33,7 @@ margin-mcp = "margin.mcp_server:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-margin = ["data/*.csv", "data/*.md", "gui/static/*", "gui/static/views/*", "gui/icons/*", "claude_plugin/*", "claude_plugin/agents/*"]
+margin = ["data/*.csv", "data/*.md", "data/*.json", "data/*.txt", "gui/static/*", "gui/static/views/*", "gui/icons/*", "claude_plugin/*", "claude_plugin/agents/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
