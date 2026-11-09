@@ -34,6 +34,7 @@ Two files in the data folder (`~/margin` unless you chose another) often say why
 | The icon is a blank square (macOS) or a plain shortcut (Windows) | It was made before 0.10.2 without Pillow. Open Margin once with 0.10.2 or later: it gives the icon its picture (on macOS, if Finder still shows the blank one, `killall Finder`). Or make the icon again: `margin-gui --make-launcher`. |
 | On Windows, black windows flash open and closed while Margin runs, taking the focus | Margin before 0.15.3 started Claude Code, Tesseract and its updates in windows of their own. Update Margin. |
 | "The original file is no longer at …" | The file was moved or renamed after it was added; the app still has its text. Put it back, or add it again. |
+| On Windows, removing a project says "a file in it is still open" | Another program still has a file of the project open: a sync tool (OneDrive, Dropbox), a search index or an antivirus check. Wait a moment and try again. Before 0.15.7 Margin itself held the project open on Windows, and removing it failed with an error: update Margin. |
 
 ## Claude
 
