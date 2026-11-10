@@ -13,8 +13,8 @@ Where the last sync stopped is read from the `ENLENS-Commit:` lines in the branc
 stored. The first sync also records (as a merge that changes no file) that Margin grew from ENLENS 0.11.1.
 
 Kept as Margin's own, so ENLENS's changes to them are listed but not merged: README.md, CHANGELOG.md and the version
-numbers. Copied without renaming: pilot/ and docs/USER_TESTS.md (history, which names ENLENS on purpose). Names kept
-on purpose everywhere: enlens.sqlite, the enlens-move bundle and the enlens_text/enlens_sources zips (shared formats).
+numbers, and docs/ROADMAP.md (each app keeps its own roadmap since ENLENS 0.17.0rc3). Copied without renaming:
+pilot/ and docs/USER_TESTS.md (history, which names ENLENS on purpose). Names kept on purpose everywhere: enlens.sqlite, the enlens-move bundle and the enlens_text/enlens_sources zips (shared formats).
 
 Options: --remote (default enlens), --branch (default main), --ref REV (use REV instead of fetching).
 """
@@ -47,7 +47,7 @@ _RULES = [(re.compile(a), b) for a, b in [
     (r"(?<![\w.])8765\b", "8766"),
 ]]
 VERBATIM = ("pilot/", "docs/USER_TESTS.md")            # copied as they are
-FROZEN = ("README.md", "CHANGELOG.md")                 # Margin's own: ENLENS's changes are listed, not merged
+FROZEN = ("README.md", "CHANGELOG.md", "docs/ROADMAP.md")  # Margin's own: ENLENS's changes are listed, not merged
 FROZEN_LINES = {                                       # Margin's own lines inside files that are otherwise merged
     "pyproject.toml": re.compile(r"^version\s*=.*$", re.M),
     "src/margin/__init__.py": re.compile(r"^__version__\s*=.*$", re.M),
