@@ -59,6 +59,8 @@ def _no_real_margin_home(tmp_path, monkeypatch):
     MARGIN_HOME read the real settings, so the models recommended for the plan Claude Code found there (Max: Opus)
     replaced the ones the test expects (Pro). A test that sets MARGIN_HOME itself still gets its own."""
     monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "margin-home"))
+    # 0.18.0rc2: secrets (a storage space's keys) go to files in that folder, never the computer's own keychain
+    monkeypatch.setenv("MARGIN_KEYCHAIN", "file")
 
 
 @pytest.fixture(autouse=True)

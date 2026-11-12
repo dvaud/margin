@@ -12,6 +12,7 @@ dependencies = [
   "pydantic>=2.5",
   "pypdf>=4.0",
   "openpyxl>=3.1",
+  "cryptography>=41",   # 0.18.0rc2 (L6): a storage space's files sealed (AES-GCM) and signed (Ed25519); pdfminer.six needs it too
 ]
 
 [project.optional-dependencies]
