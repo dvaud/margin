@@ -20,7 +20,7 @@ from margin import bundle, ingest, ownership, people, sharing
 from margin.store import Workspace
 from margin.sync import folder
 from owner_helpers import TEXTS
-from test_0_14_0_shared_projects import Person
+from test_shared_projects import Person
 
 L2_TABLES = ("ownership", "proposals", "decisions", "canon", "canon_seen")
 

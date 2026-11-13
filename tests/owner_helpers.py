@@ -10,7 +10,7 @@ from margin import reader as reader2
 from margin.llm import BaselineBackend
 from margin.store import now
 from margin.sync import folder
-from test_0_14_0_shared_projects import Person
+from test_shared_projects import Person
 
 TEXTS = {
     "desalination": ("Desalination for hydrogen export in arid regions\n\n"

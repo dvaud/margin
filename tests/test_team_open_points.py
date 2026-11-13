@@ -16,7 +16,7 @@ import pytest
 from margin import ownership, removed
 from margin.sync import folder
 from owner_helpers import accept, add_doc, docs_of, follow, has, join, proposals, sync, view
-from test_0_14_0_shared_projects import Person, anna_and_ben  # noqa: F401  (fixture)
+from test_shared_projects import Person, anna_and_ben  # noqa: F401  (fixture)
 
 
 @pytest.fixture

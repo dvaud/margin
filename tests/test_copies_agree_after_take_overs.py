@@ -17,7 +17,7 @@ from margin import ownership
 from margin.sync import folder
 from owner_helpers import docs_of, follow, has, join, set_role, sync
 from roles_helpers import project
-from test_0_14_0_shared_projects import Person, anna_and_ben  # noqa: F401  (fixture)
+from test_shared_projects import Person, anna_and_ben  # noqa: F401  (fixture)
 
 
 @pytest.fixture
