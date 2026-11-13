@@ -10,22 +10,9 @@
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A["You press an AI button<br/>(check, label, name themes…)"] --> Q["Margin puts the work<br/>in its queue"]
-    Q --> S["Start Claude Code"]
-    S --> H["Claude Code hands it to helpers,<br/>each on its own model"]
-    H --> V["Margin checks every answer<br/>(quotes, format)"]
-    V -- "a wrong quote" --> H
-    V --> R["The result appears in Margin"]
-```
-
-Claude Code answers every kind of AI task: labels of codes, concept links, theme names, references, checks, reading an
-excerpt again, second opinions, the model tests, and the [SDG pack](sdg-pack.md)'s tasks. Margin never sees your
-Claude login (Claude Code uses its own) and never runs on anyone else's plan.
-
-For a shared installation that runs unattended, use the **Claude API** with the team's key instead: the same queue and
-the same models per task (`margin queue run --backend anthropic`).
+Margin puts the work of every AI button in its queue, and nothing runs until you press *Start Claude Code*. Claude Code
+hands the tasks to helpers, each on its own model, and Margin checks every answer before it appears. The diagram, and
+what Claude Code answers: [How the AI is used and limited](how-the-ai-is-used.md#how-it-works).
 
 ## Set it up once
 
