@@ -76,6 +76,7 @@ margin --ws myproject search "electrolyser imports" --mode phrase --out hits.csv
 margin --ws myproject search water --collocates                                    # the words around the hits
 margin --ws myproject terms --rebuild                                              # the glossary; --q water filters
 margin --ws myproject concept "proton exchange membrane" --references              # a concept card as JSON
+margin --ws myproject concept-map --n 40 [--doc ID] [--year-from 2015] [--json]    # the concept map, in words
 margin --ws myproject profile --keywords-only --out profile.xlsx                   # codes by keywords, no model
 margin --ws myproject profile --framework sdg_goals --level group --limit 50       # the AI labels 50 passages
 margin --ws myproject themes --k 20 --mode auto --name-with-model --out themes.xlsx
@@ -84,6 +85,7 @@ margin --ws myproject annotate <doc_id> --hyp <hyp_id> --layers judgements label
 margin --ws myproject export-flexiconc project.sqlite [--no-embeddings]
 margin --ws myproject export-qdpx project.qdpx [--framework NAME]   # for NVivo, ATLAS.ti, MAXQDA (REFI-QDA)
 margin --ws myproject export-qdc NAME codebook.qdc                  # one codebook, REFI-QDA
+margin --ws myproject import-qdc codebook.qdc [NAME] [--title T] [--home]   # a codebook from NVivo, ATLAS.ti, MAXQDA (.qdc or .qdpx)
 margin measure [--folder DIR] [--ws PROJECT] [--timings] [--report FILE.md]       # how well Margin reads
 margin validate prepare|score|report [--project NAME] [--again NAME] [--latest DIR] [--out FILE.md]   # the AI's answers against known right answers
 ```
