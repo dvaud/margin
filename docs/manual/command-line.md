@@ -85,7 +85,7 @@ margin --ws myproject annotate <doc_id> --hyp <hyp_id> --layers judgements label
 margin --ws myproject export-flexiconc project.sqlite [--no-embeddings]
 margin --ws myproject export-qdpx project.qdpx [--framework NAME]   # for NVivo, ATLAS.ti, MAXQDA (REFI-QDA)
 margin --ws myproject export-qdc NAME codebook.qdc                  # one codebook, REFI-QDA
-margin --ws myproject import-qdc codebook.qdc [NAME] [--title T] [--home]   # a codebook from NVivo, ATLAS.ti, MAXQDA (.qdc or .qdpx)
+margin --ws myproject import-qdc codebook.qdc [NAME] [--title T] [--codebook TITLE] [--home]   # a codebook from NVivo, ATLAS.ti, MAXQDA (.qdc or .qdpx)
 margin measure [--folder DIR] [--ws PROJECT] [--timings] [--report FILE.md]       # how well Margin reads
 margin validate prepare|score|report [--project NAME] [--again NAME] [--latest DIR] [--out FILE.md]   # the AI's answers against known right answers
 ```
