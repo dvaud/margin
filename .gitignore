@@ -7,3 +7,6 @@ __pycache__/
 *.egg-info/
 .venv/
 .DS_Store
+
+# Agent notes, audits and worktrees (local to this computer)
+/.claude/

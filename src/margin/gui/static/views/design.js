@@ -188,7 +188,8 @@ export async function renderDesign(page) {
   // ---- 5.2: the status area in each state, the last row
   const aiCard = (cls, ic, name, words) => h("div", { class: "status-area" }, h("div", { class: "privacy-wrap" },
     h("a", { class: `privacy ${cls}`, href: HERE }, icon(ic, { size: 16 }), h("div", {}, h("strong", {}, name), h("span", { class: "privacy-sub" }, words)))));
-  const workBox = (kind, lead, words, time, sub, who, act) => h("div", { class: "status-area" }, h("div", { class: `work-box work-${kind}` },
+  const workBox = (kind, lead, words, time, sub, who, act, cloud) => h("div", { class: "status-area" }, h("div", { class: `work-box work-${kind}${cloud ? " work-cloud" : ""}` },
+    cloud ? h("span", { class: "work-rail", "aria-hidden": "true" }, icon("cloud", { size: 14 })) : null,
     h("a", { class: "work-main", href: HERE }, h("span", { class: "work-line" }, lead, h("strong", { class: "work-text" }, words),
       time ? h("span", { class: "work-time" }, time) : null),
     h("span", { class: "work-sub" }, h("span", { class: "work-sub-text" }, sub), who || null)), act || null));
@@ -347,7 +348,7 @@ export async function renderDesign(page) {
       sample("A place: the section and its AI mark, the title, one line; at the right only actions",
         sampleHead("Hypotheses", { eyebrow: featureEyebrow("check"), sub: "Check one hypothesis or a list against the 3 documents, and judge each answer by its quotes.",
           actions: downloadLinks([{ text: "Excel (.xlsx)", onClick: noop }, { text: "CSV", onClick: noop }]) })),
-      sample("One thing: a back link, its name in the Display serif, its facts; a way to another page in the line under the title",
+      sample("One thing: a back link with its actions on the same line, its name in the Display serif the whole width, its facts; a way to another page in the line under the title",
         sampleHead("Remote work and commuting", { back: { href: HERE, text: "All themes" }, display: true,
           sub: link({ kind: "next", href: HERE }, "Check a hypothesis about this theme"),
           facts: ["Theme 3", "42 passages from 5 documents", "Named by the AI"],
@@ -445,8 +446,10 @@ export async function renderDesign(page) {
     section("5.2", "The status area and the last row", "One fixed size: the AI line's card, or the work box in exactly that space.",
       sample("The AI line", side(aiCard("privacy-cloud", "cloud", "Claude, on your plan", "Only the passages of AI tasks leave this computer"))),
       sample("No AI can run yet: the attention look", side(aiCard("privacy-setup", "alert-triangle", "No AI model set up yet", "Exploring works; checking needs one"))),
-      sample("Work running", side(workBox("running", h("span", { class: "running-dot", "aria-hidden": "true" }), "Check", "41 s", "and 1 more running",
-        h("span", { class: "work-who" }, icon("cloud", { size: 12 }), "Claude")))),
+      sample("Work running, passages go to Claude: the rail and the cloud", side(workBox("running", h("span", { class: "running-dot", "aria-hidden": "true" }), "Check", "41 s", "and 1 more running",
+        h("span", { class: "work-who" }, "to Claude"), null, true))),
+      sample("Work running on this computer: no rail", side(workBox("running", h("span", { class: "running-dot", "aria-hidden": "true" }), "Checking 17 documents", "18 s", "running",
+        h("span", { class: "work-who" }, icon("house", { size: 12 }), "This computer")))),
       sample("Work not running: one action", side(workBox("stalled", icon("pause", { size: 14 }), "Not running", null, "2 tasks waiting", null,
         button({ kind: "main", sm: true, class: "work-act" }, icon("play", { size: 12 }), "Start")))),
       sample("The last row: Settings, Quit, the theme", side(lastRow(button({ kind: "quiet", sm: true }, icon("power", { size: 13 }), h("span", {}, "Quit"))))),

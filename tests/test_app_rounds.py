@@ -220,7 +220,8 @@ console.log(JSON.stringify([reg.jobRow({{ id: "j1", kind: "folder-sync", title: 
     assert sync["tooltip"] == "Working together" and move["tooltip"] == "Reading with the new reader"
     assert move["text"] == "Reading with the new reader" and move["href"] == "#/sources" and "drawer" not in move
     # both run on this computer: the work box says so, not the AI's name; a round's row opens the Team tab
-    assert 'LOCAL_JOB_KINDS = new Set(["index", "folder-sync", "new_reader"])' in APP
+    from margin.gui.api_common import WHERE_OF_KIND
+    assert WHERE_OF_KIND["folder-sync"] == WHERE_OF_KIND["new_reader"] == "here" and "WHERE_CHIP[w.where]" in APP
     assert 'new CustomEvent("margin-drawer", { detail: { tab: w.drawer } })' in APP
 
 

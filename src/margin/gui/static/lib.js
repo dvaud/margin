@@ -1927,9 +1927,15 @@ export function pageHead(title, opts = {}) {
   const backs = [opts.back || []].flat().filter(Boolean);
   const top = backs.length ? backs.map((b, i) => [i ? " " : null, link({ kind: "back", href: b.href }, b.text)]) : opts.eyebrow;
   const facts = (opts.facts || []).filter(Boolean);
-  return h("header", withClass(UI.pageHead, opts.class ? { class: opts.class } : {}),
+  // A page that is one item (docs/DESIGN.md 4.14): its actions stand on the back link's line, so its title and their
+  // lines have the head's whole width. The back link's line is then the head's own first part; the order in the page
+  // (and of the Tab key) stays the back link, the title and its lines, the actions.
+  const item = backs.length > 0 && !!opts.actions;
+  const eyebrow = top ? h("p", { class: "eyebrow" }, top) : null;
+  return h("header", withClass(UI.pageHead, { class: [item ? "page-head-item" : "", opts.class || ""].filter(Boolean).join(" ") }),
+    item ? eyebrow : null,
     h("div", { class: "page-head-main" },
-      top ? h("p", { class: "eyebrow" }, top) : null,
+      item ? null : eyebrow,
       h("h1", { id: "page-title", tabindex: "-1", class: [opts.display ? "title-display" : "", opts.titleClass || ""].filter(Boolean).join(" ") || null }, title),
       facts.length ? h("p", { class: "page-facts" }, facts.map((f, i) => [i ? h("span", { class: "sep", "aria-hidden": "true" }, "·") : null, f instanceof Node ? f : h("span", {}, f)])) : null,
       opts.sub ? h("p", { class: "page-sub" }, opts.sub) : null,

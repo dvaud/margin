@@ -158,7 +158,7 @@ def document_overview(ws: Workspace) -> list[dict]:
     out = []
     for d in ws.query("SELECT d.doc_id, d.title, d.kind, d.n_pages, d.n_chars, d.path, d.added_at, d.ocr_pages, "
                       "d.scanned_pages, (SELECT COUNT(*) FROM passages p WHERE p.doc_id=d.doc_id AND p.section='body') AS body, "
-                      "COALESCE(d.reader, 1) AS reader, d.app_version, d.reading_json FROM documents d ORDER BY d.title"):
+                      "COALESCE(d.reader, 1) AS reader, d.app_version, d.reading_json, d.own_title FROM documents d ORDER BY d.title"):
         flags = []
         ocr, scanned = d["ocr_pages"] or 0, d["scanned_pages"] or 0
         scan = ""
@@ -172,7 +172,8 @@ def document_overview(ws: Workspace) -> list[dict]:
             flags.append("the text could not be read (perhaps a scanned or protected PDF)")
         if d["n_chars"] < 1000:  # a saved landing page or an agenda instead of the report itself
             flags.append("very short: is this the whole document?")
-        out.append({"doc_id": d["doc_id"], "title": d["title"] or "", "kind": d["kind"], "pages": d["n_pages"],
+        out.append({"doc_id": d["doc_id"], "title": d["title"] or "", "named": bool(d["own_title"]),  # 0.19.1: renamed
+                    "kind": d["kind"], "pages": d["n_pages"],
                     "chars": d["n_chars"],
                     "passages": d["body"], "claims": claims.get(d["doc_id"], 0), "file": re.sub(r".*[/\\]", "", d["path"] or ""),
                     "added": (d["added_at"] or "")[:16].replace("T", " "), "added_at": d["added_at"] or "",

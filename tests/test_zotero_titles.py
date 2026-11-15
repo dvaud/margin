@@ -175,7 +175,8 @@ def test_the_pages_show_the_files_own_title():
     assert 'd.file_title ? h("p", { class: "muted small dv-file-title" }, "Title in the file: "' \
         in sources
     # the work's title is not repeated next to the heading that already shows it
-    assert "d.bib.title && d.bib.title !== d.title" in sources
+    # (0.19.0: nor a title that differs from the heading only in case or punctuation, nor twice in its own line)
+    assert "d.bib.title && !repeatsTitle(d.bib.title, title) && d.bib.title !== bibName" in sources
     page = (STATIC / "views" / "bibliography.js").read_text()
     assert 'd.file_title ? h("div", { class: "muted small bib-own-title" }, "Title in the file: ", d.file_title) : null' in page
     assert "${r.doc.file_title || \"\"}" in page  # the filter finds a document by the title in its file too

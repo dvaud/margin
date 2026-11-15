@@ -11,7 +11,7 @@ import { askWhy } from "./versions.js";
 import { proposalChip, proposedToast, removalNote } from "./owner.js";   // 0.18 L2
 import { docChip } from "./owner-state.js";   // 0.18.5: the owner's word as an icon on a closed line
 import { documentMarks, roleMenuItems, roleLine, nonsciMenuItem, NONSCI_MEANS, suggestLine } from "./doc-role.js";   // 0.18.1 K2: theory documents; 0.18.6: non-scientific ones; 0.19.0 N3: working documents
-import { reader, newReaderFor, readingNote, READER_4_NEWS, READER_5_NEWS, READER_6_NEWS } from "./doc-shared.js";
+import { reader, newReaderFor, readingNote, READER_4_NEWS, READER_5_NEWS, READER_6_NEWS, renameDocument } from "./doc-shared.js";
 
 const ACCEPT = ".pdf,.docx,.html,.htm,.txt,.md,.zip";
 const OK_EXT = ["pdf", "docx", "html", "htm", "txt", "md", "zip"];
@@ -206,8 +206,10 @@ export async function renderSources(view) {
   pathInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); pathBtn.click(); } });
 
   // ----------------------------------------------------------------- smart search
-  const indexCard = card({ "aria-label": "Search by meaning" });
-  view.appendChild(indexCard);
+  // a card only while there is something to do or to wait for (off, not set up, running); once it is on and complete,
+  // one quiet line says so: nothing needs you
+  const indexBox = h("div", { class: "docs-index" });
+  view.appendChild(indexBox);
   // 0.17: the index job of this project while it is queued or running (started here, or found after a reload): the card
   // shows it in place of the button, with the counts of the job's own progress, until it ends and the counts are read again
   let indexJob = null, lastSearch = null;
@@ -219,9 +221,17 @@ export async function renderSources(view) {
       (e) => { indexJob = null; drawIndex(lastSearch); throw e; });
   }
   function drawIndex(search) {
-    clear(indexCard);
+    clear(indexBox);
     lastSearch = search;
     const s = search || {};
+    const settled = s.model && !indexJob && (!s.passages || s.complete || s.embedded >= s.passages);
+    if (settled) {
+      indexBox.appendChild(h("p", { class: "muted small docs-index-line" }, icon("network", { size: 13 }),
+        ` Search by meaning is on: excerpts are found even when they use other words than your hypothesis.${s.passages ? "" : " It is set up automatically for every document you add."}`));
+      return;
+    }
+    const indexCard = card({ "aria-label": "Search by meaning" });
+    indexBox.appendChild(indexCard);
     const body = h("div", { class: "grow" });
     const head = h("div", { class: "index-card" }, h("span", { class: "icon-big" }, icon("network", { size: 26 })), body);
     if (!s.model) {
@@ -235,15 +245,10 @@ export async function renderSources(view) {
       indexCard.append(head, h("div", { class: "docs-index-progress" }, simpleProgress(indexJob, indexLabel)));
       return;
     }
-    if (!s.passages) {
-      body.append(h("h2", {}, "Search by meaning is on"), h("p", { class: "muted docs-index-sub" }, "Finds excerpts even when they use other words than your hypothesis. It is set up automatically for every document you add."));
-      indexCard.appendChild(head); return;
-    }
-    const complete = s.complete || (s.passages > 0 && s.embedded >= s.passages);
-    body.append(h("h2", {}, complete ? "Search by meaning is on" : s.embedded ? "Search by meaning is set up for part of the documents" : "Search by meaning is not set up yet"),
-      h("p", { class: "muted docs-index-sub" }, complete ? "Finds excerpts even when they use other words than your hypothesis." : `${fmt.num(s.embedded || 0)} of ${fmt.num(s.passages || 0)} excerpts are covered. Until it is set up, the rest are found by their words only.`));
-    const btn = complete ? null : button({ kind: "main" }, icon("network", { size: 14 }), "Set up search by meaning");
-    if (!complete) btn.addEventListener("click", async () => {
+    body.append(h("h2", {}, s.embedded ? "Search by meaning is set up for part of the documents" : "Search by meaning is not set up yet"),
+      h("p", { class: "muted docs-index-sub" }, `${fmt.num(s.embedded || 0)} of ${fmt.num(s.passages || 0)} excerpts are covered. Until it is set up, the rest are found by their words only.`));
+    const btn = button({ kind: "main" }, icon("network", { size: 14 }), "Set up search by meaning");
+    btn.addEventListener("click", async () => {
       btn.disabled = true;
       try {
         const r = await api("POST", `/api/projects/${P(project)}/index`);   // a job already running comes back as it is
@@ -252,7 +257,7 @@ export async function renderSources(view) {
         if (job.state === "error") showError({ message: job.error, kind: job.error_kind }); else if (job.state === "done") toast("Search by meaning is ready.", "ok");
       } catch (e) { showError(e); btn.disabled = false; }
     });
-    if (btn) head.appendChild(btn);
+    head.appendChild(btn);
     indexCard.appendChild(head);
   }
 
@@ -469,6 +474,15 @@ export async function renderSources(view) {
           d.bib && d.bib.cite ? [h("dt", {}, "In the bibliography"), h("dd", {}, h("span", { class: "it", title: d.bib.title || null }, icon("library", { size: 13 }), d.bib.cite),
             link({ href: "#/bibliography", class: "small" }, "Open the Bibliography"))] : null),
         h("div", { class: "doc-detail-foot" }, link({ kind: "next", href: docHref(d) }, "Open the document"),
+          // 0.19.1: rename it here; the row is drawn again with its new title, still open
+          button({ kind: "quiet", sm: true, class: "doc-rename-btn", onClick: async () => {
+            const res = await renameDocument(project, d);
+            if (!res) return;
+            d.title = res.title || ""; d.named = res.named;
+            const old = rows.get(d.doc_id);
+            if (old) old.replaceWith(rowFor(d));
+            rows.get(d.doc_id)?.querySelector(".doc-rename-btn")?.focus();
+          } }, icon("type", { size: 13 }), "Rename…"),
           button({ kind: "quiet", sm: true, onClick: () => removeDoc(d, () => {
             // 0.18.5: gone from the list where it stood; the page stays where it was
             const at = docs.findIndex((x) => x.doc_id === d.doc_id);

@@ -182,6 +182,28 @@ def test_names_can_be_swapped(demo):
     assert _counts(demo) == {"Wellbeing": 3, "Commuting": 3, "Productivity": 3}
 
 
+def test_a_removed_group_goes_and_its_codes_stay_without_a_group_with_their_labels(demo):
+    cb = _make(demo)
+    _model_labels(demo)
+    st = json.loads(json.dumps(cb))
+    st["groups"].append({"group": "g3", "group_name": ""})        # an empty group, as "Add a group" makes one
+    codebooks.save(demo, "remote", st)
+    st = json.loads(json.dumps(codebooks.load(demo, "remote")))
+    assert [g["group"] for g in st["groups"]] == ["t", "w", "g3"]
+    # what Remove group does in the editor: the group goes, its codes move to no group
+    st["groups"] = [g for g in st["groups"] if g["group"] not in ("w", "g3")]
+    for c in st["codes"]:
+        if c["group"] == "w":
+            c["group"] = ""
+    r = codebooks.save(demo, "remote", st)
+    assert "removed the group “Work and life”" in r["changes"]
+    assert "removed the group “g3”" in r["changes"]
+    after = codebooks.load(demo, "remote")
+    assert [g["group"] for g in after["groups"] if g["group"]] == ["t"]
+    assert {c["code"]: c["group"] for c in after["codes"]} == {"Commuting": "t", "Wellbeing": "", "Productivity": ""}
+    assert _counts(demo) == {"Commuting": 3, "Wellbeing": 3, "Productivity": 3}
+
+
 def test_a_removed_codes_labels_wait_and_count_again_when_it_comes_back(demo):
     cb = _make(demo)
     _model_labels(demo)

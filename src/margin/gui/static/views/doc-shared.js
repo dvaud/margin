@@ -1,7 +1,16 @@
 // Documents, shared by the list (sources.js) and a document's page (doc-page.js and the panels beside its text): how a
 // document was read and the offer of a move to the new reader, the reader's kinds of block in words, where the reader
 // was before a repaint, and a job the page started earlier.
-import { api, h, icon, fmt, P, TERMINAL, session, link, tag } from "../lib.js";
+import { api, h, icon, fmt, P, TERMINAL, session, link, tag, dialog, input, toast, showError } from "../lib.js";
+
+// Whether a name (a file's, a work's in the bibliography) only repeats the document's title, whatever its case, its
+// punctuation and a file's extension: "About Repair Café - Repairing for a Sustainable Future.html" says no more than
+// its title. The document's head says each thing once (docs/DESIGN.md 4.14), so it leaves such a name out.
+const nameWords = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+export function repeatsTitle(name, title) {
+  const t = nameWords(title);
+  return !!t && (nameWords(name) === t || nameWords(String(name || "").replace(/\.[A-Za-z0-9]{1,5}$/, "")) === t);
+}
 
 // 0.15: how a document was read, in the list: one that read badly or has something to check (0.15.7: until the
 // person marks the reading as checked), or one read by an earlier reader (0.15.7: also 0.15.0's; its link opens the
@@ -60,3 +69,32 @@ export async function stillRunning(key) {
   return null;
 }
 export const norm = (s) => String(s || "").replace(/\s+/g, " ").trim().toLowerCase();
+
+// 0.19.1: rename a document, from its row in the Documents list or its page. `d` is {doc_id, title, file, named}
+// (named: the person gave it this title). The new title is used everywhere in this project and stays when the
+// bibliography or a new reading would give another; *Use the title it had before* gives back the work's or the
+// file's. Resolves to the server's answer ({doc_id, title, named, changed}) or null when nothing changed.
+export async function renameDocument(project, d) {
+  const was = d.title || d.file || "";
+  const nameIn = input({ value: was, maxlength: 300, id: "doc-rename", "aria-label": "New title" });
+  const body = h("div", {}, h("label", { class: "field" }, h("span", { class: "field-label" }, "New title"), nameIn),
+    h("p", { class: "muted small" }, "Shown everywhere in this project: the Documents list, results, the bibliography and exports. "
+      + "The file and its text stay as they are, and so does every result."),
+    d.file ? h("p", { class: "muted small" }, "File: ", d.file) : null);
+  const actions = [{ text: "Cancel", value: null }];
+  if (d.named) actions.push({ text: "Use the title it had before", value: "" });
+  actions.push({ text: "Rename", value: "save", primary: true });
+  const r = await dialog({ title: "Rename the document", body, actions, onOpen: () => {
+    nameIn.select();
+    nameIn.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); nameIn.closest("dialog").querySelector(".btn-primary").click(); } });
+  } });
+  if (r === null) return null;
+  const title = r === "" ? "" : nameIn.value.replace(/\s+/g, " ").trim();
+  if (r === "save" && (!title || title === was)) return null;
+  try {
+    const res = await api("PUT", `/api/projects/${P(project)}/documents/${P(d.doc_id)}/title`, { title });
+    if (!res.changed) return null;
+    toast(title ? "Document renamed." : "Its earlier title is back.", "ok", { small: true, ttl: 3000 });
+    return res;
+  } catch (e) { showError(e); return null; }
+}

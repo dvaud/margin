@@ -337,7 +337,7 @@ details.card > summary .muted { font-weight: var(--fw-regular); }
 /* ==== 4.14 Page heads */
 /* Where you are and what the page is for: the eyebrow (the section · the AI mark), the title, one line under it, then
    the view tabs. At most one action at the right, always an action. Made by pageHead(); a result page's title is its
-   hypothesis in the display serif, with a back link instead of the eyebrow. */
+   hypothesis in the display serif, with a back link instead of the eyebrow; one item's actions stand on that line. */
 .page-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 22px; container: page-head / inline-size; }
 /* the AI line of the head's AI action (pageHead({ ai })): the head's last line, the whole width, under the actions */
 .page-head > .ai-where { flex: 1 1 100%; margin-top: calc(var(--space-2) - 16px); }
@@ -346,6 +346,14 @@ details.card > summary .muted { font-weight: var(--fw-regular); }
 .page-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .page-head-actions:has(> .dl-links) { flex-direction: column; align-items: flex-end; }
 .eyebrow { margin: 0 0 .4rem; color: var(--muted); font-size: var(--fs-small); font-weight: var(--fw-regular); }
+/* a page that is one item (a document, a theme, a codebook): its actions stand on the back link's line, at the right,
+   so the title and its lines have the head's whole width. The back link stands on the line of the actions' words
+   (of their last row, when they need two) */
+.page-head-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 16px; align-items: end; align-items: last baseline; }
+.page-head-item > .eyebrow { grid-column: 1; grid-row: 1; }
+.page-head-item > .page-head-actions { grid-column: 2; grid-row: 1; justify-content: flex-end; margin-bottom: .4rem; }
+.page-head-item > .page-head-main { grid-column: 1 / -1; grid-row: 2; }
+.page-head-item > .ai-where { grid-column: 1 / -1; grid-row: 3; margin-top: var(--space-2); }
 .page-sub { max-width: 46em; margin: .35rem 0 0; color: var(--muted); }
 /* facts about the item, in a line under the title, "·" between them (pageHead({ facts })); on a phone one under another */
 .page-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: .35rem 0 0; color: var(--muted); font-size: var(--fs-small); }
@@ -366,6 +374,10 @@ details.card > summary .muted { font-weight: var(--fw-regular); }
 @container page-head (max-width: 699px) {
   .page-head-main { flex-basis: 100%; }
   .page-head-actions, .page-head-actions:has(> .dl-links) { flex: 1 1 100%; flex-direction: row; align-items: center; justify-content: flex-start; }
+  /* one item's head: the back link, the title and its lines, then the actions, each the whole width */
+  .page-head-item > .eyebrow { grid-column: 1 / -1; }
+  .page-head-item > .page-head-actions { grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; margin: 16px 0 0; }
+  .page-head-item > .ai-where { grid-row: 4; }
 }
 @media (max-width: 600px) {
   .page-facts { display: block; }
@@ -451,7 +463,8 @@ details.card > summary .muted { font-weight: var(--fw-regular); }
   display: flex; flex-direction: column; gap: 2px; min-width: 220px; padding: 4px; border: 1px solid var(--border);
   border-radius: var(--radius-ctl); background: var(--surface); box-shadow: var(--shadow-lg);
 }
-.menu > .menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; }
+/* as wide as its longest row, so a row's words stay on one line while the page has the room */
+.menu > .menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; width: max-content; max-width: min(340px, calc(100vw - 32px)); }
 /* in a frame that scrolls (a table), the list floats over the page, placed by menu() under its button */
 .menu > .menu-list[data-float="true"] { position: fixed; right: auto; z-index: 60; }
 .menu-item {
@@ -935,7 +948,7 @@ span.passage-broken, span.passage-broken > span { display: block; }
 .project-switch .ps-name { flex: 1; min-width: 0; font-weight: var(--fw-strong); }
 .project-switch .ps-name-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }
 .project-switch .ps-label { display: block; color: var(--muted); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
-.project-switch .ps-menu { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 30; max-height: 60vh; overflow: auto; }
+.project-switch .ps-menu { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 30; width: auto; max-width: none; max-height: 60vh; overflow: auto; }
 /* the team line: the project switch's second row, in a project that has a team (teamLine()) */
 .project-switch:has(> .team-line:not([hidden])) summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .team-line {
@@ -1014,6 +1027,11 @@ span.passage-broken, span.passage-broken > span { display: block; }
 .work-box .work-act { flex: none; }
 .work-box.work-stalled { border-color: var(--attention-line); background: var(--attention-soft); }
 .work-box.work-stalled .work-text, .work-box.work-stalled .work-line .icon { color: var(--attention); }
+/* 0.19: work that sends passages to Claude: a grey rail with the cloud on the box's left edge, and the chip in stronger
+   words (never a colour of its own: docs/DESIGN.md 5.2). The rail has its own corners, so the link's focus ring is not clipped */
+.work-box.work-cloud { padding-left: 0; }
+.work-box .work-rail { display: flex; flex: none; align-items: center; justify-content: center; align-self: stretch; width: 24px; margin: -6px 0; border-right: 1px solid var(--border-strong); border-radius: var(--radius-ctl) 0 0 var(--radius-ctl); background: var(--surface-3); color: var(--text-2); }
+.work-box.work-cloud .work-who { color: var(--text-2); font-weight: var(--fw-strong); }
 .sidebar-app { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; border-top: 1px solid var(--border); }
 .sidebar-app-row { display: flex; align-items: center; gap: 4px; }
 .sidebar-app-row .nav-foot { flex: 1; min-width: 0; }

@@ -660,6 +660,10 @@ def save(ws: Workspace, name: str, state: dict, merges: list[dict] | None = None
     if [c["uid"] for c in new["codes"] if c["uid"] in cur_by_uid] != [c["uid"] for c in cur["codes"]
                                                                      if c["uid"] in new_uids] and not changes:
         changes.append("changed the order of the codes")
+    kept_groups = {g["group"] for g in new["groups"]}
+    for g in cur["groups"]:
+        if g["group"] and g["group"] not in kept_groups:
+            changes.append(f"removed the group {researchlog.quoted(g['group_name'] or g['group'], 60)}")
     if [g["group_name"] for g in new["groups"]] != [g["group_name"] for g in cur["groups"]] and not changes:
         changes.append("changed the groups")
     if not changes:

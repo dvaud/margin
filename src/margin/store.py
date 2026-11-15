@@ -385,6 +385,9 @@ MIGRATIONS = [("documents", "declared_ref", "TEXT"), ("vca_refs", "alias_of", "T
               # 0.13.3: the title read from the file, kept while the title of the work it is linked to in the
               # bibliography replaces it (NULL: the document has its own title; see bibliography._sync_titles)
               ("documents", "file_title", "TEXT"),
+              # 0.19.1: the title a person gave the document (NULL: none). It wins over the bibliography's and the
+              # file's, which stay as they were (file_title keeps the file's); see bibliography.set_title
+              ("documents", "own_title", "TEXT"),
               # 0.13.6: where a hypothesis comes from: "batch" (Check several) or an add-on's own kind, and the id of
               # what it comes from there (NULL: typed by a person, or made before 0.13.6)
               ("hypotheses", "origin", "TEXT"), ("hypotheses", "origin_id", "TEXT"),

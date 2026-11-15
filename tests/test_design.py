@@ -424,7 +424,7 @@ HELPER_CLASSES = {"btn", "btn-primary", "btn-ghost", "btn-danger", "btn-outline-
                   "fold", "menu-item", "menu-list", "input", "select", "textarea", "link-title", "link-next", "link-back",
                   "link-external", "link-jump", "card-sm", "fold-sm", "empty", "seg", "seg-btn", "option-card", "option-cards",
                   "badge", "work-state", "ai-where", "ai-tag", "chip-count", "person-mark", "search-field", "drawer",
-                  "card-head", "page-head", "page-head-main", "page-head-actions", "page-facts", "settings-tabs", "with-ai",
+                  "card-head", "page-head", "page-head-item", "page-head-main", "page-head-actions", "page-facts", "settings-tabs", "with-ai",
                   "title-display"}
 # the scripts that make the components: they may spell their classes
 MAKERS = {"lib.js"}

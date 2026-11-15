@@ -140,7 +140,8 @@ Codes sit in groups. Click a code to open it:
 
 To move a code, drag it by its grip, or use *Up* and *Down*. *Split* makes a second code from one (the first keeps its
 labels); *Merge into…* sends a code's labels to another and takes the code out; *Remove* takes a code out. *Add a code*
-and *Add a group* are in each group and at the foot. *Codebook settings* holds the title, what one code is called
+is in each group, *Add a group* at the foot. *Remove group* takes a group out: its codes stay, with their labels, under
+*Codes without a group*, and each one's *Group* field moves it to another. *Codebook settings* holds the title, what one code is called
 (*code*, *theme*, *category*) and whether its codes are aims that a text can help or hinder, like the SDG targets.
 
 **Draft from the examples.** A code with two examples or more (in different passages) can have its definition, *when

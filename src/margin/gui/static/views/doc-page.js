@@ -6,7 +6,7 @@ import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, P, 
 import { blockUnit, originalLink } from "./result.js";
 import { colourPicker, editNote, removeNote, useAsEvidence, noteCard } from "./notes.js";
 import { roleBox } from "./doc-role.js";   // 0.18.1 K2: theory documents
-import { keep, kindCount } from "./doc-shared.js";
+import { keep, kindCount, repeatsTitle, renameDocument } from "./doc-shared.js";
 import { leaveOut } from "./doc-leave-out.js";
 import { readingPanel, pagePanel } from "./doc-reading.js";
 import { codesPanel } from "./doc-codes.js";
@@ -51,27 +51,38 @@ export async function renderDocument(view, [docId], query) {
   let tab = DOC_TABS.some(([k]) => k === query.tab) ? query.tab : null;
   let framework = query.framework || App.settings().profile_framework || "sdg";
 
-  // 0.13.3: the original and the highlighted copy are two quiet links on one line, as on the result page
+  // The head (docs/DESIGN.md 4.14) says each thing once: the title, then the facts with the way to the original as
+  // the last of them, then the bibliography's line. The file's name and the work's name in the bibliography are said
+  // only when they say more than the title does. At the right, the highlighted copy and More, which holds the marks
+  // (theory, your working document, non-scientific): doc-role.js fills it, as the marks change what it offers.
+  const title = d.title || d.file;
+  const fileSaysMore = d.file && !repeatsTitle(d.file, title);
+  const bibName = d.bib ? d.bib.cite || d.bib.title : null;
   const copyBtn = downloadButton({ title: "A copy of the document with its quotes and labels highlighted", onClick: () => highlightedCopy() }, "Download a highlighted copy");
-  view.appendChild(pageHead(d.title || d.file, { display: true, back: [back, { href: "#/sources", text: "All documents" }],
-    facts: [d.file, KIND_TEXT[d.kind] || d.kind || "", d.n_pages ? `${d.n_pages} pages` : null,
+  const moreSlot = h("div", { class: "dv-more-slot" });
+  // 0.19.1: rename it; the page is drawn again with its new title
+  const renameBtn = button({ kind: "quiet", sm: true, class: "dv-rename", title: "Give this document a title of your own", onClick: async () => {
+    const res = await renameDocument(project, { doc_id: docId, title: d.title, file: d.file, named: d.named });
+    if (res) window.dispatchEvent(new HashChangeEvent("hashchange"));
+  } }, icon("type", { size: 13 }), "Rename…");
+  view.appendChild(pageHead(title, { display: true, back: [back, { href: "#/sources", text: "All documents" }],
+    facts: [fileSaysMore ? d.file : null, KIND_TEXT[d.kind] || d.kind || "", d.n_pages ? `${d.n_pages} pages` : null,
       reading ? (d.paragraphs ? plural(d.paragraphs, "paragraph") : null)
         : d.n_pages && blockUnit(blocks[0]) === "pages" && totalBlocks === d.n_pages ? null : `${totalBlocks} ${blockUnit(blocks[0])}`,
       d.doi ? h("a", { href: `https://doi.org/${d.doi}`, target: "_blank", rel: "noopener noreferrer", title: "Opens the publisher's page in your browser" }, `doi ${d.doi}`) : null,
-      d.scanned ? h("span", { class: "it" }, icon("eye", { size: 12 }), d.scanned) : null],
+      d.scanned ? h("span", { class: "it" }, icon("eye", { size: 12 }), d.scanned) : null,
+      originalLink(project, docId, hit >= 0 ? blocks[hit].page : null, d.kind, { class: "dv-orig", info: d.original || undefined, quote: quoteText, text: d.kind === "pdf" ? (hit >= 0 && blocks[hit].page ? `Open the original PDF at page ${blocks[hit].page}` : "Open the original PDF") : quoteText ? "Open the original at the quote" : "Open the original" })],
     meta: [
-      d.bib ? h("p", { class: "dv-bib" }, icon("library", { size: 13 }), h("span", {}, "In your ", h("a", { href: "#/bibliography" }, "bibliography"), ": ", h("strong", {}, d.bib.cite || d.bib.title)),
-        d.bib.title && d.bib.title !== d.title ? [h("span", { class: "sep" }, "·"), h("span", { class: "serif" }, d.bib.title)] : null,
+      d.bib ? h("p", { class: "dv-bib" }, icon("library", { size: 13 }), h("span", {}, "In your ", h("a", { href: "#/bibliography" }, "bibliography"), bibName && !repeatsTitle(bibName, title) ? [": ", h("strong", {}, bibName)] : null),
+        d.bib.title && !repeatsTitle(d.bib.title, title) && d.bib.title !== bibName ? [h("span", { class: "sep" }, "·"), h("span", { class: "serif" }, d.bib.title)] : null,
         d.bib.doi && d.bib.doi !== d.doi ? [h("span", { class: "sep" }, "·"), h("a", { href: `https://doi.org/${d.bib.doi}`, target: "_blank", rel: "noopener noreferrer" }, `doi ${d.bib.doi}`)] : null,
         safeHref(d.bib.link, ["http", "https", "zotero"]) ? [h("span", { class: "sep" }, "·"), h("a", { href: safeHref(d.bib.link, ["http", "https", "zotero"]) }, "Open in Zotero")] : null) : null,
       // 0.13.3: the heading is the title of the work; the one read from the file stays visible, on a line of its own
       d.file_title ? h("p", { class: "muted small dv-file-title" }, "Title in the file: ", h("span", { class: "serif" }, d.file_title)) : null,
-      h("div", { class: "row dv-head-row" },
-        originalLink(project, docId, hit >= 0 ? blocks[hit].page : null, d.kind, { info: d.original || undefined, quote: quoteText, text: d.kind === "pdf" ? (hit >= 0 && blocks[hit].page ? `Open the original PDF at page ${blocks[hit].page}` : "Open the original PDF") : quoteText ? "Open the original at the quote" : "Open the original" }),
-        copyBtn),
-      span ? h("p", { class: "muted small dv-span-note" }, hit >= 0 ? (span.whole ? `The excerpt from the result is highlighted, in ${blocks[hit].label.toLowerCase()}.` : `The quote from the result is highlighted, in ${blocks[hit].label.toLowerCase()}.`) : "The quote could not be placed in this text.") : null] }));
+      span ? h("p", { class: "muted small dv-span-note" }, hit >= 0 ? (span.whole ? `The excerpt from the result is highlighted, in ${blocks[hit].label.toLowerCase()}.` : `The quote from the result is highlighted, in ${blocks[hit].label.toLowerCase()}.`) : "The quote could not be placed in this text.") : null],
+    actions: [renameBtn, copyBtn, moreSlot] }));
   let docRole = null;   // 0.19.0 (N3): a working document's selection offers Check against the corpus
-  view.appendChild(await roleBox(project, docId, d.title || d.file || "this document", (r) => { docRole = r; }));   // 0.18.1 K2: theory or evidence
+  view.appendChild(await roleBox(project, docId, d.title || d.file || "this document", (r) => { docRole = r; }, moreSlot));   // 0.18.1 K2: theory or evidence
 
   // ----------------------------------------------------------------- the text, with layers of highlights
   const nodeAt = new WeakMap();        // text node -> document offset of its first character

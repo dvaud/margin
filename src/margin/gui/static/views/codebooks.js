@@ -8,7 +8,7 @@
 // words are marked *AI draft* until you rewrite them.
 import { featureEyebrow, viewTabs, withAI } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, P, plural, confirmDialog, download,
-  dialog, field, switchControl, watchJob, emptyState, shortTitle, session, button, iconButton, downloadButton, link, menu, notice, card, tag, input, select, textarea, choice, optionCards, readsLine, aiWhere, inset, workState, personMark, compare, readTextFile, setBusy } from "../lib.js";
+  dialog, field, switchControl, watchJob, emptyState, shortTitle, session, button, iconButton, downloadButton, link, menu, notice, card, tag, input, select, textarea, choice, optionCards, readsLine, aiWhere, inset, workState, personMark, compare, readTextFile, setBusy, startClaude } from "../lib.js";
 import { forgetFrameworks } from "./options.js";
 import { showHistory, askWhy } from "./versions.js";
 import { shareBar } from "./share.js";   // 0.18 (L1)
@@ -369,6 +369,7 @@ async function pickTheory() {
     // the AI part: a button with its AI mark, and the AI line under it; or one line on why it is not offered
     let aiPart = null;
     let drafting = false;
+    const startSlot = h("div", { class: "cb-theory-start" });   // Start Claude Code while the draft waits for it
     const draftWithAI = async (btn) => {
       if (drafting) return;
       drafting = true;
@@ -380,6 +381,12 @@ async function pickTheory() {
         jobId = res.job.id;
         if (!list.isConnected) { api("POST", `/api/jobs/${P(jobId)}/cancel`).catch(() => {}); return; }   // closed while asking
         jobs.add(jobId);
+        // 0.19.1: this dialog covers the sidebar, so its Start was out of reach while the draft waited for Claude Code:
+        // the dialog has the same Start Claude Code under the AI line, until the draft comes back
+        try {
+          const q = await api("GET", `/api/projects/${P(App.project)}/queue`);
+          if (q.route === "claude_code" && offer.reader !== "local" && list.isConnected) replace(startSlot, startClaude(App.project, { command: q.command, foldType: true, always: true }));
+        } catch (_) { /* the sidebar's Start, as before */ }
         const job = await watchJob(jobId).promise;
         if (!list.isConnected) return;   // the dialog was closed meanwhile
         if (job.state !== "done") { if (job.error) toast(job.error, "error"); return; }
@@ -409,6 +416,7 @@ async function pickTheory() {
       } catch (e) { showError(e); }
       finally {
         drafting = false;
+        clear(startSlot);
         if (jobId) jobs.delete(jobId);
         if (btn.isConnected) { setBusy(btn, false); if (drafted) { btn.disabled = true; btn.textContent = "Drafted with AI"; } }
       }
@@ -418,7 +426,7 @@ async function pickTheory() {
       aiPart = h("div", { class: "cb-theory-ai" }, h("div", { class: "btn-row" }, withAI(draftBtn)),
         offer.reader === "local"   // the AI line under the action, as everywhere (DESIGN.md 4.4)
           ? aiWhere(`The AI on this computer reads this whole document${offer.parts > 1 ? `, in ${offer.parts} parts` : ""}: the text never leaves it.`, "local")
-          : readsLine(`this whole document${offer.parts > 1 ? `, in ${offer.parts} parts` : ""}`));
+          : readsLine(`this whole document${offer.parts > 1 ? `, in ${offer.parts} parts` : ""}`), startSlot);
     } else if (offer && offer.why) {
       aiPart = h("p", { class: "muted small cb-theory-ai" }, offer.why);
     }
@@ -688,7 +696,8 @@ export async function renderCodebook(view, [name]) {
       if (g.group && gName.tagName === "INPUT") gName.title = `Short name in the CSV file: ${g.group}`;
       sec.appendChild(h("div", { class: "cb-group-head" }, gName,
         h("span", { class: "muted small" }, plural(codes.length, "code")),
-        ro ? null : button({ kind: "quiet", sm: true, onClick: () => addCode(g.group) }, icon("plus", { size: 13 }), "Add a code")));
+        ro ? null : button({ kind: "quiet", sm: true, onClick: () => addCode(g.group) }, icon("plus", { size: 13 }), "Add a code"),
+        ro || !g.group ? null : button({ kind: "quiet", sm: true, class: "cb-group-remove", onClick: () => removeGroup(g) }, icon("trash", { size: 13 }), "Remove group")));
       const ul = h("ul", { class: "cb-codes" });
       for (const c of codes) ul.appendChild(codeCard(c));
       if (!ro) dropZone(sec, g.group);
@@ -971,6 +980,17 @@ export async function renderCodebook(view, [name]) {
     openCode = c.code;
     touch(); draw();
     setTimeout(() => { const x = body.querySelector(".cb-open input"); if (x) { x.focus(); x.select(); } }, 0);
+  }
+  // a group goes; its codes stay, without a group (Discard, or History after saving, brings it back)
+  async function removeGroup(g) {
+    const codes = st.codes.filter((c) => c.group === g.group);
+    const name = g.group_name || `Group ${g.group}`;
+    if (codes.length && !(await confirmDialog({ title: `Remove the group “${name}”?`,
+      message: `Its ${plural(codes.length, st.label)} stay in the codebook, under Codes without a group, with their labels. Move them to another group from each one's Group field.`,
+      confirmText: "Remove group" }))) return;
+    for (const c of codes) c.group = "";
+    st.groups = st.groups.filter((x) => x.group !== g.group);
+    touch(); draw();
   }
   function addGroup() {
     let n = st.groups.length + 1, k = `g${n}`;

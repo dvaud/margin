@@ -12,7 +12,7 @@
 // 0.19.0 (roadmap K3): a quiet suggestion from the bibliography's item type (a newspaper article, a blog post, a web
 // page): one line with Mark and No, never a mark by itself and never a pop-up. No is kept as a decision (the research
 // log), so it does not come back here or in a colleague's copy.
-import { api, h, P, toast, showError, tag, button, link, notice, plural, confirmDialog, icon, fold } from "../lib.js";
+import { api, h, P, toast, showError, tag, button, link, notice, plural, confirmDialog, icon, fold, menu } from "../lib.js";
 
 const ROLES_API = (p) => `/api/projects/${P(p)}/document-roles`;
 const ROLE_API = (p, d) => `/api/projects/${P(p)}/documents/${P(d)}/role`;
@@ -64,9 +64,11 @@ export function suggestLine(project, docId, title, words, done) {
     try { await api("POST", SUGGEST_API(project, docId), { answer: "no" }); toast("Kept as scientific. It will not be suggested again.", "ok", { small: true }); if (done) done(); }
     catch (e) { showError(e); }
   };
-  return h("p", { class: "doc-nonsci-suggest small" }, icon("library", { size: 13 }), ` Your bibliography lists this as ${words}. Mark it as non-scientific? `,
-    button({ kind: "quiet", sm: true, onClick: () => setNonscientific(project, docId, title, true, () => done && done()) }, "Mark"),
-    button({ kind: "quiet", sm: true, title: "Keep counting it as scientific; the research log keeps your answer", onClick: no }, "No"));
+  // the question (its icon stays with its words when the line wraps), then its two answers as one group
+  return h("p", { class: "doc-nonsci-suggest small" }, h("span", {}, icon("library", { size: 13 }), ` Your bibliography lists this as ${words}. Mark it as non-scientific? `),
+    h("span", { class: "btn-row" },
+      button({ kind: "quiet", sm: true, onClick: () => setNonscientific(project, docId, title, true, () => done && done()) }, "Mark"),
+      button({ kind: "quiet", sm: true, title: "Keep counting it as scientific; the research log keeps your answer", onClick: no }, "No")));
 }
 
 // 0.19.0 (K3): after a No, for whoever said it (the Owner and Co-owners for anyone's): one quiet line to take it
@@ -77,8 +79,8 @@ export function suggestAgainLine(project, docId, by, done) {
     try { await api("POST", SUGGEST_API(project, docId), { answer: "again" }); toast("Suggested as non-scientific again.", "ok", { small: true }); if (done) done(); }
     catch (e) { showError(e); }
   };
-  return h("p", { class: "doc-nonsci-suggest small muted" }, icon("library", { size: 13 }),
-    ` ${who.charAt(0).toUpperCase()}${who.slice(1)} said No to the bibliography's suggestion to mark it as non-scientific. `,
+  return h("p", { class: "doc-nonsci-suggest small muted" }, h("span", {}, icon("library", { size: 13 }),
+    ` ${who.charAt(0).toUpperCase()}${who.slice(1)} said No to the bibliography's suggestion to mark it as non-scientific. `),
     button({ kind: "quiet", sm: true, title: "Take the No back: the suggestion shows again; the research log keeps it", onClick: again }, "Suggest again"));
 }
 
@@ -184,14 +186,17 @@ function startedList(started) {
     rest.length ? fold({ sm: true, class: "doc-started-more" }, `and ${plural(rest.length, "more check")}`, h("ul", { class: "doc-role-impact doc-started" }, rest.map(li))) : null];
 }
 
-// the document page's box: what its role is, the button to change it, and what was made with it in; 0.18.6: whether
-// it is marked Non-scientific, the button to change that, and the answers of the checks that read it. 0.19.0 (N3):
+// the document page's box: what it is marked as, the one button that takes each mark back, and what was made with it
+// in; 0.18.6: whether it is marked Non-scientific, and the answers of the checks that read it. 0.19.0 (N3):
 // `onRole(role)` after each drawing, so the page knows a working document (its selection offers a check).
-export async function roleBox(project, docId, title, onRole) {
+// Every mark the document can take is a row of More at the right of the page's head (`more`, the head's element the
+// box fills at each drawing: docs/DESIGN.md 4.14, 4.17), so an unmarked document shows no row of buttons, and a
+// notice holds one action (4.12).
+export async function roleBox(project, docId, title, onRole, more) {
   const box = h("div", { class: "doc-role-box" });
   async function draw() {
     let r;
-    try { r = await api("GET", ROLE_API(project, docId)); } catch (_) { box.replaceChildren(); return; }
+    try { r = await api("GET", ROLE_API(project, docId)); } catch (_) { box.replaceChildren(); if (more) more.replaceChildren(); return; }
     if (onRole) onRole(r.role || null);
     const theory = r.role === "theory";
     const working = r.role === "working";
@@ -201,33 +206,31 @@ export async function roleBox(project, docId, title, onRole) {
     const imp = impactList(r.impact || {});
     const started = r.started || [];
     const startedPart = started.length ? [h("p", {}, `${started.length === 1 ? "The check" : `The ${started.length} checks`} started from it:`), startedList(started)] : null;
-    const items = roleMenuItems(project, { doc_id: docId, title }, r.role, draw);
-    const changes = items.map((it) => button({ kind: "quiet", sm: true, icon: it.icon, onClick: it.onClick }, it.button));
-    const change = changes;
-    const changeNs = button({ kind: "quiet", sm: true, icon: ns ? "flask" : "newspaper", onClick: () => setNonscientific(project, docId, title, !ns, draw) },
-      ns ? "Count as scientific" : "Mark as non-scientific");
+    const doc = { doc_id: docId, title };
+    if (more) more.replaceChildren(menu({ class: "doc-mark-menu", label: `More for ${title}`, title: "Mark it as theory, as your working document or as non-scientific, or take a mark back",
+      items: [...roleMenuItems(project, doc, r.role, draw), nonsciMenuItem(project, doc, ns, draw)] }));
+    const toEvidence = button({ kind: "quiet", sm: true, icon: "book-open", onClick: () => setRole(project, docId, title, null, draw) }, ROLE.evidence.button);
+    const toScientific = button({ kind: "quiet", sm: true, icon: "flask", onClick: () => setNonscientific(project, docId, title, false, draw) }, "Count as scientific");
     const parts = [];
     if (theory) parts.push(notice({ kind: "info", class: "doc-role-note" },
       h("p", {}, roleTag("theory"), ` The lens the research is read through, not evidence. It is still read, searched and noted; it is left out of ${LEFT_OUT}.`),
       imp.length ? [h("p", {}, "Made with it in, before it was marked (they stay as they are until you make them again):"), h("ul", { class: "doc-role-impact" }, imp)] : null,
-      h("div", { class: "btn-row" }, change)));
+      h("div", { class: "btn-row" }, toEvidence)));
     if (working) parts.push(notice({ kind: "info", class: "doc-role-note doc-working-note" },
       h("p", {}, roleTag("working"), ` ${WORKING_MEANS}. It is left out of ${WORKING_LEFT_OUT}.`),
       h("p", {}, icon("list-checks", { size: 13 }), " To check one of its claims, select the sentence in the text and choose ", h("strong", {}, "Check against the corpus"), "."),
       startedPart,
       imp.length ? [h("p", {}, "Made with it in, before it was marked (they stay as they are until you make them again):"), h("ul", { class: "doc-role-impact" }, imp)] : null,
-      h("div", { class: "btn-row" }, change)));
+      h("div", { class: "btn-row" }, toEvidence)));
     if (ns) {
       const ans = answersList(r.answers || []);
       parts.push(notice({ kind: "info", class: "doc-nonsci-note" },
         h("p", {}, nonsciTag(), ` ${NONSCI_MEANS}. Its excerpts are read and judged, but their judgements count in no answer, except in checks set to count non-scientific documents.`),
         ans.length ? [h("p", {}, "Checks that read it:"), h("ul", { class: "doc-role-impact" }, ans)] : null,
-        h("div", { class: "btn-row" }, changeNs)));
+        h("div", { class: "btn-row" }, toScientific)));
     }
     // checks started from it while it was a working document stay listed after its role changes
     if (!working && startedPart) parts.push(h("div", { class: "doc-started-box" }, startedPart));
-    const quiet = [...(theory || working ? [] : change), ns ? null : changeNs].filter(Boolean);
-    if (quiet.length) parts.push(h("div", { class: "row doc-role-row" }, quiet));
     if (sug) parts.push(suggestLine(project, docId, title, sug.words, draw));
     else if (saidNo && saidNo.may_suggest_again) parts.push(suggestAgainLine(project, docId, saidNo.by || [], draw));
     box.replaceChildren(...parts);

@@ -1002,7 +1002,14 @@ def _sync_titles(cx) -> int:
         if title and title.strip():
             want.setdefault(doc_id, title.strip())
     changed = 0
-    for doc_id, title, own in cx.execute("SELECT doc_id, title, file_title FROM documents").fetchall():
+    for doc_id, title, own, named in cx.execute("SELECT doc_id, title, file_title, own_title FROM documents").fetchall():
+        if named:  # 0.19.1: a title the person gave wins; the one it replaced is kept as the file's
+            if named == title:
+                continue
+            cx.execute("UPDATE documents SET title=?, file_title=? WHERE doc_id=?",
+                       (named, (title or "") if own is None else own, doc_id))
+            changed += 1
+            continue
         new = want.get(doc_id)
         if new is not None and new != title:
             cx.execute("UPDATE documents SET title=?, file_title=? WHERE doc_id=?",
@@ -1017,6 +1024,35 @@ def _sync_titles(cx) -> int:
         cx.execute("INSERT OR REPLACE INTO meta VALUES ('titles_version', ?)",
                    (json.dumps(int(json.loads(row[0]) if row else 0) + 1),))
     return changed
+
+
+MAX_TITLE = 300
+
+
+def set_title(ws: Workspace, doc_id: str, title: str | None) -> dict:
+    """0.19.1: a person renames a document. `title` (spaces tidied, at most MAX_TITLE characters) becomes its title
+    everywhere and stays when the bibliography or a new reading would give another; an empty one gives it back the
+    title it would have had (its work's in the bibliography, else the one read from the file). The research log says
+    so. Returns {"doc_id", "title", "named", "changed"}; raises KeyError for an unknown document."""
+    from . import researchlog
+
+    new = re.sub(r"\s+", " ", str(title or "")).strip()[:MAX_TITLE].strip() or None
+    with ws.connect() as cx:
+        row = cx.execute("SELECT title, own_title FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+        if not row:
+            raise KeyError(doc_id)
+        was, named = row
+        if new == named or (new is None and named is None):
+            return {"doc_id": doc_id, "title": was, "named": bool(named), "changed": False}
+        cx.execute("UPDATE documents SET own_title=? WHERE doc_id=?", (new, doc_id))
+        _sync_titles(cx)
+        now_title = cx.execute("SELECT title FROM documents WHERE doc_id=?", (doc_id,)).fetchone()[0]
+        researchlog.record(cx, "document-title",
+                           f"Renamed from “{was or ''}” to “{now_title or ''}”." if new else
+                           f"Its own title is back: “{now_title or ''}” (it was “{was or ''}”).",
+                           "document", doc_id, now_title, data={"was": was, "title": now_title, "named": bool(new)})
+        # (no bump_corpus: a new title changes no passage, theme or glossary; titles_version renews the search index)
+    return {"doc_id": doc_id, "title": now_title, "named": bool(new), "changed": True}
 
 
 def _year_distance(toks: list[str], title: list[str], year: str | None) -> int:

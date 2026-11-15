@@ -131,6 +131,7 @@
 .doc-detail-grid dd { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; margin: 0; }
 .doc-detail-grid .seg { min-width: 0; flex-wrap: wrap; }
 .doc-detail-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.doc-rename-btn { margin-left: auto; }   /* 0.19.1: Rename… beside Remove…, at the right */
 .doc-why { max-width: 100%; margin-left: var(--space-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* a long file name breaks after _ or - (its <wbr>), and only a part longer than the line breaks inside */
 .doc-file { font-size: var(--fs-xs); color: var(--muted); font-family: var(--font-mono); overflow-wrap: break-word; min-width: 0; }
@@ -193,6 +194,8 @@ html:has(.bulk-stick:not([hidden])) { scroll-padding-bottom: 6rem; }
 .docs-manifest-note { margin: 0; }
 .docs-check-link { margin-top: var(--space-2); }
 .docs-index-sub { margin: var(--space-1) 0 0; }
+/* search by meaning, on and complete: one quiet line in place of the card (nothing needs you) */
+.docs-index-line { margin: 0; }
 .docs-index-progress { margin-top: var(--space-3); }
 .docs-nr-actions { margin-top: var(--space-2); }
 .docs-kept-note { margin: var(--space-2) 0 var(--space-1); }
@@ -231,7 +234,10 @@ html:has(.bulk-stick:not([hidden])) { scroll-padding-bottom: 6rem; }
 @media (max-width: 1179px) {
   .dv-panel-box { max-height: 70vh; overflow: auto; overscroll-behavior: contain; }
 }
-.dv-head-row .orig-link, .dv-head-row .orig-missing { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+/* the way to the original, the last of the head's facts: its icon and words stand on the line of the other facts,
+   and a long file name or reason breaks rather than run out */
+.dv-orig { display: flex; }
+.dv-orig, .dv-orig .orig-missing { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 /* the text and its layers of highlights */
 .dv-text { position: relative; }
 .dv-body { min-width: 0; overflow-wrap: anywhere; }
@@ -403,7 +409,6 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 /* a document's reference: in the Documents list and in the document viewer */
 .dv-bib { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin: 6px 0 0; font-size: var(--fs-small); color: var(--text-2); }
 .dv-bib .sep { color: var(--faint); }
-.dv-head-row .orig-link a { font-size: var(--fs-small); }
 .dv-kwic { position: relative; }
 @media (max-width: 600px) {
   /* the document page's bibliography line: one part per line beside the icon (wrapped as a row, the icon could stand
@@ -455,7 +460,14 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .dv-more-hits-btn { margin-top: var(--space-2); }
 .dv-search-note { margin-top: var(--space-2); }
 .dv-file-title { margin: var(--space-1) 0 0; }
-.dv-head-row { margin-top: var(--space-2); gap: var(--space-2) var(--space-3); }
+/* under a document's head: what it is marked as, the checks started from it, the bibliography's suggestion; nothing
+   when it has no mark and no suggestion */
+.doc-role-box { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4); }
+.doc-role-box:empty { display: none; }
+.doc-role-box > p { margin: 0; }
+/* the bibliography's suggestion (here and in the Documents list): the question, then its answers; under each other
+   where the line is too short for both */
+.doc-nonsci-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 /* ==== Notes */
 .note-saved { font-size: var(--fs-xs); color: var(--muted); }

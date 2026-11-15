@@ -1800,6 +1800,11 @@ terms.
   "now", "now_text"}]}` (the answers the mark changed). 400 for a value that is not a boolean, 404 for no such
   document. A check's result gains `status_all_sources`, and each excerpt `nonscientific`; a part or a check that only
   non-scientific documents speak to has the status text *No scientific evidence found*.
+- 0.19.1: `PUT /api/projects/{p}/documents/{d}/title` `{"title": text}` → `{"doc_id", "title", "named", "changed"}`:
+  a title of the person's own (spaces tidied, at most 300 characters; `bibliography.set_title`), kept when the
+  bibliography or a new reading would give another; `""` or `null` gives back the work's title, else the file's. One
+  research-log entry (`document-title`) per change. 400 for a title that is not text, 404 for no such document.
+  `GET …/documents` and `GET …/documents/{d}` give `"named": bool`.
 - 0.19.0 (K3, `nonscientific.py`): `PUT /api/projects/{p}/hypotheses/{h}/nonscientific` `{"count": true | false,
   "why"?: text}` → `{"hyp_id", "count_nonscientific", "changed", "why_changed", "was", "was_text", "now",
   "now_text"}`: count the non-scientific documents in this check alone (stored in the hypothesis's options, so it

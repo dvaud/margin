@@ -63,7 +63,7 @@ class Job:
                "created_at": self.created, "started_at": self.started, "finished_at": self.finished,
                "seconds": round(end - (self.started or end), 1), "error": self.error, "error_kind": self.error_kind,
                "scope": self.scope, "queue": self.queue, "waiting_for": self.waiting_for(),
-               "background": self.background}
+               "background": self.background, "where": job_where(self)}
         if full:
             out["progress"] = self.tracker.state() if self.tracker else self.progress
             out["result"] = self.result
@@ -114,6 +114,25 @@ LANE_OF_KIND = {"ingest": "corpus", "new_reader": "reader", "index": "index", "f
 # the lane.) The project's jobs in the second lanes that still wait move behind a new job of the first: search by
 # meaning after the new reader, so no passage is prepared twice.
 BEHIND = {ALONE: {"index"}}
+
+# 0.19: where a job's work goes, for the sidebar's work box ("where" in the job's view): "here" (this computer only:
+# the reader, the embedding model, the local model), "crossref" (only DOIs go online), "none" (it reads no document:
+# installs and downloads). A kind not named uses the AI of Settings, so the box names that AI.
+WHERE_OF_KIND = {
+    **dict.fromkeys(("ingest", "index", "new_reader", "new_reader_preview", "folder-sync", "keywords", "terms",
+                     "themes", "theme-new", "codebook-try", "bibliography", "read-local", "queue-local-mix",
+                     "queue-local-limit"), "here"),
+    "retractions": "crossref",
+    **dict.fromkeys(("ollama-install", "model-pull", "claude-install", "space-setup"), "none"),
+}
+
+
+def job_where(job: Job) -> str | None:
+    """Where a job's work goes (WHERE_OF_KIND); None: the AI of Settings. One document read with the new reader is a
+    job of kind "reread", as reading one excerpt again with the AI is: its lane tells them apart."""
+    if job.kind == "reread" and job.lane == ALONE:
+        return "here"
+    return WHERE_OF_KIND.get(job.kind)
 
 
 def conflicts(a: Job, b: Job) -> bool:

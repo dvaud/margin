@@ -213,11 +213,17 @@ it:
 choose (exact boxes with the PDF layout reader, whole lines otherwise, text recognition for scanned pages), and a note
 listing any quote it could not place. Other documents come as an HTML copy.
 
+*Rename…* (on its page, and in its row on the Documents page once you open it) gives the document a title of your own.
+It is used everywhere in the project: the Documents list, results, Search, the bibliography and exports. It stays when
+the bibliography links the document to a work, or a new reading finds another title; *Use the title it had before*
+gives back the work's title, or the one read from the file. The file, its text and every result stay as they were,
+and the research log notes the change. In a shared project the new title is in your copy only.
+
 ### Theory documents
 
 A book or paper your research is read *through* (a theory of practice, a systems text) is not evidence about your
 field. Mark it as **theory** (0.18.1): in *Documents*, a row's menu → *Mark as theory…*, or on the document's page,
-*Mark as theory*. A small *Theory* tag then stands beside its title.
+*More* → *Mark as theory…*. A small *Theory* tag then stands beside its title.
 
 A theory document is still read, searched (*Search* finds it), opened and noted as any other. It is **left out** of
 the themes, the labelling with codebooks, the excerpts a check reads, key terms and the glossary's counts, and so of
@@ -233,8 +239,8 @@ holds at once, a Member's is a proposal ([Roles](roles.md)). A theory is also wh
 ### Working documents
 
 Your own draft or notes can be kept in the project beside the corpus (0.19.0). Mark it as **your working document**:
-in *Documents*, open a row → *Role* → *Mark as my working document…*, or on the document's page, *Mark as my working
-document*. A *Working document* tag then stands beside its title. A colleague's or another author's draft you study is
+in *Documents*, open a row → *Role* → *Mark as my working document…*, or on the document's page, *More* → *Mark as
+my working document…*. A *Working document* tag then stands beside its title. A colleague's or another author's draft you study is
 evidence, not your working document.
 
 A working document is read, searched, opened, noted and labelled with your codebooks as any other, but it is **never
@@ -265,7 +271,7 @@ theory mark; everyone in the team needs this version, since an older Margin read
 
 A news article, a press release, a company brochure or a blog reports no method or data of its own. Mark it as
 **non-scientific**: in *Documents*, open a row → *Scientific* → *Mark as non-scientific…*, or on the document's page,
-*Mark as non-scientific*. A newspaper icon then stands beside its title in the list.
+*More* → *Mark as non-scientific…*. A newspaper icon then stands beside its title in the list.
 
 It stays in everything a theory document leaves: themes, codebook labels, the excerpts a check reads and key terms.
 Its excerpts are still read and judged, and shown with *Not counted: non-scientific*, but **no judgement of them

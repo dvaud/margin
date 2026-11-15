@@ -19,6 +19,8 @@ ROUTES: list[tuple[str, str, str]] = [
     ("PUT", rf"/api/projects/{P}/documents/{P}/role", "put_document_role"),
     # 0.18.6: a document marked Non-scientific (docrole.py): read and judged, never counted in an answer
     ("PUT", rf"/api/projects/{P}/documents/{P}/nonscientific", "put_document_nonscientific"),
+    # 0.19.1: a document's title, as the person names it (bibliography.set_title)
+    ("PUT", rf"/api/projects/{P}/documents/{P}/title", "put_document_title"),
     # K2 part 2: a codebook from a theory document (theorycodes.py)
     ("GET", rf"/api/projects/{P}/codebook-theory", "get_codebook_theory_docs"),
     ("GET", rf"/api/projects/{P}/codebook-theory/{P}", "get_codebook_theory"),
@@ -101,6 +103,19 @@ class CorpusApi:
         why = body.get("why")
         try:
             return docrole.set_nonscientific(self.app.ws(name), doc_id, on, str(why).strip() or None if why else None)
+        except KeyError:
+            raise ApiError(404, "No such document in this project.") from None
+
+    def put_document_title(self, name, doc_id, q):
+        """{"title": "…"}: rename a document; "" (or null) gives it back the title it would have had. Returns
+        {"doc_id", "title", "named", "changed"} (bibliography.set_title)."""
+        from .. import bibliography
+
+        title = self._body().get("title")
+        if title is not None and not isinstance(title, str):
+            raise ApiError(400, "\"title\" is text, or \"\" for the title it had before.")
+        try:
+            return bibliography.set_title(self.app.ws(name), doc_id, title)
         except KeyError:
             raise ApiError(404, "No such document in this project.") from None
 

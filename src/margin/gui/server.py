@@ -451,7 +451,7 @@ class App(LibraryMixin, QueueMixin):
     def document(self, name: str, doc_id: str, offset: int, limit: int, view: str = "") -> dict:
         ws = self.ws(name)
         d = ws.query("SELECT doc_id, title, file_title, path, kind, n_pages, n_chars, doi, added_at, "
-                     "COALESCE(reader, 1) AS reader, reading_json FROM documents WHERE doc_id=?", (doc_id,))
+                     "COALESCE(reader, 1) AS reader, reading_json, own_title FROM documents WHERE doc_id=?", (doc_id,))
         if not d:
             raise ApiError(404, "No such document.")
         out = dict(d[0])
@@ -468,6 +468,7 @@ class App(LibraryMixin, QueueMixin):
                                 names={c: languages.name(c) for c in ((langs or {}).get("shares") or {})})
         out["new_reader_changes"] = languages.new_reader_changes(out["reader"], langs, out["kind"])
         out["file_title"] = bibliography.file_title(d[0])  # 0.13.3: the title read from the file, if replaced
+        out["named"] = bool(out.pop("own_title"))  # 0.19.1: a title the person gave it
         out["file"] = re.sub(r".*[/\\]", "", out.pop("path") or "")
         out["total_passages"] = int(ws.scalar("SELECT COUNT(*) FROM passages WHERE doc_id=?", (doc_id,)) or 0)
         # the blocks view (the document viewer) reads by page or paragraph and never the passages (0.11.1)
