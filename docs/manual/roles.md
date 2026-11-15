@@ -3,9 +3,9 @@
 # Roles, proposals and what waits for your word
 
 > **In short**
-> - Open the *Team* tab (the *Team* row under the project's name): **Waiting for your word** is its first section,
+> - Open *Team* in the sidebar: on its *Activity* view, **Waiting for your word** is the first section,
 >   shown only when something waits. What needs a decision of yours is there as a card, the most serious first. Roles
->   and the hand-over are on the *Team page*.
+>   and the hand-over are on *People and settings*.
 > - A Member's change to the documents is a proposal. The owner and the Co-owners answer it. When two of them answer
 >   differently at once, neither answer counts and one of them decides again.
 > - Nothing loosens who may read a document with AI on your computer without your click.
@@ -13,13 +13,14 @@
 
 This page continues [Work together](together.md#the-owner-and-proposals-0170), which says what the three roles are.
 
-## In the Team tab
+## On the Activity view
 
 The first section is **Waiting for your word**, with a number; it is shown only when something waits. It holds
 everything that needs a decision of yours, as cards, the most serious first: a proposal answered both ways, a change of
 owner you did not expect, a change made in your name that you did not make, more AI offered to you, then the ordinary
 proposals. Under the cards is a quiet list, *Settled at the same time*. The owner's switch **Accept documents
-collaborators add, at once** is on the Team page, on its *Owner* card. When nothing waits, the section is not there.
+collaborators add, at once** is on *Team* › *People and settings*, on its *Owner* card. When nothing waits, the section
+is not there.
 
 A problem with the shared folder that stops this copy (another computer writing under your name, the folder not
 reachable) comes before even this section.
@@ -37,15 +38,16 @@ leaves a passage of it out), each card says so.
 - **Everyone else** sees the proposals, but cannot answer them.
 - **Answered** (a fold) keeps the latest ten: *Accepted by …*, *Declined: …*, *Taken back*, *No longer needed: …*
   (the document was removed since, say). The research log keeps every one.
-- The owner's switch **Accept documents collaborators add, at once** (the Team page, *Owner* card) stays the owner's.
-  Off, each added document waits for a click. Removing a document and letting more AI read one always wait for an
-  answer.
+- The owner's switch **Accept documents collaborators add, at once** (*People and settings*, *Owner* card) stays the
+  owner's. Off, each added document waits for a click. Removing a document and letting more AI read one always wait for
+  an answer.
 
-The *Team* tab's number counts what waits for your word, and a colleague's declined proposals you have not seen yet.
+The number on *Waiting for your word* counts what waits for your word, and a colleague's declined proposals you have not
+seen yet.
 
 **A new reading that was accepted** is made in each copy by itself, as a job that waits for its turn, and every
 result moves with it to the same words. When some result of yours would not find its place in the new reading, your
-copy keeps the document as it is and the *Team* tab says *The project now reads "…" with the new reader*, with why:
+copy keeps the document as it is and *Activity* says *The project now reads "…" with the new reader*, with why:
 open the document to look, or press **Move it anyway** (results that find no place are kept as records).
 
 ### A proposal answered both ways
@@ -149,13 +151,14 @@ every copy). The document's title opens it, to change it.
 
 ## Become the owner
 
-A project exchanged with a Margin before 0.17.0 has no owner until someone presses **Become the owner** (Team page).
-What each colleague removed or left out in their own copy before then becomes their proposal to the new owner, all at
-once: the dialog says so, and each colleague's Team tab says once how many of their changes became proposals (0.18.1).
+A project exchanged with a Margin before 0.17.0 has no owner until someone presses **Become the owner** (*Team* ›
+*People and settings*). What each colleague removed or left out in their own copy before then becomes their proposal to
+the new owner, all at once: the dialog says so, and each colleague's *Activity* says once how many of their changes
+became proposals (0.18.1).
 
 ## The people list: roles and the hand-over
 
-This is on the *Team page* (*Manage the team* in the project menu). *People* names each person's role in the person
+This is on *Team* › *People and settings*. *People* names each person's role in the person
 mark: **Owner** or **Co-owner**; a Member has none. Under the list's head one sentence tells you yours: *You are a
 Co-owner: your changes to the documents hold for everyone, and you answer proposals.* or *You are a Member: your changes
 to the documents are proposals to Anna and the Co-owners.*
@@ -176,7 +179,7 @@ works with files only (no shared folder), the *Owner* card names the owner (*Own
 there.
 
 **Taking over.** When the owner has left (their subfolder is gone from the shared folder, or nothing was heard of them
-for 14 days), a Co-owner's *Team* tab says why and offers **Take over** (and the *Owner* card offers **Become the
+for 14 days), a Co-owner's *Activity* says why and offers **Take over** (and the *Owner* card offers **Become the
 owner** when the project has none). A Member is offered it only when no Co-owner has been heard of for 14 days either.
 While the owner is there, only they can hand the project over. A take-over is never final for the others: each other
 copy is asked, as above, and follows only by its person's word.
@@ -211,12 +214,12 @@ until you choose a card. Each project keeps its name (`name (2)` when the name i
 
 If you use two computers, each is a person in your projects. Copying your Margin folder to another computer does not
 make one: the copy would write into the shared folder under your name, and the two would write over each other. So
-Margin stops it before anything is written. The Team tab says *Another computer is writing into this folder under
+Margin stops it before anything is written. *Team* › *Activity* says *Another computer is writing into this folder under
 your name (since 12 November). Nothing was written from here, so nothing is lost.* Press **Use both computers…**,
 give a name, and this computer becomes a second person. What you did on it so far stays here, shown as your other
 computer's.
 
-In the owner's copy the new person then appears under *People* on the Team page (which also offers *Use both
+In the owner's copy the new person then appears under *People* on *People and settings* (which also offers *Use both
 computers…*). Use *More → Same person as…* there to mark your two computers as one person: they stand together, and a
 judgement of yours counts once.
 

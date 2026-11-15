@@ -498,7 +498,7 @@ computer has not got the space's keys: a project copied from elsewhere; ask for 
   "holds" | "stays"} (what removing that member does to the sharing)}, "left_to_do": [{"id", "who", "text", "at",
   "check"}] (a share Margin could not stop after a removal; "check": Margin looks about once an hour and takes it away
   when the share is gone), "restored": null | {"at", "files", "text"} (files missing from the space were written
-  again), "refused": null | {"at", "text"} (the drive refused the app password)}`. The last three are the Team tab's
+  again), "refused": null | {"at", "text"} (the drive refused the app password)}`. The last three are the Team page's
   standing notices.
 - `GET /api/space/links` → the services' pages the set-up opens (`b2_signup`, `b2_keys`, `b2_caps`, `r2_signup`,
   `r2_dashboard`, `r2_token`: the link that fills in Cloudflare's token form; `webdav_surfdrive`, `webdav_nextcloud`:
@@ -553,7 +553,7 @@ computer has not got the space's keys: a project copied from elsewhere; ask for 
 - `DELETE /api/projects/<p>/space` → the status: this copy stops using the space and forgets its keys (nothing in the
   space is removed). `DELETE …/shared-folder` does the same for a project with a space.
 - `POST /api/projects/<p>/space/dir {"path"}`: a space kept in a folder of this computer, sealed as at a service, for
-  trying the Team tab (only with `MARGIN_TRY_SPACES=1`, as `tools/dev_server.py --space` sets it; 404 otherwise).
+  trying the Team page (only with `MARGIN_TRY_SPACES=1`, as `tools/dev_server.py --space` sets it; 404 otherwise).
 
 **Looking by itself every couple of minutes (0.17.0, roadmap L3: `gui/poller.py`, `gui/api_poller.py`).** A thread of
 the app starts a round (`folder.sync_now`, the job above, marked `"background": true`) for each project with a shared
@@ -1675,13 +1675,15 @@ An entry: `{"entry_id", "at", "person_id", "who", "mine", "kind", "group", "text
 "subject_id", "why", "edited_at", "version_id", "has_version", "can_edit", "can_why", "data", "app_version"}`.
 `kind` `entry` is a person's own; every other kind is written by the app (documents added or removed, `ai-access`,
 `reread`, checks added or removed, `evidence-added`, themes found, removed, renamed, merged or restored, codebooks
-made, changed, moved, copied or removed, `restored`, `sync`). `group` is one of `entries`, `documents`, `checks`,
-`themes`, `codebooks`, `history`, `together`. `has_version` says an earlier version from before the change exists
-(`version_id`, see *Earlier versions*).
+made, changed, moved, copied or removed, `restored`, `sync`). `group` is one of `entries` (an entry of your own, `kind`
+`entry`, that you wrote), `colleagues` (an entry of their own that a colleague wrote; it came in with their work),
+`documents`, `checks`, `themes`, `codebooks`, `history`, `together`. `has_version` says an earlier version from before
+the change exists (`version_id`, see *Earlier versions*).
 
 - `GET /api/projects/<p>/log?group=&q=&subject_kind=&subject_id=&offset=&limit=` → `{"entries": [entry], "total",
   "groups": {group: count}, "group_names"}`, newest first (`limit` up to 2000, default 200). `q` matches the text,
-  the title and the reason.
+  the title and the reason. `groups` counts only the groups that have entries; `group_names` names every group for
+  the page's filter (`entries`: *Your own entries*, `colleagues`: *Your colleagues' entries*, …).
 - `POST /api/projects/<p>/log {"text", "subject_kind"?, "subject_id"?, "title"?}` → `{"entry"}`: an entry of your own
   (at most 10,000 characters; empty is a 400).
 - `PUT /api/projects/<p>/log/<entry_id> {"text"?, "why"?}` → `{"entry"}`. `why` (at most 2,000 characters; `""`
@@ -1690,7 +1692,8 @@ made, changed, moved, copied or removed, `restored`, `sync`). `group` is one of 
   back when a colleague's copy is brought in.
 - `GET /api/projects/<p>/log.md` and `…/log.xlsx`: the whole log, oldest first. Markdown has a heading per day; the
   sheet *Research log* has *When (UTC)*, *Who*, *What*, *Entry*, *About*, *Why* and *Margin version*, with the usual
-  *How these results were made* sheet.
+  *How these results were made* sheet. *What* names the group, except that a person's own entry (yours or a
+  colleague's) is *Entry* there, whoever reads the file: *Who* says whose.
 
 #### Notes and highlights
 
@@ -1810,7 +1813,7 @@ terms.
   [{"hyp_id", "text", "excerpts"}]}}`: what was made with the document in.
 - `PUT /api/projects/{p}/documents/{d}/role` `{"role": "theory" | null, "why"?}` → `{"doc_id", "role", "changed",
   "impact"}`. 400 for any other role, 404 for no such document. Under an owner, a Member's mark becomes a proposal at
-  the Team tab's next look (as *Leave out* does).
+  the Team page's next look (as *Leave out* does).
 - 0.18.6: `GET …/documents/{d}/role` also gives `"nonscientific": bool` and, when it is, `"answers": [{"hyp_id",
   "text", "status", "status_text", "all", "all_text"}]` (each check that read it, its answer now and counting the
   non-scientific documents). `PUT /api/projects/{p}/documents/{d}/nonscientific` `{"nonscientific": true | false,

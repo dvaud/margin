@@ -40,9 +40,9 @@ export const JOB_KINDS = {
   "model-pull": { icon: "download", text: "Downloading a model", link: "#/settings/model" },   // 0.13.7
   "ollama-install": { icon: "download", text: "Installing Ollama", link: "#/settings/model" },   // 0.15.6
   bibliography: { icon: "library", text: "Bringing in the bibliography", link: "#/bibliography" },
-  // 0.18: a round of the shared folder (by hand or the poller's) opens the Team tab beside the page; a new reading
-  // the owner accepted, made in this copy, is on the Documents page
-  "folder-sync": { icon: "users", text: "Working together", link: "#/overview", drawer: "team" },
+  // 0.18: a round of the shared folder (by hand or the poller's) goes to the Team page; a new reading the owner
+  // accepted, made in this copy, is on the Documents page
+  "folder-sync": { icon: "users", text: "Working together", link: "#/team" },
   new_reader: { icon: "book-open", text: "Reading with the new reader", link: "#/sources" },
 };
 
@@ -52,7 +52,7 @@ export function jobRow(j) {
   if (!k) return { href: "#/overview", icon: "circle", text: j.title || j.kind, tooltip: j.title || j.kind };
   const text = k.label ? k.label(j, k.text) : k.text;
   const link = typeof k.link === "function" ? k.link(j) : k.link;  // a link may depend on the job (its scope)
-  return { href: link + (k.withJob ? `?job=${encodeURIComponent(j.id)}` : ""), icon: k.icon, text, drawer: k.drawer,
+  return { href: link + (k.withJob ? `?job=${encodeURIComponent(j.id)}` : ""), icon: k.icon, text,
     tooltip: k.tooltip && j.title && !text.includes(j.title) ? `${text}: ${j.title}` : text };
 }
 

@@ -54,11 +54,13 @@ export const ACTIONS = [
   ["Build the glossary of terms", "in Concepts", "#/concepts", "network", "glossary terms abbreviations acronyms concepts vocabulary synonyms"],
   ["Bring in my Zotero library", "in Documents", "#/bibliography", "library", "zotero references citations literature bibtex import collection"],
   ["See my notes and highlights", "in Documents", "#/notes", "highlighter", "highlight annotate annotation memo notes comments"],
-  ["Write in the research log", "in Overview", "#/log", "notebook", "diary journal decision audit trail entry record"],
+  ["Write in the research log", "in Research log", "#/log", "notebook", "diary journal decision audit trail entry record"],
   ["Choose the AI or set up Claude", "in Settings", "#/settings/model", "cloud", "ai model claude anthropic api key local ollama plan subscription backend"],
-  ["Work together or share a project", "in Projects", "#/projects", "users", "share colleague team collaborate export import send file together"],
-  ["Manage the team", "on the Team page", "#/team", "users", "team people members invite colleague storage space backblaze cloudflare shared folder owner roles remove"],
-  ["Join a team with an invite link", "on the Team page", "#/team", "link", "join invite link margin team colleague"],
+  ["Send a project as a file", "in Projects", "#/projects", "download", "share colleague export import send file zip e-mail move another computer"],
+  ["Set up a team", "in Team", "#/team", "users", "set up start team work together colleagues storage space backblaze cloudflare surfdrive webdav shared folder collaborate"],
+  ["Invite a colleague", "in Team › People and settings", "#/team/settings?at=people", "plus", "invite colleague add member invite link send join team"],
+  ["Manage the team", "in Team › People and settings", "#/team/settings", "users", "team people members storage space shared folder owner roles remove pause how often leave"],
+  ["Join a team with an invite link", "in Team", "#/team", "link", "join invite link margin team colleague"],
   ["Start a new project", "in Projects", "#/projects", "folder-open", "create project new open switch"],
   ["Open the settings", "in Settings", "#/settings", "sliders", "settings preferences options appearance dark light"],
   ["Copy my link", "in Settings › Technical", "#/settings/link", "link", "bookmark link address url open browser"],
@@ -195,7 +197,7 @@ function scoreWord(q, e) {
 
 export function findFeatures(query, index, { limit = 8 } = {}) {
   const norm = normalise(query);
-  if (!norm) return index.filter((e) => e.kind === "place").slice(0, limit);
+  if (!norm) return index.filter((e) => e.kind === "place");   // nothing typed: every place (nine), whatever the limit
   let qw = norm.split(" ");
   const kept = qw.filter((w) => !STOP.has(w));
   if (kept.length) qw = kept;

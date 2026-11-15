@@ -62,7 +62,7 @@ Arranged by what you need: to **learn**, to **do** something, to **look somethin
 | [Look at how a document was read](manual/reading.md) | The reading view, *Leave out*, a new reader |
 | [Your bibliography](manual/bibliography.md) | Zotero beside your documents, retractions |
 | [Notes, the research log and earlier versions](manual/notes-and-log.md) | Highlights, notes, the log, compare and restore |
-| [Work together](manual/together.md) | Sharing, the Team tab, clashes, moving |
+| [Work together](manual/together.md) | Sharing, the Team page, clashes, moving |
 | [A storage space of your team's own](manual/storage-space.md) | Set-up, invites, joining |
 | [Choosing the shared folder](manual/shared-folder.md) | Cloud folders, the folder window |
 | [Roles, proposals and what waits for your word](manual/roles.md) | Owner, Co-owner, Member |

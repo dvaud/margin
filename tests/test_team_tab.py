@@ -1,9 +1,11 @@
-"""0.18.0 (roadmap L4, with L3 and L5): the Team tab of the right-hand panel (views/team.js, views/team-state.js,
-the block "Working together" of views.css, the tabs in views/logdrawer.js).
+"""0.18.0 (roadmap L4, with L3 and L5): working together, since the team-navigation rework one place of the sidebar,
+Team (#/team: the set-up, or Activity and People and settings; views/team.js, views/team-state.js, the block "Working
+together" of views.css). It was the Team tab of the right-hand panel and a Team page; the drawer is the research log
+only now.
 
-- the files and how they are wired: its look in 0.17.0's stylesheets (components from components.css, the tab's own
-  pieces placed in views.css), the drawer's two tabs (keyboard and screen reader),
-  team.js loaded the first time the tab is shown, the sections in order with room for L2;
+- the files and how they are wired: its look in 0.17.0's stylesheets (components from components.css, the page's own
+  pieces placed in views.css), the drawer without a Team tab, team.js loaded the first time the page is opened, the
+  sections of each view in order with room for L2, the page drawn again when the project gains or loses its team;
 - the words the brief asks for (the set-up's promise, the switch, the two downloads, a colleague's switch);
 - what the tab works out, run in Node when it is installed: the poller's state (the 3-poller contract, and the
   stand-in until it is merged), the sync line, what came in, what you shared, a colleague's line, a pasted path;
@@ -26,6 +28,7 @@ from test_app import api, home  # noqa: F401  (fixtures)
 STATIC = Path(__file__).resolve().parents[1] / "src" / "margin" / "gui" / "static"
 TEAM = (STATIC / "views" / "team.js").read_text(encoding="utf-8")
 STATE = (STATIC / "views" / "team-state.js").read_text(encoding="utf-8")
+SETUP = (STATIC / "views" / "team-setup.js").read_text(encoding="utf-8")   # the Team page of a project without a team
 DRAWER = (STATIC / "views" / "logdrawer.js").read_text(encoding="utf-8")
 VIEWS = (STATIC / "views.css").read_text(encoding="utf-8")
 # 0.17.0 (design guide): team.css and the Team tab's part of navigation.css are folded into views.css, one block
@@ -50,38 +53,19 @@ def test_the_team_tab_has_its_block_in_the_views_stylesheet():
                                      "notice", "list", "chip", "warn"} or sel in {"team"}, sel
 
 
-def test_the_drawer_has_two_tabs_in_a_marked_block():
-    block = DRAWER[DRAWER.index("/* 0.18 Team tab"):DRAWER.index("/* end 0.18 Team tab */")]
-    # 0.17.0 (design guide 4.5): tabs without an address are the whole tab pattern, made by tabs({ onTab, panel }) in
-    # lib.js; drawer({ tabs }) makes its tabs with it and the drawer's body is their panel. Before, this block made the
-    # roles, ids, aria-controls, roving tabindex and keys by hand and these checks read them here; they now read them
-    # in the one helper that makes them (and test_place_pieces.py keeps any page from spelling them).
+def test_the_drawer_has_no_team_tab():
+    """The team-navigation rework: the Team tab left the drawer (nobody found it there, nor the way back); the team is
+    the sidebar's Team place. The drawer has no tabs, does not load team.js, and nothing opens it on a tab."""
+    assert "tabs:" not in DRAWER and "onTab" not in DRAWER and "team.js" not in DRAWER and "teamPanel" not in DRAWER
+    assert "margin-drawer" not in DRAWER and "margin-sync" not in DRAWER and 'session("logdrawer-tab"' not in DRAWER
+    for name in ("app.js", "registry.js", "views/share.js", "views/team.js", "views/owner.js", "views/owner-state.js"):
+        assert "margin-drawer" not in (STATIC / name).read_text(encoding="utf-8"), name
+    assert 'drawer({ id: "logdrawer", title: "Research log", icon: "notebook", control: which,' in DRAWER
+    # a round in the sidebar's work box is a plain link to the Team page
+    assert '"folder-sync": { icon: "users", text: "Working together", link: "#/team" },' in (STATIC / "registry.js").read_text(encoding="utf-8")
+    # drawer() keeps its documented tabs (lib.js); nothing uses them now
     lib = (STATIC / "lib.js").read_text(encoding="utf-8")
-    tabs_fn = lib[lib.index("export function tabs("):]
-    tabs_fn = tabs_fn[:tabs_fn.index("\n}\n")]
-    drawer_fn = lib[lib.index("export function drawer("):]
-    drawer_fn = drawer_fn[:drawer_fn.index("\n}\n")]
-    assert 'tabs: [{ key: "log", label: "Research log", icon: "notebook" }, { key: "team", label: "Team", icon: "users" }]' in block
-    assert 'drawer({ id: "logdrawer"' in block and "onTab: showTab" in block and "const tabRow = aside.tabs;" in block
-    assert 'tabs({ class: "drawer-tabs", label: title, items: tabItems, current, panel: body, onTab:' in drawer_fn
-    assert 'role: asButtons ? "tablist" : null' in tabs_fn and 'role: "tab"' in tabs_fn and "withClass(UI.tabs" in tabs_fn
-    assert 'tabs: "settings-tabs"' in lib                                  # in the view tabs' look
-    assert 'panel.setAttribute("role", "tabpanel")' in tabs_fn            # the drawer's body is the tabs' panel
-    assert '"aria-selected"' in tabs_fn and '"aria-controls"' in tabs_fn and '"aria-labelledby"' in tabs_fn
-    assert "ArrowRight" in tabs_fn and "Home" in tabs_fn and "End" in tabs_fn   # keys move between the tabs
-    assert "b.tabIndex = on ? 0 : -1;" in tabs_fn                         # only the chosen tab in the Tab order
-    assert 'import("./team.js")' in block                                 # loaded the first time it is shown
-    assert 'session("logdrawer-tab"' in block and "margin-drawer" in block and "margin-sync-news" in block
-    assert "tabRow.choose(tab)" in block                                  # another page opens it on a tab
-    assert not re.search(r"^import .*team\.js", DRAWER, flags=re.M)        # never a static import (Node test of the drawer)
-    assert 'tab !== "log"' in DRAWER                                       # the log reads itself only when shown
-    # the tab shown says so (aria-selected, which the view tabs' look reads); each tab draws its own sections in the
-    # drawer's body
-    assert 'b.setAttribute("aria-selected", on ? "true" : "false")' in tabs_fn
-    assert 'aside.setSections(tab === "team" ? [teamPanelBox] : logSections)' in block
-    assert '.settings-tabs [role="tab"][aria-selected="true"]' in COMPONENTS
-    # what came in, in words on the Team tab (DESIGN.md 4.5, 5.5: "Team · 3 new", never a bare number)
-    assert 'tabRow.setCount("team", n ? `${n} new` : null)' in block and "row.setCount = (key, words)" in tabs_fn
+    assert 'tabs({ class: "drawer-tabs", label: title, items: tabItems, current, panel: body, onTab:' in lib
 
 
 def _keys(name):
@@ -90,46 +74,103 @@ def _keys(name):
 
 
 def test_the_sections_come_in_order_with_room_for_the_owner():
-    # the Team tab keeps the day-to-day; roles (DESIGN-roles §5, mock-up B): a folder problem that stops this copy
-    # ("stop") comes before everything else
-    assert [a or b for a, b in _keys("TEAM_SECTIONS")] == ["setup", "stop", "state", "problems", "came-in", "shared", "not-here"]
-    assert "export function addTeamSection" in TEAM and 'before: "state"' in TEAM and "Waiting for your word" in TEAM
+    # Activity keeps the day-to-day; roles (DESIGN-roles §5, mock-up B): a folder problem that stops this copy ("stop")
+    # comes before everything else; the owner's sections are added before the first invite (owner.js)
+    assert [a or b for a, b in _keys("TEAM_ACTIVITY_SECTIONS")] == ["stop", "first-invite", "state", "problems", "came-in", "shared", "not-here"]
+    assert "export function addTeamSection" in TEAM and 'before: "first-invite"' in TEAM and "Waiting for your word" in TEAM
+    assert (TEAM.index('addTeamSection(OWNER_SECTION, { before: "first-invite" });') < TEAM.index('addTeamSection(MINE_SECTION, { before: "first-invite" });')
+            < TEAM.index('addTeamSection(REMOVED_SECTION, { before: "shared" });'))
     assert "export function teamPanel" in TEAM and "show()" in TEAM and "hide()" in TEAM
-    # the Team page (#/team) is the team itself: set-up, where it is, the people, the owner, the settings, leaving
-    assert [a or b for a, b in _keys("TEAM_PAGE_SECTIONS")] == ["SPACE_SETUP_SECTION", "setup", "folder", "SPACE_SECTION", "people",
-                                                                 "ROLES_SECTION", "keep-out", "often", "downloads", "leave"]
-    assert "export function renderTeam(view)" in TEAM and "teamPanel({ sections: TEAM_PAGE_SECTIONS, page: true })" in TEAM
+    # People and settings is the team itself: the people, where it is, the owner, the settings, leaving
+    assert [a or b for a, b in _keys("TEAM_SETTINGS_SECTIONS")] == ["people", "SPACE_SECTION", "folder", "ROLES_SECTION", "keep-out",
+                                                                     "often", "downloads", "leave"]
+    # the set-up is its own file's list (views/team-setup.js, tests/test_team_setup.py), offered from here too
+    assert 'import { TEAM_SETUP_SECTIONS } from "./team-setup.js";' in TEAM and "export { TEAM_SETUP_SECTIONS };" in TEAM
+    assert "SPACE_SETUP_SECTION" not in TEAM and "function setupSection" not in TEAM
+    assert "TEAM_SECTIONS" not in TEAM and "TEAM_PAGE_SECTIONS" not in TEAM and "tabSetupSection" not in TEAM
+    assert "export async function renderTeam(view, params = [], query = {})" in TEAM
+    assert ("sections: !withTeam ? TEAM_SETUP_SECTIONS : want === \"settings\" ? TEAM_SETTINGS_SECTIONS : TEAM_ACTIVITY_SECTIONS" in TEAM
+            and "page: true, onCount: setTeamPageCount," in TEAM)
     assert "panel.destroy()" in TEAM and 'window.removeEventListener("margin-sync-news", news)' in TEAM
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     assert 'import("./views/team.js").then((m) => m.renderTeam(view, params, query))' in app   # loaded when first opened
-    assert '"/team": "Team"' in app
-    # the tab links to the page in one quiet line: "Backblaze · 3 people · Manage the team"
-    assert 'link({ href: "#/team", id: "team-manage" }, "Manage the team")' in TEAM and "teamSummary(st)" in TEAM
+    # Activity links to People and settings in one quiet line: "Backblaze · 3 people · People and settings"
+    assert 'link({ href: "#/team/settings", id: "team-to-settings" }, "People and settings")' in TEAM and "teamSummary(st)" in TEAM
+    assert "Manage the team" not in TEAM
 
 
-def test_the_tab_keeps_the_day_to_day_and_the_page_the_team():
-    """The owner's request (after 0.18.0rc3): joining a team is in the project menu, the team is managed on its own
-    page, and the Team tab says little: states, counts and buttons, the longer words behind help marks and folds."""
+def test_the_team_place_draws_itself_for_its_state():
+    """No team: the set-up with no tabs; with one: the view tabs Activity | People and settings. Each state has its own
+    line under the title; a refresh that finds the project gained or lost its team, or another project, draws the page
+    again; the page's count goes to the sidebar's Team entry while it is open."""
+    fn = TEAM[TEAM.index("export async function renderTeam("):TEAM.index("// keepOut null: not touched here")]
+    for key, words in (("setup", "Work on this project with colleagues. Each of you keeps your own copy on your own computer; Margin sends what you choose to share and brings in what they share."),
+                       ("activity", "What your colleagues shared, what you shared, and whether your copies are in step."),
+                       ("settings", "Who is in the team, where its shared work is kept, and how this copy takes part.")):
+        assert f'  {key}: "{words}",' in TEAM, key
+    assert 'const want = params[0] === "settings" ? "settings" : "activity";' in fn
+    assert 'pageHead("Team", { eyebrow: featureEyebrow("together"), sub: HEAD_LINE[key] }), withTeam ? viewTabs("team", want) : null' in fn
+    assert "const hasTeam = (st) => !!(st && (st.folder || st.space));" in TEAM
+    assert "if (project === builtFor && hasTeam(st) === team) return true;" in fn and "build(hasTeam(st), true);" in fn
+    assert "if (onStatus && onStatus(status, project) === false) return;" in TEAM     # the panel stops drawing
+    assert "teamFoundOnPage(project, hasTeam(st));" in fn                              # no team: the entry says nothing
+    assert "setTeamPageCount(null);" in fn                                             # the page goes: the poller's count
+    # #/team?at=<section>: that section's heading, once drawn
+    assert "let panel = null, team = null, builtFor = null, at = query.at || null, alive = true;" in fn
+    assert "panel.focusSection(at).then((found) => { if (found && mine === panel) at = null; });" in fn
+    assert '"#/team?at=shared"' in (STATIC / "views" / "share.js").read_text(encoding="utf-8")
+
+
+def test_the_first_invite_while_you_are_the_only_one():
+    fn = TEAM[TEAM.index("function firstInviteSection(ctx) {"):TEAM.index("function stateSection(ctx) {")]
+    assert "if (!sp.keeper || others.length) return null;" in fn
+    # with an invite waiting, the card says so and offers another (a small button: the first is the card's main one)
+    assert "waiting to be used" in fn and 'id: "team-invite-another", onClick: () => inviteDialog(ctx) }, "Invite another colleague…")' in fn
+    assert 'link({ href: "#/team/settings?at=people", id: "team-invites-waiting" }, "People and settings")' in fn
+    assert "You are the only one in this team so far. Make an invite link and send it to a colleague: they join from it in a minute." in fn
+    assert 'button({ kind: "main", sm: true, icon: "plus", id: "team-first-invite", onClick: () => inviteDialog(ctx) }, "Invite a colleague…")' in fn
+    # a shared folder no colleague has used: one sentence and the way to the three steps
+    assert "if ((st.people || []).length || st.reachable === false) return null;" in fn
+    assert 'link({ href: "#/team/settings?at=people", id: "team-first-steps" }, "People and settings")' in fn
+    space = (STATIC / "views" / "team-space.js").read_text(encoding="utf-8")
+    assert "export async function inviteDialog(ctx) {" in space
+    # the invites and Invite a colleague… stand with the people (the People card), not in the storage space's card
+    assert "export function spaceInvites(ctx) {" in space and TEAM.count("...spaceInvites(ctx)") == 2
+    people = TEAM[TEAM.index("function peopleSection(ctx) {"):TEAM.index("function sharedSection(ctx) {")]
+    assert "listGroup(null, mine, ...rows, ...joined)), ...spaceInvites(ctx), gone, both, join);" in people
+    card = space[space.index("function spaceSection(ctx) {"):space.index("export function spaceInvites(ctx) {")]
+    assert "inviteDialog" not in card and "Invites not used yet" not in card
+
+
+def test_activity_keeps_the_day_to_day_and_settings_the_team():
+    """The owner's request (after 0.18.0rc3): joining a team is in the project menu, the team itself is in People and
+    settings, and Activity says little: states, counts and buttons, the longer words behind help marks and folds."""
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     design = (STATIC / "views" / "design.js").read_text(encoding="utf-8")
     setup = (STATIC / "views" / "setup.js").read_text(encoding="utf-8")
     owner = (STATIC / "views" / "owner.js").read_text(encoding="utf-8")
     space = (STATIC / "views" / "team-space.js").read_text(encoding="utf-8")
-    # the project menu: Join a team… right under New project…, above Manage projects; then Manage the team
+    # the project menu: Join a team… right under New project…, above Manage projects; no Manage the team (the place is
+    # in the sidebar)
     menu = app[app.index("function renderProjectSwitch()"):app.index("export async function switchProject")]
     assert (menu.index('"New project…"') < menu.index('{ text: "Join a team…", icon: "link", onClick: () => joinDialog(null) }')
-            < menu.index('"Manage projects"') < menu.index('{ text: "Manage the team", icon: "users", href: "#/team" }'))
-    assert '{ text: "Join a team…", icon: "link" }' in design and '"Manage the team"' in design   # the live reference
+            < menu.index('"Manage projects"'))
+    assert "Manage the team" not in menu
+    assert '{ text: "Join a team…", icon: "link" }' in design and '"Manage the team"' not in design   # the live reference
     assert "joinDialog(null)" in setup                                     # a first run can start from an invite
     # the tab: nothing waits, no section; empty states in two words; the switches and the set-up on the page
     assert "return null;   // nothing waits: no section" in owner and "if (v.is_owner) body.push(acceptAddsSwitch(ctx, v));" in owner
     assert owner.index("function rolesSection(") < owner.index("if (v.is_owner) body.push(acceptAddsSwitch(ctx, v));")
     assert 'helpMark("About accepting documents at once", ACCEPT_ADDS_HELP)' in owner
-    assert TEAM.count('}, "Nothing yet.")') == 2 and "Nothing yet. What your colleagues share" not in TEAM
+    # an empty card says how it fills (a page has the room for a sentence)
+    assert '"Nothing yet. What your colleagues share shows here when a round brings it in."' in TEAM
+    assert '"Nothing yet. Press Share on a check, a set of themes, a codebook, a note, a research log entry of yours or a link between terms."' in TEAM
     assert '{ label: "About documents that stay here", text: KEEP_OUT_HELP }' in TEAM
     assert 'helpMark("About documents not on this computer", NOT_HERE_HELP)' in TEAM
-    assert '"Your colleague’s folder is not here yet?"' in TEAM           # the OneDrive how-to in a fold by the field
-    assert 'helpMark("About storage spaces", SPACE_HELP)' in space and '"A storage space (recommended)"' in space
+    assert '"Your colleague’s folder is not here yet?"' in SETUP          # the OneDrive how-to in a fold by the field
+    # without a team the page says what a person came to do, not how the storage works (views/team-setup.js)
+    assert '"Start a team for this project"' in SETUP and '"Join a colleague’s team"' in SETUP and '"Send it once, as a file"' in SETUP
+    assert 'helpMark("How working together works", HOW_HELP)' in SETUP and "A storage space (recommended)" not in space + SETUP
     # the sync state in one line: its second line only when it needs you, else the tooltip
     assert 'const SAY_SUB = new Set(["running", "busy", "offline", "failed", "never"]);' in TEAM and "ws.title = s.sub;" in TEAM
     tab = TEAM[TEAM.index("function stateSection(ctx) {"):TEAM.index("// The Team page: how often rounds run")]
@@ -143,20 +184,20 @@ def test_no_inline_look_and_no_link_drawn_as_a_button():
 
 
 def test_the_words_of_the_brief():
-    assert "The folder will hold the documents’ text and files, and only what you share of your own work. " in TEAM
-    assert "Keep documents marked Only a local AI or No AI out of the shared folder" in TEAM
+    assert "The folder will hold the documents’ text and files, and only what you share of your own work. " in SETUP
+    assert "Keep documents marked Only a local AI or No AI out of the shared folder" in STATE and "KEEP_OUT_LABEL" in TEAM and "KEEP_OUT_LABEL" in SETUP
     assert "It is on for the whole team because" in TEAM
     assert "Mark as seen" in TEAM and "Sync now" in TEAM and "Stop using this folder" in TEAM
     # a document not on this computer: absentDocument() (lib.js), with "Add its file", to the Documents page
     assert "absentDocument(d.title || d.doc_id, { onAdd: () => navigate(\"#/sources\") })" in TEAM
     assert '"Add its file"' in (STATIC / "lib.js").read_text(encoding="utf-8")
     assert "Pause" in TEAM and "Resume" in TEAM and "How often Margin looks" in TEAM
-    assert "C:\\\\Users\\\\Anna" in TEAM and "/Users/anna/" in TEAM          # a path for Windows and for a Mac
+    assert "C:\\\\Users\\\\Anna" in SETUP and "/Users/anna/" in SETUP        # a path for Windows and for a Mac
     # the server's refusal is shown as it is, by the field
-    assert "if (e.status === 400) showErr(e.message);" in TEAM and 'role: "alert", id: "team-folder-error"' in TEAM
+    assert "if (e.status === 400) showErr(e.message);" in SETUP and 'role: "alert", id: "team-folder-error"' in SETUP
     # (final check: choosing the folder again never turns the switch off by itself; untouched, it is not sent)
-    assert ('typed.keepOut === null ? { path: p } : { path: p, keep_out: typed.keepOut }' in TEAM
-            and 'typed.keepOut ?? !!(st.keep_out || {}).mine' in TEAM and 'keepOut: null' in TEAM)
+    assert ('keepOut === null ? { path: p } : { path: p, keep_out: keepOut }' in SETUP
+            and 'switchControl(KEEP_OUT_LABEL, !!(st.keep_out || {}).mine' in SETUP and 'let keepOut = null;' in SETUP)
     assert 'api("DELETE", `/api/projects/${P(ctx.project)}/shared-folder`' in TEAM
     assert 'api("POST", `/api/projects/${P(ctx.project)}/shared-folder/sync`' in TEAM
     assert 'api("PUT", `/api/projects/${P(ctx.project)}/shared-folder/keep-out`, { keep_out: want })' in TEAM
@@ -168,17 +209,19 @@ def test_the_panel_redraws_only_what_changed_and_keeps_the_place():
     when the app's answers changed, keeps what was typed in the set-up, finds the focus again by id, and follows only
     its own project's round."""
     assert "if (force || sig !== drawn) { drawn = sig; draw(); } else updateLine();" in TEAM
-    assert "typed.path = path.value" in TEAM and "value: typed.path" in TEAM and "typed.error" in TEAM
+    # the set-up keeps the chosen place across a redraw; the folder form is a dialog, which no redraw reaches
+    assert "typed.where = v;" in SETUP and 'title: joining ? "Join through a folder your colleague shared" : "Start with a folder you share"' in SETUP
     assert 'fa.matches("input[type=text], textarea, select")' in TEAM
     assert "document.getElementById(had.id)" in TEAM and "textContent.trim() === keep.text" not in TEAM
     assert "(j.project && j.project !== project)" in TEAM and "if (watching) { watching.w.stop(); watching = null; }" in TEAM
     assert "e.status === 404 ? null : prev" in TEAM                       # only a 404 means "no poller yet"
     assert 'role: "status", "aria-live": "polite"' in TEAM and '["offline", "paused", "failed"]' in TEAM
-    for i in ("team-keep-out", "team-pause-all", "team-setup-keep-out", "team-sync-now", "team-mark-seen", "team-leave"):
+    for i in ("team-keep-out", "team-pause-all", "team-sync-now", "team-mark-seen", "team-leave"):
         assert f'"{i}"' in TEAM, i
-    assert 'ctx.focusHeading("state")' in TEAM and 'ctx.focusHeading("space-setup")' in TEAM and 'ctx.focusHeading("folder")' in TEAM
-    assert "setTeamCount(0); if (team) team.refresh();" in DRAWER         # another project: its own count
-    assert 'h("h2", { class: "visually-hidden" }, "Team")' in DRAWER and 'closeLabel: "Close the panel"' in DRAWER
+    assert '"team-setup-keep-out"' in SETUP
+    assert 'ctx.focusHeading("state")' in TEAM and 'ctx.focusHeading("space-setup")' in TEAM
+    # another project: the page draws itself again with its own state and count
+    assert "const off = App.onChange(() => panel.refresh());" in TEAM and "project === builtFor" in TEAM
 
 
 def test_the_poller_is_read_through_its_announced_paths():
@@ -389,11 +432,12 @@ def test_choosing_the_folder_again_keeps_the_switch(api, tmp_path):  # noqa: F81
 
 
 def test_the_panel_brings_a_section_into_view():
-    """team-share piece B: the drawer's "margin-drawer" event may name a section (See what you shared: "shared"); the
-    panel focuses its heading once the refresh show() started has drawn, and brings it into view."""
+    """team-share piece B: #/team?at=<section> names a section (See what you shared: "shared"); the panel focuses its
+    heading once the refresh show() started has drawn, and brings it into view; it says whether the section is there."""
     assert "async focusSection(key) {" in TEAM
     fn = TEAM[TEAM.index("async focusSection(key) {"):TEAM.index("// the page's panel")]
     assert "await reading;" in fn and "focusHeading(key);" in fn and "scrollIntoView(" in fn
+    assert "if (!head) return false;" in fn and "return true;" in fn
     assert "show() { shown = true; reading = refresh(); arm(); }," in TEAM
 
 

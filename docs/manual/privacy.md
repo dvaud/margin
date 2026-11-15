@@ -184,14 +184,14 @@ that holds the project or Margin's own folder, since the cloud service would the
 
 ### Who can read the folder
 
-Anyone who has access to it, as with any other file there: your colleagues, and whoever your institution's storage
-lets in. The files are ordinary zip files, not encrypted, and not signed: someone else who can write in the folder
-could still write in a colleague's name. What that can no longer do: send a document to a cloud AI from your computer
-without your click (a looser setting is only ever offered to you), remove a document for good (a removal can be
-restored for 30 days), or make someone else the owner for you without being seen (it waits for your word). It cannot
-act under your own name in your copy either: it is refused and the Team tab says so. Share the folder only with your
-team, and use storage your institution approves for the documents you hold: a folder on the institution's OneDrive or
-network drive keeps them within its storage.
+Anyone who has access to it, as with any other file there: your colleagues, and whoever your institution's storage lets
+in. The files are ordinary zip files, not encrypted, and not signed: someone else who can write in the folder could
+still write in a colleague's name. What that can no longer do: send a document to a cloud AI from your computer without
+your click (a looser setting is only ever offered to you), remove a document for good (a removal can be restored for 30
+days), or make someone else the owner for you without being seen (it waits for your word). It cannot act under your own
+name in your copy either: it is refused and *Team* › *Activity* says so. Share the folder only with your team, and use
+storage your institution approves for the documents you hold: a folder on the institution's OneDrive or network drive
+keeps them within its storage.
 
 ### Stopping
 
@@ -200,8 +200,8 @@ network drive keeps them within its storage.
   through them. A shared check or set of themes you remove is treated the same way.
 - **Turn the switch on later**: at the next round, what your copy had written of the documents it keeps out leaves the
   folder. What a colleague already brought into their project stays with them.
-- **Stop using this folder** (on the Team page): your copy stops writing and reading there. It removes nothing from the
-  folder, so unshare first what should leave it.
+- **Stop using this folder** (on *Team* › *People and settings*): your copy stops writing and reading there. It removes
+  nothing from the folder, so unshare first what should leave it.
 - **A document removed from the project** leaves every copy, but not yet the folder: its reading and its file stay
   there, where anyone with access to the folder can still open them (to be fixed in a later release). The exception
   is a document marked *Only a local AI* or *No AI* while the switch above is on: what your copy wrote of it leaves
@@ -219,11 +219,11 @@ A storage space (at Backblaze, Cloudflare, or a folder in your institution's dri
   each member sealed with their own key; the storage company never holds it. It sees how many files there are, how
   large they are and when they change, nothing of what is in them: no text, no names of people or documents (a
   document's reading and file are stored under a name made from a key the company does not have).
-- **A file in someone else's name is set aside.** Your copy takes a file only when it is signed by the member whose
-  part of the space it is in, as the list of members signed by the space's keeper (the owner) says. A file anyone else
-  put there never comes into your project; the *Team* tab lists it. At Backblaze, each colleague's key can write only
-  in their own part in the first place. In a drive, each person signs in with their own account and an app password
-  kept on their own computer; the drive's administrators see the folder's files as the storage company would: locked.
+- **A file in someone else's name is set aside.** Your copy takes a file only when it is signed by the member whose part
+  of the space it is in, as the list of members signed by the space's keeper (the owner) says. A file anyone else put
+  there never comes into your project; *Team* › *Activity* lists it. At Backblaze, each colleague's key can write only
+  in their own part in the first place. In a drive, each person signs in with their own account and an app password kept
+  on their own computer; the drive's administrators see the folder's files as the storage company would: locked.
 - **Removing a colleague** deletes their keys to the space, so they can no longer read or write it, and replaces the
   project's key for those who stay: what is written afterwards does not open for them. What they already had stays
   with them, as with *Unshare*. In a drive, removing stops sharing the folder with them where Margin can (the removal
@@ -252,12 +252,12 @@ In a project with an owner ([Work together](together.md#the-owner-and-proposals-
 
 - **Stricter, at once.** Anyone may make a document stricter (*Only a local AI*, *No AI*): it holds in every copy at
   once, and is never a proposal.
-- **Looser, only with your own click.** Letting more AI read a document is for the owner and the Co-owners to decide.
-  A Member's looser setting takes effect nowhere, not even in their own copy, until one of them accepts it. And even
-  then, nothing loosens on your computer by itself, whoever wrote it and whatever a file says: your Team tab offers it
-  (*Allow here* or *Keep it stricter here*, with a tick box for each document) and a document you leave alone stays
-  stricter here. When the switch keeps the document out of the shared folder, accepting asks first: its text and
-  file then go into the folder too.
+- **Looser, only with your own click.** Letting more AI read a document is for the owner and the Co-owners to decide. A
+  Member's looser setting takes effect nowhere, not even in their own copy, until one of them accepts it. And even then,
+  nothing loosens on your computer by itself, whoever wrote it and whatever a file says: your *Team* › *Activity* offers
+  it (*Allow here* or *Keep it stricter here*, with a tick box for each document) and a document you leave alone stays
+  stricter here. When the switch keeps the document out of the shared folder, accepting asks first: its text and file
+  then go into the folder too.
 - **Co-owners** change the documents' settings for everyone, as the owner does: a Co-owner's stricter setting holds
   at once, and a looser one reaches other copies as an offer.
 

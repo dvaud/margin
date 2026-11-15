@@ -80,7 +80,7 @@ export function importProjectDialog(opts = {}) {
 
 // 0.14: shared projects (sync.py). Each person keeps their own copy of a project; "Send what you shared" (0.18; before,
 // one zip of the whole project) carries their work, and "Bring in a colleague's work" merges a colleague's zip into this copy.
-// 0.18: the shared folder (the Team tab of the right-hand panel) does the same by itself.
+// 0.18: the shared folder (the Team page) does the same by itself.
 const whose = (name) => (name === "you" ? "your" : `${name}’s`);
 
 export function bringInDialog(project) {

@@ -216,16 +216,16 @@ console.log(JSON.stringify([reg.jobRow({{ id: "j1", kind: "folder-sync", title: 
   reg.jobRow({{ id: "j2", kind: "new_reader", title: "Reading 2 documents with the new reader, as the owner accepted" }})]));
 """, encoding="utf-8")
     sync, move = json.loads(subprocess.run([node, str(js)], capture_output=True, text=True, check=True).stdout)
-    assert sync["text"] == "Working together" and sync["drawer"] == "team" and sync["icon"] == "users"
+    assert sync["text"] == "Working together" and sync["href"] == "#/team" and "drawer" not in sync and sync["icon"] == "users"
     assert sync["tooltip"] == "Working together" and move["tooltip"] == "Reading with the new reader"
     assert move["text"] == "Reading with the new reader" and move["href"] == "#/sources" and "drawer" not in move
-    # both run on this computer: the work box says so, not the AI's name; a round's row opens the Team tab
+    # both run on this computer: the work box says so, not the AI's name; a round's row is a link to the Team page
     from margin.gui.api_common import WHERE_OF_KIND
     assert WHERE_OF_KIND["folder-sync"] == WHERE_OF_KIND["new_reader"] == "here" and "WHERE_CHIP[w.where]" in APP
-    assert 'new CustomEvent("margin-drawer", { detail: { tab: w.drawer } })' in APP
+    assert "margin-drawer" not in APP and "w.drawer" not in APP
 
 
-def test_every_look_at_the_poller_tells_the_team_line():
+def test_every_look_at_the_poller_tells_the_team_entry():
     """team-share piece B: after each look (also one that could not look, with null) the window event
     "margin-sync-state" carries the poller's state; a change of project looks at once."""
     news = APP[APP.index("function syncNewsInit()"):APP.index("async function boot()")]

@@ -83,7 +83,7 @@ def test_the_sharing_map_is_read_once_for_the_page_and_again_after_a_change_to_a
     assert 'sharesStale ? sharingOf("log") : null' in load and "sharesStale = false" in load
     assert load.count("sharingOf(") == 1
     assert "sharesStale = true; await load();" in log        # a new entry, an edit, a removal
-    assert "sharesStale = true; return load();" in log       # Share / Unshare on an entry
+    assert "{ sharesStale = true; load(); }" in log          # Share / Unshare on an entry (its More menu)
     notes = _js("views/notes.js")
     assert 'sharesStale ? sharingOf("note") : null' in _fn(notes, "  async function load() {")
     assert "noteCard(n, changed," in notes and "const changed = () => { sharesStale = true; return load(); };" in notes

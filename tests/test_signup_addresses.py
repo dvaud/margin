@@ -19,8 +19,9 @@ MANUAL = " ".join(MANUAL_FILE.read_text(encoding="utf-8").split())   # the manua
 
 
 def _setup_dialog():
-    start = JS.index("export async function setupDialog")
-    return JS[start:JS.index("\n}\n", start)]
+    """The set-up: each service's steps (serviceSteps) and the dialog that walks them (setupDialog)."""
+    start = JS.index("function serviceSteps(")
+    return JS[start:JS.index("\n}\n", JS.index("export async function setupDialog"))]
 
 
 def test_both_sign_up_addresses_are_given_to_copy():
@@ -34,7 +35,7 @@ def test_both_sign_up_addresses_are_given_to_copy():
 def test_no_sign_up_page_or_key_page_opens_as_a_link():
     js = _setup_dialog()
     assert not re.search(r"outLink\(L\.(b2_signup|b2_keys|r2_signup)", js)
-    assert "Application Keys" in js and "in that browser" in js
+    assert "Application Keys" in js and "In that browser" in js
 
 
 def test_the_robot_check_is_explained_in_the_dialog_and_the_manual():

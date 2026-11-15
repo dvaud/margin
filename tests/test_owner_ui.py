@@ -67,10 +67,10 @@ def test_the_owner_has_its_rules_in_the_views_stylesheet():
 
 def test_the_section_comes_before_the_people_with_its_own_data_and_number():
     assert 'import { OWNER_SECTION, ownerMarks, ownerPerson } from "./owner.js";   // 0.18 L2' in TEAM
-    # roles (mock-up B): "Waiting for your word" is the tab's first section, before the shared folder
-    assert 'addTeamSection(OWNER_SECTION, { before: "state" });' in TEAM
-    # TEAM_SECTIONS is filled before the section is added (the call comes after the list and the function)
-    assert TEAM.index("export const TEAM_SECTIONS") < TEAM.index("addTeamSection(OWNER_SECTION")
+    # roles (mock-up B): "Waiting for your word" is Activity's first section, before the first invite and the folder
+    assert 'addTeamSection(OWNER_SECTION, { before: "first-invite" });' in TEAM
+    # TEAM_ACTIVITY_SECTIONS is filled before the section is added (the call comes after the list and the function)
+    assert TEAM.index("export const TEAM_ACTIVITY_SECTIONS") < TEAM.index("addTeamSection(OWNER_SECTION")
     # a section reads its own answer with the tab's refresh, and a failed read keeps what was there
     assert "const loads = sections.filter((s) => s.load);" in TEAM    # the tab's sections, or the Team page's
     assert "Promise.all(loads.map((s) => s.load(project).catch(keep(ctx.data[s.key]))))" in TEAM
@@ -196,7 +196,7 @@ def test_keyboard_and_screen_reader():
     assert 'field("Reason (optional)", reason, { help,' in OWNER and 'id: "owner-dlg-reason"' in OWNER
     assert 'h("label", { for: id, class: "field-label" }, label)' in lib and 'control.setAttribute("aria-describedby", id + "-help")' in lib
     dlg = lib[lib.index("export function dialog("):]
-    assert 'e.key === "Enter"' in OWNER and 'dlg.addEventListener("cancel", (e) => { e.preventDefault(); close(null); });' in dlg  # Escape
+    assert 'e.key === "Enter"' in OWNER and 'dlg.addEventListener("cancel", (e) => { e.preventDefault(); dismiss(); });' in dlg  # Escape
     assert 'const ok = await reasonDialog({ title: "Decline this proposal?", confirmText: "Decline", help: reasonHelp(p),' in OWNER
     assert "sees it with your answer, and it is kept in the research log." in OWNER   # the help says where the reason goes
     # stable ids, so the panel finds the focus again after a redraw (a card's buttons: an answer reads the tab again and

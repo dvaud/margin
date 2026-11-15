@@ -143,7 +143,8 @@ def test_the_log_filters_searches_and_goes_out_as_markdown_and_excel(demo):
     assert md.index("Added 6 documents") < md.index("Field note") < md.index("Removed the check")
     assert "  *Why:* too broad" in md
     rows = researchlog.table(demo)
-    assert [r["What"] for r in rows] == ["Documents", "Your own entries", "Checks", "Checks"] and rows[3]["Why"] == "too broad"
+    # a file goes to other people: a person's entry is an "Entry" there, never "Your own entries" (Who says whose)
+    assert [r["What"] for r in rows] == ["Documents", "Entry", "Checks", "Checks"] and rows[3]["Why"] == "too broad"
 
 
 def test_entries_travel_with_the_project(anna_and_ben):
@@ -179,6 +180,62 @@ def test_entries_travel_with_the_project(anna_and_ben):
     ben.bring_in(anna.send())
     with ben:
         assert ben_own["entry_id"] not in {e["entry_id"] for e in researchlog.entries(ben.ws)["entries"]}
+
+
+def test_a_colleagues_entry_is_theirs_in_the_list_the_counts_the_filter_and_the_downloads(anna_and_ben):
+    """0.19.7: an entry a colleague wrote and shared came under "Your own entries" for everyone who read it. Yours are
+    "entries" (Your own entries), theirs "colleagues" (Your colleagues' entries); the files name neither."""
+    anna, ben = anna_and_ben
+    with anna:
+        hers = researchlog.add(anna.ws, "Anna: the water figures are per kilogram.")
+    with ben:
+        his = researchlog.add(ben.ws, "Ben: I read the reports first.")
+    ben.bring_in(anna.send())
+    with ben:
+        r = researchlog.entries(ben.ws)
+        got = {e["entry_id"]: e for e in r["entries"]}
+        assert got[hers["entry_id"]]["group"] == "colleagues" and not got[hers["entry_id"]]["can_edit"]
+        assert got[his["entry_id"]]["group"] == "entries" and got[his["entry_id"]]["can_edit"]
+        assert r["groups"]["entries"] == 1 and r["groups"]["colleagues"] == 1
+        assert sum(r["groups"].values()) == r["total"]
+        assert r["group_names"]["entries"] == "Your own entries"
+        assert r["group_names"]["colleagues"] == "Your colleagues’ entries"
+        own = researchlog.entries(ben.ws, group="entries")
+        theirs = researchlog.entries(ben.ws, group="colleagues")
+        assert [e["entry_id"] for e in own["entries"]] == [his["entry_id"]] and own["total"] == 1
+        assert [e["entry_id"] for e in theirs["entries"]] == [hers["entry_id"]] and theirs["total"] == 1
+        # the words filter keeps the group's person too
+        assert researchlog.entries(ben.ws, group="entries", q="water")["total"] == 0
+        assert researchlog.entries(ben.ws, group="colleagues", q="water")["total"] == 1
+        rows = {r["Entry"]: r for r in researchlog.table(ben.ws)}
+        assert rows[hers["text"]]["What"] == "Entry" and rows[hers["text"]]["Who"] == "Anna"
+        assert rows[his["text"]]["What"] == "Entry"
+        assert "Your own" not in {r["What"] for r in rows.values()} and "Your colleagues'" not in str(rows)
+        md = researchlog.markdown(ben.ws, "Demo")
+        assert "(Anna) Anna: the water figures" in md and "Your own" not in md
+    # in Anna's copy, the same entry is her own
+    with anna:
+        assert researchlog.entries(anna.ws, group="entries")["entries"][0]["entry_id"] == hers["entry_id"]
+        assert "colleagues" not in researchlog.entries(anna.ws)["groups"]
+
+
+def test_the_log_page_has_one_menu_per_row_and_no_button_under_an_entry():
+    """0.19.7: the page was mostly buttons (Say why on a line of its own under every entry, Edit, Remove, Compare).
+    Each row's actions are one More menu at its end; the chips are a Show list; the downloads are in the head."""
+    js = (Path(__file__).resolve().parents[1] / "src" / "margin" / "gui" / "static" / "views" / "log.js").read_text(encoding="utf-8")
+    row = js[js.index("  function entryRow(e) {"):js.index("  async function editWhy(e) {")]
+    assert "menu({" in row and "button(" not in row and "log-actions" not in js
+    for words in ('"Say why"', '"Change why"', '"Edit"', '"Compare with before"', '"Remove…"'):
+        assert words in row
+    assert row.index('"sep"') < row.index('"Remove…"') and "danger: true" in row
+    assert 'pageHead("Research log"' in js and "actions: downloadLinks(" in js and "viewTabs" not in js
+    assert "choice(" not in js and 'select({ sm: true, id: "log-show" })' in js
+    assert 'h("label", { class: "log-show-label", for: "log-show" }, "Show")' in js      # its word is in view
+    assert 'title: "Ctrl/⌘ + Enter adds it"' in js and "card(" not in js
+    # the drawer and the page give the new group an icon
+    for rel in ("views/log.js", "views/logdrawer.js"):
+        src = (js if rel == "views/log.js" else (Path(__file__).resolve().parents[1] / "src" / "margin" / "gui" / "static" / rel).read_text(encoding="utf-8"))
+        assert 'colleagues: "users"' in src
 
 
 def test_the_log_through_the_app(api, tmp_path):  # noqa: F811

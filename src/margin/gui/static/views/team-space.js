@@ -1,17 +1,17 @@
-// 0.18.0rc2 (roadmap L6): a storage space of the team's own, on the Team page (team.js). Without a way of working
-// together yet, the first section offers it (recommended: Backblaze for most research groups, Cloudflare for large
-// teams that grow quickly, or the institution's drive over WebDAV: SURFdrive, SURF Research Drive, a Nextcloud) and
-// takes an invite link; with a space, a section says where it is, the invites waiting and
-// what was set aside (its members are the page's people list, with Remove…). The owner (the copy that keeps the
-// space's keys) invites, removes and moves. Joining a team as a new project is also in the sidebar's project menu
-// (Join a team…, app.js). Built on gui/api_space.py; the round itself is the shared folder's (*Sync now*, team.js).
-// Placed in views.css ("Working together"); the set-up runs in a dialog.
+// 0.18.0rc2 (roadmap L6): a storage space of the team's own, on the Team page (team.js). The set-up is offered by the
+// Team page of a project without a team (team-setup.js: Backblaze for most research groups, the institution's drive
+// over WebDAV (SURFdrive, SURF Research Drive, a Nextcloud), Cloudflare for large teams that grow quickly) and runs
+// here, step by step in a dialog (setupDialog: the guided steps of docs/DESIGN.md 4.28, one thing to do at a time). With a
+// space, a section says where it is, the invites waiting and what was set aside (its members are the page's people
+// list, with Remove…). The owner (the copy that keeps the space's keys) invites, removes and moves. Joining a team as
+// a new project is also in the sidebar's project menu (Join a team…, app.js). Built on gui/api_space.py; the round
+// itself is the shared folder's (*Sync now*, team.js). Placed in views.css ("Working together").
 // Since the WebDAV audit (14 November 2026), three standing notices of the space section, each until it is dealt with
 // (never a pop-up): the drive refused the app password (no round asks it anything until a new one is entered), a share
 // Margin could not stop after a removal (until the owner says it is done, or a round sees it gone), and files missing
 // from the space that were written again.
 import { App, api, h, toast, showError, P, plural, field, button, link, input, select, fold, noticeList, notice, dialog,
-  confirmDialog, listRow, listGroup, watchJob, navigate, textarea, copyLine, helpMark } from "../lib.js";
+  confirmDialog, listRow, listGroup, watchJob, navigate, textarea, copyLine, guidedSteps, optionCards, session } from "../lib.js";
 
 const S = (project) => `/api/projects/${P(project)}/space`;
 let LINKS = null;
@@ -27,7 +27,7 @@ function section(key, title, ...children) {
     h("h3", { class: "team-h", id }, title), ...children.filter((c) => c !== null && c !== undefined));
 }
 
-const outLink = (href, text, id) => link({ href, target: "_blank", rel: "noopener noreferrer", id }, text);
+const outLink = (href, text, id) => link({ kind: "external", href, target: "_blank", rel: "noopener noreferrer", id }, text);
 // A sign-up page's address to type or paste in a browser of the person's choosing, with a Copy button: a link would
 // open the default browser, where Backblaze's robot check can loop for ever and Cloudflare's sign-up can fail.
 const typeAddress = (href, id) => {
@@ -36,145 +36,213 @@ const typeAddress = (href, id) => {
   return row;
 };
 
-// ---------------------------------------------------------------------------------------------
-// no way of working together yet: a storage space (recommended), or an invite link
-// ---------------------------------------------------------------------------------------------
-export const SPACE_SETUP_SECTION = { key: "space-setup", render: setupSection };
-
-const SPACE_HELP = "Your team rents a private storage space online, free at a team’s size. Margin puts what you share there and brings in what your colleagues share, by itself: nobody installs anything or looks for a folder. You set it up once, in about five minutes; colleagues join from a link you send them. Everything is locked on this computer before it leaves it, with a key only your team holds: the storage service cannot read your work.";
-
-function setupSection(ctx) {
-  const st = ctx.status;
-  if (st.folder || st.space) return null;
-  const b2 = button({ kind: "main", sm: true, id: "team-space-b2", onClick: () => setupDialog(ctx, "b2") }, "Backblaze…");
-  const r2 = button({ sm: true, id: "team-space-r2", onClick: () => setupDialog(ctx, "r2") }, "Cloudflare…");
-  const dav = button({ sm: true, id: "team-space-webdav", onClick: () => setupDialog(ctx, "webdav") }, "Your institution’s drive…");
-  const join = button({ sm: true, icon: "link", id: "team-space-join", onClick: () => joinDialog(ctx) }, "Join with an invite link…");
-  return section("space-setup", "A storage space (recommended)",
-    h("p", { class: "muted team-lead" }, "Private and encrypted, free at a team’s size; colleagues join from a link.",
-      helpMark("About storage spaces", SPACE_HELP)),
-    h("ul", { class: "team-choices" },
-      h("li", {}, b2, h("span", { class: "muted small" }, "Most research groups: no card, storage in the EU.")),
-      h("li", {}, r2, h("span", { class: "muted small" }, "Large teams that grow quickly: asks for a card; nothing is charged within the free amount.")),
-      h("li", {}, dav, h("span", { class: "muted small" }, "SURFdrive, SURF Research Drive or a Nextcloud: no new account, but everyone needs one at the same drive."))),
-    h("div", { class: "btn-row" }, join));
+// The first round of a project that has just got its team. It is started before the page reads the project again: the
+// page then draws itself anew (set-up → the team's views, team.js renderTeam) and finds the round running, so the new
+// page follows it. (The panel in `ctx` is the old page's: its own startRound() would follow the round on a page that
+// is gone.)
+export async function firstRound(ctx) {
+  try { await api("POST", `/api/projects/${P(ctx.project)}/shared-folder/sync`, {}); } catch (e) { showError(e); }
+  await ctx.refresh({ force: true });
 }
 
 // Where secrets are kept on this computer, in words for a form's help ("file": Margin's own file, readable by this
 // person only; otherwise the system's keychain)
 const keptIn = (backend) => (backend === "file" ? "Kept in a file in Margin’s folder that only you can read" : "Kept in this computer’s keychain");
 
-// The owner's set-up (or a move to another space), in a dialog. `move`: the team moves there.
+// What each service's set-up asks, as guided steps (docs/DESIGN.md 4.28): { steps: [{ title, body, next }], read(), missing(body) }.
+// `missing` says what is still to enter, and at which step.
+function serviceSteps(service, L) {
+  if (service === "b2") {
+    const keyId = input({ mono: true, id: "space-b2-key-id", autocomplete: "off", spellcheck: "false" });
+    const appKey = input({ mono: true, id: "space-b2-app-key", type: "password", autocomplete: "off", spellcheck: "false" });
+    return {
+      steps: [
+        { title: "Make a free Backblaze account", next: "I have an account", body: [
+          h("p", {}, "Open this address in your browser:"),
+          typeAddress(L.b2_signup || "https://www.backblaze.com/sign-up/b2-cloud-storage-backup-archive", "space-b2-signup"),
+          notice({ kind: "attention", role: "note" }, h("p", {}, "On the sign-up form, choose ", h("strong", {}, "EU Central"), " as the region before you press Create Account. It cannot be changed afterwards.")),
+          h("p", { class: "muted small", id: "space-b2-robot" }, "No payment card is needed. If Backblaze keeps asking whether you are a robot, use another browser, such as Safari, Chrome or Edge.")] },
+        { title: "Make a key for Margin", next: "I see the key", body: [
+          h("p", {}, "In that browser, signed in to Backblaze, open ", h("strong", {}, "Application Keys"), " in the menu on the left and press ", h("strong", {}, "Generate New Master Application Key"), "."),
+          h("p", { class: "muted small" }, "Backblaze then shows two parts, a keyID and an applicationKey, once. Leave that page open."),
+          h("p", { class: "muted small", id: "space-b2-old-key" }, "A new master key stops the one before it working. In an account made for this, nothing uses it; if another program uses this Backblaze account with its master key, give that program the new one.")] },
+        { title: "Paste the key here", next: false, body: [
+          field("keyID", keyId),
+          field("applicationKey", appKey, { help: "Margin uses it once, to make a key of its own, and then forgets it." })] },
+      ],
+      read: () => ({ key_id: keyId.value.trim(), app_key: appKey.value.trim() }),
+      missing: (b) => (!b.key_id || !b.app_key ? "Paste both the keyID and the applicationKey." : ""),
+      // once the space is ready: the pasted key is made useless (not when Margin had to keep it; a warning says so then)
+      after: { title: "Afterwards: cancel the key you pasted", back: false, body: [
+        notice({ kind: "done", role: "note" }, h("p", {}, "The storage space is ready.")),
+        h("p", {}, "One thing is left, at Backblaze: press ", h("strong", {}, "Generate New Master Application Key"), " once more. That cancels the key you pasted; Margin no longer needs it."),
+        h("p", { class: "muted small" }, "Then invite your colleagues: the Team page offers it next.")] },
+    };
+  }
+  if (service === "r2") {
+    const token = input({ mono: true, id: "space-r2-token", type: "password", autocomplete: "off", spellcheck: "false" });
+    return {
+      steps: [
+        { title: "Make a Cloudflare account", next: "I have an account", body: [
+          h("p", {}, "Open this address in your browser:"),
+          typeAddress(L.r2_signup || "https://dash.cloudflare.com/sign-up", "space-r2-signup")] },
+        { title: "Switch on R2 storage", next: "R2 is switched on", body: [
+          h("p", {}, "In Cloudflare’s dashboard, open ", h("strong", {}, "R2 Object Storage"), " and switch it on."),
+          h("p", { class: "muted small" }, "Cloudflare asks for a payment card here; nothing is charged within the free amount.")] },
+        { title: "Make a token and paste it here", body: [
+          // the link opens Cloudflare's token page filled in for Margin: it works only while signed in (the steps before)
+          h("p", {}, "Still signed in to Cloudflare, open ", outLink(L.r2_token || L.r2_dashboard, "the token Margin needs", "space-r2-token-link"),
+            ", press ", h("strong", {}, "Create Token"), " at the bottom of that page, and paste the token it shows:"),
+          field("Token", token)] },
+      ],
+      read: () => ({ token: token.value.trim() }),
+      missing: (b) => (!b.token ? "Paste the token Cloudflare showed." : ""),
+    };
+  }
+  const address = input({ mono: true, id: "space-dav-address", autocomplete: "off", spellcheck: "false", placeholder: L.webdav_nextcloud || "https://<host>/remote.php/dav/files/<user>/" });
+  const user = input({ id: "space-dav-user", autocomplete: "off", spellcheck: "false" });
+  const pass = input({ mono: true, id: "space-dav-password", type: "password", autocomplete: "off", spellcheck: "false" });
+  const surf = button({ kind: "quiet", sm: true, id: "space-dav-surfdrive", onClick: () => { address.value = L.webdav_surfdrive || "https://surfdrive.surf.nl/files/remote.php/nonshib-webdav/"; address.focus(); } }, "Use SURFdrive’s address");
+  return {
+    steps: [
+      { title: "Find your drive’s WebDAV address", body: [
+        h("p", {}, "Sign in to your drive’s website. Its WebDAV address is in its settings: in a Nextcloud under Files → Files settings, at the bottom left."),
+        field("WebDAV address", address, { help: "A Nextcloud’s looks like https://<host>/remote.php/dav/files/<user>/. SURF Research Drive shows its own." }),
+        h("div", { class: "btn-row" }, surf)] },
+      { title: "Make an app password for Margin", body: [
+        h("p", {}, "In the drive’s settings, under ", h("strong", {}, "Security"), ", make an ", h("strong", {}, "app password"), " for Margin (on SURFdrive: a WebDAV password). Never use your main password here."),
+        field("User name", user, { help: "As the drive’s settings show it: not always your e-mail address." }),
+        field("App password", pass, { help: `${keptIn(L.keychain)}, never sent to your colleagues.` }),
+        notice({ kind: "attention", role: "note" }, h("p", {}, "An app password opens your whole account at the drive, not only the team’s folder. Remove it in the drive’s settings when you stop working with Margin.")),
+        h("p", { class: "muted small" }, "Margin then makes a folder for the project in your drive and shares it with each colleague you invite. Each colleague needs an account at the same drive.")] },
+    ],
+    read: () => ({ address: address.value.trim(), user: user.value.trim(), password: pass.value.trim() }),
+    missing: (b) => (!b.address ? "Enter the drive’s WebDAV address." : !b.user || !b.password ? "Enter your user name and an app password." : ""),
+    missingAt: (b) => (!b.address ? 0 : 1),
+  };
+}
+
+// The owner's set-up (or a move to another space), step by step in a dialog. `move`: the team moves there.
+// The dialog's main button ends the task: it waits until the last step that asks for something is open.
 export async function setupDialog(ctx, service, { move = false } = {}) {
   const L = await links();
   const err = h("p", { class: "field-error", role: "alert" });
   const progress = h("p", { class: "muted small", role: "status", "aria-live": "polite" });
-  let fields, read;
-  if (service === "b2") {
-    const keyId = input({ mono: true, id: "space-b2-key-id", autocomplete: "off", spellcheck: "false" });
-    const appKey = input({ mono: true, id: "space-b2-app-key", type: "password", autocomplete: "off", spellcheck: "false" });
-    fields = h("ol", { class: "team-steps" },
-      h("li", {}, "Make a free Backblaze account: open this address in your browser.",
-        typeAddress(L.b2_signup || "https://www.backblaze.com/sign-up/b2-cloud-storage-backup-archive", "space-b2-signup"),
-        "On the form, choose ", h("strong", {}, "EU Central"), " as the region before Create Account: it cannot be changed afterwards. No card is needed.",
-        h("p", { class: "muted small", id: "space-b2-robot" }, "If Backblaze keeps asking whether you are a robot, use another browser, such as Safari, Chrome or Edge.")),
-      h("li", {}, "Signed in to Backblaze in that browser, open ", h("strong", {}, "Application Keys"), " in the menu and choose ", h("strong", {}, "Generate New Master Application Key"), "."),
-      h("li", {}, "Paste the two parts it shows:",
-        field("keyID", keyId), field("applicationKey", appKey, { help: "Margin uses it once, to make a key of its own, and then forgets it." })));
-    read = () => ({ key_id: keyId.value.trim(), app_key: appKey.value.trim() });
-  } else if (service === "r2") {
-    const token = input({ mono: true, id: "space-r2-token", type: "password", autocomplete: "off", spellcheck: "false" });
-    const signedIn = h("input", { type: "checkbox", id: "space-r2-signed-in" });
-    const tokenStep = h("li", { hidden: true }, outLink(L.r2_token || L.r2_dashboard, "Make the token Margin needs", "space-r2-token-link"),
-      ", then choose ", h("strong", {}, "Create Token"), " at the bottom of the page, and paste the token here:", field("Token", token));
-    signedIn.addEventListener("change", () => { tokenStep.hidden = !signedIn.checked; });
-    fields = h("ol", { class: "team-steps" },
-      h("li", {}, "Make a Cloudflare account: open this address in your browser.",
-        typeAddress(L.r2_signup || "https://dash.cloudflare.com/sign-up", "space-r2-signup")),
-      h("li", {}, "In the dashboard, open ", h("strong", {}, "R2 Object Storage"), " and switch it on. Cloudflare asks for a card; nothing is charged within the free amount."),
-      h("li", {}, h("label", { for: "space-r2-signed-in", class: "team-check" }, signedIn, " I am signed in to Cloudflare")),
-      tokenStep);
-    read = () => ({ token: token.value.trim() });
-  } else {
-    const address = input({ mono: true, id: "space-dav-address", autocomplete: "off", spellcheck: "false", placeholder: L.webdav_nextcloud || "https://<host>/remote.php/dav/files/<user>/" });
-    const user = input({ id: "space-dav-user", autocomplete: "off", spellcheck: "false" });
-    const pass = input({ mono: true, id: "space-dav-password", type: "password", autocomplete: "off", spellcheck: "false" });
-    const surf = button({ kind: "quiet", sm: true, id: "space-dav-surfdrive", onClick: () => { address.value = L.webdav_surfdrive || "https://surfdrive.surf.nl/files/remote.php/nonshib-webdav/"; user.focus(); } }, "Use SURFdrive’s address");
-    fields = h("ol", { class: "team-steps" },
-      h("li", {}, "Sign in to your drive’s website. Its WebDAV address is in its settings: in a Nextcloud under Files → Files settings, at the bottom left. ",
-        field("WebDAV address", address, { help: "A Nextcloud’s looks like https://<host>/remote.php/dav/files/<user>/. SURF Research Drive shows its own." }),
-        h("div", { class: "btn-row" }, surf)),
-      h("li", {}, "In the drive’s settings, under ", h("strong", {}, "Security"), ", make an ", h("strong", {}, "app password"), " for Margin (on SURFdrive: a WebDAV password). Never use your main password here.",
-        field("User name", user, { help: "As the drive’s settings show it: not always your e-mail address." }),
-        field("App password", pass, { help: `${keptIn(L.keychain)}, never sent to your colleagues. It opens your whole account at the drive, not only the team’s folder.` })),
-      h("li", {}, "Margin makes a folder for the project in your drive and shares it with each colleague you invite. Each colleague needs an account at the same drive."));
-    read = () => ({ address: address.value.trim(), user: user.value.trim(), password: pass.value.trim() });
-  }
+  const svc = serviceSteps(service, L);
   const lock = { on: false };
   const who = move ? { el: null, save: async () => {} } : nameField();
+  const list = [who.el ? { title: "Your name", body: [who.el] } : null, ...svc.steps, !move && svc.after ? svc.after : null].filter(Boolean);
+  const first = who.el ? 1 : 0;                        // the service's first step
+  const paste = first + svc.steps.length - 1;          // the last step that asks for something
+  const afterAt = !move && svc.after ? paste + 1 : -1; // the step shown once the space is ready
+  let ready = false;                                   // the space is set up: the last step says what is left to do
+  const confirmBtn = () => document.querySelector("#dialogs dialog[open] #dlg-confirm");
+  const cancelBtn = () => document.querySelector("#dialogs dialog[open] #dlg-cancel");
+  // the main button waits for the last step that asks for something, and says so while it waits
+  const WAITS = "Waits for the last step: go through the steps above first.";
+  const hold = (b, on) => { b.disabled = on; if (on) b.title = WAITS; else b.removeAttribute("title"); };
+  // the step is remembered for this window (never what was typed), so a set-up left half way opens where it was:
+  // its first steps happen at the service's website, often over several visits
+  const stepKey = `space-setup-step:${ctx.project}:${service}`;
+  const left = move ? 0 : Math.min(Math.max(0, Number(session(stepKey)) || 0), svc.steps.length - 1);
+  const way = guidedSteps({ label: "Setting up the storage space", id: "space-steps", steps: list, current: left ? first + left : 0,
+    onStep: (i) => {
+      const b = confirmBtn(); if (b && !ready) hold(b, i < paste);
+      if (!move && !ready) session(stepKey, i >= first ? i - first : null);
+      // the name is kept as soon as its step is behind (it is the person's, not the set-up's): a set-up taken up
+      // again later does not ask for it twice, and is never finished without it
+      if (who.el && i >= first) who.save().catch(() => {});
+    } });
+  const maintenance = h("p", { class: "muted small" }, "If the service says it is down for maintenance, try again later: nothing is changed until the set-up has finished.");
+  // something is pasted, or the first step is behind: a slip (Escape, a click beside the dialog) asks before it closes
+  const begun = () => !ready && (way.at() > first || Object.values(svc.read()).some(Boolean) || !!(who.el && who.el.querySelector("input").value.trim()));
   const where = service === "b2" ? "at Backblaze" : service === "r2" ? "at Cloudflare" : "in your institution’s drive";
+  const doneWords = move ? "The team moves to the new storage space." : "The storage space is ready. Next: invite your colleagues from the Team page.";
   await dialog({
-    title: move ? `Move the team to a storage space ${where}` : `A storage space ${where}`,
+    title: move ? `Move the team to a storage space ${where}` : `Set up a storage space ${where}`,
     wide: true, lock,
-    body: h("div", { class: "team-space-setup" }, who.el, fields, err, progress,
+    body: h("div", { class: "team-space-setup" }, way, err, progress,
       move ? h("p", { class: "muted small" }, "Your colleagues’ copies follow by themselves at their next round. What you share is written there once more.") : null,
-      h("p", { class: "muted small" }, "If the service says it is down for maintenance, try again later: nothing is changed until the set-up has finished.")),
-    actions: [{ text: "Cancel", value: null }, {
-      text: move ? "Move the team" : "Set it up", primary: true, id: "dlg-confirm",
+      maintenance),
+    onDismiss: async () => !begun() || (await confirmDialog({ title: "Stop the set-up?", confirmText: "Stop the set-up", danger: false,
+      message: "Nothing has been set up yet. What you pasted here is not kept; the step you were at is, until you close Margin." })) === true,
+    actions: [{ text: "Cancel", value: null, id: "dlg-cancel" }, {
+      text: move ? "Move the team" : "Set up the storage space", primary: true, id: "dlg-confirm",
       async onClick(dlg) {
+        if (ready) return true;   // the button says Done now
         err.textContent = "";
-        const body = read();
-        if (service === "b2" && (!body.key_id || !body.app_key)) { err.textContent = "Paste both the keyID and the applicationKey."; return false; }
-        if (service === "r2" && !body.token) { err.textContent = "Paste the token Cloudflare showed."; return false; }
-        if (service === "webdav" && (!body.address || !body.user || !body.password)) { err.textContent = "Enter the WebDAV address, your user name and an app password."; return false; }
+        const body = svc.read();
+        const lacks = svc.missing(body);
+        if (lacks) { err.textContent = lacks; way.go(first + (svc.missingAt ? svc.missingAt(body) : svc.steps.length - 1)); return false; }
         const btn = dlg.querySelector("#dlg-confirm");
         btn.disabled = true; lock.on = true;
         try {
           await who.save();
           let job = (await api("POST", move ? `${S(ctx.project)}/move` : `${S(ctx.project)}/${service}`, move ? { service, ...body } : body)).job;
           job = await watchJob(job.id, (j) => { progress.textContent = (j.progress && j.progress.message) ? `${j.progress.message}…` : "Working…"; }).promise;
-          if (job.state !== "done") { err.textContent = job.error || "The set-up did not finish."; return false; }
+          if (job.state !== "done") { progress.textContent = ""; err.textContent = job.error || "The set-up did not finish."; return false; }
           const r = job.result || {};
           if (r.accounts && r.accounts.length) {   // a token that reaches several Cloudflare accounts: one is chosen
             const sel = select({ id: "space-r2-account" }, r.accounts.map((a) => h("option", { value: a.id }, a.name || a.id)));
             const chosen = await dialog({ title: "Which Cloudflare account?", body: field("Account", sel),
               actions: [{ text: "Cancel", value: null }, { text: "Use it", value: true, primary: true }] });
-            if (!chosen) return false;
+            if (!chosen) { progress.textContent = ""; return false; }
             job = (await api("POST", `${S(ctx.project)}/r2`, { ...body, account_id: sel.value })).job;
             job = await watchJob(job.id).promise;
-            if (job.state !== "done") { err.textContent = job.error || "The set-up did not finish."; return false; }
+            if (job.state !== "done") { progress.textContent = ""; err.textContent = job.error || "The set-up did not finish."; return false; }
           }
-          for (const w of (job.result && job.result.warnings) || []) toast(w, "warn", { ttl: 15000 });
-          if (service === "b2" && !((job.result && job.result.warnings) || []).some((w) => /master key/.test(w))) {
-            toast("Ready. In Backblaze, generate a new master application key now: it makes the one you pasted useless, and Margin no longer needs it.", "ok", { ttl: 15000 });
-          } else toast(move ? "The team moves to the new storage space." : "Ready. Invite your colleagues from this page.", "ok");
+          const warnings = (job.result && job.result.warnings) || [];
+          for (const w of warnings) toast(w, "warn", { ttl: 15000 });
           const mv = (move && job.result && job.result.moved) || {};
           if (mv.not_told && mv.not_told.length) {
             toast(`The old storage space could not be reached: send ${mv.not_told.join(", ")} a new invite.`, "warn", { ttl: 15000 });
           }
           if (mv.invite_again && mv.invite_again.length) {   // (moved to a drive from elsewhere: they need an account there)
-            toast(`${mv.invite_again.join(", ")} cannot follow by themselves: invite them again from this page. They need an account at the same drive.`, "warn", { ttl: 20000 });
+            toast(`${mv.invite_again.join(", ")} cannot follow by themselves: invite them again from the Team page. They need an account at the same drive.`, "warn", { ttl: 20000 });
           }
           if (mv.share_by_hand && mv.share_by_hand.length) {
             toast(`Share the new folder with ${mv.share_by_hand.join(", ")} in the drive’s website: their copies follow once they can open it.`, "warn", { ttl: 20000 });
           }
           lock.on = false;
-          await ctx.refresh({ force: true });
-          ctx.startRound();
+          if (move) { await ctx.refresh({ force: true }); ctx.startRound(); } else await firstRound(ctx);
+          // Backblaze: the last step, what to do there now (unless Margin had to keep the pasted key: its warning says so)
+          if (afterAt >= 0 && !warnings.some((w) => /master key/.test(w))) {
+            ready = true;
+            session(stepKey, null);
+            progress.textContent = "";
+            maintenance.hidden = true;
+            way.go(afterAt);
+            btn.textContent = "Done";
+            const c = cancelBtn(); if (c) c.hidden = true;
+            return false;
+          }
+          session(stepKey, null);
+          toast(doneWords, "ok", { ttl: 9000 });
           return true;
-        } catch (e) { err.textContent = e.message || String(e); return false; }
-        finally { lock.on = false; const again = dlg.querySelector("#dlg-confirm"); if (again) again.disabled = false; }
+        } catch (e) { progress.textContent = ""; err.textContent = e.message || String(e); return false; }
+        finally { lock.on = false; const again = dlg.querySelector("#dlg-confirm"); if (again) hold(again, !ready && way.at() < paste); }
       } }],
-    onOpen(dlg) { const f = dlg.querySelector("input"); if (f) f.focus(); },
+    onOpen(dlg) {
+      const b = dlg.querySelector("#dlg-confirm"); if (b) hold(b, way.at() < paste);
+      const f = dlg.querySelector(".guided-step[data-state='current'] input"); (f || dlg.querySelector(".guided-step[data-state='current'] .guided-step-title")).focus();
+    },
   });
+  if (ready) toast(doneWords, "ok", { ttl: 9000 });
 }
 
-// Join from an invite link, in this project (the Team tab or page) or as a new project (the project menu's Join a team…,
-// Projects).
+// Join from an invite link: as a new project (the project menu's Join a team…, Projects; and the usual answer on the
+// Team page), or in this project (the Team page, `ctx`, when the person says this project is their copy of the team's).
 export async function joinDialog(ctx) {
   const text = textarea({ mono: true, id: "space-join-link", rows: 4, spellcheck: "false", placeholder: "margin://join#…" });
   const err = h("p", { class: "field-error", role: "alert" });
-  const newProject = !ctx;
+  // from the Team page (`ctx`): the team's project comes as a new project, as the invite's own words say, unless this
+  // project is the person's copy of it already (a colleague sent it as a file before)
+  let newProject = true;
+  const into = ctx ? optionCards({ label: "Where the team’s project goes", id: "space-join-where", value: "new",
+    options: [
+      { value: "new", icon: "plus", title: "A new project", tag: "Usual", text: "The team’s project comes to this computer beside your own. Its first round brings the team’s documents and shared work." },
+      { value: "here", icon: "folder", title: `This project (${ctx.project})`, text: "Only when this project is your copy of the team’s project, sent to you as a file before. It then works through the team’s storage space." }],
+    onPick: (v) => { newProject = v === "new"; } }) : null;
   const who = nameField();
   // a team in a drive (WebDAV): this person's own account there, and the shared folder when it was not found
   const davUser = input({ id: "space-join-dav-user", autocomplete: "off", spellcheck: "false" });
@@ -219,8 +287,9 @@ export async function joinDialog(ctx) {
     confirmed: !confirmField.hidden && davConfirm.checked });
   await dialog({
     title: "Join a team",
-    body: h("div", {}, who.el, field("The invite link your colleague sent", text, { help: "It starts with margin://join#. Paste all of it." }), drive,
-      newProject ? h("p", { class: "muted small" }, "Margin makes a new project for it; its first round brings the team’s documents and shared work.") : h("p", { class: "muted small" }, "This project then works through the team’s storage space."),
+    wide: !!into,
+    body: h("div", { class: "team-join-form" }, who.el, field("The invite link your colleague sent", text, { help: "It starts with margin://join#. Paste all of it." }), drive,
+      into ? field("Where the team’s project goes", into) : h("p", { class: "muted small" }, "Margin makes a new project for it; its first round brings the team’s documents and shared work."),
       err),
     actions: [{ text: "Cancel", value: null }, {
       text: "Join", primary: true, id: "dlg-confirm",
@@ -242,8 +311,7 @@ export async function joinDialog(ctx) {
           } else {
             await api("POST", `${S(ctx.project)}/join`, { link: l, drive: driveBody() });
             toast("You joined the team’s storage space. The first round starts now.", "ok");
-            await ctx.refresh({ force: true });
-            ctx.startRound();
+            await firstRound(ctx);
           }
           return true;
         } catch (e) {
@@ -272,12 +340,7 @@ function spaceSection(ctx) {
   if (!sp) return null;
   const keeper = sp.members.find((m) => m.keeper);
   const waiting = !sp.joined ? notice({ kind: "info" }, h("p", {}, `Waiting for ${keeper && !keeper.me ? keeper.name : "the owner"} to let you in: their Margin does it by itself at its next round. Until then, your colleagues do not see what you share; you already see theirs.`)) : null;
-  const invites = sp.invites.map((i) => listRow({
-    title: i.label ? `Invite for ${i.label}` : "An invite", sub: `made ${when(i.made_at)}, not used yet`,
-    actions: [button({ kind: "quiet", sm: true, id: `space-withdraw-${i.part}`, onClick: () => withdraw(ctx, i) }, "Withdraw")],
-  }));
   const aside = sp.set_aside || [];
-  const invite = sp.keeper ? button({ kind: "main", sm: true, icon: "plus", id: "space-invite", onClick: () => inviteDialog(ctx) }, "Invite a colleague…") : null;
   const moveFold = sp.keeper ? fold({ sm: true, id: "space-move" }, "Move to another storage space",
     h("p", { class: "muted small team-text" }, "When the storage is lost, unpaid or should change: set up a new one. Every copy writes what it shares there once more; your colleagues’ copies follow by themselves (to a drive, only those already in a drive at the same address)."),
     h("div", { class: "btn-row" }, button({ sm: true, onClick: () => setupDialog(ctx, "b2", { move: true }) }, "Backblaze…"),
@@ -311,9 +374,24 @@ function spaceSection(ctx) {
     h("p", { class: "team-text team-space-where" }, sp.drive ? `The folder “${sp.drive.folder}” in the drive at ${sp.drive.host}` : sp.where, sp.in_eu === false ? " · not in the EU" : null),
     waiting, holderNote, standing.length ? noticeList(standing) : null,
     aside.length ? noticeList([{ kind: "attention", text: `${plural(aside.length, "file")} in the storage space ${aside.length === 1 ? "was" : "were"} set aside: ${aside[0].message}${aside.length > 1 ? " (and others)" : ""} Nothing of ${aside.length === 1 ? "it" : "them"} came into this project.` }]) : null,
+    moveFold, davPassword, tech);
+}
+
+// The People card's part of a storage space (team.js peopleSection): the invites not used yet, each with Withdraw, and
+// the way to add a colleague: Invite a colleague… for the copy that keeps the space's keys, or whom to ask.
+export function spaceInvites(ctx) {
+  const sp = ctx.status && ctx.status.space;
+  if (!sp) return [];
+  const keeper = sp.members.find((m) => m.keeper);
+  const invites = sp.invites.map((i) => listRow({
+    title: i.label ? `Invite for ${i.label}` : "An invite", sub: `made ${when(i.made_at)}, not used yet`,
+    actions: [button({ kind: "quiet", sm: true, id: `space-withdraw-${i.part}`, onClick: () => withdraw(ctx, i) }, "Withdraw")],
+  }));
+  const invite = sp.keeper ? button({ kind: "main", sm: true, icon: "plus", id: "space-invite", onClick: () => inviteDialog(ctx) }, "Invite a colleague…") : null;
+  return [
     invites.length ? listGroup(`Invites not used yet (${invites.length})`, ...invites) : null,
     invite ? h("div", { class: "btn-row" }, invite) : (sp.joined ? h("p", { class: "muted small team-text" }, `To add a colleague, ask ${keeper && !keeper.me ? keeper.name : "the owner"} for an invite.`) : null),
-    moveFold, davPassword, tech);
+  ].filter(Boolean);
 }
 
 async function dismissNotice(ctx, id) {
@@ -354,7 +432,7 @@ async function drivePasswordDialog(ctx, dav, sp) {
   });
 }
 
-async function inviteDialog(ctx) {
+export async function inviteDialog(ctx) {
   const name = input({ id: "space-invite-name", maxlength: 80, placeholder: "e.g. Ben de Wit", autocomplete: "off" });
   const dav = ctx.status && ctx.status.space && ctx.status.space.drive;
   const driveUser = input({ id: "space-invite-drive-user", maxlength: 200, autocomplete: "off", spellcheck: "false" });

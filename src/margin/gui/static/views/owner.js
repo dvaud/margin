@@ -3,7 +3,7 @@
 // owner accepts or declines (low: adding a document; medium: reading one again, Leave out / Restore; high: removing
 // one, letting more AI read one).
 //
-// - The Team tab's section "Waiting for the owner" ("Waiting for you" in the owner's copy), before "People in the
+// - Team › Activity's section "Waiting for the owner" ("Waiting for you" in the owner's copy), before "People in the
 //   folder": the proposals as cards with their severity, Accept / Decline with an optional reason, the proposer's
 //   Take back, what was answered, a new reading still to make here, Take over. team.js adds it (`OWNER_SECTION`) and
 //   reads its data with the tab's refresh (`load`), its number for the tab (`count`); it shows only when something
@@ -95,7 +95,7 @@ function reasonDialog({ title, message, confirmText, danger = false, help }) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// the Team tab's section
+// Team › Activity's section
 // ---------------------------------------------------------------------------------------------
 export const OWNER_SECTION = {
   key: "owner",
@@ -566,7 +566,7 @@ function follow(ctx, job) {
     if (j && j.state === "done" && j.result) {
       const kept = j.result.kept || [], moved = j.result.moved || [];
       if (moved.length) toast(`Read with the new reader, as the owner accepted: ${moved.map((m) => `“${shortTitle(m.title, 50)}”`).join(", ")}.`, "ok");
-      else if (kept.length) toast(`${kept.length === 1 ? "A document" : `${kept.length} documents`} stayed as ${kept.length === 1 ? "it was" : "they were"}: see the Team tab.`, "warn", { ttl: 9000 });
+      else if (kept.length) toast(`${kept.length === 1 ? "A document" : `${kept.length} documents`} stayed as ${kept.length === 1 ? "it was" : "they were"}: see Team › Activity.`, "warn", { ttl: 9000 });
     }
     if (ctx.project === project && App.project === project) ctx.refresh({ force: true });
   };

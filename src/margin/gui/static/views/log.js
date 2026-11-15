@@ -1,14 +1,14 @@
 // 0.16 (roadmap F4): the research log. A dated record of what was decided in the project, written by the app as it
 // happens (documents added and removed, checks made and dropped, themes removed, codebook changes...), with room for
 // a person's own entries and their reasons. An entry about a change can be compared with now and restored (F5).
-import { featureEyebrow, viewTabs } from "../features.js";
+import { featureEyebrow } from "../features.js";
 import { App, api, h, icon, clear, toast, showError, failedLoad, fmt, pageHead, P, confirmDialog, download, downloadLinks,
-  debounce, session, dialog, button, card, input, textarea, choice, link, personMark, emptyState, latest } from "../lib.js";
+  debounce, session, dialog, button, searchField, select, textarea, menu, link, personMark, emptyState, latest, plural } from "../lib.js";
 import { compareVersion } from "./versions.js";
-import { shareInline, sharingOf } from "./share.js";   // 0.18 (L1)
+import { shareTag, shareItem, unshareItem, sharingOf } from "./share.js";   // 0.18 (L1)
 
-const GROUP_ICON = { entries: "note", documents: "book-open", checks: "flask", themes: "shapes", codebooks: "book-marked",
-  history: "undo", together: "users", other: "circle" };
+const GROUP_ICON = { entries: "note", colleagues: "users", documents: "book-open", checks: "flask", themes: "shapes",
+  codebooks: "book-marked", history: "undo", together: "users", other: "circle" };
 const GONE = new Set(["document-removed", "check-removed", "themes-removed", "codebook-removed"]);
 const VERSION_KIND = { themes: "themes", check: "check", codebook: "codebook" };
 const PAGE = 200;
@@ -48,15 +48,15 @@ export function entryWho(e) {
 export async function renderLog(view) {
   const project = App.project;
   const base = `/api/projects/${P(project)}/log`;
-  const dl = downloadLinks([
-    { text: "Markdown (.md)", title: "The whole log, oldest first, a heading per day: for an appendix or an audit", onClick: () => download(`${base}.md`).catch(showError) },
-    { text: "Excel (.xlsx)", onClick: () => download(`${base}.xlsx`).catch(showError) },
-  ]);
-  view.appendChild(pageHead(project, {
+  // 0.19.7: the page's head says what the log is; its downloads are the head's small quiet buttons (DESIGN.md 4.14)
+  view.appendChild(pageHead("Research log", {
     eyebrow: featureEyebrow("researchlog"),
-    sub: "The research log: a dated record of what was decided in this project. Margin writes down what happens; add your own entries, and say why next to any of yours.",
+    sub: "What was decided in this project, and when. Margin writes down what happens; you add your own entries and say why.",
+    actions: downloadLinks([
+      { text: "Markdown (.md)", title: "The whole log, oldest first, a heading per day: for an appendix or an audit", onClick: () => download(`${base}.md`).catch(showError) },
+      { text: "Excel (.xlsx)", onClick: () => download(`${base}.xlsx`).catch(showError) },
+    ]),
   }));
-  view.appendChild(viewTabs("overview", "researchlog"));   // 0.17.0: the research log is a view of the Overview
   let group = session(`log-group:${project}`) || "";
   let q = "";
   let shown = PAGE;
@@ -64,13 +64,12 @@ export async function renderLog(view) {
   let sharesStale = true;   // read once for the page; again only after a change that can alter it (a new entry, a share)
   const fresh = latest();   // the newest request of the list: an older answer never draws over it
 
-  // ---- a new entry
-  const ta = textarea({ rows: 3, maxlength: 10000, "aria-label": "A new entry",
-    placeholder: "A decision, a reason, a field note… (dated and kept with the project)" });
-  const addBtn = button({ kind: "main", sm: true, onClick: add }, icon("plus", { size: 14 }), "Add to the log");
-  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) add(); });
-  view.appendChild(card({ class: "log-new", title: "New entry" }, ta,
-    h("div", { class: "log-new-foot" }, h("span", { class: "muted" }, "Ctrl/⌘ + Enter adds it."), addBtn)));
+  // ---- a new entry: one slim box, a line that grows to three while it has the focus or holds words, and its button
+  const ta = textarea({ class: "log-new-text", rows: 1, maxlength: 10000, "aria-label": "A new entry",
+    placeholder: "A decision, a reason, a field note…" });
+  const addBtn = button({ kind: "main", title: "Ctrl/⌘ + Enter adds it", onClick: add }, icon("plus", { size: 14 }), "Add to the log");
+  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); add(); } });
+  view.appendChild(h("div", { class: "log-new log-new-row" }, ta, addBtn));
 
   async function add() {
     const text = ta.value.trim();
@@ -80,12 +79,16 @@ export async function renderLog(view) {
     catch (e) { showError(e); } finally { addBtn.disabled = false; }
   }
 
-  // ---- filters and the list
-  const chips = h("div", { class: "log-chips" });
-  const search = input({ class: "log-search", type: "search", placeholder: "Search the log", "aria-label": "Search the log" });
+  // ---- one row of tools (which entries, and words to find), and the list
+  // a list to pick from, not a choice: up to nine groups, each with the entries it would show
+  const show = select({ sm: true, id: "log-show" });
+  const showLabel = h("label", { class: "log-show-label", for: "log-show" }, "Show");
+  show.addEventListener("change", () => { group = show.value; session(`log-group:${project}`, group); shown = PAGE; load(); });
+  const searchBox = searchField({ placeholder: "Search the log", "aria-label": "Search the log" });
+  const search = searchBox.input;
   search.addEventListener("input", debounce(() => { q = search.value.trim(); shown = PAGE; load(); }, 250));
   const listBox = h("div", { class: "log-list", "aria-live": "polite" });
-  view.append(h("div", { class: "log-tools" }, chips, h("div", { class: "log-tools-right" }, search, dl)), listBox);
+  view.append(h("div", { class: "log-tools" }, showLabel, show, searchBox), listBox);
 
   async function load() {
     const mine = fresh();
@@ -98,38 +101,37 @@ export async function renderLog(view) {
     } catch (e) { if (mine()) failedLoad(listBox, e); return; }
     if (!mine()) return;
     if (read) { shares = read; sharesStale = false; }
-    drawChips(data);
+    drawShow(data);
     drawList(data);
   }
 
-  function drawChips(data) {
-    clear(chips);
-    const total = Object.values(data.groups || {}).reduce((a, b) => a + b, 0);
-    const items = [["", "All", total]].concat(Object.entries(data.group_names).filter(([g]) => (data.groups || {})[g]).map(([g, t]) => [g, t, data.groups[g]]));
-    // a filter of the list: a choice (docs/DESIGN.md, Choices), so the kind that is on shows as chosen; each kind with
-    // its icon and the entries it would show
-    chips.appendChild(choice({ label: "Show", filter: true, value: group,
-      options: items.map(([g, text, n]) => [g, [g ? icon(GROUP_ICON[g] || "circle", { size: 13 }) : null, text], fmt.num(n)]),
-      onPick: (g) => { group = g; session(`log-group:${project}`, g); shown = PAGE; load(); } }));
+  // the groups that have entries, each with how many; the one chosen stays offered even when it has none left
+  function drawShow(data) {
+    const counts = data.groups || {};
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const items = [["", "Everything", total]].concat(Object.entries(data.group_names)
+      .filter(([g]) => counts[g] || g === group).map(([g, t]) => [g, t, counts[g] || 0]));
+    show.replaceChildren(...items.map(([g, text, n]) => h("option", { value: g }, `${text} · ${plural(n, "entry", "entries")}`)));
+    show.value = group;
   }
 
   function drawList(data) {
     clear(listBox);
     if (!data.entries.length) {
       listBox.appendChild(emptyState("notebook", q || group ? "No entry matches" : "Nothing in the log yet",
-        q || group ? "Try other words, or show all entries." : "Entries appear as you work: add documents, check a hypothesis, find themes, or write the first entry above."));
+        q || group ? "Try other words, or choose Everything under Show." : "Entries appear as you work: add documents, check a hypothesis, find themes, or write the first entry above."));
       return;
     }
-    let day = null, ul = null;
+    let day = null, ol = null;
     for (const e of data.entries) {
       const d = fmt.dateShort(e.at);
       if (d !== day) {
         day = d;
         listBox.appendChild(h("h2", { class: "list-head log-day" }, new Date(e.at).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })));
-        ul = h("ol", { class: "log-entries" });
-        listBox.appendChild(ul);
+        ol = h("ol", { class: "log-entries log-by-time" });
+        listBox.appendChild(ol);
       }
-      ul.appendChild(entryRow(e));
+      ol.appendChild(entryRow(e));
     }
     if (data.total > data.entries.length) {
       listBox.appendChild(h("div", { class: "more-row" }, button({ kind: "quiet", sm: true,
@@ -137,31 +139,37 @@ export async function renderLog(view) {
     }
   }
 
+  // One entry, one row: the time, the group's icon, the words (a why under them, the quiet facts under that), and at
+  // its end one More menu with what can be done to it (DESIGN.md 4.17, 4.20); no button stands under an entry
   function entryRow(e) {
-    const li = h("li", { class: `log-entry log-${e.group}` + (e.kind === "entry" ? " log-own" : "") });
     const href = subjectHref(e);
-    const time = h("time", { class: "log-time", datetime: e.at, title: fmt.date(e.at) }, new Date(e.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }));
-    const text = entryText(e, href);
+    const clock = new Date(e.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const time = h("time", { class: "log-time", datetime: e.at, title: fmt.date(e.at) }, clock);
     const who = entryWho(e), about = entrySubject(e, href);
-    // 0.18 (L1): an entry you wrote has its sharing state, and Share / Unshare
-    const share = e.kind === "entry" && shares.get(e.entry_id) ? shareInline(shares.get(e.entry_id), () => { sharesStale = true; return load(); }, { owner: false }) : null;
+    // 0.18 (L1): an entry you wrote has its sharing state as a tag in its quiet line; Share and Unshare are in its menu
+    const shared = e.kind === "entry" && e.mine ? shares.get(e.entry_id) : null;
+    const share = shared ? shareTag(shared) : null;
     const meta = who || share || about || e.edited_at ? h("div", { class: "log-meta" }, who, share, about,
       e.edited_at ? h("span", { class: "muted" }, `edited ${fmt.dateShort(e.edited_at)}`) : null) : null;
     const why = e.why ? h("p", { class: "log-why" }, h("strong", {}, "Why: "), e.why) : null;
-    const actions = h("div", { class: "log-actions" });
-    if (e.can_why && e.kind !== "entry") actions.appendChild(button({ kind: "quiet", sm: true, onClick: () => editWhy(e) }, e.why ? "Change why" : "Say why"));
-    if (e.can_edit) {
-      actions.appendChild(button({ kind: "quiet", sm: true, onClick: () => editEntry(e) }, "Edit"));
-      actions.appendChild(button({ kind: "danger", sm: true, onClick: () => removeEntry(e) }, "Remove"));
+    const items = [];
+    if (e.can_why && e.kind !== "entry") items.push({ text: e.why ? "Change why" : "Say why", icon: "quote", onClick: () => editWhy(e) });
+    if (e.can_edit) items.push({ text: "Edit", icon: "type", onClick: () => editEntry(e) });
+    if (shared && shared.can_change) {
+      const on = shared.state === "shared";
+      items.push({ text: on ? "Unshare" : shared.state === "withdrawn" ? "Share again" : "Share", icon: on ? "undo" : "users",
+        title: on ? "Stop sending it to your colleagues (what they have stays with them)" : "Give it to your colleagues with your work",
+        onClick: async () => { if (await (on ? unshareItem(shared) : shareItem(shared))) { sharesStale = true; load(); } } });
     }
     if (e.has_version && VERSION_KIND[e.subject_kind]) {
-      actions.appendChild(button({ kind: "quiet", sm: true, title: "What changed since just before this, and Restore",
-        onClick: () => compareVersion({ kind: VERSION_KIND[e.subject_kind], key: e.subject_id, versionId: e.version_id, onRestored: load }) },
-        icon("history", { size: 12 }), "Compare with before"));
+      items.push({ text: "Compare with before", icon: "history", title: "What changed since just before this, and Restore",
+        onClick: () => compareVersion({ kind: VERSION_KIND[e.subject_kind], key: e.subject_id, versionId: e.version_id, onRestored: load }) });
     }
-    li.append(h("span", { class: "log-icon", "aria-hidden": "true" }, icon(GROUP_ICON[e.group] || "circle", { size: 15 })),
-      h("div", { class: "log-body" }, h("div", { class: "log-line" }, time, text), why, meta, actions.childNodes.length ? actions : null));
-    return li;
+    if (e.can_edit) items.push("sep", { text: "Remove…", icon: "trash", danger: true, onClick: () => removeEntry(e) });
+    const more = items.length ? menu({ class: "log-more", iconOnly: true, label: `More for the entry of ${fmt.date(e.at)}`, items }) : null;
+    return h("li", { class: `log-entry log-${e.group}` + (e.kind === "entry" ? " log-own" : "") }, time,
+      h("span", { class: "log-icon", "aria-hidden": "true" }, icon(GROUP_ICON[e.group] || "circle", { size: 15 })),
+      h("div", { class: "log-body" }, entryText(e, href), why, meta), more);
   }
 
   async function editWhy(e) {

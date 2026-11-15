@@ -881,7 +881,7 @@ export async function renderSources(view) {
     const ok = await askWhy({ title: "Remove this document?", confirmText: "Remove", placeholder: "For example: a duplicate, the wrong version, outside the scope",
       message: h("div", {}, h("p", {}, h("strong", {}, d.title || d.file)), h("p", {}, "It is no longer searched. Results you already have keep their quotes, marked as coming from a removed document. Your notes on it are kept in Notes."), proposal) });
     if (!ok) return;
-    try { await api("DELETE", `/api/projects/${P(project)}/documents/${P(d.doc_id)}${ok.why ? `?why=${encodeURIComponent(ok.why)}` : ""}`); toast(proposal ? "Removed from your copy. For the project it waits for the owner (Team tab)." : "Document removed.", "ok"); gone(); await App.refresh(); }   // 0.18 L2: proposal
+    try { await api("DELETE", `/api/projects/${P(project)}/documents/${P(d.doc_id)}${ok.why ? `?why=${encodeURIComponent(ok.why)}` : ""}`); toast(proposal ? "Removed from your copy. For the project it waits for the owner (Team › Activity)." : "Document removed.", "ok"); gone(); await App.refresh(); }   // 0.18 L2: proposal
     catch (e) { showError(e); }
   }
 

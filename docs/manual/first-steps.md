@@ -85,7 +85,8 @@ selects all of them.
 | --- | --- |
 | The name | *Margin*, and the project switch under it. |
 | *Find a feature or page* | The finder ([below](#the-finder)). <kbd>Ctrl</kbd>+<kbd>K</kbd>, or <kbd>⌘</kbd>+<kbd>K</kbd> on a Mac, opens it from anywhere. |
-| The project | *Overview*, *Documents*. |
+| *Overview* | The page you start on. |
+| **Project** | *Documents*, *Research log*, *Team*. |
 | **Explore**, marked *AI on request* | *Search*, *Codes*, *Concepts*, *Themes* ([Explore](explore.md)). |
 | **Check**, marked *Uses the AI* | *Hypotheses* ([Check a hypothesis](check.md)). |
 | The foot | One status area, then *Settings*, *Quit* and the theme icon. |
@@ -94,10 +95,10 @@ Each of these is a **place**. A place's other parts are **views**, shown as tabs
 
 | Place | Views |
 | --- | --- |
-| *Overview* | *Overview*, *Research log* ([Notes, the research log and earlier versions](notes-and-log.md#the-research-log)) |
 | *Documents* | *Documents*, *Notes* ([Highlights and notes](notes-and-log.md#highlights-and-notes)), *Bibliography* ([Your bibliography](bibliography.md)) |
 | *Codes* | *By document* (which codes each document addresses, [Explore](explore.md#codes)), *Codebooks* ([Make your own codebook](codebooks.md)) |
 | *Hypotheses* | *Answers*, *Evidence map* ([Read and review a result](review.md#the-evidence-map)) |
+| *Team* | In a project with a team: *Activity*, *People and settings* ([Work together](together.md)) |
 
 Links from earlier versions of Margin, and bookmarks to them, open the new home of the page.
 
@@ -158,11 +159,12 @@ A title with the AI mark and one short line under it, the views as tabs, a longe
 that opens on hover or click, and downloads as one quiet line of links (*Download Excel (.xlsx) · CSV*). Model names
 and other technical facts sit under *Technical details* and *Settings → Technical*, never on a working screen.
 
-The **Research log** button at the top right of every page opens a panel on the right: write an entry that is kept
-with the page you are on, and see that page's entries (*This page*) or all of them (*All*)
-([The research log](notes-and-log.md#the-research-log)). In a project with a team, the **Team** row under the
-project's name opens the panel's second tab, **Team**, where you work with colleagues (0.17.0;
-[Work together](together.md#through-a-shared-folder)).
+The **Write in the log** button at the top right of every page opens the research log in a panel beside the page: write an entry
+that is kept with the page you are on, and see that page's entries (*This page*) or all of them (*All*); its foot link,
+*The whole research log*, opens the page of the same name, a place under *Project*
+([The research log](notes-and-log.md#the-research-log)). **Team**, also under *Project*, is where you work with
+colleagues (0.17.0; [Work together](together.md#through-a-shared-folder)). In a project with a team, its entry in the
+sidebar says the team's state at its end (*synced 15:44*, *3 new*).
 
 A walk through a whole first project, from adding documents to the Excel file, is in [Your first project, start to finish](first-project.md).
 

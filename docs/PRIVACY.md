@@ -217,7 +217,7 @@ space](manual/privacy.md#through-a-storage-space-of-your-teams-own-0180rc2)):
 - *Removing a member* deletes their storage keys and replaces the project's key for those who stay; what they already
   had stays with them. In a drive it stops sharing the folder with them where Margin can (a share it made, or one the
   drive lists for their known account); where it cannot, they can still read and write the folder until the owner
-  stops sharing it in the drive's website, and the Team tab says so until then. The person whose drive holds the
+  stops sharing it in the drive's website, and the Team page says so until then. The person whose drive holds the
   folder keeps it: the team moves to another folder to leave them out.
 - *In a drive* (WebDAV): each person signs in with their own account and an **app password**, which opens their whole
   account at the drive, not only the team's folder. Margin reads the names of the folders at the top of the drive at

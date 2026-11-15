@@ -415,8 +415,8 @@ can stop reading once they have their answer.
 | `explore.md` | Search, Codes (by document), Concepts, Themes, a document's panels, Quick look, FlexiConc |
 | `reading.md` | Looking at how a document was read: the reading view, *Read with the new reader* |
 | `bibliography.md` | Zotero and exported bibliographies, the four lists, matching |
-| `together.md` | Shared projects (private until shared, the shared folder and the Team tab, the three roles), sync clashes, project zips, moving to another computer, safety |
-| `storage-space.md` | A storage space of the team's own (0.18.0rc2): which company, the owner's set-up at Backblaze or Cloudflare, invites and *Join a team*, the Team tab's section, removing a colleague, moving |
+| `together.md` | Shared projects (private until shared, the shared folder and the Team page, the three roles), sync clashes, project zips, moving to another computer, safety |
+| `storage-space.md` | A storage space of the team's own (0.18.0rc2): which company, the owner's set-up at Backblaze or Cloudflare, invites and *Join a team*, the Team page's two views, removing a colleague, moving |
 | `shared-folder.md` | Choosing the shared folder (cloud folders by name, the system's folder window, how a colleague finds the team's folder, making a shared folder available offline) |
 | `roles.md` | Roles in a shared project: proposals and who answers them, what *Waiting for your word* holds (answered both ways, changes of owner, AI offers, 30-day removals, settled at the same time), the people list, a second computer |
 | `privacy.md` | What leaves the computer, who may read each document with AI, enforcement, what Claude read, what the shared folder holds |

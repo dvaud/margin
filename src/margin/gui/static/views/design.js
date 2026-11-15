@@ -11,7 +11,7 @@ import {
   h, icon, toast, dialog, confirmDialog, popNote, helpMark, field, switchControl, rangeControl, spinner, emptyState,
   statusBadge, gradeBadge, codeChip, pageHead, downloadLinks, heatCell, heatGrid, heatHead, strongerMark,
   button, downloadButton, fileButton, iconButton, link, tag, notice, card, fold, choice, optionCards, input, select,
-  textarea, searchField, menu, workState, aiWhere, drawer, drawerButton, teamLine, personMark, reviewedMark, severityTag, compare,
+  textarea, searchField, menu, workState, aiWhere, drawer, drawerButton, teamEntry, personMark, reviewedMark, severityTag, compare, guidedSteps,
   shareState, absentDocument, listRow, listGroup, noticeList, tabs, judgementIcon, readsLine, stopButton, proposalCard, decisionCard, inset,
   passageNode, foundWords
 } from "../lib.js";
@@ -44,15 +44,21 @@ const tokenSample = (cls, property, token) => {
 };
 // a piece of the sidebar, on the sidebar's ground and at its width
 const side = (...el) => h("div", { class: "dz-side" }, ...el);
-// the project switch as the sidebar draws it (app.js renderProjectSwitch), with its team line under it when given
-const projectSwitch = (line) => h("div", { class: "project-switch" }, menu({ label: "Project: Demo", listClass: "ps-menu",
+// the project switch as the sidebar draws it (app.js renderProjectSwitch)
+const projectSwitch = () => h("div", { class: "project-switch" }, menu({ label: "Project: Demo", listClass: "ps-menu",
   trigger: [icon("folder", { size: 16 }), h("span", { class: "ps-name" }, h("span", { class: "ps-label" }, "Project"),
     h("span", { class: "ps-name-text" }, "Demo")), icon("chevron-down", { size: 14 })],
   items: [{ text: "Demo", icon: "folder", current: true, meta: "3 documents · 3 answers" }, "sep",
-    { text: "New project…", icon: "plus" }, { text: "Join a team…", icon: "link" }, { text: "Manage projects", icon: "sliders", href: HERE },
-    { text: "Manage the team", icon: "users", href: HERE }] }), line || null);
-// a team line in one state (teamLine().set())
-const teamLineIn = (state) => { const t = teamLine({ onClick: () => {} }); t.set(state); return t; };
+    { text: "New project…", icon: "plus" }, { text: "Join a team…", icon: "link" }, { text: "Manage projects", icon: "sliders", href: HERE }] }));
+// the sidebar's Team entry in one state (teamEntry().set(); none: a project without a team), in a list of places
+const teamEntryIn = (state, current) => {
+  const t = teamEntry();
+  t.href = HERE;
+  t.removeAttribute("data-route");
+  if (current) t.setAttribute("aria-current", "page");
+  if (state) t.set(state);
+  return side(h("nav", { class: "nav", "aria-label": "A sample of the Team entry" }, t));
+};
 // an item's sharing on its own page, for its maker: the choice as views/share.js shareChoice() builds it, the help mark,
 // and while it is shared the line that says where it goes
 const shareSample = (value, line) => h("div", { class: "share-bar", role: "group", "aria-label": "Sharing with your team" },
@@ -60,7 +66,7 @@ const shareSample = (value, line) => h("div", { class: "share-bar", role: "group
     ["private", [icon("house", { size: 13 }), "Private"], null, "Only you see it"],
     ["shared", [icon("users", { size: 13 }), "Shared with your team"], null, "Your team gets it with your work"]] }),
   helpMark("About sharing", "Private: only you see it. Shared: your colleagues get it with your work."),
-  line ? h("p", { class: "share-where" }, line, " ", link({ kind: "jump", href: HERE }, "See what you shared")) : null);
+  line ? h("p", { class: "share-where" }, line, " ", link({ href: HERE }, "See what you shared")) : null);
 const navEntry = (ic, name, current) => h("a", { href: HERE, "aria-current": current ? "page" : null },
   h("span", { class: "nav-icon" }, icon(ic, { size: 18 })), h("span", {}, name));
 
@@ -136,9 +142,13 @@ export async function renderDesign(page) {
   };
 
   // ---- 4.19: the drawer, and a drawer with two tabs
-  const logEntry = (ic, meta, text, actions) => h("li", { class: "log-entry" }, h("span", { class: "log-icon" }, icon(ic, { size: 14 })),
-    h("div", { class: "log-body" }, h("div", { class: "log-meta" }, meta), h("div", { class: "log-text" }, text),
-      actions ? h("div", { class: "log-actions" }, actions) : null));
+  // the Research log page's row: the time, the group's icon, the words (a why and a quiet line under them), one More menu
+  const logEntry = (time, ic, text, { own, who, why, items } = {}) => h("li", { class: "log-entry" + (own ? " log-own" : "") },
+    h("time", { class: "log-time" }, time), h("span", { class: "log-icon" }, icon(ic, { size: 15 })),
+    h("div", { class: "log-body" }, h("div", { class: own ? "log-text log-own-text" : "log-text" }, text),
+      why ? h("p", { class: "log-why" }, h("strong", {}, "Why: "), why) : null,
+      who ? h("div", { class: "log-meta" }, who) : null),
+    items ? menu({ label: `More for the entry of ${time}`, items }) : null);
   const drawerDemo = drawer({ id: "dz-drawer", title: "Research log", icon: "notebook",
     control: choice({ label: "Show entries of", filter: true, sm: true, value: "page", options: [["page", "This page"], ["all", "All"]] }),
     sections: [h("div", { class: "log-new" }, textarea({ rows: 2, "aria-label": "A new entry", placeholder: "A decision and why…" }),
@@ -146,7 +156,7 @@ export async function renderDesign(page) {
     h("ol", { class: "log-entries" }, h("li", { class: "log-entry log-own" }, h("span", { class: "log-icon" }, icon("note", { size: 14 })),
       h("div", { class: "log-body" }, h("div", { class: "log-meta" }, h("time", { class: "log-time" }, "Today 17:26")),
         h("div", { class: "log-text log-own-text" }, "Kept the 2019 survey out: its sample is too small."))))],
-    foot: [link({ href: HERE }, "The whole research log"), h("span", { class: "muted" }, " on the Overview")] });
+    foot: link({ href: HERE }, "The whole research log") });
   const tabBodies = {
     log: () => [h("p", {}, "The first tab's sections: the research log.")],
     team: () => [h("p", {}, "The second tab's sections, drawn when its tab is chosen.")],
@@ -374,13 +384,16 @@ export async function renderDesign(page) {
     section("4.19", "The drawer", "Your own working space beside any page.",
       sample("Its button, in the same spot on every page", drawerButton({ label: "Research log", icon: "notebook", onClick: noop })),
       sample("The drawer: a head with one control, sections, a foot", drawerDemo),
-      sample("With two tabs: the head shows them in the view tabs' look", tabbedDrawer)),
+      sample("With two tabs (the component can; the app's drawer has one view): the head shows them in the view tabs' look", tabbedDrawer)),
 
     section("4.20", "Tables, lists and dense places", "Rows divided by lines; the name of each row is its link, its actions at the row's end.",
       answersTable(),
-      sample("A list of entries", h("ol", { class: "log-entries" },
-        logEntry("flask", h("time", { class: "log-time" }, "Today 17:26"), link({ kind: "title", href: HERE }, "Checked the hypothesis “Hybrid work improves wellbeing”."), button({ kind: "quiet", sm: true }, "Say why")),
-        logEntry("book-open", h("time", { class: "log-time" }, "Today 16:02"), "Added 3 documents."))),
+      sample("The research log's entries: the time, the icon, the words, one More menu", h("ol", { class: "log-entries log-by-time" },
+        logEntry("17:26", "flask", ["Checked the hypothesis “", link({ kind: "title", href: HERE }, "Hybrid work improves wellbeing"), "”."],
+          { why: "The second interview round asked about it.", items: [{ text: "Change why", icon: "quote" }, { text: "Compare with before", icon: "history" }] }),
+        logEntry("16:40", "users", "Kept the 2019 survey out: its sample is too small.", { own: true, who: personMark(["Anna de Vries"], { name: "short" }) }),
+        logEntry("16:02", "note", "Coded the interviews before the reports.", { own: true,
+          items: [{ text: "Edit", icon: "type" }, "sep", { text: "Remove…", icon: "trash", danger: true }] }))),
       sample("Rows grouped by person or day: who, the item's title link, a quiet second line, when, one or two actions",
         listGroup("Anna de Vries", listRow({ person: personMark(["Anna de Vries"]), title: "Remote work lowers commuting emissions.", href: HERE, time: "17:26",
           actions: [button({ kind: "quiet", sm: true }, "Accept"), button({ kind: "quiet", sm: true }, "Decline")] }),
@@ -447,14 +460,24 @@ export async function renderDesign(page) {
         right: { title: personMark(["Anna de Vries"]), meta: h("span", {}, "Yesterday 16:40"), body: h("p", { class: "serif" }, "Not about this hypothesis.") },
         actions: [button({ sm: true }, "Keep mine"), button({ sm: true }, "Keep theirs"), button({ kind: "quiet", sm: true }, "Keep both")] })),
 
+    section("4.28", "Guided steps", "A task done in a fixed order, one step at a time: the step in hand open, the ones done ticked, the ones to come in view.",
+      sample("Setting up a storage space, at its second step (guidedSteps()); the task's main button stands under the steps and waits for the last one",
+        guidedSteps({ label: "A sample of steps", class: "dz-steps", current: 1, steps: [
+          { title: "Make a free account", next: "I have an account", body: [h("p", {}, "Open the service's address in your browser.")] },
+          { title: "Make a key for Margin", next: "I see the key", body: [h("p", {}, "Open ", h("strong", {}, "Application Keys"), " in the menu and make a new key."),
+            notice({ kind: "attention", role: "note" }, h("p", {}, "What cannot be changed afterwards is said as a notice."))] },
+          { title: "Paste the key here", next: false, body: [field("Key", input({ mono: true }))] }] }))),
+
     section("5.1", "The sidebar", "The places of the app. The live sidebar is beside this page; these are its pieces.",
       sample("The project switch", side(projectSwitch())),
-      sample("The team line, in a project with a team (teamLine()): in step, news waiting, a round running, offline",
-        side(projectSwitch(teamLineIn({ words: "synced 15:44" }))), side(projectSwitch(teamLineIn({ count: "3 new" }))),
-        side(projectSwitch(teamLineIn({ kind: "running", words: "syncing now…" }))), side(projectSwitch(teamLineIn({ kind: "attention", words: "offline" })))),
-      sample("Entries: a place, the current place; a group label with its AI mark",
-        side(h("nav", { class: "nav", "aria-label": "A sample of the places" }, navEntry("grid", "Overview"), navEntry("book-open", "Documents", true),
-          h("span", { class: "nav-group", role: "presentation" }, "Explore", aiTag("optional")), navEntry("text-search", "Search"))))),
+      sample("Entries: a place, the current place; a group label, with its AI mark where its places use the AI",
+        side(h("nav", { class: "nav", "aria-label": "A sample of the places" }, navEntry("grid", "Overview"),
+          h("span", { class: "nav-group", role: "presentation" }, "Project"), navEntry("book-open", "Documents", true),
+          h("span", { class: "nav-group", role: "presentation" }, "Explore", aiTag("optional")), navEntry("text-search", "Search")))),
+      sample("The Team entry (teamEntry()), the one entry with a state: no team; in step; news waiting; a round running; offline; current",
+        teamEntryIn(null), teamEntryIn({ words: "synced 15:44" }), teamEntryIn({ count: "3 new" }),
+        teamEntryIn({ kind: "running", words: "syncing now…" }), teamEntryIn({ kind: "attention", words: "offline" }),
+        teamEntryIn({ words: "synced 15:44" }, true))),
 
     section("5.2", "The status area and the last row", "One fixed size: the AI line's card, or the work box in exactly that space.",
       sample("The AI line", side(aiCard("privacy-cloud", "cloud", "Claude, on your plan", "Only the passages of AI tasks leave this computer"))),
@@ -498,12 +521,11 @@ export async function renderDesign(page) {
         switchControl("Keep documents marked Only a local AI or No AI out of the shared folder", true, { help: "Colleagues then see your judgements and notes on them, but not their text. Turn it off only if every colleague may read every document. It changes nothing on this computer." }),
         h("div", { class: "btn-row" }, button({ kind: "main" }, "Share this project")),
         aiWhere("Your judgements, notes and the log go into this folder; your documents' text stays on this computer.", "folder")))),
-      sample("Rows in the drawer, grouped by person or by day", h("div", { class: "dz-block" },
+      sample("Rows on the Team page, grouped by person or by day", h("div", { class: "dz-block" },
         listGroup("Today", listRow({ person: personMark(["Anna de Vries"]), title: "Remote work lowers the quality of public services.", serif: true, href: HERE, time: "10:02",
           actions: [button({ kind: "quiet", sm: true }, "Say why")] }),
         listRow({ person: personMark(["Ben Okafor"]), title: "Ben Okafor", sub: "Margin 0.16.1: needs a newer Margin to read your changes", warn: true, time: "09:40" })))),
-      sample("News since last time: the tab's count, What came in, Seen before", h("div", { class: "dz-block" },
-        tabs({ label: "The drawer's tabs", items: [{ key: "log", label: "Research log", icon: "notebook" }, { key: "team", label: "Team", icon: "users", count: "3 new" }], current: "team", onTab: noop }),
+      sample("News since last time: the Team entry's count, What came in, Seen before", teamEntryIn({ count: "3 new" }), h("div", { class: "dz-block" },
         listGroup({ text: "What came in", action: button({ kind: "quiet", sm: true, icon: "check" }, "Mark as seen") },
           listRow({ person: personMark(["Anna de Vries"]), title: "Anna judged 3 excerpts of “Hybrid work improves wellbeing”", href: HERE, time: "10:02" }),
           listRow({ person: personMark(["Ben Okafor"]), title: "Ben added a note to “Rush hour is back in Rivermouth”", href: HERE, time: "09:15" })),
@@ -577,8 +599,8 @@ export async function renderDesign(page) {
             reason: "Half of its passages are about sleep and exercise, the other half about stress at work.", onAccept: noop, onDecline: noop })))),
       sample("An item's proposal state in a list, and a move that waits for its person", h("div", { class: "dz-block" },
         listGroup("Documents",
-          listRow({ title: "Commuting less, emitting less?", serif: true, href: HERE, sub: [workState("waiting", "Proposed: waiting for the owner"), " · ", link({ kind: "jump", onClick: noop }, "See the proposal")] }),
-          listRow({ title: "Annual report 2024", serif: true, href: HERE, sub: [workState("ended", "Declined by the owner"), " · ", link({ kind: "jump", onClick: noop }, "See why")] }),
+          listRow({ title: "Commuting less, emitting less?", serif: true, href: HERE, sub: [workState("waiting", "Proposed: waiting for the owner"), " · ", link({ href: HERE }, "See the proposal")] }),
+          listRow({ title: "Annual report 2024", serif: true, href: HERE, sub: [workState("ended", "Declined by the owner"), " · ", link({ href: HERE }, "See why")] }),
           listRow({ title: "Rush hour is back in Rivermouth", serif: true, href: HERE, sub: "2 results would not find their place", warn: true, actions: [button({ sm: true }, "Move it anyway…")] })),
         noticeList([{ kind: "attention", person: personMark(["Anna de Vries"]), text: "Moving “Rush hour is back in Rivermouth” waits for Anna: 2 of Anna's results would not find their place.",
           action: h("div", { class: "btn-row" }, button({ sm: true }, "Move it anyway…")) }]))),

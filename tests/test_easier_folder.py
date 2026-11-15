@@ -20,6 +20,7 @@ from test_app import api, home  # noqa: F401  (fixtures)
 STATIC = Path(__file__).resolve().parents[1] / "src" / "margin" / "gui" / "static"
 TEAM = (STATIC / "views" / "team.js").read_text(encoding="utf-8")
 STATE = (STATIC / "views" / "team-state.js").read_text(encoding="utf-8")
+SETUP = (STATIC / "views" / "team-setup.js").read_text(encoding="utf-8")   # the Team page of a project without a team
 VIEWS = (STATIC / "views.css").read_text(encoding="utf-8")
 
 posix_only = pytest.mark.skipif(os.name == "nt", reason="the stand-in programs are shell-style scripts")
@@ -221,12 +222,16 @@ def test_a_folder_is_named_as_a_colleague_sees_it(tmp_path):
 
 
 def test_the_set_up_offers_the_folders_the_window_and_what_to_do():
-    assert '"/api/cloud-folders"' in TEAM and "/shared-folder/find" in TEAM and '"/api/choose-folder"' in TEAM
-    assert "Choose folder…" in TEAM and "Your colleague’s shared folder is here:" in TEAM and '"Use it"' in TEAM
-    assert "Cloud folders on this computer" in TEAM
-    assert "Add shortcut to My files" in TEAM and "Always keep on this device" in TEAM and "keep the folder available offline" in TEAM
-    assert "if (o.picker)" in TEAM          # no button on a computer without a folder window
-    assert "e.status === 409" in TEAM
-    assert "team-use-folder" in TEAM and 'placeholder: example' in TEAM   # the pasted path stays
+    # the folder is chosen in a dialog of the set-up (views/team-setup.js folderDialog)
+    assert '"/api/cloud-folders"' in SETUP and "/shared-folder/find" in SETUP and '"/api/choose-folder"' in SETUP
+    assert "Choose folder…" in SETUP and "Your colleague’s shared folder is here:" in SETUP and '"Use it"' in SETUP
+    assert "Cloud folders on this computer" in SETUP
+    assert "Add shortcut to My files" in SETUP and "Always keep on this device" in SETUP and "keep the folder available offline" in SETUP
+    assert "if (o.picker)" in SETUP          # no button on a computer without a folder window
+    assert "e.status === 409" in SETUP
+    assert "team-use-folder" in SETUP and 'placeholder: example' in SETUP   # the pasted path stays
+    # a colleague's folder already on this computer is offered before anything else on the page, with one button
+    assert 'section("found", "Your colleague’s shared folder is on this computer"' in SETUP
+    assert 'folderDialog(ctx, { path: dir, joining: true })' in SETUP and '{ key: "found", render: foundSection },\n  { key: "space-setup"' in SETUP
     assert "the Team page offers the shared folder" in TEAM and "folderAsSeen(st.folder" in TEAM
     assert ".team-cloud" in VIEWS

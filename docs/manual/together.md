@@ -35,15 +35,15 @@ computer.
 What you make is yours alone until you share it (0.17.0): your checks, sets of themes, your own codebooks, notes and
 highlights, the entries you write in the research log, and the links you decide between terms.
 
-- **Share.** A check, a set of themes and a codebook of your own have a choice under their title: *Private* or
-  *Shared with your team* (*Shared* while the project has no team). While it is shared, a line under it says where it
-  goes (*Goes to … at the next round*, then *Sent to your team …*); *See what you shared* opens the Team tab. Notes,
+- **Share.** A check, a set of themes and a codebook of your own have a choice under their title: *Private* or *Shared
+  with your team* (*Shared* while the project has no team). While it is shared, a line under it says where it goes
+  (*Goes to … at the next round*, then *Sent to your team …*); *See what you shared* opens *Team* › *Activity*. Notes,
   highlights, your own entries and links between terms have *Share* or *Unshare* in their card. Sharing a check shares
   your codebook with it, and Margin says so.
-- **Unshare.** Choosing *Private* again (or *Unshare* in a card or in the Team tab) asks first, with room for why
-  (kept in the research log). The item stops going to your colleagues and leaves the shared folder. What they already
-  have stays with them, marked as withdrawn by you, and reaches nobody else through them. You can share it again. A
-  shared check or set of themes you remove is treated the same way.
+- **Unshare.** Choosing *Private* again (or *Unshare* in a card or under *What you shared* on *Team* › *Activity*) asks
+  first, with room for why (kept in the research log). The item stops going to your colleagues and leaves the shared
+  folder. What they already have stays with them, marked as withdrawn by you, and reaches nobody else through them. You
+  can share it again. A shared check or set of themes you remove is treated the same way.
 - **Only the person who made an item** can share it or take it back: a colleague's item says whose it is (*By Ben*)
   and has no choice. An item made before Margin 0.16 in a project shared before 0.17.0 says *maker not known*: anyone
   in the team may share it or take it back.
@@ -54,9 +54,9 @@ highlights, the entries you write in the research log, and the links you decide 
 - **A project you shared before 0.17.0** counts as shared, item by item. A project you only kept to yourself starts
   private, even if you made zips of it to back it up or move it.
 
-The *Team* tab's *What you shared* lists everything you shared, by kind, each with *Unshare*. In a project with a team,
-the *Team* row under the project's name in the sidebar shows its state (*synced 15:44*, *3 new*, *syncing now…*);
-press it to open the Team tab.
+*What you shared*, on *Team* › *Activity*, lists everything you shared, by kind, each with *Unshare*. *Team* is a place
+in the sidebar, under *Project*. In a project with a team, its entry says the team's state at its end (*synced 15:44*,
+*3 new*, *syncing now…*, *paused*, *offline*, *round did not work*); press it to open the Team page.
 
 ### Through a storage space of your team's own
 
@@ -72,8 +72,9 @@ flowchart LR
     F -- "every couple of minutes" --> A
 ```
 
-**Setting it up.** One of you starts: on the *Team page* (*Manage the team* in the project menu), Margin offers the
-cloud folders of your computer by name, or opens the system's folder window, and a colleague is offered the team's
+**Setting it up.** One of you starts: on the *Team* page (*Team* in the sidebar), under *Start a team for this project*,
+choose *A folder you already share* and press *Choose the folder…*. A dialog, *Start with a folder you share*, offers
+the cloud folders of your computer by name, or opens the system's folder window, and a colleague is offered the team's
 folder by their own Margin. Step by step: [Choosing the shared
 folder](shared-folder.md). Then decide on the switch *Keep documents marked Only a local AI or No AI out of the shared
 folder* ([below](#documents-kept-out-of-the-folder)); the first round starts when you press **Use this folder**.
@@ -87,9 +88,10 @@ computer writes there under the same name (a copy of your Margin folder, say), t
 anything, and says so under *Needs your attention*, so nothing is lost. Press *Use both computers…* to make that
 computer a second person in your projects ([below](#moving-to-another-computer)).
 
-**A colleague joins** in three steps: send them what you shared, as a file (*As a file* on the Team page); they open it
-with *Import a project* under *Projects*; in their copy, the Team page offers them the team's folder ([Choosing the
-shared folder](shared-folder.md#a-colleague-joins)).
+**A colleague joins** in three steps: send them what you shared, as a file (*Send it once, as a file* on the Team page,
+or *As a file* once there is a team); they open it with *Import a project* under *Projects*; in their copy, the Team
+page offers them the team's folder ([Choosing the shared folder](shared-folder.md#a-colleague-joins)). A colleague who
+already shares the folder can instead choose *Choose the shared folder…* under *Join a colleague's team*.
 
 **A round** first brings in what your colleagues shared, then writes what you shared that changed, so your copy writes
 with their decisions in force (a stricter AI setting, something taken back). What comes in follows the rules
@@ -105,54 +107,58 @@ waiting while you keep working. A project without a shared folder is left alone,
 costs almost nothing, even in a large project: Margin looks only at what changed (the first look after it starts, at
 everything).
 
-- **How often.** *How often Margin looks*, on the Team page: from every minute to every 60 minutes, for all your
-  projects.
-- **Pause.** *Pause* (in the *Team* tab) stops the rounds of this project; *Pause rounds for every project* (on the Team
-  page) stops them all until you resume, also across a restart. *Sync now* still works.
-- **Offline.** When the folder cannot be reached (a drive not connected, a laptop away), the tab says *Offline* and
-  Margin tries less and less often (with the usual 2 minutes: after 2, 4, 8 and 16 minutes, then every 30). Your work waits on your computer. The first round that reaches the folder, or a *Sync now* that
-  works, brings the usual rhythm back.
+- **How often.** *How often Margin looks*, on *Team* › *People and settings*: from every minute to every 60 minutes, for
+  all your projects.
+- **Pause.** *Pause* (on *Team* › *Activity*) stops the rounds of this project; *Pause rounds for every project* (on
+  *People and settings*) stops them all until you resume, also across a restart. *Sync now* still works.
+- **Offline.** When the folder cannot be reached (a drive not connected, a laptop away), the Team page says *Offline*
+  and Margin tries less and less often (with the usual 2 minutes: after 2, 4, 8 and 16 minutes, then every 30). Your
+  work waits on your computer. The first round that reaches the folder, or a *Sync now* that works, brings the usual
+  rhythm back.
 
 #### Sync now, and work that waits its turn
 
 **Sync now** runs a round at once. A round waits for work of the project it would get in the way of (documents being
-added, or read with the new reader): the Team tab says *A round waits its turn* (*The next round waits*, for one
+added, or read with the new reader): *Team* › *Activity* says *A round waits its turn* (*The next round waits*, for one
 Margin starts by itself) and for what, and the sidebar shows a round you started with **Cancel**. Other work of the
 project waits for a running round the same way (*Queued: starts when … has finished*, with *Cancel*).
 
 A running round shows in the sidebar as *Working together* (one Margin started by itself, once it has taken 20
-seconds); click it to open the Team tab. It has no *Stop*: quitting or updating Margin stops it between two of its
+seconds); click it to open the Team page. It has no *Stop*: quitting or updating Margin stops it between two of its
 steps. What already came in stays, nothing half-written counts as sent, and the next round carries on from there.
 
 #### What came in
 
-A small note says when something came in by itself, and the *Team* tab shows how many things are new. **What came in**
-lists them by colleague, newest first, in the words of the round's report. **Mark as seen** folds them under *Seen
-before*; until then they stay, also across a restart. A colleague's change of what counts in an answer comes first:
-who set a check to count the non-scientific documents, or to no longer count them, with their reason, and the check's
-answer here now beside the one it would have the other way (or that the answer is the same either way); and who marked
-a document as non-scientific, or counted it as scientific again, with the answers that changed here. A zip brought in
-says the same in its short report. The tab also shows, as needed:
+A small note says when something came in by itself, and *Team* › *Activity* shows how many things are new. **What came
+in** lists them by colleague, newest first, in the words of the round's report. **Mark as seen** folds them under *Seen
+before*; until then they stay, also across a restart. A colleague's change of what counts in an answer comes first: who
+set a check to count the non-scientific documents, or to no longer count them, with their reason, and the check's answer
+here now beside the one it would have the other way (or that the answer is the same either way); and who marked a
+document as non-scientific, or counted it as scientific again, with the answers that changed here. A zip brought in says
+the same in its short report. *Activity* also shows, as needed:
 
 - **Needs your attention**, in plain words: another computer writing into the folder under your name (this comes first
-  in the tab, because this copy then writes nothing), a colleague's copy on a newer Margin (only their work waits, with a word to
-  update), work the cloud has not brought yet, a damaged file (only that colleague's work waits). Copies the cloud
-  makes when two computers write at once (`000041 (1).zip`) are never read. When a colleague cannot read one of your
-  files, your copy writes everything you share once more by itself: nobody waits for ever.
-- **People**, with their roles, are on the Team page ([below](roles.md#the-people-list-roles-and-the-hand-over)).
+  on the page, because this copy then writes nothing), a colleague's copy on a newer Margin (only their work waits, with
+  a word to update), work the cloud has not brought yet, a damaged file (only that colleague's work waits). Copies the
+  cloud makes when two computers write at once (`000041 (1).zip`) are never read. When a colleague cannot read one of
+  your files, your copy writes everything you share once more by itself: nobody waits for ever.
+- **People**, with their roles, are on *Team* › *People and settings*
+  ([below](roles.md#the-people-list-roles-and-the-hand-over)).
 - **Documents not on this computer**: documents your colleagues' work names but they keep out of the folder, each with
   *Add its file* ([below](#documents-kept-out-of-the-folder)).
 
 #### Documents kept out of the folder
 
-The switch **Keep documents marked Only a local AI or No AI out of the shared folder** (on the Team page) is per
-project, and off unless you turn it on. With it on, the text and files of those documents, the AI's work on them, and
-the passages of them a check handed to the AI stay on your computer; colleagues add those files themselves. Your shared
-checks that read them still reach your colleagues, with the words their excerpts quote, your notes and the documents'
-titles ([Privacy](privacy.md#working-together)); a colleague without the file keeps those excerpts as records.
+The switch **Keep documents marked Only a local AI or No AI out of the shared folder** (on *Team* › *People and
+settings*) is per project, and off unless you turn it on. With it on, the text and files of those documents, the AI's
+work on them, and the passages of them a check handed to the AI stay on your computer; colleagues add those files
+themselves. Your shared checks that read them still reach your colleagues, with the words their excerpts quote, your
+notes and the documents' titles ([Privacy](privacy.md#working-together)); a colleague without the file keeps those
+excerpts as records.
 
 - **Once anyone in the team turns it on, it holds for everyone**, as the stricter AI setting does: *It is on for the
-  whole team because Ben has it on*. Offline, the Team page names who had it on when the folder could last be reached.
+  whole team because Ben has it on*. Offline, *People and settings* names who had it on when the folder could last be
+  reached.
 - **Turned on later** (or a document marked so while it is on), it takes what your copy had written of those documents
   out of the folder at the next round; your colleagues' copies do the same. What a colleague already brought into
   their project stays with them.
@@ -161,14 +167,14 @@ titles ([Privacy](privacy.md#working-together)); a colleague without the file ke
 
 #### Stop using this folder
 
-On the Team page, after a question: your copy stops sending your shared work there and bringing in your colleagues'.
-Nothing in the folder is removed, and what came in stays; you can choose the folder again later. What should leave the
-folder, unshare first.
+On *Team* › *People and settings*, *Stop using this folder*, after a question: your copy stops sending your shared work
+there and bringing in your colleagues'. Nothing in the folder is removed, and what came in stays; you can choose the
+folder again later. What should leave the folder, unshare first.
 
 ### As a file, without the folder
 
-For a one-off exchange, or a colleague without the shared folder. The Team page's *As a file* (or the *Projects* page)
-has the two downloads ([Project zips](#project-zips)).
+For a one-off exchange, or a colleague without the shared folder. On the Team page, *Send it once, as a file* or *As a
+file* (or the *Projects* page) has the two downloads ([Project zips](#project-zips)).
 
 ```mermaid
 sequenceDiagram
@@ -207,8 +213,9 @@ There are three roles:
 | **Member** | Everyone else, with no setting to make | A **proposal** to the owner and the Co-owners. |
 
 - **Who the owner is.** Whoever made the project, when it was made in Margin 0.17.0 or never left their computer before.
-  A project exchanged with an earlier Margin has no owner yet and works as before: the Team page says *No owner yet*
-  and offers **Become the owner** on that card ([what then becomes a proposal](roles.md#become-the-owner)).
+  A project exchanged with an earlier Margin has no owner yet and works as before: *Team* › *People and settings* says
+  *No owner yet* and offers **Become the owner** on that card ([what then becomes a
+  proposal](roles.md#become-the-owner)).
 - **Roles change by no click of yours.** A notice says it once (*Anna made Ben a Co-owner.*). A Co-owner whose Margin
   is older than this release cannot act as one: their changes still arrive as proposals.
 - **A Member's change to the documents** happens in their own copy at once and is a **proposal**. How much it matters
@@ -225,8 +232,8 @@ A **stricter** AI setting is never a proposal: it holds in every copy at once, a
 owner or a Co-owner makes it or accepts it, is never put into force in your copy without your click
 ([below](roles.md#more-ai-is-offered-never-applied)).
 
-What the Team tab asks of you, answers given at once and the people list: [Roles, proposals and what waits for your
-word](roles.md).
+What *Team* › *Activity* asks of you, answers given at once and the people list: [Roles, proposals and what waits for
+your word](roles.md).
 
 ## How two copies come together
 
@@ -278,7 +285,7 @@ person's judgements](how-two-copies-come-together.md#each-persons-judgements).
 Before bringing work in, from a file or in a round of the shared folder, Margin keeps a copy of the project's database
 as it was: `backups/before-bringing-in.sqlite` in the project folder, replaced each time. To go back, quit Margin and
 put that file in place of `enlens.sqlite`. With a shared folder, the next round brings the same work in again, unless
-the project's rounds are paused (*Pause* in the Team tab).
+the project's rounds are paused (*Pause* on *Team* › *Activity*).
 
 > [!WARNING]
 > Bring in files only from colleagues you work with, and share the folder only with your team. What is exchanged is
@@ -286,7 +293,8 @@ the project's rounds are paused (*Pause* in the Team tab).
 > still be made to look as if a colleague wrote it. What it can no longer do: reach files outside the project; let
 > more AI read a document on your computer without your click; remove a document for good (a removal applies at once
 > and can be restored for 30 days); make someone else the owner for you without a question (a change of owner you did
-> not expect waits for your word); or act in your copy under your own name (it is refused, and the Team tab says so).
+> not expect waits for your word); or act in your copy under your own name (it is refused, and *Team* › *Activity*
+> says so).
 
 From a terminal, `margin --ws <project folder> bring-in <zip>` does the same as the button (`--anyway` for a file not
 known to be this project).
@@ -305,7 +313,7 @@ On the *Projects* page (the project menu → *Manage projects*):
 - **Download the whole project** puts the whole project in one file: the database, the documents and their original
   files, the codebooks, your private work too. It is for moving the project to another computer of yours: a colleague on
   Margin 0.17.0rc5 or earlier would see all of it. The file of a document you removed is not in it. Both are also on a
-  check's page (under *Download*) and on the Team page.
+  check's page (under *Download*) and on the Team page (*As a file*).
 - **Import a project (.zip)** opens such a file as a new project. A damaged zip, one whose database cannot be read,
   or (0.18.1) one made by a newer Margin is refused with a plain message and leaves nothing behind.
 

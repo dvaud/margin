@@ -1,41 +1,41 @@
-// 0.18 (roadmap L4, with L1, L3 and L5): working together, in two places.
-// - The Team tab of the right-hand panel, beside the research log: the day-to-day. What waits for your word (owner.js),
-//   the sync state with Sync now and Pause, what needs your attention, what came in, what you shared (with Unshare),
-//   documents a colleague's work names that are not on this computer, and one quiet line to the Team page. Without a
-//   team yet, one line and the way to the Team page.
-// - The Team page (#/team, `renderTeam`): the team itself. Where the storage space or shared folder is, the people
-//   (roles, since when, Remove…), the invites, the owner's settings, the documents-stay-here switch, how often rounds
-//   run, the downloads as a file and Stop using it here; without a team, the set-up (a storage space, an invite link
-//   or a shared folder).
-// Both are one panel (`teamPanel`) drawing a list of sections from the same data (`ctx`): TEAM_SECTIONS for the tab,
-// TEAM_PAGE_SECTIONS for the page. Built on GET/PUT/DELETE …/shared-folder (gui/api_folder.py) and GET …/sharing
-// (gui/api_sharing.py); the poller's state is read through team-state.js. Built of 0.17.0's components
-// (docs/DESIGN.md 5.5): buttons, fields, switches, folds, help marks, notices (noticeList), work states for the sync
-// state, list rows for people, rounds and items, cards for the page's sections, and the AI line's folder for what the
-// folder holds; placed in views.css (the block "Working together").
+// 0.18 (roadmap L4, with L1, L3 and L5): working together, in one place of the sidebar: Team (#/team, `renderTeam`).
+// - No team yet: the set-up, no tabs (start a team, join a colleague's, or send the project once as a file):
+//   TEAM_SETUP_SECTIONS, in views/team-setup.js.
+// - With a team, two views (features.js PLACES.team, view tabs):
+//   - Activity (#/team): the day-to-day. What waits for your word (owner.js), the first invite while you are the only
+//     one, the sync state with Sync now and Pause, what needs your attention, what came in, what you shared (with
+//     Unshare), documents a colleague's work names that are not on this computer: TEAM_ACTIVITY_SECTIONS.
+//   - People and settings (#/team/settings): the team itself. The people (roles, since when, Remove…), where the
+//     storage space or shared folder is and its invites, the owner's settings, the documents-stay-here switch, how
+//     often rounds run, the downloads as a file and Stop using it here: TEAM_SETTINGS_SECTIONS.
+// Each view is one panel (`teamPanel`) drawing its list of sections from the same data (`ctx`), each section a card.
+// `#/team?at=<section key>` brings a section's heading into view. Built on GET/PUT/DELETE …/shared-folder
+// (gui/api_folder.py) and GET …/sharing (gui/api_sharing.py); the poller's state is read through team-state.js. Built of
+// 0.17.0's components (docs/DESIGN.md 5.5): buttons, fields, switches, folds, help marks, notices (noticeList), work
+// states for the sync state, list rows for people, rounds and items, cards for the sections, and the AI line's folder
+// for what the folder holds; placed in views.css (the block "Working together").
 //
-// A later stage adds a section to the tab with `addTeamSection` (L2: "Waiting for your word", before "state").
+// A later stage adds a section to Activity with `addTeamSection` (L2: "Waiting for your word", before "state").
 import { App, api, h, clear, replace, toast, showError, P, plural, field, switchControl, confirmDialog, watchJob,
   TERMINAL, store, shortTitle, helpMark, navigate, button, link, input, select, fold, tag, noticeList, notice, workState, dialog,
-  listRow, listGroup, absentDocument, aiWhere, personMark, setBusy, card, pageHead } from "../lib.js";
+  listRow, listGroup, absentDocument, personMark, card, pageHead } from "../lib.js";
+import { featureEyebrow, viewTabs } from "../features.js";
+import { setTeamPageCount, teamFoundOnPage } from "./team-entry.js";   // the sidebar's Team entry: the page's count while it is open
 import { itemHref, shareButton, KIND_WORDS, KIND_MANY, zipButton, ZIP_WORDS, SHARING_HELP } from "./share.js";
-import { pollerState, syncLine, myShared, personLine, cleanPath, whenText, whenPhrase, newsLines, whoseWork, folderAsSeen, POLLER_API, EVERY_CHOICES } from "./team-state.js";
+import { pollerState, syncLine, myShared, personLine, whenText, whenPhrase, newsLines, whoseWork, folderAsSeen, POLLER_API, EVERY_CHOICES, KEEP_OUT_LABEL, KEEP_OUT_HELP } from "./team-state.js";
 import { OWNER_SECTION, ownerMarks, ownerPerson } from "./owner.js";   // 0.18 L2
 import { MINE_SECTION, REMOVED_SECTION, ROLES_SECTION, peopleRows, personSub, peopleNote } from "./owner.js";   // roles
-import { SPACE_SETUP_SECTION, SPACE_SECTION, joinDialog, removeMember, memberSub, SERVICE_NAME } from "./team-space.js";   // 0.18.0rc2 (L6): a storage space
+import { SPACE_SECTION, inviteDialog, spaceInvites, removeMember, memberSub, SERVICE_NAME } from "./team-space.js";   // 0.18.0rc2 (L6): a storage space
+import { TEAM_SETUP_SECTIONS } from "./team-setup.js";   // the Team page of a project without a team
 
-const EVERY = 20000;          // how often the open tab reads the folder's state again (it is cheap)
+const EVERY = 20000;          // how often the open page reads the folder's state again (it is cheap)
 const SOON = 4000;            // … and while the poller is about to start a round ("due": it looks every 5 s)
 const SHOWN_PER_KIND = 5;     // "What you shared": rows per kind before "Show all"
-const KEEP_OUT_LABEL = "Keep documents marked Only a local AI or No AI out of the shared folder";
-const KEEP_OUT_HELP = "Their text, their files and the passages an AI read from them stay on this computer; colleagues add those files themselves. What you share still carries the words you quoted from them, your notes on them and their titles. Once anyone in the team turns it on, it holds for everyone.";
-const mac = () => /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || "");
-const win = () => /Win/i.test(navigator.platform || navigator.userAgent || "");
 
-// ---- the Team tab's sections, in order. Each is {key, render(ctx) -> Element | null}.
-export const TEAM_SECTIONS = [
-  { key: "setup", render: tabSetupSection },      // no team yet: one line, the way to the Team page
+// ---- Activity's sections, in order (#/team, in a project with a team). Each is {key, render(ctx) -> Element | null}.
+export const TEAM_ACTIVITY_SECTIONS = [
   { key: "stop", render: stopSection },           // roles: a folder problem that stops this copy, first of all
+  { key: "first-invite", render: firstInviteSection },   // you are the only one so far: invite a colleague
   { key: "state", render: stateSection },         // the sync state, Sync now, Pause, the team in one line
   { key: "problems", render: problemsSection },
   { key: "came-in", render: cameInSection },
@@ -44,32 +44,35 @@ export const TEAM_SECTIONS = [
 ];
 
 export function addTeamSection(section, { before } = {}) {
-  const at = before ? TEAM_SECTIONS.findIndex((s) => s.key === before) : -1;
-  if (at < 0) TEAM_SECTIONS.push(section); else TEAM_SECTIONS.splice(at, 0, section);
+  const at = before ? TEAM_ACTIVITY_SECTIONS.findIndex((s) => s.key === before) : -1;
+  if (at < 0) TEAM_ACTIVITY_SECTIONS.push(section); else TEAM_ACTIVITY_SECTIONS.splice(at, 0, section);
 }
-// 0.18 L2: a section may also read its own answer with the tab's refresh (`load(project)`, kept in ctx.data[key]) and
-// add to the tab's number (`count(ctx)`)
-// roles (DESIGN-roles §5, mock-up B): "Waiting for your word" is the tab's first section, before the sync state (and
-// only there when something waits); a Member's own proposals after it; the removals of the last 30 days after what
-// came in
-addTeamSection(OWNER_SECTION, { before: "state" });
-addTeamSection(MINE_SECTION, { before: "state" });
+// 0.18 L2: a section may also read its own answer with the panel's refresh (`load(project)`, kept in ctx.data[key]) and
+// add to the page's number (`count(ctx)`)
+// roles (DESIGN-roles §5, mock-up B): "Waiting for your word" is Activity's first section, before the first invite and
+// the sync state (and only there when something waits); a Member's own proposals after it; the removals of the last
+// 30 days after what came in
+addTeamSection(OWNER_SECTION, { before: "first-invite" });
+addTeamSection(MINE_SECTION, { before: "first-invite" });
 addTeamSection(REMOVED_SECTION, { before: "shared" });
 
-// ---- the Team page's sections, in order: the team itself
-export const TEAM_PAGE_SECTIONS = [
-  SPACE_SETUP_SECTION,                            // no team yet: a storage space (recommended), or an invite link
-  { key: "setup", render: setupSection },         // … or a folder the team already shares
-  { key: "folder", render: folderSection },       // a shared folder: where it is
-  SPACE_SECTION,                                  // a storage space: where it is, invites, move, technical details
+// ---- People and settings' sections, in order (#/team/settings): the team itself
+export const TEAM_SETTINGS_SECTIONS = [
   { key: "people", render: peopleSection },       // the people: roles, since when, Remove…
+  SPACE_SECTION,                                  // a storage space: where it is, invites, move, technical details
+  { key: "folder", render: folderSection },       // a shared folder: where it is
   ROLES_SECTION,                                  // the owner (Become the owner, Accept documents … at once)
   { key: "keep-out", render: keepOutSection },
   { key: "often", render: oftenSection },         // how often rounds run, for every project
   { key: "downloads", render: downloadsSection },
   { key: "leave", render: leaveSection },
 ];
-const sectionCount = (ctx, list = TEAM_SECTIONS) => list.reduce((n, s) => { try { return n + (s.count ? Number(s.count(ctx)) || 0 : 0); } catch (_) { return n; } }, 0);
+
+// ---- the set-up, in a project without a team (#/team, no tabs): start a team, join a colleague's, or send a file
+// once (views/team-setup.js)
+export { TEAM_SETUP_SECTIONS };
+
+const sectionCount = (ctx, list = TEAM_ACTIVITY_SECTIONS) => list.reduce((n, s) => { try { return n + (s.count ? Number(s.count(ctx)) || 0 : 0); } catch (_) { return n; } }, 0);
 
 function section(key, title, ...children) {
   const id = `team-h-${key}`;
@@ -80,9 +83,11 @@ function section(key, title, ...children) {
 // ---------------------------------------------------------------------------------------------
 // the panel
 // ---------------------------------------------------------------------------------------------
-// Makes the Team panel. `onCount(n)`: how many things came in that were not seen yet (for the tab's label).
-// `sections`: what it draws (the tab's, or TEAM_PAGE_SECTIONS); `page`: drawn on the Team page, each section a card.
-export function teamPanel({ onCount, sections = TEAM_SECTIONS, page = false } = {}) {
+// Makes the Team panel. `onCount(n)`: how many things came in that were not seen yet, with what waits for your word
+// (for the sidebar's Team entry). `sections`: what it draws (one of the lists above); `page`: each section a card.
+// `onStatus(status, project)`: called with each answer before drawing; false stops the drawing (the page draws itself
+// again: the project gained or lost its team).
+export function teamPanel({ onCount, onStatus, sections = TEAM_ACTIVITY_SECTIONS, page = false } = {}) {
   // a live region of its own, kept across redraws: it says when the folder goes offline, is paused or a round fails
   const live = h("p", { class: "visually-hidden", role: "status", "aria-live": "polite" });
   const body = h("div");
@@ -132,6 +137,7 @@ export function teamPanel({ onCount, sections = TEAM_SECTIONS, page = false } = 
       return;
     }
     if (mine !== token || project !== App.project) return;
+    if (onStatus && onStatus(status, project) === false) return;
     ctx.status = status;
     ctx.sharing = sharing;
     ctx.history = together ? together.history : null;
@@ -155,7 +161,7 @@ export function teamPanel({ onCount, sections = TEAM_SECTIONS, page = false } = 
     clear(body);
     for (const s of sections) {
       let el = null;
-      try { el = s.render(ctx); } catch (e) { console.error(`Team ${page ? "page" : "tab"}, ${s.key}:`, e); }
+      try { el = s.render(ctx); } catch (e) { console.error(`Team page, ${s.key}:`, e); }
       if (el) body.appendChild(page ? pageCard(el) : el);
     }
     root.setAttribute("aria-busy", "false");
@@ -248,7 +254,7 @@ export function teamPanel({ onCount, sections = TEAM_SECTIONS, page = false } = 
     }, ctx.poll && ctx.poll.due ? SOON : EVERY);   /* 0.18 real poller: a round about to start is looked at again soon */
   }
 
-  // the poller says something came in (app.js fires it when its count grows): read again while the tab is shown
+  // the poller says something came in (app.js fires it when its count grows): read again while the panel is shown
   const news = (e) => {
     if (!e.detail || e.detail.project !== App.project) return;
     if (shown) refresh();
@@ -261,13 +267,15 @@ export function teamPanel({ onCount, sections = TEAM_SECTIONS, page = false } = 
     show() { shown = true; reading = refresh(); arm(); },
     hide() { shown = false; clearTimeout(timer); },
     refresh,
-    // a section's heading, once the current refresh has drawn: focused and brought into view (the sharing line's
-    // See what you shared opens the tab at "shared")
+    // a section's heading, once the current refresh has drawn: focused and brought into view (#/team?at=shared, from
+    // the sharing line's See what you shared). True when the section is there.
     async focusSection(key) {
       try { await reading; } catch (_) { /* what was drawn before stays */ }
+      const head = body.querySelector(`#team-h-${CSS.escape(key)}`);
+      if (!head) return false;
       focusHeading(key);
-      const head = body.querySelector(`#team-h-${key}`);
-      if (head) head.scrollIntoView({ block: "nearest" });
+      head.scrollIntoView({ block: "start" });
+      return true;
     },
     // the page's panel is made again on each visit: it stops listening when the page goes
     destroy() { shown = false; clearTimeout(timer); window.removeEventListener("margin-sync-news", news); if (watching) { watching.w.stop(); watching = null; } },
@@ -285,16 +293,50 @@ function pageCard(sec) {
   return card({ as: "div", class: "team-card" }, sec);
 }
 
-// The Team page (#/team): the team itself (app.js loads this file when the page is first opened)
-export function renderTeam(view) {
-  view.appendChild(pageHead("Team", {
-    sub: ["The people you work with on this project and how your copies keep in step. The day-to-day is in the ",
-      link({ kind: "jump", id: "team-open-tab", onclick: () => window.dispatchEvent(new CustomEvent("margin-drawer", { detail: { tab: "team" } })) }, "Team tab"), "."] }));
-  const panel = teamPanel({ sections: TEAM_PAGE_SECTIONS, page: true });
-  view.appendChild(panel.el);
-  panel.show();
+// The Team place (#/team, #/team/settings; app.js loads this file when the page is first opened). Without a team, the
+// set-up and no tabs; with one, the view tabs Activity | People and settings. When a refresh finds the project gained
+// or lost its team, or another project is open, the page draws itself again (head line, tabs, sections).
+const HEAD_LINE = {
+  setup: "Work on this project with colleagues. Each of you keeps your own copy on your own computer; Margin sends what you choose to share and brings in what they share.",
+  activity: "What your colleagues shared, what you shared, and whether your copies are in step.",
+  settings: "Who is in the team, where its shared work is kept, and how this copy takes part.",
+};
+const hasTeam = (st) => !!(st && (st.folder || st.space));
+export async function renderTeam(view, params = [], query = {}) {
+  const want = params[0] === "settings" ? "settings" : "activity";
+  const box = h("div");
+  view.append(box);
+  let heads = [];   // the page head and, with a team, the view tabs: drawn again with the page
+  let panel = null, team = null, builtFor = null, at = query.at || null, alive = true;
+  const build = (withTeam, again) => {
+    if (panel) panel.destroy();
+    team = withTeam;
+    builtFor = App.project;
+    const key = withTeam ? want : "setup";
+    for (const el of heads) el.remove();
+    heads = [pageHead("Team", { eyebrow: featureEyebrow("together"), sub: HEAD_LINE[key] }), withTeam ? viewTabs("team", want) : null].filter(Boolean);
+    box.before(...heads);
+    panel = teamPanel({ sections: !withTeam ? TEAM_SETUP_SECTIONS : want === "settings" ? TEAM_SETTINGS_SECTIONS : TEAM_ACTIVITY_SECTIONS,
+      page: true, onCount: setTeamPageCount,
+      onStatus: (st, project) => {
+        teamFoundOnPage(project, hasTeam(st));
+        if (project === builtFor && hasTeam(st) === team) return true;
+        if (alive) build(hasTeam(st), true);   // set up, left, or another project: drawn again
+        return false;
+      } });
+    replace(box, panel.el);
+    panel.show();
+    const mine = panel;
+    if (at) panel.focusSection(at).then((found) => { if (found && mine === panel) at = null; });
+    // drawn again by a change (not by the visit): the focus goes to the title, which says where you are now
+    else if (again) { const t = document.getElementById("page-title"); if (t) t.focus(); }
+  };
+  let first = false;
+  try { first = hasTeam(await api("GET", `/api/projects/${P(App.project)}/shared-folder`)); }
+  catch (_) { first = false; }   // the panel reads it again, and draws itself again if it was wrong
+  build(first, false);
   const off = App.onChange(() => panel.refresh());   // another project chosen in the sidebar
-  return () => { panel.destroy(); if (typeof off === "function") off(); };
+  return () => { alive = false; panel.destroy(); setTeamPageCount(null); if (typeof off === "function") off(); };
 }
 
 // keepOut null: not touched here, so the form shows the project's own switch and leaves it as it is (it stays on
@@ -348,144 +390,6 @@ function teamSwitch(id, label, checked, help, mark = null) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// the tab without a team yet: one line, the way to the Team page, and an invite link
-// ---------------------------------------------------------------------------------------------
-function tabSetupSection(ctx) {
-  const st = ctx.status;
-  if (st.folder || st.space) return null;
-  return section("setup", "Work together",
-    h("p", { class: "muted team-text" }, "Not shared with a team yet. ", link({ href: "#/team", id: "team-set-up" }, "Set up a team")),
-    h("div", { class: "btn-row" }, button({ sm: true, icon: "link", id: "team-join", onClick: () => joinDialog(ctx) }, "Join with an invite link…")));
-}
-
-// ---------------------------------------------------------------------------------------------
-// no shared folder yet: the set-up step
-// ---------------------------------------------------------------------------------------------
-function setupSection(ctx) {
-  const st = ctx.status;
-  if (st.folder) return null;
-  const typed = ctx.setup;   // what was typed and chosen here stays across redraws until the folder is chosen
-  const example = win() ? "C:\\Users\\Anna\\OneDrive\\Our project" : "/Users/anna/Dropbox/Our project";
-  const path = input({ mono: true, id: "team-folder-path", autocomplete: "off", spellcheck: "false", placeholder: example, value: typed.path });
-  path.addEventListener("input", () => { typed.path = path.value; });
-  const copyTip = mac() ? "In the Finder, select the folder and press ⌥⌘C to copy its path." : win() ? "In File Explorer, hold Shift, right-click the folder and choose Copy as path." : "";
-  const pathField = field("The shared folder", path, { help: `Its whole path on this computer. ${copyTip}`.trim() });
-  const err = h("p", { class: "field-error team-error", role: "alert", id: "team-folder-error" }, typed.error);
-  path.setAttribute("aria-describedby", `${path.getAttribute("aria-describedby") || ""} team-folder-error`.trim());
-  if (typed.error) path.setAttribute("aria-invalid", "true");
-  const sw = teamSwitch("team-setup-keep-out", KEEP_OUT_LABEL, typed.keepOut ?? !!(st.keep_out || {}).mine, null, { label: "About documents that stay here", text: KEEP_OUT_HELP });
-  sw.input.addEventListener("change", () => { typed.keepOut = sw.input.checked; });
-  const me = st.me || {};
-  const name = input({ id: "team-your-name", maxlength: 60, autocomplete: "name", placeholder: "e.g. Anna de Vries", value: typed.name });
-  name.addEventListener("input", () => { typed.name = name.value; });
-  const nameField = me.name ? null : field("Your name", name, { help: "Colleagues see your work under this name." });
-  const go = button({ kind: "main", sm: true, icon: "folder", id: "team-use-folder" }, "Use this folder");
-  // the error is said where the field is now (the panel may have been drawn again meanwhile)
-  const showErr = (text) => {
-    typed.error = text;
-    const e = document.getElementById("team-folder-error"), f = document.getElementById("team-folder-path");
-    if (e) e.textContent = text;
-    if (f) { f.setAttribute("aria-invalid", text ? "true" : "false"); if (text) f.focus(); }
-  };
-  const choose = async () => {
-    showErr("");
-    const p = cleanPath(typed.path);
-    if (!p) { showErr("Type or paste the path of the folder your team shares."); return; }
-    const b = document.getElementById("team-use-folder") || go;
-    b.disabled = true;
-    let named = false;
-    try {
-      if (!me.name && typed.name.trim()) { await api("PUT", "/api/settings", { your_name: typed.name.trim() }); named = true; }
-      await api("PUT", `/api/projects/${P(ctx.project)}/shared-folder`, typed.keepOut === null ? { path: p } : { path: p, keep_out: typed.keepOut });
-      ctx.setup = freshSetup();
-      toast("This project now works through the shared folder. The first round starts now.", "ok");
-      await ctx.refresh({ force: true });
-      ctx.focusHeading("folder");
-      ctx.startRound();
-    } catch (e) {
-      const again = document.getElementById("team-use-folder");
-      if (again) again.disabled = false;
-      if (e.status === 400) showErr(e.message); else showError(e);
-    } finally {
-      if (named) App.refresh().catch(() => {});   // the name, for the other pages (after the folder: no read beside it)
-    }
-  };
-  go.addEventListener("click", choose);
-  // 0.18.0rc2 (L7): the cloud folders by name, the system's folder window, and a colleague's folder already found
-  const fillPath = (p) => {
-    typed.path = p;
-    const f = document.getElementById("team-folder-path") || path;
-    f.value = p;
-    showErr("");
-    f.focus();
-  };
-  const offers = h("div", { class: "team-offers", id: "team-offers" });
-  const drawOffers = (into) => replace(into, offerBlock(typed.offers, project, fillPath, showErr, typed));
-  const project = ctx.project;
-  if (!typed.offers) {
-    typed.offers = { loaded: false, folders: [], picker: false, found: [], team: "" };
-    Promise.all([cloudFolders(), api("GET", `/api/projects/${P(project)}/shared-folder/find`).catch(() => ({ found: [], team: "" }))])
-      .then(([cloud, find]) => {
-        Object.assign(typed.offers, { loaded: true, folders: cloud.folders || [], picker: !!cloud.picker, found: find.found || [], team: find.team || "" });
-        const el = document.getElementById("team-offers");
-        if (el && ctx.setup === typed) drawOffers(el);
-      });
-  }
-  drawOffers(offers);
-  path.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); choose(); } });
-  return section("setup", "Or a folder your team already shares",
-    h("p", { class: "muted team-lead" }, "OneDrive, Dropbox, Google Drive or a network drive.",
-      helpMark("About working through a shared folder", FOLDER_HELP)),
-    nameField, offers, pathField, err, sw,
-    h("div", { class: "btn-row" }, go),
-    // where text goes, at the foot (docs/DESIGN.md 4.4 and 5.5: the AI line's folder)
-    aiWhere([h("strong", {}, "The folder will hold the documents’ text and files, and only what you share of your own work. "),
-      "Your project’s database stays on this computer."], "folder"));
-}
-
-const FOLDER_HELP = "Each of you keeps your own copy of this project. Margin puts what you share in the folder and brings in what your colleagues share. Nothing of yours goes to the team until you press Share on it: a check, a set of themes, a codebook, a note, an entry of your own or a link between terms.";
-
-// 0.18.0rc2 (L7): above the path field. A colleague's shared folder, when it is already among this computer's cloud
-// folders ("Use it"); the cloud folders by name (one click fills the path); the system's folder window; and, when the
-// team's folder is nowhere yet, what to do at each service. The pasted path stays as the fallback.
-const WHERE = "Your colleague’s shared folder is here:";
-function offerBlock(o, project, fillPath, showErr, typed) {
-  const rows = [];
-  for (const dir of o.found) {
-    const seen = folderAsSeen(dir, o.folders);
-    rows.push(h("p", { class: "team-text team-found" }, `${WHERE} `, h("strong", { title: dir }, seen.text), " · ",
-      link({ kind: "jump", "data-found": dir, onclick: () => fillPath(dir) }, "Use it")));
-  }
-  if (o.folders.length) {
-    rows.push(h("div", { class: "team-cloud" }, listGroup("Cloud folders on this computer", ...o.folders.map((c) =>
-      listRow({ title: c.name, sub: c.path, actions: [button({ sm: true, "aria-label": `Use ${c.name}`, onclick: () => fillPath(c.path) }, "Use")] })))));
-  }
-  if (o.picker) {
-    const pick = button({ sm: true, icon: "folder", id: "team-choose-folder" }, "Choose folder…");
-    pick.addEventListener("click", async () => {
-      showErr("");
-      setBusy(pick, true);
-      try {
-        const r = await api("POST", "/api/choose-folder", { prompt: "Choose the folder your team shares", start: cleanPath(typed.path) || undefined });
-        if (r.path) fillPath(r.path);
-      } catch (e) {
-        if (e.status === 409) showErr(e.message); else showError(e);
-      } finally { setBusy(pick, false); }
-    });
-    rows.push(h("div", { class: "btn-row team-pick" }, pick));
-  }
-  if (o.loaded && !o.found.length) {   // how a colleague's folder comes to this computer, folded beside the field
-    rows.push(fold({ sm: true, class: "team-where", id: "team-where" }, "Your colleague’s folder is not here yet?",
-      h("p", { class: "muted small" }, "Ask the colleague who set it up to share the folder with you, then make it available on this computer. ",
-        h("strong", {}, "OneDrive: "), "on OneDrive’s website, choose ", h("em", {}, "Add shortcut to My files"), " on the shared folder, and ",
-        h("em", {}, "Always keep on this device"), " so its files are not fetched only when opened. ",
-        h("strong", {}, "Google Drive and Dropbox: "), "accept the share and keep the folder available offline. ",
-        "It then appears here.")));
-  }
-  return h("div", {}, ...rows);
-}
-
-// ---------------------------------------------------------------------------------------------
 // with a shared folder
 // ---------------------------------------------------------------------------------------------
 // the sync state is a work state (docs/DESIGN.md 4.21, 5.5): running, waiting its turn, not running (offline,
@@ -501,7 +405,7 @@ function stateLine(ctx) {
   return [ws, s.sub ? h("span", { class: "muted small team-state-sub" }, s.sub) : null];
 }
 
-// the team in one line, for the tab: "Backblaze · 3 people", "OneDrive › Our project · 2 people"
+// the team in one line, for Activity: "Backblaze · 3 people", "OneDrive › Our project · 2 people"
 function teamSummary(st) {
   const sp = st.space;
   const n = sp ? (sp.members || []).filter((m) => !m.removed).length : (st.people || []).length + 1;
@@ -509,15 +413,43 @@ function teamSummary(st) {
   return `${where} · ${plural(Math.max(n, 1), "person", "people")}`;
 }
 
-// the poller's settings: pause this project (the tab), every project and the interval (the page). `undo()`: puts the
+// the poller's settings: pause this project (Activity), every project and the interval (People and settings). `undo()`: puts the
 // control back as it was when the app refuses
 function putter(ctx) {
   return async (path, body, el, undo) => {
-    const id = el && el.id;   /* 0.18 real poller: the focus goes back to the control once the tab is drawn again */
+    const id = el && el.id;   /* 0.18 real poller: the focus goes back to the control once the page is drawn again */
     if (el) el.disabled = true;
     try { await api("PUT", path, body); await ctx.refresh({ force: true }); const again = id && document.getElementById(id); if (again) again.focus(); }
     catch (e) { showError(e); if (undo) undo(); if (el) { el.disabled = false; el.focus(); } }
   };
+}
+
+// You are the only one in this team so far: the way to a colleague. With a storage space whose keys this copy keeps, no
+// other member and no invite waiting: Invite a colleague… (the main button); with a shared folder no colleague has used
+// yet: a link to People and settings, where the three steps are.
+function firstInviteSection(ctx) {
+  const st = ctx.status;
+  if (!st.folder) return null;
+  const sp = st.space;
+  if (sp) {
+    const others = (sp.members || []).filter((m) => !m.removed && !m.me);
+    if (!sp.keeper || others.length) return null;
+    const waiting = sp.invites || [];
+    if (waiting.length) {
+      const names = waiting.map((i) => i.label).filter(Boolean);
+      return section("first-invite", "Invite a colleague",
+        h("p", { class: "team-text" }, `${plural(waiting.length, "invite")} ${waiting.length === 1 ? "is" : "are"} waiting to be used${names.length ? ` (for ${names.join(", ")})` : ""}. Your colleague shows in `,
+          link({ href: "#/team/settings?at=people", id: "team-invites-waiting" }, "People and settings"), " once they have joined."),
+        h("div", { class: "btn-row" }, button({ sm: true, icon: "plus", id: "team-invite-another", onClick: () => inviteDialog(ctx) }, "Invite another colleague…")));
+    }
+    return section("first-invite", "Invite a colleague",
+      h("p", { class: "team-text" }, "You are the only one in this team so far. Make an invite link and send it to a colleague: they join from it in a minute."),
+      h("div", { class: "btn-row" }, button({ kind: "main", sm: true, icon: "plus", id: "team-first-invite", onClick: () => inviteDialog(ctx) }, "Invite a colleague…")));
+  }
+  if ((st.people || []).length || st.reachable === false) return null;
+  return section("first-invite", "Invite a colleague",
+    h("p", { class: "team-text" }, "You are the only one in this team so far. A colleague joins this shared folder in three steps, in ",
+      link({ href: "#/team/settings?at=people", id: "team-first-steps" }, "People and settings"), "."));
 }
 
 function stateSection(ctx) {
@@ -530,7 +462,7 @@ function stateSection(ctx) {
   const sync = button({ sm: true, icon: "refresh", "aria-disabled": running ? "true" : null, id: "team-sync-now",
     title: "Send what changed and bring in what your colleagues shared, now" }, "Sync now");
   sync.addEventListener("click", () => { if (sync.getAttribute("aria-disabled") !== "true") ctx.startRound(sync); });
-  // the poller's rounds (L3): pause this project here; every project and how often on the Team page
+  // the poller's rounds (L3): pause this project here; every project and how often in People and settings
   const put = putter(ctx);
   let pause = null;
   if (p.live && p.auto) {
@@ -551,9 +483,9 @@ function stateSection(ctx) {
     // 3-polish: a round may take documents out of the folder (the switch came into force for them)
     wrote && wrote.taken_out ? h("p", { class: "muted small team-waiting" }, `The last round took ${plural(wrote.taken_out, "document")} out of the shared folder: they are kept on this computer now.`) : null,
     h("div", { class: "btn-row team-actions" }, sync, pause),
-    // the team itself is managed on its page
+    // the team itself is in People and settings
     h("p", { class: "muted small team-summary" }, h("span", { title: st.space ? st.space.where : st.folder }, teamSummary(st)), " · ",
-      link({ href: "#/team", id: "team-manage" }, "Manage the team")));
+      link({ href: "#/team/settings", id: "team-to-settings" }, "People and settings")));
 }
 
 // The Team page: how often rounds run and pausing them, for every project
@@ -566,7 +498,7 @@ function oftenSection(ctx) {
     [...new Set([...EVERY_CHOICES, minutes])].sort((a, b) => a - b).map((m) => h("option", { value: String(m), selected: m === minutes }, m === 1 ? "every minute" : `every ${m} minutes`)));
   sel.addEventListener("change", () => put(POLLER_API.app, { every_minutes: Number(sel.value) }, sel, () => { sel.value = String(minutes); }));
   const all = teamSwitch("team-pause-all", "Pause rounds for every project", p.paused_all, null,
-    { label: "About pausing", text: "For all your projects with a team. Each project can also be paused on its own, with Pause in its Team tab. Sync now still works." });
+    { label: "About pausing", text: "For all your projects with a team. Each project can also be paused on its own, with Pause under Team › Activity. Sync now still works." });
   all.input.addEventListener("change", () => put(POLLER_API.app, { paused: all.input.checked }, all.input, () => {
     all.input.checked = p.paused_all;
     all.input.setAttribute("aria-checked", p.paused_all ? "true" : "false");
@@ -585,14 +517,14 @@ function folderSection(ctx) {
     h("p", { class: "team-folder mono", title: st.folder }, st.folder));
 }
 
-// Another computer writes under this person's name: the page offers Use both computers too (the tab says it first)
+// Another computer writes under this person's name: People and settings offers Use both computers too (Activity says it first)
 function secondComputer(ctx) {
   if (!ctx.status.other_computer) return null;
   return h("div", { class: "btn-row" }, button({ sm: true, id: "team-page-both-computers", onClick: () => bothComputersDialog(ctx) }, "Use both computers…"));
 }
 
 // roles: the problems that stop this copy from writing (another computer under this name, the folder out of reach)
-// come first in the tab; the others stay under the shared folder
+// come first in Activity; the others stay under the shared folder
 const STOPS = new Set(["other_computer", "unreachable"]);
 const SECOND_COMPUTER = (since) => `Another computer is writing into this folder under your name${since ? ` (since ${since})` : ""}. Nothing was written from here, so nothing is lost.`;
 function folderProblems(ctx) {
@@ -665,7 +597,7 @@ function cameInSection(ctx) {
   };
   const body = [];
   if (!items.length) {
-    body.push(h("p", { class: "muted team-text", title: "What your colleagues share shows here when a round brings it in." }, "Nothing yet."));
+    body.push(h("p", { class: "muted team-text" }, "Nothing yet. What your colleagues share shows here when a round brings it in."));
   } else {
     if (fresh.length) {
       body.push(listGroup(null, ...fresh.map(row)),
@@ -730,7 +662,7 @@ function peopleSection(ctx) {
   const both = st.other_computer ? h("div", { class: "btn-row" }, button({ sm: true, id: "team-page-both-computers", onClick: () => bothComputersDialog(ctx) }, "Use both computers…")) : null;
   /* 0.18 real poller: offline, the folder says nothing of who is in it (not "no colleague yet") */
   if (!people.length && st.reachable === false) {
-    return section("people", "People", h("div", { class: "team-people" }, listGroup(null, mine, ...joined)),
+    return section("people", "People", h("div", { class: "team-people" }, listGroup(null, mine, ...joined)), ...spaceInvites(ctx),
       h("p", { class: "muted team-text" }, st.space ? "Your colleagues show here again once the storage space can be reached." : "Your colleagues show here again once the shared folder can be reached."), gone, both);
   }
   const join = people.length || st.space ? null : h("div", { class: "team-join" },   // (a storage space: its section invites)
@@ -746,7 +678,7 @@ function peopleSection(ctx) {
   });
   const count = 1 + people.length + joined.length;
   return section("people", count > 1 ? `People (${count})` : "People",
-    peopleNote(ctx), h("div", { class: "team-people" }, listGroup(null, mine, ...rows, ...joined)), gone, both, join);
+    peopleNote(ctx), h("div", { class: "team-people" }, listGroup(null, mine, ...rows, ...joined)), ...spaceInvites(ctx), gone, both, join);
 }
 
 function sharedSection(ctx) {
@@ -755,7 +687,7 @@ function sharedSection(ctx) {
   const mine = myShared(listing);
   const body = [];
   if (!mine.total) {
-    body.push(h("p", { class: "muted team-text", title: "Share an item from its own page: a check, a set of themes, a codebook, a note, an entry of your own or a link between terms." }, "Nothing yet."));
+    body.push(h("p", { class: "muted team-text" }, "Nothing yet. Press Share on a check, a set of themes, a codebook, a note, a research log entry of yours or a link between terms."));
   } else {
     for (const kind of Object.keys(KIND_MANY)) {
       const items = mine.byKind[kind];
@@ -826,9 +758,10 @@ function keepOutSection(ctx) {
 }
 
 function downloadsSection(ctx) {
+  if (!ctx.status.folder) return null;   // without a team, the set-up has its own (team-setup.js: Send it once, as a file)
   const project = ctx.project;
-  return section("downloads", ctx.status.folder ? "As a file" : "Or as a file",
-    h("p", { class: "muted team-text" }, ctx.status.folder ? "For a colleague outside the team, or to move the project." : "By e-mail or a USB stick, without a storage space or folder."),
+  return section("downloads", "As a file",
+    h("p", { class: "muted team-text" }, "For a colleague outside the team, or to move the project."),
     h("ul", { class: "team-downloads" },
       h("li", {}, zipButton(project, "shared", { id: "team-zip-shared" }), h("span", { class: "muted small" }, ZIP_WORDS.shared.what)),
       h("li", {}, zipButton(project, "all", { id: "team-zip-all" }), h("span", { class: "muted small" }, ZIP_WORDS.all.what))));

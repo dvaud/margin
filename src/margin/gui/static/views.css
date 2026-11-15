@@ -40,12 +40,13 @@
 .ov-finder { margin: 0 0 24px; max-width: 640px; }
 
 /* ==== Research log */
-.log-tools { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 16px; margin: 4px 0 12px; }
-.log-tools-right { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.log-search { width: 240px; max-width: 100%; }
-@media (max-width: 860px) {
-  .log-tools { flex-direction: column; align-items: stretch; }
-  .log-search { width: 100%; max-width: none; }
+/* a readable column: the write box, the tools and the entries never stretch across a wide window */
+.log-new-row, .log-tools, .log-list { max-width: 52em; }
+.log-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 4px; }
+.log-tools > .search-field { flex: 1 1 14em; max-width: 22em; }
+.log-show-label { margin-right: calc(-1 * var(--space-1)); color: var(--text-2); font-size: var(--fs-small); }
+@media (max-width: 520px) {
+  .log-tools > .select, .log-tools > .search-field { flex: 1 1 100%; max-width: none; }
 }
 
 /* ==== Documents */
@@ -1720,16 +1721,17 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .move-settings { margin: 6px 0 0; padding-left: 1.2em; }
 
 /* ==== Working together */
-/* 0.18: the Team tab of the drawer beside every page (views/team.js, the owner's section views/owner.js), and an item's
-   sharing on its own page and in lists (views/share.js). Built of the components (docs/DESIGN.md 5.5): these rules
-   place them, and give the tab's own pieces (its sections, the sync state's second line) their look. */
+/* 0.18: the Team place (#/team: the set-up, or Activity and People and settings; views/team.js, the owner's sections
+   views/owner.js), and an item's sharing on its own page and in lists (views/share.js). Built of the components
+   (docs/DESIGN.md 5.5): these rules place them, and give the page's own pieces (its sections, the sync state's second
+   line) their look. */
 /* an item's sharing: the row under its page's title (shareBar), and the quiet row in a card of a list (shareInline) */
 .share-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--space-2); margin: 0 0 var(--space-4); }
 .page-head + .share-bar, .result-head .share-bar { margin-top: 0; }
 /* an item's sharing choice and the line that says where a shared item goes */
 .share-bar .share-where { flex: 1 1 100%; margin: 0; color: var(--text-2); font-size: var(--fs-small); }
 .share-inline { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-/* the Team tab: sections divided by a line, each under a small heading the panel can focus */
+/* the Team panel: sections, each under a heading the panel can focus (on the page each section is a card) */
 .team-empty { margin: 4px 0 8px; }
 .team-section { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .team-section:first-of-type { padding-top: 0; }
@@ -1770,11 +1772,13 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .team-cloud .list-group { margin: 0; }
 .team-found strong, .team-join-folder { overflow-wrap: anywhere; }
 .team-steps { margin: 0; padding-left: 1.3em; font-size: var(--fs-small); }
-/* 0.18.0rc2 (L6): a storage space: the two services offered, the set-up's steps in a dialog */
-.team-choices { list-style: none; margin: var(--space-2) 0; padding: 0; display: grid; gap: var(--space-2); }
-.team-choices li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); }
-.team-space-setup .team-steps { font-size: inherit; display: grid; gap: var(--space-3); }
-.team-space-setup .field { margin-top: var(--space-2); }
+/* the Team page without a team (team-setup.js): where the team's shared work is kept, two option cards to a row
+   while there is room; then the set-up's steps, the join form and the folder form, each in a dialog */
+.team-where { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); margin: var(--space-2) 0 var(--space-3); }
+.team-section > .ai-where { margin: var(--space-3) 0 0; }
+.team-space-setup, .team-join-form, .team-folder-setup { display: grid; gap: var(--space-3); }
+.team-space-setup > p, .team-join-form > p, .team-folder-setup > p, .team-join-form > .field, .team-folder-setup > .field { margin: 0; }
+.team-folder-setup > .team-offers, .team-folder-setup > .team-error { margin: 0; }
 .team-space-where { overflow-wrap: anywhere; }
 .team-check { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
 #space-invite-message, #space-join-link { width: 100%; resize: vertical; font-size: var(--fs-small); word-break: break-all; }
@@ -1787,11 +1791,12 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .team-summary { margin: 8px 0 0; overflow-wrap: anywhere; }
 /* a section's one line with its help mark after it */
 .team-lead { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin: 0 0 8px; }
-.team-where { margin-top: var(--space-2); }
-/* the Team page (#/team): each section a card (card()), its heading the card's section title */
+.team-where-fold { margin-top: var(--space-2); }
+/* the Team page (#/team): each section a card (card()), its heading the card's section title; ?at= scrolls a heading
+   to the top, clear of the drawer's button band */
 .team-page { max-width: 52rem; }
 .team-page .team-section { padding: 0; border-bottom: 0; }
-.team-page .team-h { margin: 0 0 12px; font-size: var(--fs-section); }
+.team-page .team-h { margin: 0 0 12px; font-size: var(--fs-section); scroll-margin-top: 64px; }
 /* the owner's section: proposals as small cards, what was declined and answered, the owner's setting */
 .owner-who { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .owner-notice { margin: 0 0 var(--space-3); }
@@ -1857,6 +1862,7 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 /* a piece that takes the whole row of its sample */
 .dz-show > .notice, .dz-show > .dz-frame { flex-basis: 100%; }
 .dz-show > .log-entries { flex: 1 1 100%; max-width: 34em; }
+.dz-show > .dz-steps { flex: 1 1 100%; max-width: 34em; }
 /* a sample list of boxes in a card */
 .dz-list { margin: 0; padding: 0; list-style: none; gap: var(--space-2); }
 /* a sample list or set of pieces: the row's width, no wider than a drawer's page column */

@@ -6,8 +6,8 @@
 > - A private storage space online, free at a team's size, at Backblaze (most research groups) or Cloudflare (large
 >   teams that grow quickly), or a folder in your institution's drive (SURFdrive, SURF Research Drive, a university's
 >   Nextcloud). Margin fills and reads it by itself; nobody installs anything or looks for a folder.
-> - The owner sets it up once, on the *Team page* (*Manage the team* in the project menu), in about five minutes;
->   colleagues join from a link, with *Join a team…* in the project menu.
+> - The owner sets it up once, on the *Team* page (*Team* in the sidebar), in about five minutes; colleagues join from
+>   a link, with *Join a team…* in the project menu.
 > - Everything is locked on your computer before it leaves it: the storage company cannot read your work.
 > - The owner can remove a colleague (their keys stop working) or move the team to another storage space.
 
@@ -29,18 +29,24 @@ the same drive.
 
 ## Setting it up (the owner, once, about five minutes)
 
-Open the project menu at the top of the sidebar and choose *Manage the team* (or press *Set up a team* in the *Team*
-tab): that is the Team page. Under *A storage space (recommended)* choose *Backblaze…* or *Cloudflare…*. The dialog
-walks you through it:
-- *Backblaze:* make a free account (paste the address in your browser; choose **EU Central** as the region on the
-  sign-up form: it cannot be changed later; if Backblaze's *Not so fast!* page keeps asking whether you are a robot, see
-  below), open *Application Keys*, choose *Generate New Master Application Key*, and paste its *keyID* and
-  *applicationKey*. Margin checks where the storage is (and says so when it is not in the EU), makes a key of its own
-  with only the rights it needs, forgets the one you pasted, makes a private storage space and tries it. Afterwards,
-  generate a new master key in Backblaze: that makes the pasted one useless.
-- *Cloudflare:* make an account (paste `dash.cloudflare.com/sign-up` in your browser), switch *R2 Object Storage* on,
-  tick *I am signed in*, open *Make the token Margin needs*, choose *Create Token*, and paste the token. Margin makes a
-  storage space in Cloudflare's EU area and tries it.
+Open *Team* in the sidebar (a project without a team shows three cards). Under *Start a team for this project*, pick *A
+storage space at Backblaze* (marked *Recommended*), *A storage space at Cloudflare* or *Your institution's drive*, and
+press the button under the options, whose words follow your choice (*Set up at Backblaze…*, *Set up at Cloudflare…*,
+*Set up in your institution's drive…*). A dialog walks you through it in numbered steps: one is open at a time, each has
+a button that goes on (*I have an account*, *I see the key*, *R2 is switched on*, *Next step*) and *Back*, and the
+dialog's main button, *Set up the storage space*, waits until the last step that asks for something.
+- *Backblaze:* 1 *Make a free Backblaze account* (paste the address in your browser; the region **EU Central** is a
+  highlighted note: choose it on the sign-up form, because it cannot be changed later; if Backblaze's *Not so fast!*
+  page keeps asking whether you are a robot, see below). 2 *Make a key for Margin*: open *Application Keys* and choose
+  *Generate New Master Application Key*. 3 *Paste the key here*: its *keyID* and *applicationKey*. Margin checks where
+  the storage is (and says so when it is not in the EU), makes a key of its own with only the rights it needs, forgets
+  the one you pasted, makes a private storage space and tries it. Once the space is ready, step 4, *Afterwards: cancel
+  the key you pasted*, asks you to generate a new master key in Backblaze, and the button says *Done*. (A new master key
+  stops the one before it working: in an account made for Margin nothing else uses it.) The dialog remembers the step
+  you were at while Margin stays open, never what you pasted, and asks before Escape or a click beside it closes it.
+- *Cloudflare:* 1 *Make a Cloudflare account* (paste `dash.cloudflare.com/sign-up` in your browser). 2 *Switch on R2
+  storage*. 3 *Make a token and paste it here*: open the link *the token Margin needs*, choose *Create Token*, and paste
+  the token. Margin makes a storage space in Cloudflare's EU area and tries it.
 
 If the company says it is down for maintenance, try again later: nothing is set up until the end.
 
@@ -50,8 +56,9 @@ If your institution gives you a drive that speaks *WebDAV* (most do: SURFdrive a
 institutions, a university's own Nextcloud or ownCloud), the team can work in a folder there instead. Nobody signs up
 anywhere, and the files stay at your institution's drive. Everyone in the team needs an account at **the same** drive.
 
-*Setting it up (the owner):* on the Team page, under *A storage space (recommended)*, choose *Your institution's
-drive…*. The dialog asks for three things:
+*Setting it up (the owner):* on the Team page, under *Start a team for this project*, pick *Your institution's drive*
+and press *Set up in your institution's drive…*. The dialog has two steps, 1 *Find your drive's WebDAV address* and 2
+*Make an app password for Margin*, and asks for three things:
 - the drive's **WebDAV address**. For SURFdrive, press *Use SURFdrive's address*
   (`https://surfdrive.surf.nl/files/remote.php/nonshib-webdav/`). A Nextcloud shows its address in its website,
   under *Files* → *Files settings* (bottom left); it looks like `https://<host>/remote.php/dav/files/<user>/`. SURF
@@ -113,11 +120,11 @@ missing and were written again. This works the same at Backblaze and Cloudflare.
 team's list of members), at the top of your drive and in a *Shared* folder, and uses it again once found. Deeper than
 that it is not found: put it back at the top, under any name.
 
-*Handing the project over* (*Hand over…* on the Team page) works as everywhere, but the folder stays in the drive of
-the person who set it up: only they can share it with new colleagues or stop sharing it, and the dialogs then say to
-ask them. To take full control, the new owner chooses *Move to another storage space* → *Your institution's drive…*:
-Margin makes a folder in their own drive, shares it with the colleagues it knows the user names of, and takes the team
-there.
+*Handing the project over* (*Hand over…* on *Team* › *People and settings*) works as everywhere, but the folder stays in
+the drive of the person who set it up: only they can share it with new colleagues or stop sharing it, and the dialogs
+then say to ask them. To take full control, the new owner chooses *Move to another storage space* → *Your institution's
+drive…*: Margin makes a folder in their own drive, shares it with the colleagues it knows the user names of, and takes
+the team there.
 
 *Replaced files and the drive's space:* Margin replaces some of its files in the folder at each round. A Nextcloud (and
 SURF's drives) keeps each replaced file in the trash bin, or as an older version, of the person whose drive holds the
@@ -136,7 +143,7 @@ more. When the drive asks Margin to slow down, the round stops and the next one 
 *Not tried with a real drive yet:* Margin's drive support was built and tested against a stand-in that follows the
 WebDAV standard and Nextcloud's documents. In particular, it was not seen how a real drive counts refused sign-ins,
 whether it gives the account's name when sharing, or how it names a folder whose name has accents. If something does
-not work with your institution's drive, the Team tab says what the drive answered.
+not work with your institution's drive, *Team* › *Activity* says what the drive answered.
 
 The dialog gives each company's sign-up address with a *Copy* button rather than a link, so you choose the browser.
 If Backblaze's sign-up page keeps showing *Not so fast!* and the *I'm not a robot* box comes back each time you tick
@@ -146,20 +153,23 @@ or Edge, and open *Application Keys* there too, where you are signed in.
 
 ## Inviting a colleague
 
-On the Team page, *Invite a colleague…* (under *The storage space*, in the owner's copy) makes a message with a link (it
-starts with `margin://join#`). Send it privately: it holds the keys to your storage space. The colleague opens Margin
-and chooses *Join a team…* in the project menu (also a button on the *Projects* page, and *Join with the invite link…*
-under *Invited to a team?* when Margin is first set up), pastes the link, and Margin makes a new project for it. A copy
-they already have can use *Join with an invite link…* in its *Team* tab instead. Their first rounds bring the documents
-and everything shared; you see them under *People* on the Team page once your Margin has let them in, which it does by
-itself at its next round; until they have sent anything they are listed as *nothing sent yet*. A link works once;
-*Withdraw* takes back one not used yet.
+On *Team* › *People and settings*, *Invite a colleague…* (under *People*, in the owner's copy, with the invites not
+used yet; while you are the only person in the space, *Activity* also offers it on a card) makes a message with a link
+(it starts with
+`margin://join#`). Send it privately: it holds the keys to your storage space. The colleague opens Margin and chooses
+*Join a team…* in the project menu (also a button on the *Projects* page, and *Join with the invite link…* under
+*Invited to a team?* when Margin is first set up), pastes the link, and Margin makes a new project for it. A copy they
+already have can use *Join with an invite link…* on its Team page instead; it asks where the team's project goes, *A new
+project* (marked *Usual*) or *This project* (only when that copy is their copy of the team's project, sent to them as a
+file before). Their first rounds bring the documents and everything shared; you see them under *People* on *Team* ›
+*People and settings* once your Margin has let them in, which it does by itself at its next round; until they have sent
+anything they are listed as *nothing sent yet*. A link works once; *Withdraw* takes back one not used yet.
 
 ## On the Team page
 
-The Team page is where the team itself is managed; the *Team* tab (the *Team* row under the project's name) keeps only
-the day-to-day (what waits for your word, *Sync now*, what came in), with one quiet line, such as *Backblaze · 3 people
-· Manage the team*, that opens the page.
+The Team page has two views, shown as tabs under its title. *Activity* keeps the day-to-day (what waits for your word,
+*Sync now*, what came in), and ends its Sync card with a link, *People and settings*, where the team itself is
+managed.
 The card *The storage space* says where the space is and the invites not used yet; *People* lists everyone in it. The
 owner's copy keeps the space's keys (*keeps the space's keys*); when the project's owner changes, the keys go to the new
 owner's copy by themselves. The storage account itself stays the person's who made it, who can always reach the space
@@ -174,12 +184,12 @@ through the service's website: for a hand-over in full, the new owner moves the 
   drive: colleagues who already work in a drive at the same address follow with their own account once the new
   folder is shared with them (Margin shares it with the user names you gave at their invites); colleagues coming from
   Backblaze, Cloudflare or another drive cannot follow by themselves (Margin knows no account of theirs there): their
-  Team tab asks them for a new invite, and yours lists their names.
+  Team page asks them for a new invite, and yours lists their names.
 
 A file in the space that its part's member did not sign (someone wrote in another person's name) is *set aside*: it
 never comes into your project, and the card says so (more under *Technical details*).
 
-**Stop using the storage space here** (the last card of the Team page, *Leave the storage space*) stops this copy and
+**Stop using the storage space here** (the last card of *People and settings*) stops this copy and
 forgets its keys; nothing in the space is removed. To come back, ask the owner for a new invite.
 
 The same rules as with a shared folder decide how your copies come together: [How two copies of a project come together](how-two-copies-come-together.md).

@@ -1,4 +1,4 @@
-// 0.18 (roadmap L2): what the Team tab and the Documents page say about the project's owner and the proposals that
+// 0.18 (roadmap L2): what Team › Activity and the Documents page say about the project's owner and the proposals that
 // wait for the owner, worked out from GET …/owner (gui/api_owner.py, ownership.view) without touching the page. Its
 // only import is team-state.js, which has none, so it also runs in Node for the tests. owner.js draws it.
 //
@@ -48,7 +48,7 @@ export function ownerName(v) {
   return v && v.owner ? nameOf(v.owner, "the owner") : "the owner";
 }
 
-// Whether the Team tab shows the section: with a shared folder always; without one (a team working with zips), once
+// Whether Team › Activity shows the section: with a shared folder always; without one (a team working with zips), once
 // the project has an owner on record, has none and could have one, or something waits. A project never exchanged has
 // nothing to say there.
 export function sectionShown(v, hasFolder) {
@@ -78,7 +78,7 @@ export function mineHeading(list) {
   return list.every((p) => p.mine) ? `Your proposals (${n})` : `Proposals that wait (${n})`;
 }
 
-// The number on the Team tab: the cards that wait for this person's word (a question put off with Not now in this
+// The number on the sidebar's Team entry: the cards that wait for this person's word (a question put off with Not now in this
 // browser no longer counts), and their own proposals declined and not seen yet.
 export function tabCount(v, seen = new Set()) {
   if (!v) return 0;
@@ -138,7 +138,7 @@ export function kindLine(p, v) {
 }
 
 // Accepting a looser setting: the confirmation's words. `keepOutInForce`: the shared folder keeps documents marked
-// Only a local AI or No AI out (the Team tab's switch); one let out to Claude then has its text and file written there.
+// Only a local AI or No AI out (the switch in Team › People and settings); one let out to Claude then has its text and file written there.
 export function loosenConfirm(p, keepOutInForce) {
   const d = (p && p.detail) || {};
   const to = LEVEL_WORDS[d.to] || d.to || "?";

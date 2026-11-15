@@ -1,4 +1,4 @@
-// 0.18 (roadmap L1): private until shared, on each item's own page and in the Team tab (team.js). An item is a check, a
+// 0.18 (roadmap L1): private until shared, on each item's own page and on the Team page (team.js). An item is a check, a
 // set of themes, a codebook, a note or highlight, an entry you wrote in the research log, or a link between terms.
 // A small tag says whether it is private, shared or withdrawn (shared once, taken back) and whose it is; Share and
 // Unshare stand beside it in a list, for its owner only. On an item's own page its maker has a choice instead (Private |
@@ -91,7 +91,7 @@ export async function unshareItem(item, opts = {}) {
 }
 
 // An id for an item's button that stays the same when the page is drawn again (`prefix`: where it is, so the same item
-// in the Team tab and on its page has two)
+// on the Team page and on its own page has two)
 export function shareId(item, prefix = "share") {
   return `${prefix}-${item.kind}-${String(item.key).replace(/[^A-Za-z0-9_-]/g, "_")}`;
 }
@@ -163,7 +163,7 @@ export function shareChoice(item, onChanged, opts = {}) {
   return c;
 }
 
-// The quiet line under a shared item's choice: who gets it and when, and where to see it (the Team tab, at What you
+// The quiet line under a shared item's choice: who gets it and when, and where to see it (Team › Activity, at What you
 // shared); a withdrawn item says what that means. `brief`: teamBrief()'s answer, or null. Null when there is nothing
 // to say (a private item).
 export function shareWhere(item, brief) {
@@ -177,8 +177,7 @@ export function shareWhere(item, brief) {
   const words = sent ? `Sent to your team ${whenPhrase(brief.sentAt)}.`
     : `Goes to ${brief.names} at the next round${brief.nextAt ? ", " + inText(brief.nextAt) : ""}.`;
   return h("p", { class: "share-where" }, words, " ",
-    link({ kind: "jump", class: "share-see", onClick: () => window.dispatchEvent(new CustomEvent("margin-drawer", { detail: { tab: "team", section: "shared" } })) },
-      "See what you shared"));
+    link({ href: "#/team?at=shared", class: "share-see" }, "See what you shared"));
 }
 
 // The row on an item's own page: it reads the item's state itself and draws it again after a change. For its maker,

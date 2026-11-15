@@ -1,4 +1,4 @@
-// 0.18 (roadmap L3, L4): what the Team tab says about the shared folder, worked out from the app's answers without
+// 0.18 (roadmap L3, L4): what the Team page says about the shared folder, worked out from the app's answers without
 // touching the page (no imports, so it also runs in Node for the tests). team.js draws it.
 //
 // The poller (L3, branch feature/0.18-poller) looks at the shared folder by itself every couple of minutes. Its state
@@ -6,7 +6,7 @@
 // off | paused | waiting | due | busy | running | offline, next_round_at, offline.retry_seconds, busy, round,
 // last_round, every_seconds, paused, paused_all, came_in {count, seen_through, rounds: [{id, at, from, lines, count}]}.
 // `PUT …/sync-poller {"paused"}` pauses one project, `POST …/sync-poller/seen {"through"}` marks what came in as seen,
-// `PUT /api/sync-poller {"paused"?, "every_minutes"?}` the whole app. Everything the Team tab reads of it goes through
+// `PUT /api/sync-poller {"paused"?, "every_minutes"?}` the whole app. Everything the Team page reads of it goes through
 // `pollerState` below.
 //
 // STAND-IN until the parent merges feature/0.18-poller: GET …/sync-poller answers 404 and team.js passes `poller`
@@ -62,7 +62,7 @@ function folderTimes(st) {
   return times.length ? Math.max(...times) : null;
 }
 
-// The poller's state for the Team tab, in one shape: {live, auto, paused, paused_here, paused_all, offline, next_at,
+// The poller's state for the Team page, in one shape: {live, auto, paused, paused_here, paused_all, offline, next_at,
 // last_at, backoff, busy, every, round, came_in: [{at, from, person, id, lines, seen}] (newest first), unseen,
 // newest_id}. `poller`: GET …/sync-poller's answer (null: the stand-in); `seenAt` (ms) and `history` (GET …/together's)
 // serve the stand-in, and give the live state the rounds seen before.
@@ -302,3 +302,8 @@ export async function teamBrief(project, get = null) {
   return brief;
 }
 export function forgetBrief(project) { briefs.delete(project); }
+
+// The switch that keeps restricted documents out of what the team shares: its label and its explanation, the same on
+// the Team page and in the set-up of a shared folder (team-setup.js)
+export const KEEP_OUT_LABEL = "Keep documents marked Only a local AI or No AI out of the shared folder";
+export const KEEP_OUT_HELP = "Their text, their files and the passages an AI read from them stay on this computer; colleagues add those files themselves. What you share still carries the words you quoted from them, your notes on them and their titles. Once anyone in the team turns it on, it holds for everyone.";

@@ -45,8 +45,15 @@ GROUPS = {
     "proposal": "together", "proposal-accepted": "together", "proposal-declined": "together",
     "proposal-taken-back": "together", "owner": "together",
 }
-GROUP_NAMES = {"entries": "Your own entries", "documents": "Documents", "checks": "Checks", "themes": "Themes",
-               "codebooks": "Codebooks", "history": "Restored versions", "together": "Work together"}
+# A person's entry (kind "entry") is in "entries" when you wrote it and in "colleagues" when a colleague did (their
+# entries come in with their work, sync.py): GROUPS names the kind's group as written; _view and entries() split it.
+OWN, COLLEAGUES = "entries", "colleagues"
+GROUP_NAMES = {OWN: "Your own entries", COLLEAGUES: "Your colleagues’ entries", "documents": "Documents",
+               "checks": "Checks", "themes": "Themes", "codebooks": "Codebooks", "history": "Restored versions",
+               "together": "Work together"}
+# the downloads go to other people, for whom "Your own" is wrong: a person's entry is an "Entry" there, and the Who
+# column says whose
+FILE_GROUP_NAMES = {**GROUP_NAMES, OWN: "Entry", COLLEAGUES: "Entry"}
 MAX_TEXT = 10000
 MAX_WHY = 2000
 _ID = re.compile(r"e[0-9a-f]{16}")
@@ -168,13 +175,18 @@ def _view(r: sqlite3.Row | dict, names: dict[str, str], me: str, versions: set[s
     d = dict(r)
     data = d.pop("data_json", None)
     d["data"] = json.loads(data) if data else None
-    d["group"] = GROUPS.get(d["kind"], "other")
     d["mine"] = d["person_id"] == me
+    d["group"] = _group(d["kind"], d["mine"])
     d["who"] = names.get(d["person_id"] or "", "a colleague")
     d["can_edit"] = d["mine"] and d["kind"] == "entry"
     d["can_why"] = d["mine"]
     d["has_version"] = bool(d.get("version_id")) and d["version_id"] in versions
     return d
+
+
+def _group(kind: str, mine: bool) -> str:
+    g = GROUPS.get(kind, "other")
+    return COLLEAGUES if g == OWN and not mine else g
 
 
 def _versions_present(ws: Workspace, ids: list[str]) -> set[str]:
@@ -194,18 +206,26 @@ def entry(ws: Workspace, entry_id: str) -> dict:
 
 def entries(ws: Workspace, group: str | None = None, q: str | None = None, subject_kind: str | None = None,
             subject_id: str | None = None, offset: int = 0, limit: int | None = 200, oldest_first: bool = False) -> dict:
-    """The log, newest first: {entries, total, groups: {group: count}}. `group` keeps one group ("entries",
-    "documents", ...), `q` entries whose words, title or reason contain it, `subject_*` those about one thing.
-    `limit` None: every entry (the downloads; a page asks for at most 2,000 at a time)."""
+    """The log, newest first: {entries, total, groups: {group: count}}. `group` keeps one group ("entries": the
+    entries you wrote, "colleagues": those your colleagues wrote, "documents", ...), `q` entries whose words, title or
+    reason contain it, `subject_*` those about one thing. `limit` None: every entry (the downloads; a page asks for at
+    most 2,000 at a time)."""
     from .people import names
 
+    me = _me()
     where, args = [], []
     if group:
-        kinds = [k for k, g in GROUPS.items() if g == group]
+        kinds = [k for k, g in GROUPS.items() if g == (OWN if group == COLLEAGUES else group)]
         if not kinds:
             raise ValueError(f"Unknown group {group!r}.")
         where.append(f"kind IN ({','.join('?' * len(kinds))})")
         args += kinds
+        if group == OWN:
+            where.append("person_id=?")
+            args.append(me)
+        elif group == COLLEAGUES:
+            where.append("(person_id IS NULL OR person_id<>?)")
+            args.append(me)
     if subject_kind:
         where.append("subject_kind=?")
         args.append(subject_kind)
@@ -229,11 +249,12 @@ def entries(ws: Workspace, group: str | None = None, q: str | None = None, subje
         rows = ws.query(f"SELECT * FROM research_log {sql_where} ORDER BY at {order}, rowid {order} LIMIT ? OFFSET ?",
                         (*args, -1 if most is None else most, first))
     counts: dict[str, int] = {}
-    for kind, n in ws.query("SELECT kind, COUNT(*) FROM research_log GROUP BY kind"):
-        g = GROUPS.get(kind, "other")
+    for kind, mine, n in ws.query("SELECT kind, COALESCE(person_id=?, 0), COUNT(*) FROM research_log "
+                                  "GROUP BY kind, COALESCE(person_id=?, 0)", (me, me)):
+        g = _group(kind, bool(mine))
         counts[g] = counts.get(g, 0) + n
     versions = _versions_present(ws, [r["version_id"] for r in rows if r["version_id"]])
-    nm, me = names(ws), _me()
+    nm = names(ws)
     return {"entries": [_view(r, nm, me, versions) for r in rows], "total": total, "groups": counts,
             "group_names": GROUP_NAMES}
 
@@ -242,7 +263,7 @@ def table(ws: Workspace) -> list[dict]:
     """Every entry, oldest first, as rows for a spreadsheet."""
     out = []
     for e in entries(ws, limit=None, oldest_first=True)["entries"]:  # every entry: 2,000 was all a download held
-        out.append({"When (UTC)": e["at"], "Who": e["who"], "What": GROUP_NAMES.get(e["group"], e["group"]),
+        out.append({"When (UTC)": e["at"], "Who": e["who"], "What": FILE_GROUP_NAMES.get(e["group"], e["group"]),
                     "Entry": e["text"], "About": e["title"] or "", "Why": e["why"] or "",
                     "Margin version": e.get("app_version") or ""})
     return out

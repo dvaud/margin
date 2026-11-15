@@ -213,9 +213,9 @@ def test_the_move_question(node):
 # ------------------------------------------------------------------ the files
 def test_the_reviews_changes_where_they_are_drawn():
     # (2) a folder problem that stops this copy is the first section; "Waiting for your word" comes before the folder
-    sections = TEAM[TEAM.index("export const TEAM_SECTIONS"):TEAM.index("];", TEAM.index("export const TEAM_SECTIONS"))]
-    assert sections.index('"setup"') < sections.index('"stop"') < sections.index('"state"')
-    assert 'addTeamSection(OWNER_SECTION, { before: "state" });' in TEAM and 'addTeamSection(REMOVED_SECTION, { before: "shared" });' in TEAM
+    sections = TEAM[TEAM.index("export const TEAM_ACTIVITY_SECTIONS"):TEAM.index("];", TEAM.index("export const TEAM_ACTIVITY_SECTIONS"))]
+    assert sections.index('"stop"') < sections.index('"first-invite"') < sections.index('"state"')
+    assert 'addTeamSection(OWNER_SECTION, { before: "first-invite" });' in TEAM and 'addTeamSection(REMOVED_SECTION, { before: "shared" });' in TEAM
     assert 'const STOPS = new Set(["other_computer", "unreachable"]);' in TEAM and "Use both computers…" in TEAM
     # (3) a clash card: both buttons small and standard, neither main; Accept still asks first (the same accept())
     card = _fn(LIB, "export function proposalCard(")

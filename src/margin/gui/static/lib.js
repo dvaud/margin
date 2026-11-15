@@ -550,10 +550,18 @@ export function showError(e, extra = {}) {
 // ---------------------------------------------------------------------------------------------
 // `lock` (0.14.3): { on: true } while a request of the dialog runs: Escape, a click outside, the X and Cancel then do
 // nothing, so the dialog cannot be closed on work that goes on without it (its report would never be seen)
-export function dialog({ title, body, actions, danger, onOpen, wide, lock }) {
+export function dialog({ title, body, actions, danger, onOpen, wide, lock, onDismiss }) {
   return new Promise((resolve) => {
     const dlg = h("dialog", { class: "dialog" + (wide ? " dialog-wide" : ""), "aria-labelledby": "dlg-title" });
     const close = (value) => { if (lock && lock.on) return; dlg.close(); dlg.remove(); resolve(value); };
+    // onDismiss(): asked before the dialog goes without an answer (Escape, the x, a click beside it); false keeps it
+    // open (a set-up half done, with something pasted: a slip of the hand does not lose the place)
+    let asking = false;
+    const dismiss = async () => {
+      if (asking || (lock && lock.on)) return;
+      if (onDismiss) { asking = true; let go; try { go = await onDismiss(); } finally { asking = false; } if (go === false) return; }
+      close(null);
+    };
     const btns = (actions || [{ text: "Close", value: null }]).map((a) =>
       button({
         kind: a.primary ? (danger ? "confirm" : "main") : "quiet",
@@ -566,12 +574,12 @@ export function dialog({ title, body, actions, danger, onOpen, wide, lock }) {
       }, a.text));
     append(dlg, [
       h("div", { class: "dialog-head" }, h("h2", { id: "dlg-title" }, title),
-        iconButton({ icon: "x", label: "Close", onClick: () => close(null) })),
+        iconButton({ icon: "x", label: "Close", onClick: dismiss })),
       h("div", { class: "dialog-body" }, body),
       h("div", { class: "dialog-actions" }, btns),
     ]);
-    dlg.addEventListener("cancel", (e) => { e.preventDefault(); close(null); });
-    dlg.addEventListener("click", (e) => { if (e.target === dlg) close(null); });
+    dlg.addEventListener("cancel", (e) => { e.preventDefault(); dismiss(); });
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) dismiss(); });
     document.getElementById("dialogs").appendChild(dlg);
     dlg.showModal();
     if (onOpen) onOpen(dlg);
@@ -1170,10 +1178,12 @@ export function searchField(opts = {}) {
 // summary holds those children and takes its look from where it is placed (the project switch, docs/DESIGN.md 5.1).
 // listClass: the list's own class for placement. Escape and a click outside close it.
 export function menu(opts = {}) {
-  const [o, attrs] = split(opts, ["items", "text", "label", "title", "trigger", "listClass"]);
+  const [o, attrs] = split(opts, ["items", "text", "label", "title", "trigger", "listClass", "iconOnly"]);
   const list = h("div", { class: o.listClass ? `${UI.menu} ${o.listClass}` : UI.menu, role: "menu" });
+  // iconOnly: the more icon alone (a small icon button named and tipped "More"), where every row of a list has a menu
   const trigger = o.trigger
     ? h("summary", { "aria-haspopup": "menu", "aria-label": o.label || null, title: o.title || null }, o.trigger)
+    : o.iconOnly ? h("summary", { class: UI.iconButtonSm, "aria-haspopup": "menu", "aria-label": o.label || "More", title: o.title || "More" }, icon("more-horizontal", { size: 16 }))
     : h("summary", { class: `${UI.button.quiet} ${UI.sm}`, "aria-haspopup": "menu", "aria-label": o.label || null, title: o.title || null },
       icon("more-horizontal", { size: 14 }), o.text || "More");
   const det = h("details", withClass("menu", attrs), trigger, list);
@@ -1396,6 +1406,56 @@ export function compare({ left, right, actions, label }) {
     h("div", { class: "compare-sides" }, side(left), side(right)), actions ? h("div", { class: "compare-actions btn-row" }, actions) : null);
 }
 
+// Guided steps: a task done in a fixed order, one step at a time (setting up a storage space; docs/DESIGN.md 4.28). A numbered
+// rail down the left: the step in hand is open, the ones done show a tick and their title, the ones to come their
+// title in muted words, so the whole way is in view from the start.
+// steps: [{ title, body, next }]: title says what to do, body how (its lines and fields), next the words of the small
+// button that goes on to the following step ("I have an account"; "Next step" when none is given). The last step has
+// no such button: what ends the task is the dialog's or card's own main button. From the second step on, a quiet Back.
+// next: false, back: false: a step without that button (the step the main button ends; a step shown once it is done).
+// label: the list's name for a screen reader. current: the step open at first. onStep(i): after every move.
+// .go(i) opens a step from code, .at() says which is open, .count how many there are. Fields of a closed step stay in
+// the page (hidden), so a form reads them all at the end.
+export function guidedSteps(opts = {}) {
+  const [o, attrs] = split(opts, ["label", "steps", "current", "onStep"]);
+  const list = (o.steps || []).filter(Boolean);
+  const last = list.length - 1;
+  let at = Math.min(Math.max(0, o.current || 0), Math.max(0, last));
+  const parts = list.map((s, i) => {
+    const mark = h("span", { class: "guided-step-mark", "aria-hidden": "true" });
+    const said = h("span", { class: "visually-hidden" });
+    const title = h("h3", { class: "guided-step-title", tabindex: "-1" }, said, s.title);
+    const onward = i < last && s.next !== false, back = i > 0 && s.back !== false;
+    const move = onward || back ? h("div", { class: "btn-row guided-step-move" },
+      onward ? button({ sm: true, class: "guided-step-next", onClick: () => go(i + 1, true) }, s.next || "Next step") : null,
+      back ? button({ kind: "quiet", sm: true, class: "guided-step-back", onClick: () => go(i - 1, true) }, "Back") : null) : null;
+    const body = h("div", { class: "guided-step-body" }, s.body, move);
+    return { li: h("li", { class: "guided-step" }, mark, h("div", { class: "guided-step-main" }, title, body)), mark, said, title, body };
+  });
+  const el = h("ol", withClass("guided-steps", { "aria-label": o.label || "Steps", ...attrs }), parts.map((x) => x.li));
+  const paint = () => parts.forEach((x, i) => {
+    const state = i < at ? "done" : i === at ? "current" : "todo";
+    x.li.dataset.state = state;
+    if (i === at) x.li.setAttribute("aria-current", "step"); else x.li.removeAttribute("aria-current");
+    replace(x.mark, state === "done" ? icon("check", { size: 14 }) : String(i + 1));
+    x.said.textContent = `Step ${i + 1} of ${parts.length}${state === "done" ? ", done" : ""}: `;
+    x.body.hidden = i !== at;
+  });
+  // byUser: the focus goes to the step opened (its first field, or its title), so the keyboard is where the eyes are
+  function go(i, byUser = false) {
+    if (!parts.length) return;
+    at = Math.min(Math.max(0, i), last);
+    paint();
+    if (o.onStep) o.onStep(at);
+    if (byUser) (parts[at].body.querySelector("input:not([type=hidden]), textarea, select") || parts[at].title).focus();
+  }
+  paint();
+  el.go = (i) => go(i, false);
+  el.at = () => at;
+  el.count = parts.length;
+  return el;
+}
+
 // A work state: work under way, waiting, not running, done or did not work, in words and an icon (never a pill).
 // state: "running" | "waiting" (queued: starts when … has finished) | "stopped" (not running) | "done" (synced, finished)
 // | "failed" | "attention" (needs you: a folder not reachable, a newer Margin needed) | "paused" (you paused it: grey)
@@ -1407,10 +1467,10 @@ export function workState(state, words, time) {
     h("span", {}, words), time !== undefined && time !== null ? h("span", { class: "work-state-time" }, fmt.secs(time)) : null);
 }
 
-// The drawer: your own working space beside any page (the research log; in 0.18 also working together). One panel on
-// the right, opened by one button in the same place on every page (drawerButton()). Its head shows the title, or, when
-// it holds two or more tabs, the tabs (tabs: [{ key, label, icon }], current, onTab(key): the head's view tabs); then at
-// most one control (a choice) and the close button. `sections` are its body's parts, top to bottom, each drawn by its
+// The drawer: your own working space beside any page (the research log). One panel on the right, opened by one button
+// in the same place on every page (drawerButton()). Its head shows an icon and the title, or, when it holds two or more
+// tabs, the tabs (tabs: [{ key, label, icon }], current, onTab(key): the head's view tabs; nothing uses them now); then
+// at most one control (a choice) and the close button. `sections` are its body's parts, top to bottom, each drawn by its
 // content's own components (a write box, a list); the last may grow and scroll. `foot`: one link to the whole view.
 // A new tab is a new entry in `tabs` whose onTab draws its own sections (setSections()); a new section is one more
 // element in `sections`. Opening and closing: body[data-drawer="open"], set by setDrawerOpen().
@@ -1434,21 +1494,23 @@ export function drawerButton({ id, controls, label, icon: ic, onClick, title }) 
   return h("button", { class: `${UI.button.standard} ${UI.sm} btn-opens drawer-btn`, id, type: "button", "aria-expanded": "false",
     "aria-controls": controls, title: title || null, onClick }, icon(ic, { size: 15 }), h("span", { class: "drawer-btn-text" }, label));
 }
-// The team line: the project switch's second row in a project that has a team. A button of the "opens beside" kind:
-// it opens the drawer at its Team tab and is soft teal while that tab shows. Its end says the team's state in fixed
-// words. set({ kind, words, count }): kind "ok" | "running" | "attention"; count: what is new, in words ("3 new").
-export function teamLine({ id, controls, onClick }) {
-  const name = h("span", { class: "team-line-name" }, "Team");
-  const state = h("span", { class: "team-line-state" });
-  const el = h("button", { class: "btn-opens team-line", id, type: "button", "aria-expanded": "false", "aria-controls": controls, onClick });
+// The Team entry: the sidebar's entry of the Team place (#/team), the one entry that carries a state. A link like any
+// entry (current: soft teal, set by the router's aria-current); in a project with a team its end says the team's
+// state in fixed words. set({ kind, words, count }): kind "ok" | "running" | "attention" (amber, the triangle in place
+// of the users icon); count: what is new, in words ("3 new"). set() with nothing: no team, no state.
+export function teamEntry({ id } = {}) {
+  const ic = h("span", { class: "nav-icon" });
+  const name = h("span", {}, "Team");
+  const state = h("span", { class: "team-entry-state" });
+  const el = h("a", { href: "#/team", "data-route": "team", id: id || null, class: "team-entry" }, ic, name, state);
   el.set = ({ kind = "ok", words = "", count = null } = {}) => {
-    el.setAttribute("data-kind", kind);
-    replace(el, icon(kind === "attention" ? "alert-triangle" : "users", { size: 15 }), name, state);
-    replace(state, kind === "running" ? h("span", { class: "running-dot", "aria-hidden": "true" }) : null,
+    const said = count || words;
+    el.setAttribute("data-kind", said ? kind : "none");
+    replace(ic, icon(said && kind === "attention" ? "alert-triangle" : "users", { size: 18 }));
+    replace(state, said && kind === "running" ? h("span", { class: "running-dot", "aria-hidden": "true" }) : null,
       count ? tag({ kind: "count", class: "tab-count" }, count) : words);
-    const said = `Team${count || words ? `: ${count || words}` : ""}. Opens the Team tab beside the page`;
-    el.setAttribute("title", said);
-    el.setAttribute("aria-label", said);
+    el.setAttribute("aria-label", said ? `Team, ${said}` : "Team");
+    el.setAttribute("title", said ? `Team: ${said}. The people you work with, what came in and what you shared` : "Team: work on this project with colleagues");
   };
   el.set();
   return el;

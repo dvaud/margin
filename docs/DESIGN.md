@@ -57,6 +57,7 @@ looks like this. **A piece that cannot be named from this table is a misfit.**
 | A judgement that does not count | Its pill with no fill and a dashed edge (the one dashed edge on a pill) | [Judgement badge](#49-judgement-badges) |
 | Who did it | The person icon and *You* or initials, in a tag | [Person mark](#410-tags-and-counts) |
 | Two versions of one thing | Two grey boxes side by side, *Keep mine* / *Keep theirs* under them | [Comparison](#427-comparisons) |
+| A task done in a fixed order, and where I am in it | Numbered circles on a rail: the step in hand teal and open, the ones done ticked, the ones to come muted | [Guided steps](#428-guided-steps) |
 | This needs me | Amber with the warning triangle | [Attention tag](#410-tags-and-counts), [notice](#412-notices), [status area](#52-the-status-area-and-the-last-row) |
 | Something went wrong | Red with the alert circle | [Error notice](#412-notices), [toast](#415-toasts) |
 | Something to know before going on | A grey box with an icon | [Notice](#412-notices) |
@@ -66,8 +67,8 @@ looks like this. **A piece that cannot be named from this table is a misfit.**
 | More actions for this one thing | *More* and a list in a floating box | [Menu](#417-menus) |
 | More about this | A small (?) | [Help mark](#418-help-notes-and-defined-terms) |
 | This word has a definition | A dotted underline | [Defined term](#418-help-notes-and-defined-terms) |
-| My own working space beside the page | A panel on the right, opened by one button in the same spot on every page | [Drawer](#419-the-drawer) |
-| My team on this project, and its state | A row under the project's name: *Team* and a few words (*synced 15:44*, *3 new*) | [Team line](#51-the-sidebar) |
+| My own working space beside the page | The research log in a panel on the right, opened by one button in the same spot on every page (not on the Research log page) | [Drawer](#419-the-drawer) |
+| My team on this project, and its state | The sidebar's *Team* entry, with a few words at its end (*synced 15:44*, *3 new*) | [Team entry](#51-the-sidebar) |
 | Work under way, waiting, not running | A pulsing teal dot and a time; a clock; a pause mark in amber, always with words | [Work state](#421-progress-and-work-states) |
 | More here, folded away | A grey line with a chevron before it | [Fold](#422-folds) |
 | The research's own words (documents, hypotheses, concepts, themes) | The serif face | [Type](#32-type) |
@@ -334,15 +335,16 @@ in Settings (*Claude, on your plan, reads the excerpts again.*), `aiWhere(senten
 
 ### 4.5 View tabs
 
-**Means:** other views of this place; each has its address. **Use:** a place's views (*Overview* | *Research log*,
-*Documents* | *Notes* | *Bibliography*, *By document* | *Codebooks*, *Glossary* | *Map*, *Answers* | *Evidence map*), Settings' tabs, the
-drawer's tabs. A place's views are reached through these tabs only, never through entries under a sidebar entry.
+**Means:** other views of this place; each has its address. **Use:** a place's views (*Documents* | *Notes* |
+*Bibliography*, *By document* | *Codebooks*, *Glossary* | *Map*, *Answers* | *Evidence map*, and in a project with a team
+*Activity* | *People and settings*), Settings' tabs, a drawer's tabs (the component has them; the app's drawer holds one
+view and has none). A place's views are reached through these tabs only, never through entries under a sidebar entry.
 **Not for:** switching how the same content is shown (a [choice](#46-choices)).
 
 **Looks:** words with a 14 px icon, secondary text, on a 1 px line; the current tab teal in 600 with a 2 px teal line on
 the rule (`aria-current="page"`); hover a grey ground. **Counts:** a page's view tabs and Settings' tabs carry none (the
 page says its counts); a drawer tab may carry one [count tag](#410-tags-and-counts) after its label that says in words
-what is new behind it (*Team* · *3 new*, [5.5](#55-the-pieces-of-working-together)), never a bare number. A tab is a link; a drawer's tabs, which have
+what is new behind it (*3 new*), never a bare number. A tab is a link; a drawer's tabs, which have
 no address, are buttons with the same look, and the one pressed shows itself current. **Keys:** tabs without an
 address are the whole tab pattern, made by `tabs()` so a page never adds it: only the chosen tab is in the Tab order;
 Left and Right move to the previous and next tab and choose it, Home and End the first and last; the chosen tab is
@@ -584,12 +586,14 @@ choice). **Looks:** a floating box under its button
 (the card's white, an edge, 8 px corners, the large shadow); rows of a 14 px icon and a verb; the current row soft teal;
 a dangerous row in red, last, after a line; a row may say a quiet fact after its words (the project's *6 documents · 3
 answers*) or go somewhere (*Manage projects*). Its button is a small quiet button: *More* with the more icon, or the
-current value and a chevron (the project switch, whose look is [5.1](#51-the-sidebar)'s). Escape, a choice or a click
+current value and a chevron (the project switch, whose look is [5.1](#51-the-sidebar)'s). In a list where every row
+has one (the research log's entries), it is the more icon alone, a small [icon button](#42-icon-buttons) whose name and
+tooltip say *More*, so the list is not a column of buttons (`iconOnly: true`). Escape, a choice or a click
 outside closes it. Where a frame would cut the open box (a table that scrolls, its last row), the box floats over the
 page instead: its end under the button's end, or its start under the button's start when that keeps it over the frame;
 a scroll of the page or a resize closes it, a scroll of its own list does not. Where the box fits inside every frame
 around it (the project switch, a menu in the drawer), it hangs from its button. **Make it:** `menu({ items: [{ text, icon, onClick, href, meta, danger, current }, "sep"], text,
-trigger, listClass })`; `trigger` gives the summary's own content. **Lives in:** `components.css` § 4.17.
+trigger, iconOnly, listClass })`; `trigger` gives the summary's own content. **Lives in:** `components.css` § 4.17.
 
 **No popover panels for running work.** Work shows in the fixed [status area](#52-the-status-area-and-the-last-row);
 the queue's controls live in Settings (*Work waiting for Claude Code*). Popovers hold explanations and short menus only.
@@ -606,32 +610,35 @@ cursor. Both open the same note on hover, focus or click: a small card under the
 
 ### 4.19 The drawer
 
-**Means:** your own working space beside any page: the research log and working together. **Use:** what
-you keep beside every page, one tab or section per kind. **Not for:** a page's own content or settings (a page), running
-work (the status area), a message (a notice). **Looks:** a
+**Means:** your own working space beside any page: the research log. **Use:** what you keep beside every page, one
+section per part. **Not for:** a page's own content or settings (a page), a place of its own (the team is the sidebar's
+[Team](#51-the-sidebar) place), running work (the status area), a message (a notice). **Looks:** a
 panel on the right, `--drawer-w` wide, the card's white, an edge on its left. From 1,000 px wide (at any zoom) it is a
 column of its own, flush right, and the page keeps its margin beside it; from 861 to 999 px it lies over the page's
 right side with the large shadow; under 861 px it rises from the bottom as a sheet, 72 % of the window high. Head: an
-icon and the title (or the tabs, when there are two or more), at most one control (a [choice](#46-choices)), the close
-icon button. With tabs, a control that serves one tab only is that tab's own and sits in its panel (the log's *This
-page* | *All*, above its entries), so the head holds the tabs on one line. Body: sections divided by a line, each drawn by its content's own components; the last one scrolls. Foot:
-one link to the whole view. **Its button** is a small standard button with the *opens* state, always at the top right of
+icon and the title (or the tabs, when there are two or more), at most one control (a [choice](#46-choices): the log's
+*This page* | *All*), the close icon button. With tabs, a control that serves one tab only is that tab's own and sits in
+its panel, so the head holds the tabs on one line. Body: sections divided by a line, each drawn by its content's own
+components (the write box, the note line, the entries); the last one scrolls. Foot: one link to the whole view (*The
+whole research log*). **Its button** is a small standard button with the *opens* state, *Write in the log* (what it
+is for: the sidebar's *Research log* is the one thing of that name), always at the top right of
 every page (in the top bar under 861 px, its words then its name only), on a band of the page's own ground across the
 top of the page column, so what scrolls goes under the band, never under the button alone; open, the body carries
-`data-drawer="open"`. A project with a team has a second door to the same drawer, the [team line](#51-the-sidebar) under the project's name: it opens the Team tab, the button opens the Research log tab, and each is soft teal while its own tab shows. Under 861 px the button carries the Team tab's count in words (*3 new*) while news waits, and then opens that tab.
+`data-drawer="open"`. **On the Research log page** (`#/log`), which has the write box and every entry, the drawer and its
+button hide; the remembered open state comes back on the next page.
 
 **The research log in it is the Research log page's own write box and entries** (`.log-new`, `.log-entries`): one
 entry looks the same on the page and in the drawer.
 
-**Adding a tab or a section.** A section is one more element in `sections` (or in the drawer's own
-`.setSections([…])` when it redraws). A second tab (0.17.0's *Team*) is a `tabs` list: `drawer({ tabs: [{ key: "log", label: "Research log", icon:
-"notebook" }, { key: "team", label: "Team", icon: "users" }], current, onTab })`; the head then shows the tabs in the
-view tabs' look, and `onTab(key)` draws that tab's sections with `.setSections([…])`. Nothing else changes: the button,
-the widths and the open state are the drawer's.
+**Adding a section or a tab.** A section is one more element in `sections` (or in the drawer's own
+`.setSections([…])` when it redraws). A second view would be a `tabs` list: `drawer({ tabs: [{ key, label, icon }, …],
+current, onTab })`; the head then shows the tabs in the view tabs' look, and `onTab(key)` draws that tab's sections with
+`.setSections([…])`. Nothing else changes: the button, the widths and the open state are the drawer's. (0.18's *Team*
+tab was one; it became the sidebar's Team place, because nobody found it behind the Research log button.)
 
 **Make it:** `drawer({ id, title, icon, tabs, current, onTab, control, sections, foot, onClose })`,
-`drawerButton({ id, controls, label, icon, onClick })`, `teamLine({ id, controls, onClick })`, `setDrawerOpen(open, button)`; `views/logdrawer.js` is its
-first content. **Lives in:** `components.css` § 4.19.
+`drawerButton({ id, controls, label, icon, onClick })`, `setDrawerOpen(open, button)`; `views/logdrawer.js` is its
+content. **Lives in:** `components.css` § 4.19.
 
 ### 4.20 Tables, lists and dense places
 
@@ -699,7 +706,14 @@ about what happened (*Anna judged 3 excerpts…*) stay sans. A list of proposed 
 (`proposalCard()`, [5.5](#55-the-pieces-of-working-together)). The research log's entries
 are such rows: in an entry Margin wrote, the item's quoted name is its title link (*Checked the hypothesis “Working from
 home…”*), not the whole sentence; where the words do not quote it, and under your own entry (your words, in serif), the
-item is named after *About:*.
+item is named after *About:*. On the Research log page one entry is one row, in a readable column (at most 52em): the
+time in a narrow column of its own, the group's icon, the words, a reason as the indented *Why:* line under them, a
+quiet line of facts (a colleague's person mark, the sharing state of an entry you wrote as its tag, *edited …*), and at
+the row's end one *More* menu, the more icon alone, with what can be done to it (*Say why* or *Change why*, *Edit*,
+*Share* or *Unshare*, *Compare with before*, and last, after a line, *Remove…*); no button stands under an entry
+(`.log-by-time`). In the drawer's narrow column the time
+joins the quiet line, and the actions stay on the page. Entries you wrote and entries a colleague wrote are two groups
+of the log's *Show* list (*Your own entries*, *Your colleagues' entries*), never one.
 
 **Make it:** `h("div", { class: "table-wrap" }, h("table", { class: "table table-responsive" }, …))`;
 `listGroup(heading | { text, action }, …listRow({ person, title, href, time, sub, warn, serif, actions }))`; `drawInSteps()` for a long list.
@@ -822,11 +836,33 @@ content in its own face; the actions under both: *Keep mine*, *Keep theirs* (sma
 *Earlier versions*). **Make it:** `compare({ left: { title, meta, body }, right: { … }, actions })`. **Lives in:**
 `components.css` § 4.27.
 
+### 4.28 Guided steps
+
+**Means:** a task done in a fixed order, one step at a time, and where you are in it. **Use:** a set-up a person does
+once, partly outside the app, and must not lose their place in: a storage space for the team (an account at the
+service, a key made there, the key pasted here). **Not for:** a form whose fields can be filled in any order (fields
+under one another), a list of facts or of ways to choose from (a list, [option cards](#47-option-cards)), work the app
+does by itself (a [work state](#421-progress-and-work-states) and its list of steps under way), the first-run pages' three stages, which are pages of
+their own. **Looks:** a numbered circle per step on a thin rail down the left. The step in hand has the teal circle
+and a title in 600, and is open: what to do, in one or two short sentences, with its fields; what cannot be undone
+later is an attention [notice](#412-notices), not a sentence among the others. A step done has a tick in a grey
+circle and its title in secondary text; a step to come its number and its title, muted: the whole way is in view from
+the start. Under an open step, one small button goes on, in the words of what the person has just done (*I have an
+account*, *I see the key*; *Next step* when there is nothing better), and from the second step a small quiet *Back*.
+The last step that asks for something has no button of its own: the dialog's or card's main button ends the task and
+waits until that step is open. While it waits its tooltip says so. In a dialog, Escape or a click beside it asks first once the task is begun
+(`dialog({ onDismiss })`), and the step in hand may be remembered for the window, never what was typed. A step may follow it for what is left to do afterwards, shown once the task is done,
+with no buttons. **Keys and words:** moving on puts the focus in the opened step's first field (or on its title); each
+title says its place to a screen reader (*Step 2 of 3*, *done*), and the step in hand is `aria-current="step"`.
+**Make it:** `guidedSteps({ label, steps: [{ title, body, next, back }], current, onStep })` (`next: false`, `back: false`: a
+step without that button); `.go(i)` opens a step from code, `.at()` says which is open. **Lives in:**
+`components.css` § 4.28.
+
 ---
 
 ## 5 The navigation's pieces
 
-The map of places (seven, and what each holds) is the navigation's own decision; these are the pieces it is built from.
+The map of places (nine: the Overview, then Project, Explore and Check, and what each holds) is the navigation's own decision; these are the pieces it is built from.
 Each is one of a kind, so its use is its place: an entry here says what it **Means**, how it **Looks** (a table may
 stand for both), where it **Lives in**, and **Make it** where it has a helper.
 
@@ -836,13 +872,17 @@ stand for both), where it **Lives in**, and **Make it** where it has a helper.
 | --- | --- | --- |
 | Brand | Home | The logo and *Margin* |
 | Project switch | Which project | A field-like box as wide as the sidebar (as Find is), with *Project* and its name (two lines at most, then "…") and a chevron; a [menu](#417-menus) of projects as wide as the box |
-| Team line | This project's team and its state; it opens the Team tab beside the page | The project switch's second row, only in a project with a team: the users icon, *Team*, and at its end the state in fixed words (*synced 15:44*, *syncing now…* with the running dot, *paused*, the count tag *3 new*); amber with the triangle when the team needs you (*offline*, *round did not work*); soft teal while the Team tab is open |
 | Find button | Find a page, view or setting | [5.3](#53-find) |
 | Entry | A place | An 18 px icon and the place's name, secondary text; hover a grey ground; **current**: soft teal ground, teal words in 600 |
-| Group label | A section of places, and its AI use | Small capitals (`--fs-label`) and the AI mark in the same size; not a link |
+| Team entry | The Team place (`#/team`), and this project's team and its state | An entry like the others, always there (a link to `#/team`; current on `#/team…`); in a project with a team its end says the state in fixed words, small and muted: *synced 15:44*, *syncing now…* with the running dot, *paused*, the count tag *3 new* (what came in and what waits for your word); amber with the triangle in place of the users icon when the team needs you (*offline*, *round did not work*). In a project without a team it carries no state. `teamEntry({ id })`, `.set({ kind, words, count })`; `views/team-entry.js` follows the poller's window events |
+| Group label | A section of places, and its AI use | Small capitals (`--fs-label`), the same word as the page eyebrows (*Project*, *Explore*, *Check*), and the AI mark in the same size where its places use the AI (*Project* has none); not a link |
 
-**No counts beside entries, no AI marks on entries, no entries under an entry.** The team line is not an entry: it is the project's, and its count is the Team tab's, in words. When the window is short only the list
-of places scrolls; the brand, the project, Find and the foot stay. **Lives in:** `components.css` § 5.1.
+**The places.** *Overview*, then **Project**: *Documents*, *Research log*, *Team*; **Explore**: *Search*, *Codes*,
+*Concepts*, *Themes*; **Check**: *Hypotheses*. Every place but the Overview is in a group.
+
+**No counts beside entries, no AI marks on entries, no entries under an entry.** The Team entry is the one exception:
+its end says the team's state, and its count is what is new on the Team page, in words. When the window is short only
+the list of places scrolls; the brand, the project, Find and the foot stay. **Lives in:** `components.css` § 5.1.
 
 ### 5.2 The status area and the last row
 
@@ -887,27 +927,27 @@ none needs a look of its own. **Looks**, **Make it** and **Lives in:** each piec
 | Piece | Is | Make it |
 | --- | --- | --- |
 | Who did it, a role | a [person mark](#410-tags-and-counts): initials in a row that names the person, the name where it stands alone (*By Anna* on a shared item, *Changed by Ben*, a proposal's proposer) | `personMark(people, { role })`; alone: `personMark(people, { name: "short", prefix })` |
-| An item's sharing, on its own page | for its maker a [choice](#46-choices) of two values with the states' icons, *Private* and *Shared with your team* (*Shared* without a team), then a help mark; while it is shared, one quiet line under it says where it goes and links to the Team tab (*Goes to Ben and Chloé at the next round, in about 2 min.* · *See what you shared*); for anyone else the [tag](#410-tags-and-counts) and the maker's person mark | `shareBar(kind, key)`, `shareChoice(item, onChanged)`, `shareState(state)` |
+| An item's sharing, on its own page | for its maker a [choice](#46-choices) of two values with the states' icons, *Private* and *Shared with your team* (*Shared* without a team), then a help mark; while it is shared, one quiet line under it says where it goes and links to What you shared on the Team page (*Goes to Ben and Chloé at the next round, in about 2 min.* · *See what you shared*, `#/team?at=shared`); for anyone else the [tag](#410-tags-and-counts) and the maker's person mark | `shareBar(kind, key)`, `shareChoice(item, onChanged)`, `shareState(state)` |
 | A document this copy does not hold | its title in plain serif, the tag *not on this computer*, the small quiet button *Add its file*, wherever a document title shows | `absentDocument(title, { onAdd })` |
-| *Share*, *Unshare* in a list (a card of notes, a row of the Team tab) | small buttons (*Unshare* quiet); for many rows, check boxes and a row of small buttons above the list | `button()` |
-| The sync state: synced, syncing, offline, the folder not reachable, a copy that needs a newer Margin | a [work state](#421-progress-and-work-states) (done, running, not running, needs you), in the drawer's head, small in the status area and, in a few words, on the team line | `workState()` |
-| Setting up the shared folder | a [card](#411-cards) on the Team page: a field with a mono path and *Choose folder…* (a small button), the cloud folders as list rows, how to bring a colleague's folder here in a small [fold](#422-folds), a switch with its explanation behind a [help mark](#418-help-notes-and-defined-terms), the main action, and one line of where text goes with the folder icon | `card()`, `field()`, `fold({ sm: true })`, `switchControl()`, `helpMark()`, `aiWhere(sentence, "folder")` |
-| The Team tab and the Team page | the tab holds the day-to-day (what waits for your word, the sync state, problems, what came in, what you shared) in labels, counts, states and buttons, with one quiet line naming the team and linking *Manage the team*; the Team page (`#/team`, from the project menu's *Manage the team*) holds the team itself, one [card](#411-cards) per section: where it is, the people, the owner, the switches, how often, the downloads, leaving. A sentence that explains goes behind a help mark or into a fold, never as prose in the tab | `teamPanel({ sections, page })`, `card()`, `helpMark()`, `fold()` |
+| *Share*, *Unshare* in a list (a card of notes, a row of Team › Activity) | small buttons (*Unshare* quiet); for many rows, check boxes and a row of small buttons above the list | `button()` |
+| The sync state: synced, syncing, offline, the folder not reachable, a copy that needs a newer Margin | a [work state](#421-progress-and-work-states) (done, running, not running, needs you), in the Sync card of Team › Activity, small in the status area and, in a few words, at the end of the sidebar's Team entry | `workState()` |
+| Setting up a team (the Team page of a project without one) | one [card](#411-cards) per thing a person came to do, its title a verb phrase: *Start a team for this project* (where the team's shared work is kept as [option cards](#47-option-cards), each named by what it is and who it suits, one of them *Recommended*; one main button whose words follow the chosen card, *Set up at Backblaze…*; one line of what will be kept there, with the folder icon), *Join a colleague's team* (*Join with an invite link…*, main, and a small button for the folder a colleague shares) and *Send it once, as a file* (two downloads). A colleague's shared folder already on this computer is offered first, in an info [notice](#412-notices) with *Use this folder…*. A storage space is then set up in a dialog of [guided steps](#428-guided-steps); a shared folder is chosen in a dialog (*Start with a folder you share*; for a colleague who joins, *Join through a folder your colleague shared*, which also offers their folder when it is found and how to bring it to this computer): the cloud folders as list rows, *Choose folder…* (a small button), how to bring a colleague's folder here in a small [fold](#422-folds), a field with a mono path, a switch with its explanation behind a [help mark](#418-help-notes-and-defined-terms), the main action, and one line of where text goes with the folder icon. Joining asks where the team's project goes with two option cards (*A new project*, *This project*) | `card()`, `optionCards()`, `guidedSteps()`, `dialog()`, `field()`, `fold({ sm: true })`, `switchControl()`, `helpMark()`, `aiWhere(sentence, "folder")` |
+| The Team place | one place of the sidebar (`#/team`), one [card](#411-cards) per section. Without a team: the set-up, no tabs. With one: the view tabs *Activity* (`#/team`: what waits for your word, the first invite while you are the only one, the sync state, problems, what came in, what you shared; in labels, counts, states and buttons, with one quiet line naming the team and linking *People and settings*) and *People and settings* (`#/team/settings`: the people with the invites not used yet and *Invite a colleague…*, where it is, the owner, the switches, how often, the downloads, leaving). While you are the only one, Activity's first-invite card offers *Invite a colleague…* (main), or says which invites wait and offers *Invite another colleague…* (small). Each state has its own line under the title; when the project gains or loses its team the page draws itself again. `#/team?at=<section>` brings a section's heading into view. A sentence that explains goes behind a help mark or into a fold, never as prose on Activity | `teamPanel({ sections, page, onCount, onStatus })`, `viewTabs("team", key)`, `card()`, `helpMark()`, `fold()` |
 | A switch with a long explanation (*Keep documents marked Only a local AI or No AI out of the shared folder*) | a [switch](#48-form-fields) whose help line holds the two or three sentences of what it does and does not do; the same in the set-up card and in Settings | `switchControl(label, on, { help })` |
-| Rows in the drawer, a person row | [list rows](#420-tables-lists-and-dense-places): a person mark, the item as a title link, a time, one or two small quiet buttons; a quiet second line (a colleague's Margin version) that becomes an attention tag only when it matters; grouped by person or day | `listGroup()`, `listRow({ sub, warn })` |
-| Problems with the shared folder | [notices](#412-notices) one under the other, one per colleague or per kind, each in plain words: *The shared folder cannot be reached* (attention), *Still arriving: try again in a few minutes* (info), *The last round did not finish* (error, *Try again*), *Anna's copy needs a newer Margin* (attention). The single sync state stays a work state in the drawer's head | `noticeList()` |
-| News since last time | the drawer tab's label with a [count tag](#410-tags-and-counts) in words (*Team* · *3 new*) and the same count on the team line; a list group *What came in* with *Mark as seen* (a small quiet button) at its head's end; what was seen before folded under a small fold *Seen before: 12 changes* | `tabs({ items: [{ …, count: "3 new" }] })`, `listGroup({ text, action }, …rows)`, `fold({ sm: true })` |
+| Rows on the Team page, a person row | [list rows](#420-tables-lists-and-dense-places): a person mark, the item as a title link, a time, one or two small quiet buttons; a quiet second line (a colleague's Margin version) that becomes an attention tag only when it matters; grouped by person or day | `listGroup()`, `listRow({ sub, warn })` |
+| Problems with the shared folder | [notices](#412-notices) one under the other, one per colleague or per kind, each in plain words: *The shared folder cannot be reached* (attention), *Still arriving: try again in a few minutes* (info), *The last round did not finish* (error, *Try again*), *Anna's copy needs a newer Margin* (attention). The single sync state stays a work state in the Sync card | `noticeList()` |
+| News since last time | a [count tag](#410-tags-and-counts) in words at the end of the sidebar's Team entry (*3 new*); on Activity a list group *What came in* with *Mark as seen* (a small quiet button) at its head's end; what was seen before folded under a small fold *Seen before: 12 changes* | `teamEntry().set({ count: "3 new" })`, `listGroup({ text, action }, …rows)`, `fold({ sm: true })` |
 | Background work you steer | *Sync now*: a small button with the refresh icon; while other work runs, the work state *Queued: starts when … has finished* and a small quiet *Cancel* after it. *Pause this project* and *Pause all projects*: small quiet buttons with the pause icon, then the grey work state *Paused*. How often: a [select](#48-form-fields) in a field. A setting that is on because of a colleague: its switch is disabled and its help line starts with the colleague's person mark and says so (*On because of Ben: …*) | `button({ sm, icon })`, `workState()`, `field()`, `select()`, `switchControl(label, on, { disabled, help })` |
 | A proposed change, in full | a small [card](#411-cards) per proposal: in its head what is proposed and its severity tag (*Low*, *Medium*: neutral; *High*: attention; never a judgement colour); under it the proposer's person mark with the name (*Anna*, *You*) and the time, then their reason in quotation marks (a long one wraps under them; the severity stays in the head). The owner's side: *Accept* (main) and *Decline…* (quiet: a dialog asks for an optional reason). The proposer's side: the work state *Waiting for the owner* and *Take back* (quiet); once decided, *Accepted*, or *Declined:* and the reason. Cards are grouped under list heads: *Waiting*, *Decided*, *Taken back*. The owner's standing choice, *Accept documents collaborators add, at once*, is a switch with a help mark on the Team page's *Owner* card | `proposalCard({ what, person, time, severity, reason, detail, side, state, declined, onAccept, onDecline, onTakeBack })` in `listGroup()` (`detail`: what the change does, a notice of another proposal for the same item; *Take back* only with `onTakeBack`, so a colleague who neither decides nor proposed sees the wait only); `switchControl()` |
 | Owner actions on a person row | the person mark with the role (*Owner*, *Co-owner*; a Member has none); under the list's head one sentence for this person's own role. In the Owner's copy each other person's row has a *More* [menu](#417-menus): *Make a Co-owner…* (or *Make a Member again…*), *Same person as…*, and last, after a line, *Make owner…*; each opens a dialog that confirms. Rows of one person stand together, the second line says *Also Anna de Vries (laptop): the same person*. A Co-owner on an older Margin has the attention tag *needs a newer Margin to act as Co-owner*. *Become the owner* (a small button) where a project has no owner; *Take over…* (a small button) when the owner has gone, the reason in the row's second line as an attention tag, and a dialog that confirms | `listRow({ person: personMark(people, { role }), sub, warn, actions: [menu(…)] })`, `menu()`, `confirmDialog()` |
-| *Waiting for your word* | the first list group of the Team tab, with a count, after a folder problem that stops this copy: one [card](#411-cards) per question, the most serious first (a proposal answered both ways, a take-over, another first owner, a change in your name that was refused, the AI offers, then the ordinary proposals); not drawn when nothing waits. A proposal answered both ways is a red error notice inside the proposal's own card with *Accept* and *Decline…* both small, neither main; a question that is not a proposal has the proposal card's shape (the question as its words, its answers as small buttons, the answer that acts first, a quiet one that leaves it or puts it off) | `listGroup()`, `proposalCard()` for a proposal, `decisionCard()` for any other question, `notice({ kind: "error" })` inside the card |
+| *Waiting for your word* | the first list group of Team › Activity, with a count, after a folder problem that stops this copy: one [card](#411-cards) per question, the most serious first (a proposal answered both ways, a take-over, another first owner, a change in your name that was refused, the AI offers, then the ordinary proposals); not drawn when nothing waits. A proposal answered both ways is a red error notice inside the proposal's own card with *Accept* and *Decline…* both small, neither main; a question that is not a proposal has the proposal card's shape (the question as its words, its answers as small buttons, the answer that acts first, a quiet one that leaves it or puts it off) | `listGroup()`, `proposalCard()` for a proposal, `decisionCard()` for any other question, `notice({ kind: "error" })` inside the card |
 | The AI offers | one card per person who loosened (*Ben lets more AI read 2 documents*): a tick box per document, unticked at first, labelled by the document's title, each with both settings in the document's own AI tags (*Here:* … · *Ben's:* …); the buttons wait until a box is ticked and count them (*Allow here for 2 documents* / *Keep 2 stricter here*); with one document no box, and *Allow here* / *Keep it stricter here*; an AI line at the foot says who will read. Nothing loosens in a batch that was not ticked | `decisionCard({ …, ai })`, the system's check boxes, `button()`, `aiWhere()` |
 | *Settled at the same time* | quiet [list rows](#420-tables-lists-and-dense-places), one per part two people changed without each other's version: the document's title as a link that opens it, one line of what holds, and a small quiet *Leave it so* | `listGroup()`, `listRow({ title: link(), sub, actions })` |
 | *Removed in the last 30 days* | list rows: the title, one line (*By Anna (owner) on 12 November: “reason” Can be restored until 12 December.*), a small *Restore*; a [toast](#415-toasts) says what it did | `listGroup()`, `listRow()`, `toast()` |
 | The move question (the import of a move zip) | a [dialog](#416-dialogs) with two [option cards](#47-option-cards) (*I am moving to this computer.*, *I will use both computers.* with a field for the name); when the first is not offered, the reason is a line under the cards at full contrast, not inside the dimmed card; a switch *Take the settings too* with a [fold](#422-folds) that lists them, and a check box, off, for each server address that is not on this computer; the main button waits for a card | `dialog()`, `optionCards()`, `switchControl()`, `fold()`, `field()` |
 | A colleague's rename or merge of a codebook (the codebook page) | a card with two answers: the sentence (*Ben renamed A to Water use and merged C into B. Follow for your 40 labels?*), *Follow* main and *Keep mine* quiet | `decisionCard()` |
-| An item's proposal state in a list | the row's second line: the work state *Proposed: waiting for the owner* (clock) or *Declined by the owner* (grey dash), then " · " and a jump link to its card in the drawer (*See the proposal*, *See why*) | `listRow({ serif: true, sub: [workState(), " · ", link({ kind: "jump" })] })` |
-| A move that waits for its person | on the row, the attention tag *2 results would not find their place* and *Move it anyway…* (a small button: a dialog confirms); in the drawer, the same as an attention notice naming the person, with the same button | `listRow({ sub, warn: true, actions })`, `noticeList()` |
+| An item's proposal state in a list | the row's second line: the work state *Proposed: waiting for the owner* (clock) or *Declined by the owner* (grey dash), then " · " and a link to its card on Team › Activity (*See the proposal*, *See why*; `#/team?at=owner`) | `listRow({ serif: true, sub: [workState(), " · ", link({ href })] })` |
+| A move that waits for its person | on the row, the attention tag *2 results would not find their place* and *Move it anyway…* (a small button: a dialog confirms); on Team › Activity, the same as an attention notice naming the person, with the same button | `listRow({ sub, warn: true, actions })`, `noticeList()` |
 | Two versions of one item | a [comparison](#427-comparisons) | `compare()` |
 | Queued work | a work state, *Queued: starts when … has finished*, with a small quiet *Cancel*; in a toast, the same words and the button | `workState("waiting", …)`, `toast(…, { button })` |
 | A report, a warning before an action, a refusal | [notices](#412-notices): done with a small fold of details; attention; error | `notice()`, `fold({ sm: true })` |
@@ -918,7 +958,9 @@ answers is a card, as in *Waiting for your word* and on the codebook page: the a
 main, never a notice with two buttons, and never a button beside a link. An answer that acts (*Keep mine*) is never
 a link.
 
-A second tab in the drawer (*Team*) is added as [4.19](#419-the-drawer) says.
+*The first invite.* While you are the only one in a team, Activity's first card says so in one sentence and holds the
+way on: with a storage space whose keys you keep and no invite waiting, the main button *Invite a colleague…*; with a
+shared folder, a link to *People and settings*, where the three steps are.
 
 ---
 
@@ -945,6 +987,7 @@ The rule: **does it change something, or move you?** Changing is a button; movin
 | The (?) beside a phrase | opens a note | a help mark (a small icon button) |
 | A heat cell with passages | opens the passages | a button the size of the cell |
 | The work box in the sidebar | goes to where the work shows | its words are the link; its one button (*Start*) acts |
+| *See what you shared*, *People and settings* (under the Sync state), the Team entry | move to the Team page, or to a section of it | links with their address (`#/team?at=shared`, `#/team/settings`); the entry is a sidebar entry, never a button that opens a panel |
 
 **Small actions inside text.** An action never sits inside a running sentence: the sentence ends, and the action follows
 as a small quiet button. A link may sit inside a sentence.
@@ -1040,7 +1083,8 @@ else may reach it.
 | Card, notice, empty state, page head | `card()`, `inset()`, `notice()`, `noticeList()`, `addDocumentsFirst()`, `emptyState()`, `pageHead()` |
 | Toast, dialog, menu, help | `toast()`, `showError()`, `dialog()`, `confirmDialog()`, `menu()`, `helpMark()`, `popNote()` |
 | Fields | `field()`, `input()`, `select()`, `textarea()`, `searchField()`, `switchControl()`, `rangeControl()` |
-| Drawer | `drawer()`, `drawerButton()`, `teamLine()`, `setDrawerOpen()` |
+| Drawer | `drawer()`, `drawerButton()`, `setDrawerOpen()` |
+| The sidebar's Team entry | `teamEntry()` |
 | Quotes and words found | `passageNode()`, `foundWords()` |
 | A decision that is not a proposal | `decisionCard({ what, flag, person, time, said, body, actions, ai })`: a decision that is not a proposal, in a proposal card's shape |
 | Lists, grids, work | `listRow()`, `listGroup()`, `proposalCard()`, `drawInSteps()`, `heatCell()`, `heatGrid()`, `workState()`, `spinner()`, `fold()` |

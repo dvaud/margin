@@ -27,13 +27,15 @@ import { renderHypotheses } from "./views/hypotheses.js";
 import { openFinder } from "./finder.js";
 import { renderDesign } from "./views/design.js";   // 0.17.0: the design guide's live reference, unlisted
 import { initLogDrawer } from "./views/logdrawer.js";
+import { initTeamEntry } from "./views/team-entry.js";   // the sidebar's Team entry and the team's state at its end
 
-// [pattern, the sidebar place it lights (features.js PLACES, or an add-on's feature key), render]. 0.17.0: seven places;
-// the old addresses stay and open their new home (#/check, #/batch and #/history: Hypotheses; #/profile: Codes).
+// [pattern, the sidebar place it lights (features.js PLACES, or an add-on's feature key), render]. Nine places (the
+// Research log and the Team are places of the Project group); the old addresses stay and open their new home
+// (#/check, #/batch and #/history: Hypotheses; #/profile: Codes).
 const ROUTES = [
   [/^\/?$/, "overview", renderOverview],
   [/^\/overview$/, "overview", renderOverview],
-  [/^\/log$/, "overview", renderLog],                     // Overview › Research log
+  [/^\/log$/, "researchlog", renderLog],                  // the Research log (the drawer hides on it)
   [/^\/sources$/, "documents", renderSources],
   [/^\/doc\/([^/]+)$/, "documents", renderDocument],
   [/^\/notes$/, "documents", renderNotes],                 // Documents › Notes
@@ -58,20 +60,22 @@ const ROUTES = [
   [/^\/settings(?:\/([^/]+))?$/, "settings", renderSettings],
   [/^\/setup$/, "", renderSetup],
   [/^\/projects$/, "", renderProjects],
-  // the team itself (views/team.js, loaded when first opened); reached from the project menu and the Team tab
-  [/^\/team$/, "", (view, params, query) => import("./views/team.js").then((m) => m.renderTeam(view, params, query))],
+  // the Team place (views/team.js, loaded when first opened): Activity, and People and settings (#/team/settings);
+  // without a team, the set-up
+  [/^\/team(?:\/(settings))?$/, "team", (view, params, query) => import("./views/team.js").then((m) => m.renderTeam(view, params, query))],
   [/^\/design$/, "", renderDesign],                       // not in the sidebar or Find: docs/DESIGN.md points to it
 ];
 
 // The window's title: the view's own name when the address is one of a place's views, else the place's name.
 function pageTitle(nav, pathPart) {
   if (nav === "settings") return "Settings";
+  if (nav === "team" && pathPart === "/team") return "Team";   // Activity, or the set-up in a project without a team
   const place = PLACES[nav];
   if (place) {
     const v = place.views.find(([, , href]) => href === `#${pathPart}`);
     return v && v[1] !== place.title ? `${v[1]} · ${place.title}` : place.title;
   }
-  return { "/setup": "Set up", "/projects": "Projects", "/team": "Team", "/design": "Design reference" }[pathPart] || (FEATURES[nav] && FEATURES[nav].title) || "";
+  return { "/setup": "Set up", "/projects": "Projects", "/design": "Design reference" }[pathPart] || (FEATURES[nav] && FEATURES[nav].title) || "";
 }
 
 let cleanup = null;
@@ -161,14 +165,12 @@ function renderProjectSwitch() {
     trigger: [icon("folder", { size: 16 }),
       h("span", { class: "ps-name" }, h("span", { class: "ps-label" }, "Project"), h("span", { class: "ps-name-text" }, current ? current.name : "No project")),
       icon("chevron-down", { size: 14 })],
-    // Join a team… makes a new project from a colleague's invite link; Manage the team opens the current project's
-    // Team page (like Manage projects, a page reached from here rather than an eighth place in the sidebar)
+    // Join a team… makes a new project from a colleague's invite link (the current project's team is the sidebar's
+    // Team place)
     items: [...items, items.length ? "sep" : null, { text: "New project…", icon: "plus", onClick: () => newProjectDialog() },
       { text: "Join a team…", icon: "link", onClick: () => joinDialog(null) },
-      { text: "Manage projects", icon: "sliders", href: "#/projects" },
-      current ? { text: "Manage the team", icon: "users", href: "#/team" } : null].filter(Boolean) });
-  // the team line (views/logdrawer.js, teamLine()) is the switch's second row: kept across redraws
-  replace(box, details, document.getElementById("team-line"));
+      { text: "Manage projects", icon: "sliders", href: "#/projects" }].filter(Boolean) });
+  replace(box, details);
 }
 
 export async function switchProject(name) {
@@ -324,7 +326,7 @@ async function drawStatus() {
   } else if (going.length) {
     const j = going[0], v = jobRow(j);
     const more = going.length - 1;
-    w = { kind: "running", where: j.where || null, localModel: j.local_model || "", main: v.text, time: j.state === "running" ? fmt.secs(j.seconds) : "", href: v.href, tip: v.tooltip, drawer: v.drawer,
+    w = { kind: "running", where: j.where || null, localModel: j.local_model || "", main: v.text, time: j.state === "running" ? fmt.secs(j.seconds) : "", href: v.href, tip: v.tooltip,
       sub: j.waiting_for ? j.waiting_for.message : j.state === "queued" ? "waiting its turn" : more ? `and ${more} more running` : waiting + answering ? `${(waiting + answering).toLocaleString()} for Claude Code` : "running",
       act: j.waiting_for ? "cancel" : undefined, job: j.id };   // 0.18 queued jobs: what it waits for, with Cancel
   } else if (runner) {
@@ -353,8 +355,7 @@ async function drawStatus() {
         : chip ? h("span", { class: "work-who", title: w.localModel ? `Your local model, ${w.localModel}, reads on this computer; what it reads is not sent to Anthropic.` : chip.tip }, icon(chip.icon, { size: 12 }), chip.label)   // 0.19.6: the local model at work for a job of Settings' AI
         : h("span", { class: "work-who", title: p.plain }, icon(p.icon, { size: 12 }), (p.label || "").split(",")[0]);
       const rail = cloud ? h("span", { class: "work-rail", title: cloudTip, "aria-hidden": "true" }, icon("cloud", { size: 14 })) : null;
-      const main = h("a", { class: "work-main", href: w.href, title: w.tip,   // 0.18: a round opens the Team tab beside the page
-        onClick: w.drawer ? (e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("margin-drawer", { detail: { tab: w.drawer } })); } : undefined },
+      const main = h("a", { class: "work-main", href: w.href, title: w.tip },   // a round goes to the Team page
         h("span", { class: "work-line" }, w.kind === "running" ? h("span", { class: "running-dot", "aria-hidden": "true" }) : icon(w.icon, { size: 14 }),
           h("strong", { class: "work-text" }, w.main), w.time ? h("span", { class: "work-time" }, w.time) : null),
         h("span", { class: "work-sub" }, h("span", { class: "work-sub-text" }, w.sub), who));
@@ -639,14 +640,11 @@ function drawerInit() {
   });
   sc.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sb.dataset.open === "true") { closeDrawer(); mb.focus(); } });
-  // under 861 px the team line sits in this menu sheet: pressing it opens the Team tab's sheet, so the menu closes; so
-  // does a page that opens the drawer on a tab (the "margin-drawer" event)
-  sb.addEventListener("click", (e) => { if (e.target.closest && e.target.closest("#team-line") && sb.dataset.open === "true") closeDrawer(); });
-  window.addEventListener("margin-drawer", () => { if (sb.dataset.open === "true") closeDrawer(); });
 }
 
 // 0.17.0: the sidebar's groups say once whether their places use the AI, with the one AI mark (features.js aiTag):
-// Explore "AI optional", Check "Uses the AI". The places themselves carry no marks and no counts; each has a tooltip.
+// Explore "AI on request", Check "Uses the AI"; Project has none. The places themselves carry no marks and no counts
+// (the Team entry's state is the one exception, views/team-entry.js); each has a tooltip.
 const GROUP_AI = { explore: "optional", check: "uses" };
 function sectionOf(key) {
   return PLACES[key] ? PLACES[key].section : (FEATURES[key] || {}).section;
@@ -769,9 +767,9 @@ async function whatsNewInit() {
 
 // 0.18 (L3) what came in: a light look at the open project's poller every 30 s. When a round the app started by itself
 // brought something in, a small toast says so; when the count of what came in grows, the window event
-// "margin-sync-news" (detail: the poller's state) lets the Team tab show it. After every look the window event
-// "margin-sync-state" carries the poller's state (null when it could not look), which the team line follows
-// (views/logdrawer.js); a change of project looks at once, so the line follows it without waiting 30 s.
+// "margin-sync-news" (detail: the poller's state) lets the Team page and the Team entry show it. After every look the
+// window event "margin-sync-state" carries the poller's state (null when it could not look), which the sidebar's Team
+// entry follows (views/team-entry.js); a change of project looks at once, so the entry follows it without waiting 30 s.
 // 0.18 stage 5: it also looks just after the next round is due (nextSyncLook), and while a round runs it redraws the
 // sidebar's work box, which shows a round the app started by itself once it has run 20 s (drawStatus).
 function syncNewsInit() {
@@ -831,6 +829,7 @@ async function boot() {
   drawerInit();
   sidebarScrollInit();
   navIcons();
+  initTeamEntry();
   App.onChange(() => { renderProjectSwitch(); renderPrivacy(); renderStatus(); renderUpdateBanner(); });
   onJobsChanged(() => renderStatus());
   window.addEventListener("hashchange", route);
