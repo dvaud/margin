@@ -1,4 +1,4 @@
-# 0.19.1: Rename a document, and a calmer document page
-*You can now give a document a title of your own, from its row on the Documents page or from its page.*
-- Rename a document
-- Work that sends passages to Claude looks different in the sidebar
+# 0.19.2: A framework from theory, and codebooks that stay in their project
+*A codebook from theory documents is now a framework you shape on a page of its own.*
+- A codebook from theory is now a framework you shape on a page of its own
+- A codebook from theory offers fewer, better terms
