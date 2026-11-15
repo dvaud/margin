@@ -254,9 +254,18 @@ class App(LibraryMixin, QueueMixin):
                "statuses": [{"status": k, "text": v, "help": claimcheck.STATUS_HELP.get(k, ""),
                              "next": claimcheck.STATUS_NEXT.get(k, "")} for k, v in claimcheck.STATUS_TEXT.items()],
                "jobs": self.job_views(active_only=True),
-               "queue": self._queue_summary(current)}
+               "queue": self._queue_summary(current),
+               "profile_framework": self._profile_framework(current, s)}
         out.update(addons.state(self, set(out)))  # 0.13.6: an add-on's keys, never in place of Margin's
         return out
+
+    def _profile_framework(self, name: str | None, s: dict) -> str:
+        """The codebook the pages use when none is named, in the current project: the setting when this project has
+        it, otherwise the SDG targets (a codebook made in another project is not here)."""
+        try:
+            return frameworks.chosen(s.get("profile_framework"), home.open_project(name) if name else None)
+        except Exception:  # noqa: BLE001 - the pages still work with the SDG targets
+            return "sdg"
 
     def _queue_summary(self, name: str | None) -> dict | None:
         """What waits in the current project's queue, for the sidebar (0.8)."""

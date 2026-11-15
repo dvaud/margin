@@ -821,7 +821,8 @@ FEATURES = {"check": "Check", "reread": "Read again", "second": "Second opinion"
             "theme": "Theme names", "link": "Concept links", "resolve": "References", "extract": "SDG pack",
             "split": "SDG pack", "verify": "SDG pack", "verify_set": "SDG pack", "expand": "Search words",
             "decompose": "Parts of a hypothesis", "theory_codes": "Codes from a theory document",
-            "code_definition": "A code's definition from its examples"}
+            "code_definition": "A code's definition from its examples",
+            "theory_frame": "A framework from theory documents"}
 
 
 def ledger(ws: Workspace, doc_id: str | None = None) -> list[dict]:

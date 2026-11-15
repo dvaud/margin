@@ -1038,6 +1038,16 @@ def _store_theory_codes(cx, t, payload, obj, model):
 
 
 taskkinds.attach("theory_codes", store=_store_theory_codes, demo=_theorycodes.demo_answer, size=_theorycodes.prompt_size)
+# K2, the framework draft: the drafts of several theory documents joined into one framework (theoryframe.py)
+from . import theoryframe as _theoryframe  # noqa: E402 - after the store functions it may import
+
+
+def _store_theory_frame(cx, t, payload, obj, model):
+    return _theoryframe.store_frame(cx, t, payload, obj, model)
+
+
+taskkinds.attach("theory_frame", store=_store_theory_frame, demo=_theoryframe.demo_answer,
+                 size=_theoryframe.prompt_size)
 # K1 (the optional AI part): a code's definition drafted from its examples (codedefine.py)
 from . import codedefine as _codedefine  # noqa: E402 - after the store functions it may import
 

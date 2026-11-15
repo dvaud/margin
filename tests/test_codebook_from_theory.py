@@ -1,7 +1,7 @@
 """0.18.1 (roadmap K2 part 2, Part A, A4): a codebook from a theory document, Level 0 (no model).
 
-The candidate concepts come from the theory's own structure and words (terms it defines, its headings, its frequent
-phrases), each with a definition quoted from it with its page; examples come only from the evidence documents and are
+The candidate concepts come from the theory's own structure (its glossary, the terms it defines, its headings; since the
+framework draft no longer its frequent words: a sentence that merely uses a word is no definition), each with a definition quoted from it with its page; examples come only from the evidence documents and are
 kept only when ticked; the result is an ordinary codebook."""
 from __future__ import annotations
 
@@ -96,12 +96,14 @@ def test_a_definition_carries_its_page(project):
     assert ", p. 2)" in got["balancing loop"]["code"]["description"]
 
 
-def test_headings_and_frequent_phrases_are_offered_too(project):
+def test_frequent_words_are_not_offered_any_more(project):
+    """The framework draft: a word the theory uses often but never defines is no concept by itself ("Involved",
+    "Driving" and "Packing" were codes of the owner's codebook)."""
     ws, theory, _ev = project
     got = _by_term(theorycodes.candidates(ws, theory))
     hows = {c["how"] for c in got.values()}
-    assert "delay" in got                       # frequent (in three sentences), never defined
-    assert hows <= {"defined", "heading", "frequent"}
+    assert "delay" not in got                   # in three sentences, never defined
+    assert hows <= {"glossary", "defined", "heading"}
     assert not any(t in got for t in ("the", "is", "a stock is"))
 
 
@@ -118,7 +120,7 @@ def test_the_ticked_concepts_become_an_ordinary_codebook_without_theory_examples
     ws, theory, ev = project
     got = _by_term(theorycodes.candidates(ws, theory))
     keep = []
-    for term in ("reinforcing loop", "balancing loop", "delay"):
+    for term in ("reinforcing loop", "balancing loop", "flow"):
         c = dict(got[term]["code"])
         c["examples"] = list(got[term]["suggested"][:1])
         keep.append(c)
@@ -127,7 +129,7 @@ def test_the_ticked_concepts_become_an_ordinary_codebook_without_theory_examples
                                 "page": 2, "start": 0, "end": 17})
     cb = codebooks.create(ws, "systems", "Systems codes", start="theory", source={"codes": keep, "doc_id": theory})
     codes = {c["code"]: c for c in cb["codes"]}
-    assert set(codes) == {"Reinforcing loop", "Balancing loop", "Delay"}
+    assert set(codes) == {"Reinforcing loop", "Balancing loop", "Flow"}
     assert all(e["doc_id"] == ev for c in codes.values() for e in c["examples"])
     assert "Thinking in systems" in codes["Balancing loop"]["description"]
     log = ws.query("SELECT text FROM research_log WHERE kind='codebook-added'")
@@ -138,7 +140,7 @@ def test_the_ticked_concepts_become_an_ordinary_codebook_without_theory_examples
 
 SECOND_THEORY = ("Practice theory\n\n"
                  "A practice is a routinised way in which bodies move, objects are handled and the world is "
-                 "understood. A delay is the time a practice needs before a new tool becomes part of its routine.\n")
+                 "understood. A flow is the way a practice moves from one group of people to another group.\n")
 
 
 def test_a_codebook_from_several_theory_documents(project, tmp_path):
@@ -151,19 +153,19 @@ def test_a_codebook_from_several_theory_documents(project, tmp_path):
     ingest.ingest(ws, [d])
     practice = ws.scalar("SELECT doc_id FROM documents WHERE text LIKE '%routinised way%'")
     a, b = _by_term(theorycodes.candidates(ws, meadows)), _by_term(theorycodes.candidates(ws, practice))
-    assert a["delay"]["code"]["source_doc"] == meadows and b["delay"]["code"]["source_doc"] == practice
-    # the editor gives both "Delay"s their document's title (pickTheory), as here
-    keep = [dict(a["stock"]["code"]), {**a["delay"]["code"], "code": "Delay (Thinking in systems)"},
-            dict(b["practice"]["code"]), {**b["delay"]["code"], "code": "Delay (Practice theory)"}]
+    assert a["flow"]["code"]["source_doc"] == meadows and b["flow"]["code"]["source_doc"] == practice
+    # two documents' "Flow"s sent as two codes get their document's title, as here
+    keep = [dict(a["stock"]["code"]), {**a["flow"]["code"], "code": "Flow (Thinking in systems)"},
+            dict(b["practice"]["code"]), {**b["flow"]["code"], "code": "Flow (Practice theory)"}]
     # a sentence of the other chosen theory, offered as an example, is dropped (it is not marked as theory)
     keep[0]["examples"] = [{"quote": "A practice is a routinised way", "doc_id": practice, "title": "Practice theory"}]
     cb = codebooks.create(ws, "lenses", "Two lenses", start="theory",
                           source={"codes": keep, "doc_ids": [meadows, practice]})
     codes = {c["code"]: c for c in cb["codes"]}
-    assert set(codes) == {"Stock", "Delay (Thinking in systems)", "Practice", "Delay (Practice theory)"}
+    assert set(codes) == {"Stock", "Flow (Thinking in systems)", "Practice", "Flow (Practice theory)"}
     assert codes["Stock"]["examples"] == []
     groups = {g["group"]: g["group_name"] for g in cb["groups"]}
-    assert codes["Stock"]["group"] == codes["Delay (Thinking in systems)"]["group"] != codes["Practice"]["group"]
+    assert codes["Stock"]["group"] == codes["Flow (Thinking in systems)"]["group"] != codes["Practice"]["group"]
     assert groups[codes["Practice"]["group"]] == "Practice theory"
     assert "Thinking in systems" in groups[codes["Stock"]["group"]]
     log = ws.query("SELECT text FROM research_log WHERE kind='codebook-added'")[0][0]
@@ -279,7 +281,8 @@ def test_the_entries_of_the_documents_own_glossary_come_first_and_only_they_are_
     # a document that says itself which its concepts are: nothing else is ticked
     assert {c["term"] for c in cands["concepts"] if c["ticked"]} == {"Stock", "Feedback loop", "Resilience",
                                                                     "Suboptimization"}
-    assert "policy resistance" in got and not got["policy resistance"]["ticked"]
+    # a phrase the text uses three times but never defines, and no heading here: not offered (the framework draft)
+    assert "policy resistance" not in got
 
 
 def test_what_is_not_the_theorys_prose_is_never_a_concept(book):
@@ -335,9 +338,11 @@ def test_a_headings_terms_are_offered_one_by_one_and_a_label_or_a_phrase_is_not(
         if "Resilience, Self-Organization, and Hierarchy" not in heads:
             pytest.skip("the reader did not find the headings")
         got = _by_term(theorycodes.candidates(ws, doc))
-        # "Resilience, Self-Organization, and Hierarchy": three terms; "Policy Resistance—Fixes that Fail": the term
-        for t in ("resilience", "self-organization", "hierarchy", "policy resistance"):
-            assert t in got and got[t]["how"] in ("heading", "defined"), (t, sorted(got))
+        # "Policy Resistance—Fixes that Fail": the term. "Resilience, Self-Organization, and Hierarchy" names three
+        # single words the text never defines outright ("Resilience keeps a system working"): since the framework
+        # draft a heading's single word needs a sentence that says what it is
+        assert "policy resistance" in got and got["policy resistance"]["how"] in ("heading", "defined"), sorted(got)
+        assert not {"resilience", "self-organization", "hierarchy"} & set(got), sorted(got)
         assert got["policy resistance"]["definition"]["quote"].startswith("Policy resistance comes from")
         # a figure's panel ("A: Growth") and a heading that is a phrase, not a list of terms, give none
         assert not any(c["how"] == "heading" and c["term"].lower() in ("growth", "content", "structure of the book",

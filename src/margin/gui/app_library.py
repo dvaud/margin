@@ -85,7 +85,7 @@ class LibraryMixin:
         if job.cancel.is_set():
             return
         job.progress = {"done": 0, "total": 0, "file": "", "phase": "codes"}
-        fw = s.get("profile_framework") or "sdg"
+        fw = frameworks.chosen(s.get("profile_framework"), ws)
         try:
             frameworks.get(fw, ws)
             stats["codes"] = profile.keyword_pass(ws, fw, emb, doc_ids=new_docs if profile.pass1_status(ws, fw)["done"]

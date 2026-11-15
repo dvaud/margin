@@ -245,6 +245,32 @@ def _answer_07(system: str, user: str) -> dict | None:
         if "resolve" in WRONG_FIRST and not retry and chains:
             out["chains"][0]["mentions"][0]["span"] = "a span that is nowhere"
         return out
+    if system.startswith("You draft the concepts of a theory document"):
+        # K2: of each candidate the first sentence of the part that uses it (so the dev server's reading gives drafts)
+        cands = (re.search(r"^CANDIDATE CONCEPTS \(found without AI\): (.*)$", user, re.M) or [None, ""])[1]
+        concepts = []
+        for term in [t.strip() for t in cands.split(",") if t.strip() and t.strip() != "none"]:
+            for n, text in _blocks(user):
+                snt = next((x for x in re.split(r"(?<=[.!?])\s+", " ".join(text.split()))
+                            if term.lower() in x.lower() and 3 <= len(x.split()) <= 60), None)
+                if snt and "\n" not in snt:
+                    concepts.append({"name": " ".join(term.split()[:6]), "definition": {"passage": int(n), "quote": snt},
+                                     "reason": "fake: a candidate the part uses"})
+                    break
+        return {"concepts": concepts[:12], "note": None}
+    if system.startswith("You build a coding framework"):
+        # K2: the drafts joined by name, in two groups, the first six core (the dev server's framework)
+        by: dict = {}
+        for n, name in re.findall(r"^(\d+)\. (.+?) \| ", user.split("DRAFTED CONCEPTS:", 1)[-1], re.M):
+            by.setdefault(name.lower().rstrip("s"), (name, []))[1].append(int(n))
+        made = [{"name": name.lower(), "from": nums, "meaning": f"What {name.lower()} means in this theory, in plain words.",
+                 "when_to_use": f"When a passage shows {name.lower()} in the researcher's documents.", "not_when": None,
+                 "words": [name.lower(), name.lower().split()[0] + " of", "how " + name.lower().split()[-1]], "core": i < 6}
+                for i, (name, nums) in enumerate(list(by.values())[:24])]
+        half = max(1, (len(made) + 1) // 2)
+        groups = [{"name": "Parts of the theory", "about": "What the theory is made of.", "concepts": made[:half]},
+                  {"name": "How it works", "about": "How its parts act on each other.", "concepts": made[half:]}]
+        return {"groups": [g for g in groups if g["concepts"]], "note": "fake: every draft kept"}
     return None
 
 

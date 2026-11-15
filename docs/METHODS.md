@@ -203,8 +203,24 @@ A researcher can mark a document as **theory**: the framework the research is re
 field (`docrole.py`; [Theory documents](manual/explore.md#theory-documents)). Margin never marks one by itself. A
 theory document is still read, searched and noted, but left out of the excerpts a check reads (unless a check is
 limited to it by hand), codebook labels, themes, key terms, the glossary's counts, links found in the text and concept
-paths. A codebook can start from a theory document, each code's definition quoted from it with its page and its
-examples taken only from evidence documents (`theorycodes.py`).
+paths.
+
+A codebook can start from theory documents as a **framework draft** (`theoryframe.py`), shaped on a page of its own
+before it becomes codes. Without AI, the draft holds what the documents define outright: glossary entries, terms the
+text defines ("X refers to …") and heading phrases that pass the same test, joined across documents by name
+(`theorycodes.candidates`; words a text only uses often are not offered). The AI's part has two steps, each its own kind
+of task with its prompt version. First every part of every document the AI may read is drafted (`theory_codes`): a
+concept's name and the sentence that defines it, quoted exactly and checked against the document. Then one task
+(`theory_frame`, on Opus with Claude) joins those drafts into one framework of at most 30 concepts in up to six groups:
+for each concept which drafts it is made of (numbers, checked: each draft used once, none invented), its meaning in
+plain words, when to use it and when not in the researcher's own documents, and the words those documents may use for
+it. The theory's sentences on the page and in the codebook are always the checked quotes, never the AI's words; the
+meaning, when to use it and when not are the AI's wording, kept beside the concept so that the page and then the
+editor mark each field *AI draft* until the researcher rewrites it. If the framework step fails three times, the
+concepts are the documents' drafts, ungrouped, and the reading says so. A document marked No AI is in no payload; the
+framework is read by the reader the strictest of the documents' settings allows. The passages offered as examples are
+found without AI, by the concept's words and when to use it, in evidence documents only (never a theory or working
+document): the sentence holding most of the words. Only those the researcher keeps become examples.
 
 ## The AI's part and reproducibility
 

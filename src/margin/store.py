@@ -986,7 +986,7 @@ class Workspace:
                       "ai_cache"):  # 0.18.1: the AI's answers kept so as not to ask again, with their quotes
                 out[t] = cx.execute(f"DELETE FROM {t}").rowcount
             kinds = ("('extract','verify','verify_set','expand','check','decompose','reread','second','label','link',"
-                     "'theme','resolve','theory_codes','code_definition')")
+                     "'theme','resolve','theory_codes','theory_frame','code_definition')")
             out["results"] = cx.execute(f"DELETE FROM results WHERE kind IN {kinds}").rowcount
             out["tasks"] = cx.execute(f"DELETE FROM tasks WHERE kind IN {kinds}").rowcount
             out["user_claims"] = cx.execute("DELETE FROM user_claims").rowcount
@@ -1040,6 +1040,10 @@ class Workspace:
         head = f"theory_codes:{doc_id}:"  # 0.18.4: the AI's drafts of its concepts hold its text
         for tbl in ("results", "tasks"):
             out.append((tbl, "kind='theory_codes' AND substr(task_id, 1, ?) = ?", (len(head), head)))
+        # K2 (the framework draft): a framework holds quotes of several theory documents; it goes with any of them
+        for tbl in ("results", "tasks"):
+            out.append((tbl, "kind='theory_frame' AND task_id IN (SELECT task_id FROM tasks WHERE "
+                        "kind='theory_frame' AND instr(payload_json, ?) > 0)", (json.dumps(doc_id),)))
         # K1 (the optional AI part): a code's definition drafted from passages of several documents (`docs` names them)
         for tbl in ("results", "tasks"):
             out.append((tbl, "kind='code_definition' AND task_id IN (SELECT task_id FROM tasks WHERE "

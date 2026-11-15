@@ -143,7 +143,7 @@ async function renderRun(view, runId, info, query) {
   const latest = runs.length && runs[0].run_id === runId;
   const watchers = [];
   let tab = ["list", "docs", "codes"].includes(query.view) ? query.view : (store("themes.view") || "list");
-  let framework = App.settings().profile_framework || "sdg";
+  let framework = App.framework();
   let frameworks = [];
   const codeInfo = new Map();   // framework -> {code: description}
   let v;

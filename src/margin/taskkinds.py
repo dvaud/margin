@@ -304,6 +304,14 @@ _core(name="theory_codes", prompt_version="theory-codes-v2", claude=("sonnet", "
       noun=("part of a theory document to draft codes from", "parts of theory documents to draft codes from"),
       short="parts of theory documents to draft codes from", title="Codes from a theory document",
       run_name="Codes from a theory document", output_cap=3000)
+# K2, the framework draft (theoryframe.py): the concepts drafted from several theory documents joined into one
+# framework of groups and concepts, each with its meaning, when to use it in the researcher's own documents and their
+# words for it. One task per reading; on Opus, as it judges what five authors share (theory-frame-v1).
+_core(name="theory_frame", prompt_version="theory-frame-v1", claude=("opus", "opus"), local="large",
+      helper="margin-namer", row="theory_codes", batch=1, order=6.6,
+      noun=("framework to put together from a theory's concepts", "frameworks to put together from theories' concepts"),
+      short="frameworks to put together from theories' concepts", title="A framework from theory documents",
+      run_name="A framework from theory documents", output_cap=7000)
 # K1 (the optional AI part): a code's definition, when to use it and when not, drafted from the passages that hold its
 # examples, for the codebook editor (codedefine.py). One task per draft.
 _core(name="code_definition", prompt_version="code-definition-v1", claude=("sonnet", "opus"), local="large",

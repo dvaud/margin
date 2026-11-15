@@ -241,7 +241,7 @@ export async function renderProfile(view, params, query) {
   const project = App.project;
   const base = `/api/projects/${P(project)}`;
   const watchers = [];
-  let framework = query.framework || App.settings().profile_framework || "sdg";
+  let framework = query.framework || App.framework();
   let savedLevel = null;
   try { savedLevel = localStorage.getItem("margin.profile.level"); } catch (_) { /* no storage */ }
   let level = (query.level || savedLevel) === "group" ? "group" : "code";
@@ -276,7 +276,7 @@ export async function renderProfile(view, params, query) {
 
   function keepUrl() {
     const s = new URLSearchParams();
-    if (framework !== (App.settings().profile_framework || "sdg")) s.set("framework", framework);
+    if (framework !== App.framework()) s.set("framework", framework);
     if (level !== "code") s.set("level", level);
     const qs = s.toString();
     history.replaceState(null, "", "#/profile" + (qs ? "?" + qs : ""));
@@ -326,7 +326,7 @@ export async function renderProfile(view, params, query) {
     const fw = fwInfo();
     const docSel = docs && docs.length ? select({ sm: true, id: "pf-doc", "aria-label": "Open the profile of one document" },
       h("option", { value: "" }, "Open one document's profile…"), docs.map((d) => h("option", { value: d.doc_id }, shortTitle(d.title || d.file, 80)))) : null;
-    if (docSel) docSel.addEventListener("change", () => { if (docSel.value) navigate(`#/doc/${encodeURIComponent(docSel.value)}?tab=codes${framework !== (App.settings().profile_framework || "sdg") ? `&framework=${encodeURIComponent(framework)}` : ""}`); });
+    if (docSel) docSel.addEventListener("change", () => { if (docSel.value) navigate(`#/doc/${encodeURIComponent(docSel.value)}?tab=codes${framework !== App.framework() ? `&framework=${encodeURIComponent(framework)}` : ""}`); });
     replace(controls,
       h("div", { class: "pf-control" }, h("label", { class: "field-label", for: "pf-fw" }, "Codebook"), sel,
         h("span", { class: "field-help" }, "New documents get this codebook's codes when they are added. ",
@@ -431,7 +431,7 @@ export async function renderProfile(view, params, query) {
       return;
     }
     const max = gridMax(cells);
-    const docHref = (d, code) => `#/doc/${encodeURIComponent(d.doc_id)}?tab=codes${framework !== (App.settings().profile_framework || "sdg") ? `&framework=${encodeURIComponent(framework)}` : ""}${code ? `&code=${encodeURIComponent(code)}` : ""}`;
+    const docHref = (d, code) => `#/doc/${encodeURIComponent(d.doc_id)}?tab=codes${framework !== App.framework() ? `&framework=${encodeURIComponent(framework)}` : ""}${code ? `&code=${encodeURIComponent(code)}` : ""}`;
     const tbody = h("tbody");
     const table = h("table", { class: "map-table pf-grid" },
       h("caption", { class: "visually-hidden" }, `Documents by ${unit}: the number of passages`),

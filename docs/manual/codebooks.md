@@ -24,13 +24,14 @@ above them, with the reason.
 1. Press *New codebook*.
 2. Give it a *Title* (the *Short name*, the file's name, follows it) and choose where it is *Kept*: *With this project*,
    or *With all my projects* (every project can use it, and a change shows in each).
-3. Choose how it starts, then *Create* (*Next* for themes and theory). The editor opens.
+3. Choose how it starts, then *Create* (*Next* for themes and theory). The editor opens (for theory, the draft's page
+   first).
 
 | Start | What you get |
 | --- | --- |
 | *Start fresh* | An empty codebook: add codes and groups yourself. |
 | *From the themes* | You tick themes found in the documents; each becomes a draft code (see below). |
-| *From theory documents* (0.18.1) | You tick the concepts of one or several theories you read the documents through; each becomes a draft code with its definition quoted from its theory (see below). |
+| *From theory documents* (0.18.1) | The concepts of the theories you read your documents through, shaped on a page of their own before they become codes (see below). |
 | *A copy of a codebook* | The SDG targets, or one of yours, to change. |
 | *From a CSV file* | A spreadsheet saved as CSV (see below). |
 | *From NVivo, ATLAS.ti or MAXQDA* | A REFI-QDA codebook (`.qdc`), or the codebook of a REFI-QDA project (`.qdpx`) (see below). |
@@ -40,44 +41,71 @@ the theme, its key terms as *Words it is matched by* and its best passages as ex
 When the codebook is kept with all projects, the themes of every project are offered. Find the themes first (*Themes*
 in the sidebar): it takes seconds and needs no AI.
 
-**From theory documents (0.18.1; several at once since 0.19).** Tick the documents the codes should come from: one theory, or several (a
-framework built from five authors, say). Those marked as theory are ticked to begin with ([Theory
-documents](explore.md#theory-documents)). With several, each document's concepts are listed in a section of their
-own, and each becomes a group of codes named after the document. A concept that two documents both define (*practice*
-in two practice theorists) is offered once for each, with each author's own definition; if you keep both, each gets
-its document's title after its name, and you can merge or rename them in the editor. Margin offers each document's concepts, without AI, the surest first: the entries of its own glossary when it has one
-(a heading such as *Glossary*, *Definitions* or *Key terms* over lines like "Stock: an accumulation of …"), the terms
-it defines in its text ("by a reinforcing loop we mean …", "X is defined as …", "X refers to …", and "a feedback loop
-is a …" for a phrase or a term that is also a heading), the terms its headings name, and the words and short phrases
-it uses far more often than your evidence documents do. Each comes with its definition **quoted from the theory, with
-its page** (the quote, then the document's title and the page), which becomes the code's description: the glossary's
-own entry, or else the sentence that best says what the term means. The glossary's entries are ticked; in a document
-without a glossary, the terms it defines are (none is ticked when a long text defines fewer than three: what it
-defines outright is then as likely its case as its theory). Running heads, printer's marks, tables of contents and equations are
-left out, and so are sentences that only start like a definition ("All it takes is a …") and things the text calls
-by a general name once ("A tree is a system"). A theory that argues instead of defining gives a short list this way:
-the dialog says so and points to *Draft with AI*. Under each concept, sentences from the **evidence documents** that use
-its words are offered as examples, unticked: an example is kept only when you tick it, and never comes from a theory
-document or from any of the documents you started from. So the labeller learns what a reinforcing loop looks like in your field, not in the theory's own examples.
-Words set in italics are not offered (the readers do not keep slant).
+**From theory documents (0.18.1; rebuilt as a framework draft after 0.19).** The theory you read your documents through
+becomes a **framework**: its concepts in groups, each with the theory's own words, a definition to code with, and
+passages of your documents that may show it. You choose and shape them on a page of their own, and only then make the
+codebook. A project holds one such draft at a time; it waits on its page while you do other work, and the Codebooks
+list says so (*A codebook from theory is being drafted*, with *Continue the draft*).
 
-**Draft with AI.** Beside the concepts found without AI, *Draft with AI* asks the AI to draft the theory's concepts (with several documents, each section has its own button).
-It reads **the whole document**, a part at a time (about 22,000 characters a part: a book of 200 pages is some 19
-parts, and the line under the button says how many; a model on this computer whose context length you set yourself
-gets smaller parts that fit it, and one set too small for any part says so), and gives each concept a short name, its definition quoted
-exactly from the theory with its page, and one line on why it is a concept of the theory and not one of its examples.
-Every quote is checked against the document, and a definition must be at least three words that say more than the
-concept's name. What the parts give is put together: a concept found in several parts is offered once, with the
-sentence that defines it best, and the concepts the theory comes back to most come first (40 at most). They join the
-list unticked and marked *AI draft*. A term of the glossary or one the text defines is not offered twice; a heading or
-a frequent word the AI drafts too gets the AI's definition in its place; and once the whole document was read, the
-words that were listed only for being frequent, that the AI did not draft and you did not tick, leave the list. If a
-part could not be read (its quotes were not found after three tries), the message says how many. Read each concept
-before you tick it. Examples still come only from your evidence
-documents, never from the theory or the AI. The document's own AI setting decides who reads it: Claude, only a local
-AI on this computer, or no AI, in which case the button is not offered and the dialog says why. The draft is written
-in the research log, and asking again for the same document reuses the answers, part by part. Closing the dialog stops a draft that
-is still running. Nothing changes until you tick concepts and make the codebook.
+1. *Next* asks which documents to draw on: one theory, or several (a framework built from five authors, say). Those
+   marked as theory are ticked to begin with ([Theory documents](explore.md#theory-documents)). *What do you want to
+   find out?* is optional: a sentence or two about your study, so that the AI later puts the concepts in its words.
+   *Start the draft* opens the page. If a draft is there already, you are asked first: *Continue the draft*, or *Start
+   again* (that draft and what you changed in it are removed; what the AI read is kept, so reading again costs
+   nothing).
+2. **Without AI** the page starts from what the documents define outright: the entries of a glossary (a heading such
+   as *Glossary*, *Definitions* or *Key terms* over lines like "Stock: an accumulation of …"), the terms the text
+   defines ("by a reinforcing loop we mean …", "X refers to …"), and a heading's phrase when it has two words or more
+   or the text has a sentence that defines it. A term two documents both define is one concept, with each author's
+   sentence. Glossary entries start in the codebook. Words a text merely uses often are no longer offered. This is a
+   start, not a framework, and the card *The theory* says so.
+3. ***Read the theory*** lets the AI read the documents whole, in parts (the line under the button says how many and
+   who reads them), and then put one framework together from what all the authors define: at most 30 concepts in up
+   to six groups, each with its meaning in plain words, *When to use it* and *When not to use it* written for your
+   documents, and the words your documents are likely to use for it. Every quote is checked against its document, and
+   every concept rests on sentences the AI drafted from the parts. The concepts the AI holds central start in the
+   codebook; the others wait below a thin line in their group (*Also in the theory, not in the codebook*). What the AI
+   drafted and left out of the framework (the authors' methods, schools of thought, sentences that define nothing) is
+   folded away under *N concepts set aside by the AI*, each with *Add*. Reading takes minutes: you can leave the page,
+   and *Stop* ends it with the draft as it was. A document's own AI setting decides who reads it: Claude, only a local
+   AI on this computer, or no AI (then only the terms it defines outright are used, and the card says so). The reading
+   is written in the research log. *Read again* (under *Your question, and reading again*) keeps every concept you
+   changed, marked as done, added or kept examples for, and replaces the rest.
+4. **Shape it.** Each group is a card whose name you can change; *All*, *In the codebook* and *Not in the codebook*
+   filter the rows. A row says how many of your theory documents say what the concept means (when more than one),
+   in how many of your own documents its words are found (*in 11 documents*; *in no document* is a reason to try
+   other words or leave it out), how many examples you kept and whether you marked it *Done*. A row's *Add* and
+   *Take out* put a concept in the codebook or take it out. Open a concept to see, top to bottom:
+   - *In the theory*: each source sentence, with its document (it opens the document at that place) and page;
+     *Remove this quote*, and *Look for more in the theory*, which lists the best sentences of each theory document
+     for the concept's name, each with *Add this quote*.
+   - The code's fields, named as in the editor: *Name*, *Group*, *Definition*, *When to use it*, *When not to use it*,
+     *Words it is matched by*. A field still in the AI's words carries the *AI draft* mark until you rewrite it.
+   - *In your documents*: passages of your evidence documents that may show the concept, found by its words without
+     AI (never from a theory or working document), the words found marked and listed (*Matched: skills, repair
+     knowledge*). A word counts as you wrote it, a phrase as a phrase; a question of an interview guide, a run of
+     references and a table's row are passed over. *Keep as an example* keeps one (at most
+     eight, as a code keeps), *Hide this passage* sets one aside, *Show other passages* asks again, and *Every place
+     these words occur, in Search* opens the Search page. The passages follow *Words it is matched by* as you type.
+   - *Mark as done*, *Next concept* (the next one in the codebook), *Merge into…* (the other concept takes this
+     one's quotes, examples and words; the toast has *Undo*), and *Remove from the draft* for a concept you added.
+5. **Add a concept by name** (no AI): type a name and *Look it up*; tick the sentences of the theory documents that
+   define it (none is fine: you write its definition yourself), then add it. It joins *Concepts without a group*, in
+   the codebook, opened.
+6. ***Make the codebook*** (in the bar at the foot, which counts the concepts in the codebook, how many are done
+   and how many have examples) first says what will happen: how many concepts become codes, how many of them are
+   still as the AI drafted them, and that the draft ends here (the concepts not in the codebook are not kept; what
+   the AI read is, so a new draft from the same documents gives the framework again at once). It then makes a code
+   of each concept in the codebook and opens the editor. *Draft settings*, at the top of the page, holds the
+   codebook's *Title*, its *Short name* and where it is *Kept*. A code's
+   description is its definition followed by the theory's sentence with its document and page ("In the theory: “…”
+   (Title, p. 12)"), and the other documents that define it; *When to use it*, *When not to use it*, the words and
+   the examples come with it, and the framework's groups become its groups. Fields still in the AI's words keep the
+   *AI draft* mark in the editor. Two concepts in the codebook with one name cannot both become codes: rename or merge
+   one. *Discard the draft* removes the draft without making anything.
+
+Every change on the page is kept in the draft as you work. If the draft changed in another window, the page says so
+and shows it as it is now.
 
 **The short names (0.16.1).** A code's name is one or two words of the theme's name when your documents allow it, as
 short as an SDG goal's: "National green hydrogen strategies and markets" becomes *Hydrogen strategies*. Margin tries

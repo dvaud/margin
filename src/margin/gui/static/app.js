@@ -22,6 +22,7 @@ import { renderBibliography } from "./views/bibliography.js";
 import { renderLog } from "./views/log.js";
 import { renderNotes } from "./views/notes.js";
 import { renderCodebooks, renderCodebook } from "./views/codebooks.js";
+import { renderTheoryDraft } from "./views/theory-draft.js";
 import { renderHypotheses } from "./views/hypotheses.js";
 import { openFinder } from "./finder.js";
 import { renderDesign } from "./views/design.js";   // 0.17.0: the design guide's live reference, unlisted
@@ -39,6 +40,7 @@ const ROUTES = [
   [/^\/bibliography$/, "documents", renderBibliography],   // Documents › Bibliography
   [/^\/search$/, "search", renderSearch],
   [/^\/profile$/, "codes", renderProfile],                 // Codes › By document
+  [/^\/codebooks\/draft\/theory$/, "codes", renderTheoryDraft],   // K2: a codebook from theory, drafted (before a codebook's name)
   [/^\/codebooks$/, "codes", renderCodebooks],             // Codes › Codebooks
   [/^\/codebooks\/([^/]+)$/, "codes", renderCodebook],
   [/^\/concepts$/, "concepts", renderConcepts],

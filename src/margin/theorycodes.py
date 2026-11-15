@@ -21,18 +21,23 @@ its printer's marks):
    behavior", "Its inflow", "All it takes";
 3. **headings**: the terms a heading names ("Stocks, Flows, and Dynamic Equilibrium": three; "Policy Resistance—Fixes
    that Fail": the first), numbering taken off, when prose follows the heading (a table of contents, a chapter's
-   number and a figure's label have none) and the text uses the term;
-4. **frequent phrases**: words and phrases of up to four words the document uses often and the evidence documents do
-   not (a word every document of the project uses is not the theory's own), at most MAX_FREQUENT.
+   number and a figure's label have none) and the text uses the term. A heading's single word ("Agency") is offered
+   only when the text defines it outright (`_defining_score` of its best sentence DEFINES_SCORE or more).
 
 A term must come back in the text to count (more often in a book than in a few pages). The definition of a term that
 is not a glossary entry is the sentence that best says what it means among those that use it (`_defining_score`),
-never a heading. Lines that are not the theory's prose are left out first: lines repeated on page after page (running
-heads, printer's marks), tables of contents, equations.
+never a heading; a term whose best sentence scores below MIN_SCORE (a sentence that merely uses the word) is not
+offered. Lines that are not the theory's prose are left out first: lines repeated on page after page (running heads,
+printer's marks), tables of contents, equations.
+
+With the framework draft (theoryframe.py) the fourth source, **frequent words and phrases** (words the document used often and the evidence did not), is
+gone. Five social-practice-theory texts gave 81 codes such as "Involved", "Driving" and "Packing", one per document,
+each "defined" by a sentence that merely held the word: word mining, not a framework. What the texts do not define
+outright now comes from the AI's reading (below) and the framework step (theoryframe.py), or the person adds it.
 
 Every quote is a span of the document's own text (checked by finding it again, as quotes are everywhere). Words set in
 italics are not offered: the readers do not keep fonts' slant (only boldness). The rules are English ("is defined
-as"); a document in another language still gives its glossary, headings and frequent phrases.
+as"); a document in another language still gives its glossary and headings.
 
 0.18.4: **the optional AI draft** (Level 2 or 3, `ai_offer`, `draft_with_ai`). 0.19.0 (theory-codes-v2): the AI reads
 **the whole document**, a part at a time (`_ai_parts`: its body passages in order, at most AI_MAX_CHARS a part, fewer
@@ -44,8 +49,7 @@ fixed, as for every kind) and a one-line reason; a part without a concept gives 
 together (`ai_drafts`): a concept drafted from several parts is offered once, with the quote that best defines it, the
 most central first. The document's own AI setting picks the reader (Claude, a local AI, or none: then no draft is
 offered). The drafts join the list unticked and marked as the AI's, without the terms the document defines itself
-(its glossary's and the defined ones); a heading or a frequent word the AI drafts too is offered with the AI's
-definition. Their examples still come only from the evidence (`suggest_examples`), never from the AI. A draft asked
+(its glossary's and the defined ones); a heading the AI drafts too is offered with the AI's definition. Their examples still come only from the evidence (`suggest_examples`), never from the AI. A draft asked
 again with the same input reuses its answers, part by part.
 
 0.19: **several theory documents at once** (a framework built from five authors). The editor asks for each document's
@@ -237,7 +241,6 @@ _SPLIT_DASH = re.compile(r"\s*(?:[—–:•;]|\s-\s)\s*")                    # 
 _SPLIT_LIST = re.compile(r"\s*(?:,\s*and\s+|,|\s+and\s+|\s+&\s+|/)\s*")     # "Stocks, Flows, and Dynamic Equilibrium"
 _PANEL = re.compile(r"^[A-Za-z]\)?[:.)]\s")                                 # a figure's panel: "A: Growth"
 MAX_HEADING_WORDS = 6
-MAX_FREQUENT = 12       # words offered for their frequency alone, after the defined terms and the headings
 _GLOSSARY_HEAD = re.compile(r"\b(glossary|definitions|key\s+(?:terms|concepts)|terminology)\b", re.I)
 _ENTRY_TERM = rf"{_W}(?: {_W}){{0,4}}"
 _ENTRY = re.compile(rf"^\s*(?:[•*·]\s*)?({_ENTRY_TERM})\s*(?::|\s[—–-]\s|—)\s*(?=\S)")
@@ -317,8 +320,10 @@ _ALSO_CALLED = re.compile(r"\s*\((?:also\s+(?:called|known\s+as)|or)\s+[^)]{1,60
 _IS_A = re.compile(r"\s+(?:is|are)\s+(?:a|an|the)\b", re.I)
 _IS = re.compile(r"\s+(?:is|are)\b", re.I)
 _APPOSITION = re.compile(r"\s*(?:[—–:]|,\s+(?:that\s+is|i\.e\.))", re.I)
+_BY_LEAD = re.compile(r"(?:^|\s)by\s+(?:(?:a|an|the)\s+)?$", re.I)
+_WE_MEAN = re.compile(r",?\s+(?:we|I)\s+mean\b", re.I)
 _NAMED = re.compile(r"\b(?:call(?:ed|s)?|termed|known\s+as|notion\s+of|concept\s+of|the\s+term)\s+"
-                    r"(?:(?:a|an|the|this|these|it|them)\s+)?[“\"‘']?$", re.I)
+                    r"(?:(?:this|these|it|them)\s+)?(?:(?:a|an|the)\s+)?[“\"‘']?$", re.I)
 
 
 def _defining_score(s: str, m: re.Match) -> int:
@@ -337,6 +342,8 @@ def _defining_score(s: str, m: re.Match) -> int:
             score = 3
         else:
             score = 2
+    elif _BY_LEAD.search(lead) and _WE_MEAN.match(after):
+        score = 8                        # "By a reinforcing loop we mean …" (one of _DEFINES)
     elif _NAMED.search(lead):
         score = 3
     elif _APPOSITION.match(after):
@@ -354,10 +361,20 @@ def _defining_score(s: str, m: re.Match) -> int:
     return score
 
 
+MIN_SCORE = 3         # a term's best sentence scores at least this, or it is not offered (but a glossary's entry)
+DEFINES_SCORE = 6     # and this much says what it is outright ("X is a …"): a heading's single word needs it
+
+
 def _best_definition(term: str, where: list[int], sents: list[tuple[int, int]], text: str,
                      skip: frozenset[int] = frozenset()) -> tuple[int, int] | None:
     """The sentence that best says what a term means, among those that use it (the earliest of the best). `skip`: the
     sentences that are headings, never a definition."""
+    return _best_sentence(term, where, sents, text, skip)[0]
+
+
+def _best_sentence(term: str, where: list[int], sents: list[tuple[int, int]], text: str,
+                   skip: frozenset[int] = frozenset()) -> tuple[tuple[int, int] | None, int]:
+    """`_best_definition` with its `_defining_score` (-99 when no sentence uses the term)."""
     rx = _term_rx(term)
     best, best_score = None, -99
     for i in where[:400]:
@@ -371,32 +388,12 @@ def _best_definition(term: str, where: list[int], sents: list[tuple[int, int]], 
         sc = _defining_score(s.strip(), rx.search(s.strip()) or m)
         if sc > best_score:
             best, best_score = (a + (len(s) - len(s.lstrip())), z), sc
-    return best
-
-
-def _evidence_words(ws: Workspace, skip: str, cap: int = 3_000_000) -> tuple[Counter, int]:
-    """How often each word occurs in the evidence documents (never a theory or a working document, nor `skip`), read
-    up to `cap` characters: what the theory's words are compared with, so that words every document of the project
-    uses are not offered as the theory's own."""
-    from .docrole import not_evidence_docs
-
-    out: Counter = Counter()
-    left = cap
-    skipped = not_evidence_docs(ws._conn()) | {skip}
-    for r in ws.query("SELECT doc_id, text FROM documents ORDER BY doc_id"):
-        if r["doc_id"] in skipped or not r["text"]:
-            continue
-        t = r["text"][:left]
-        out.update(_norm(w) for w in re.findall(_W, t))
-        left -= len(t)
-        if left <= 0:
-            break
-    return out, sum(out.values())
+    return best, best_score
 
 
 def candidates(ws: Workspace, doc_id: str, limit: int = MAX_CANDIDATES, with_examples: bool = True) -> dict:
     """The candidate concepts of a theory document as draft codes: {"doc_id", "title", "role", "concepts": [{"term",
-    "how" ("glossary" | "defined" | "heading" | "frequent"), "ticked" (offered ticked: its glossary's entries and the
+    "how" ("glossary" | "defined" | "heading"), "ticked" (offered ticked: its glossary's entries and the
     terms it defines), "count" (the sentences that use it), "definition": {"quote", "start", "end", "page"} | None,
     "code": {code, description, described, group, keywords, include, exclude, examples: []}, "suggested": [examples
     from the evidence documents, to tick]}]}. `with_examples` False: no examples looked for (0.18.4: the candidates
@@ -482,9 +479,13 @@ def candidates(ws: Workspace, doc_id: str, limit: int = MAX_CANDIDATES, with_exa
             return
         used = uses(term)
         if span is None:
-            span = _best_definition(term, used, sents, text, skip)
+            span, score = _best_sentence(term, used, sents, text, skip)
+            # (the framework draft) a sentence that merely uses the word is no definition, and a heading's single
+            # word counts only when the text defines it outright: "Involved", "Driving" and "Packing" were codes
+            if score < MIN_SCORE or (how == "heading" and len(term.split()) < 2 and score < DEFINES_SCORE):
+                return
         # a term the text defines keeps the form it is defined in ("Leverage points refer to …")
-        found[k] = {"term": shown(term, k) if how in ("heading", "frequent") else term[0].upper() + term[1:], "how": how,
+        found[k] = {"term": shown(term, k) if how == "heading" else term[0].upper() + term[1:], "how": how,
                     "ticked": how in ("glossary", "defined"), "count": len(used),
                     "definition": _quote(ws, doc_id, text, *span) if span else None}
 
@@ -601,43 +602,6 @@ def candidates(ws: Workspace, doc_id: str, limit: int = MAX_CANDIDATES, with_exa
             add(t, "heading")
             if k in found and found[k]["how"] == "heading" and not found[k]["definition"]:
                 del found[k]
-    # 4. frequent words and phrases: those the theory uses far more than the evidence does, a phrase before the words
-    # it is made of ("feedback loop" beats "feedback" when it is nearly as frequent)
-    ev, ev_total = _evidence_words(ws, doc_id) if len(sents) >= 60 else (Counter(), 0)
-    total = sum(len(re.findall(_W, text[a:z])) for a, z in sents) or 1
-    ranked = []
-    for k, v in where.items():
-        n = len(v)
-        if n < max(3, need) or k in found or any(inside(k, o) for o in named):
-            continue
-        if " " not in k:
-            if k in _GENERIC_KEYS or len(k) < 4:
-                continue
-            if ev_total >= 20000 and (n / total) < 3 * ((ev.get(k, 0) + 1) / ev_total):
-                continue            # the evidence uses the word about as much: not the theory's own
-        ranked.append((-n * (1 + 0.6 * k.count(" ")), k))
-    # how often the most frequent phrase with a word in it comes
-    in_phrase: dict[str, int] = {}
-    for o, v in where.items():
-        if " " in o and len(v) >= 3:
-            for w in set(o.split()):
-                if len(v) > in_phrase.get(w, 0):
-                    in_phrase[w] = len(v)
-    n_frequent = 0
-    for _score, k in sorted(ranked):
-        if n_frequent >= MAX_FREQUENT or len(found) >= limit:
-            break
-        n = len(where[k])
-        if " " not in k and in_phrase.get(k, 0) >= 0.6 * n:
-            continue
-        if any(o != k and (o in k.split() or k in o.split() or o in k or k in o) and found[o]["how"] == "frequent"
-               for o in found):
-            continue                # one of "practice theory" and "practice theories", not both
-        t = form_of(k) or k
-        if _clean_term(t, stop):
-            before = len(found)
-            add(t, "frequent")
-            n_frequent += len(found) - before
     if glossary:
         # the document says itself which its concepts are: only those are ticked, the rest is offered
         for c in found.values():
@@ -647,7 +611,7 @@ def candidates(ws: Workspace, doc_id: str, limit: int = MAX_CANDIDATES, with_exa
         # as likely its case as its theory ("Chronic heart failure is a …"): nothing is ticked for the person
         for c in found.values():
             c["ticked"] = False
-    order = {"glossary": 0, "defined": 1, "heading": 2, "frequent": 3}
+    order = {"glossary": 0, "defined": 1, "heading": 2}
     # among its headings a phrase ("policy resistance") before a single word ("behavior")
     picked = sorted(found.values(), key=lambda c: (order[c["how"]], c["how"] == "heading" and " " not in c["term"],
                                                    -c["count"], c["term"].lower()))[:limit]
@@ -960,13 +924,15 @@ def _part_concepts(ws: Workspace, task_id: str) -> list[dict]:
     return out
 
 
-def ai_drafts(ws: Workspace, task_ids: str | list[str], skip: set[str] | None = None) -> list[dict]:
+def ai_drafts(ws: Workspace, task_ids: str | list[str], skip: set[str] | None = None,
+              with_examples: bool = True) -> list[dict]:
     """The concepts of a draft's accepted answers (one task for each part of the document), put together and shaped as
     `candidates` shapes them (each "how": "ai", "ai": True, with its "reason"), without those whose normalised name is
     in `skip`. A concept drafted from several parts is offered once, with the quote that best says what it means; the
     concepts come the most central first (drafted from the most parts, high in each part's list, used most in the
     document), at most AI_MAX_CONCEPTS. Their examples are offered from the evidence documents only
-    (`suggest_examples`), as for every candidate."""
+    (`suggest_examples`), as for every candidate; `with_examples` False: none looked for (the framework draft looks
+    for its examples by the framework's words, theoryframe.evidence)."""
     tids = [task_ids] if isinstance(task_ids, str) else list(task_ids)
     by: dict[str, list[dict]] = {}
     rank: dict[str, float] = {}
@@ -1009,8 +975,88 @@ def ai_drafts(ws: Workspace, task_ids: str | list[str], skip: set[str] | None = 
     out.sort(key=lambda x: x[:2])
     picked = [c for _s, _p, c in out[:AI_MAX_CONCEPTS]]
     for c in picked:
-        c["suggested"] = suggest_examples(ws, c["term"], exclude_doc=doc_id)
+        c["suggested"] = suggest_examples(ws, c["term"], exclude_doc=doc_id) if with_examples else []
     return picked
+
+
+def read_parts(ws: Workspace, batches: list[dict], progress: Callable | None = None,
+               should_stop: Callable[[], bool] | None = None) -> str | None:
+    """Answer the part tasks of one or more theory documents (`draft_with_ai` reads one, the framework draft all of
+    them: theoryframe.read). Each batch is {"doc_id", "be", "call", "tids"}; it gains "refused" (one line, when its
+    document may not be sent to this AI: none of its parts is), "read" (the tasks answered), "problems", "used" (the
+    model) and "reused" (every part answered before, or from a kept answer). With Claude Code every part of every
+    document waits in the queue at once, so the helpers share them; they are then waited for in order.
+    Returns None, "stopped" (the person stopped it) or "withdrawn" (a part was taken back from the queue for another
+    reason: another job's Stop, or a document's AI setting changed while it waited); the parts not read then leave
+    the queue (those read are kept)."""
+    from . import access
+    from . import runs as runs_mod
+    from . import tasks
+
+    for b in batches:
+        b.update(refused=None, read=[], problems=[], used=b["call"], reused=True)
+    with ws.connect() as cx:  # worked out again as the text is about to leave (an add-on's floor may hold it back)
+        for b in batches:
+            for tid in b["tids"]:
+                now_lv = access.recheck(cx, tid)
+                if now_lv is None or now_lv not in access.backend_levels(b["be"]):
+                    b["refused"] = NO_AI if now_lv == "none" else "This document may not be sent to this AI."
+                    break
+        for b in batches:
+            if not b["refused"] and getattr(b["be"], "name", "") == "claude_code":
+                tasks.mark_queued(cx, b["tids"])
+    live = [b for b in batches if not b["refused"]]
+    total = sum(len(b["tids"]) for b in live)
+    before = {tid: ws.scalar("SELECT status FROM tasks WHERE task_id=?", (tid,)) for b in live for tid in b["tids"]}
+    if progress:
+        progress(0, total)
+    done = 0
+    halted = None
+    finished = False
+    try:
+        for b in live:
+            rid = runs_mod.start(ws, AI_KIND, b["doc_id"], b["be"], b["call"], len(b["tids"]))
+            try:
+                for i, tid in enumerate(b["tids"]):
+                    if should_stop and should_stop():
+                        halted = "stopped"
+                        break
+                    ok, errs = tasks.run_one(ws, tid, b["be"], b["call"])
+                    done += 1
+                    if progress:
+                        progress(done, total)
+                    last = ws.query("SELECT model, route FROM results WHERE task_id=? AND valid=1 ORDER BY attempt "
+                                    "DESC LIMIT 1", (tid,))
+                    if ok:
+                        b["read"].append(tid)
+                        b["used"] = last[0]["model"] if last else b["used"]
+                        b["reused"] = b["reused"] and (before[tid] == "done" or bool(
+                            last and "kept answer" in (last[0]["route"] or "")))
+                    elif ws.scalar("SELECT status FROM tasks WHERE task_id=?", (tid,)) != "failed":
+                        # stopped, or taken back from the queue. Only a stop the person asked for is quiet; a task
+                        # taken back for another reason (another draft's job stopped, or the document's AI setting
+                        # changed while it waited) says so.
+                        halted = "stopped" if should_stop and should_stop() else "withdrawn"
+                        b["problems"] = errs
+                        break
+                    else:
+                        b["problems"] += [f"part {i + 1}: {e}" for e in errs[:2]]
+            finally:
+                runs_mod.finish(ws, rid, len(b["read"]))
+            if halted:
+                break
+        finished = True
+    finally:
+        unread = [t for b in live for t in b["tids"] if t not in b["read"]]
+        if unread and (halted or not finished):
+            # stopped between two parts, or while one waited (Claude Code's wait raises), or one part was taken back
+            # (its document's AI setting changed) or an error ended the run: the parts not read leave the queue with
+            # the draft, every document's (they were queued together), so no helper goes on answering them for a
+            # reading that has ended (the parts read are kept)
+            from . import taskqueue
+
+            taskqueue.withdraw(ws, task_ids=unread)
+    return halted
 
 
 def draft_with_ai(ws: Workspace, doc_id: str, backend, model: str, progress: Callable | None = None,
@@ -1022,8 +1068,6 @@ def draft_with_ai(ws: Workspace, doc_id: str, backend, model: str, progress: Cal
     "task_ids", "parts", "parts_read", "ok" (a part at least was read), "stopped", "problems", "reused", "model",
     "concepts": [drafts, unticked, without the terms the document defines itself]}."""
     from . import access, researchlog
-    from . import runs as runs_mod
-    from . import tasks
 
     title = ws.scalar("SELECT title FROM documents WHERE doc_id=?", (doc_id,))
     if title is None:
@@ -1039,51 +1083,11 @@ def draft_with_ai(ws: Workspace, doc_id: str, backend, model: str, progress: Cal
     found = candidates(ws, doc_id, with_examples=False)      # once for the draft: the hints, and what is its own
     tids = make_ai_tasks(ws, doc_id, call, _part_chars(be, readers.settings()), found)
     n = len(tids)
-    if progress:
-        progress(0, n)
-    with ws.connect() as cx:  # worked out again as the text is about to leave (an add-on's floor may hold it back)
-        for tid in tids:
-            now_lv = access.recheck(cx, tid)
-            if now_lv is None or now_lv not in access.backend_levels(be):
-                raise ValueError(NO_AI if now_lv == "none" else "This document may not be sent to this AI.")
-        if getattr(be, "name", "") == "claude_code":
-            tasks.mark_queued(cx, tids)        # every part waits in the queue at once: the helpers share them
-    before = {tid: ws.scalar("SELECT status FROM tasks WHERE task_id=?", (tid,)) for tid in tids}
-    rid = runs_mod.start(ws, AI_KIND, doc_id, be, call, n)
-    read: list[str] = []
-    problems: list[str] = []
-    used, reused, halted = call, True, None
-    try:
-        for i, tid in enumerate(tids):
-            if should_stop and should_stop():
-                halted = "stopped"
-                break
-            ok, errs = tasks.run_one(ws, tid, be, call)
-            if progress:
-                progress(i + 1, n)
-            last = ws.query("SELECT model, route FROM results WHERE task_id=? AND valid=1 ORDER BY attempt DESC LIMIT 1",
-                            (tid,))
-            if ok:
-                read.append(tid)
-                used = last[0]["model"] if last else used
-                reused = reused and (before[tid] == "done" or bool(last and "kept answer" in (last[0]["route"] or "")))
-            elif ws.scalar("SELECT status FROM tasks WHERE task_id=?", (tid,)) != "failed":
-                # stopped, or taken back from the queue. Only a stop the person asked for is quiet; a task taken back
-                # for another reason (another draft's job stopped, or the document's AI setting changed while it
-                # waited) says so.
-                halted = "stopped" if should_stop and should_stop() else "withdrawn"
-                problems = errs
-                break
-            else:
-                problems += [f"part {i + 1}: {e}" for e in errs[:2]]
-    finally:
-        runs_mod.finish(ws, rid, len(read))
-        if len(read) < n and (halted == "stopped" or (halted is None and should_stop and should_stop())):
-            # stopped between two parts, or while one waited (Claude Code's wait raises): the parts not read leave
-            # the queue with the draft, so no helper goes on answering them (the parts read are kept)
-            from . import taskqueue
-
-            taskqueue.withdraw(ws, task_ids=[t for t in tids if t not in read])
+    batch = {"doc_id": doc_id, "be": be, "call": call, "tids": tids}
+    halted = read_parts(ws, [batch], progress, should_stop)
+    if batch["refused"]:
+        raise ValueError(batch["refused"])
+    read, problems, used, reused = batch["read"], batch["problems"], batch["used"], batch["reused"]
     if halted:
         return {"doc_id": doc_id, "title": title, "task_id": tids[0], "task_ids": tids, "parts": n,
                 "parts_read": len(read), "ok": False, "stopped": halted == "stopped",
@@ -1091,8 +1095,8 @@ def draft_with_ai(ws: Workspace, doc_id: str, backend, model: str, progress: Cal
                 "problems": problems[:5], "reused": False, "model": used, "concepts": []}
     ok = bool(read)
     reused = ok and reused
-    # the terms the document defines itself stay as they are; a heading or a frequent word the AI drafts too is
-    # offered with the AI's definition (the page replaces its row)
+    # the terms the document defines itself stay as they are; a heading the AI drafts too is offered with the AI's
+    # definition (the page replaces its row)
     own = {_norm(c["term"]) for c in found["concepts"] if c["how"] in ("glossary", "defined")}
     concepts = ai_drafts(ws, read, own) if ok else []
     in_parts = f" in {n} parts" if n > 1 else ""

@@ -747,6 +747,9 @@ export const App = {
     return s ? (s.next || "") : "";
   },
   settings() { return (App.state && App.state.settings) || {}; },
+  // the codebook the pages use when none is named: the setting when the current project has it, otherwise the SDG
+  // targets (the server decides: a codebook made in one project is not in the others)
+  framework() { return (App.state && App.state.profile_framework) || App.settings().profile_framework || "sdg"; },
   // Where the text goes, from the settings: for the privacy indicator.
   privacy() {
     const s = App.settings();

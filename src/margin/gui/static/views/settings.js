@@ -744,7 +744,7 @@ function exploreSection(s) {
     if (!App.project) return;
     try {
       const fws = (await api("GET", `/api/projects/${P(App.project)}/frameworks`)).frameworks || [];
-      replace(fwSel, ...fws.map((f) => h("option", { value: f.name, selected: f.name === (s.profile_framework || "sdg") }, shortFw(f))));
+      replace(fwSel, ...fws.map((f) => h("option", { value: f.name, selected: f.name === App.framework() }, shortFw(f))));
     } catch (_) { /* keep the saved name */ }
   })();
   fwSel.addEventListener("change", async () => { try { await save({ profile_framework: fwSel.value }, state); } catch (_) { /* shown */ } });

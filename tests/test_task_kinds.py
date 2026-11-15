@@ -55,15 +55,34 @@ for _key, _value in {"routing.ROW_OF": _TC, "routing.CLAUDE_DEFAULTS": ("sonnet"
                      "taskqueue.SHORT": "parts of theory documents to draft codes from",
                      "taskqueue.KIND_TITLE": "Codes from a theory document", "llm.OUTPUT_CAP": 3000}.items():
     SNAPSHOT[_key][_TC] = _value
+# K2, the framework draft (theoryframe.py): the drafts of several theory documents joined into one framework, in the
+# row of the theory's codes (one choice of model for both), queued after them
+_TF = "theory_frame"
+SNAPSHOT["routing.KINDS"] += (_TF,)
+SNAPSHOT["tasks.KINDS"] += (_TF,)
+_rows = list(SNAPSHOT["routing.ROWS"])
+_rows[_rows.index((_TC, (_TC,), "Codes from a theory document"))] = (_TC, (_TC, _TF), "Codes from a theory document")
+SNAPSHOT["routing.ROWS"] = tuple(_rows)
+_order = list(SNAPSHOT["taskqueue.ORDER"])
+_order.insert(_order.index(_TC) + 1, _TF)
+SNAPSHOT["taskqueue.ORDER"] = tuple(_order)
+for _key, _value in {"routing.ROW_OF": _TC, "routing.CLAUDE_DEFAULTS": ("opus", "opus"), "routing.LOCAL_DEFAULTS": "large",
+                     "routing.HELPERS": "margin-namer", "prompts.VERSIONS": "theory-frame-v1", "taskqueue.BATCH": 1,
+                     "taskqueue.NOUN": ("framework to put together from a theory's concepts",
+                                        "frameworks to put together from theories' concepts"),
+                     "taskqueue.SHORT": "frameworks to put together from theories' concepts",
+                     "taskqueue.KIND_TITLE": "A framework from theory documents", "llm.OUTPUT_CAP": 7000}.items():
+    SNAPSHOT[_key][_TF] = _value
 # K1 (the optional AI part): a code's definition drafted from its examples (codedefine.py)
 _CD = "code_definition"
 SNAPSHOT["routing.KINDS"] += (_CD,)
 SNAPSHOT["tasks.KINDS"] += (_CD,)
 _rows = list(SNAPSHOT["routing.ROWS"])
-_rows.insert(_rows.index((_TC, (_TC,), "Codes from a theory document")) + 1, (_CD, (_CD,), "Code definitions from examples"))
+_rows.insert(_rows.index((_TC, (_TC, _TF), "Codes from a theory document")) + 1,
+             (_CD, (_CD,), "Code definitions from examples"))
 SNAPSHOT["routing.ROWS"] = tuple(_rows)
 _order = list(SNAPSHOT["taskqueue.ORDER"])
-_order.insert(_order.index(_TC) + 1, _CD)
+_order.insert(_order.index(_TF) + 1, _CD)
 SNAPSHOT["taskqueue.ORDER"] = tuple(_order)
 for _key, _value in {"routing.ROW_OF": _CD, "routing.CLAUDE_DEFAULTS": ("sonnet", "opus"), "routing.LOCAL_DEFAULTS": "large",
                      "routing.HELPERS": "margin-namer", "prompts.VERSIONS": "code-definition-v1", "taskqueue.BATCH": 1,
@@ -96,7 +115,8 @@ def test_the_other_tables_too():
         "link": "How concepts relate", "theme": "Theme names", "resolve": "References in a document",
         "extract": "Extracting claims (SDG pack)", "verify_set": "Checking VCA claims (SDG pack)",
         "verify": "Checking claims (SDG pack)", "split": "Splitting justifications (SDG pack)",
-        "theory_codes": "Codes from a theory document", "code_definition": "A code's definition from its examples"}
+        "theory_codes": "Codes from a theory document", "code_definition": "A code's definition from its examples",
+        "theory_frame": "A framework from theory documents"}
     assert dict(tasks.HANDLERS) == {"extract": tasks._store_extract, "split": tasks._store_split,
                                     "verify": tasks._store_verify, "verify_set": tasks._store_verify_set,
                                     "expand": tasks._store_expand, "check": tasks._store_check,
@@ -104,7 +124,8 @@ def test_the_other_tables_too():
                                     "second": tasks._store_second, "label": tasks._store_label,
                                     "link": tasks._store_link, "theme": tasks._store_theme,
                                     "resolve": tasks._store_resolve, "theory_codes": tasks._store_theory_codes,
-                                    "code_definition": tasks._store_code_definition}
+                                    "code_definition": tasks._store_code_definition,
+                                    "theory_frame": tasks._store_theory_frame}
     assert dict(routing.HELPER_MODEL)["margin-checker"] == "sonnet" and len(routing.HELPER_MODEL) == 7
     # the certainty of an answer, as 0.13.5 read it
     assert routing.certainty("verify", {"confidence": 0.4}) == 0.4

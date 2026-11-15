@@ -16,7 +16,7 @@ Arguments: `$ARGUMENTS`
 
 - The first argument is the project's name (in quotes when it has spaces). If there is none, call `queue_status`
   without a project to list the projects that have work waiting, and ask which one.
-- An optional second argument is one kind of task (label, link, theme, theory_codes, code_definition, expand,
+- An optional second argument is one kind of task (label, link, theme, theory_codes, theory_frame, code_definition, expand,
   decompose, resolve, check, reread, second, or the SDG pack's split, extract, verify, verify_set): then work only on that kind.
 - `--parallel N` sets how many helpers work at the same time (1 to 8; without it, the speed chosen in the Margin
   app: normally 2). More is faster but uses the plan's limit faster.

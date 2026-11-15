@@ -100,7 +100,7 @@ class ExploreApi:
                                       order=order, **self._search_args(q))
 
     def _fw(self, ws, q) -> str:
-        fw = _str(q, "framework") or self.app.settings().get("profile_framework") or "sdg"
+        fw = _str(q, "framework") or frameworks.chosen(self.app.settings().get("profile_framework"), ws)
         frameworks.get(fw, ws)
         return fw
 
@@ -383,7 +383,7 @@ class ExploreApi:
         ws = self.app.ws(name)
         hyp = _list(q, "hyp")
         r = annotate.annotate_document(ws, doc_id, hyp, self._layers(q), _str(q, "framework") or
-                                       self.app.settings().get("profile_framework") or "sdg", _str(q, "concept"),
+                                       frameworks.chosen(self.app.settings().get("profile_framework"), ws), _str(q, "concept"),
                                        threshold=_float(q, "threshold", self.app.settings()["threshold"]))
         disp = _disposition(r["name"])
         extra = {"Content-Disposition": disp, "X-Margin-Placed": f"{r['placed']}/{r['marks']}"}
@@ -401,8 +401,8 @@ class ExploreApi:
         with tempfile.TemporaryDirectory(prefix="margin-fc-") as tmp:
             out = Path(tmp) / "flexiconc.sqlite"
             emb = self.app.settings().get("embed_model") if self.app.settings().get("embed_backend") != "off" else None
-            flexiconc_export.export(ws, out, framework=_str(q, "framework") or self.app.settings().get("profile_framework")
-                                    or "sdg", embed_model=emb or None, embeddings=bool(emb))
+            flexiconc_export.export(ws, out, framework=_str(q, "framework") or frameworks.chosen(
+                                        self.app.settings().get("profile_framework"), ws), embed_model=emb or None, embeddings=bool(emb))
             # streamed from the file (0.11.1): with embeddings the export of a large project is hundreds of MB
             self._stream(out, "application/vnd.sqlite3",
                          {"Content-Disposition": _disposition(_filename(f"{name} - FlexiConc", "sqlite"))})

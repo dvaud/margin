@@ -400,6 +400,13 @@ def get(name: str | None, ws=None) -> Framework | None:
     return fw
 
 
+def chosen(name: str | None, ws=None) -> str:
+    """The codebook to use when none is named: `name` (the profile codebook setting, one for the whole app) when this
+    project has it, otherwise the SDG targets. A codebook made in one project is not in the others, so the choice made
+    there must not leave every other project without a codebook."""
+    return name if name and name in available(ws) else "sdg"
+
+
 BUNDLED = ("sdg", "sdg_goals")
 
 

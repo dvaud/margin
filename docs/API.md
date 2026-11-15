@@ -1834,7 +1834,8 @@ terms.
 
 - `GET /api/projects/{p}/codebook-theory` → `{"documents": [{"doc_id", "title", "theory"}]}`, theory documents first.
 - `GET /api/projects/{p}/codebook-theory/{d}` → `{"doc_id", "title", "role", "concepts": [{"term", "how": "glossary" |
-  "defined" | "heading" | "frequent", "ticked" (offered ticked: its glossary's entries, or the terms it defines when
+  "defined" | "heading" (with the framework draft no longer "frequent": a term needs a sentence that defines it, and a
+  heading's single word one that says outright what it is), "ticked" (offered ticked: its glossary's entries, or the terms it defines when
   it has no glossary), "count" (the sentences that use it), "definition": {"quote", "start", "end", "page"} | null,
   "code": {a draft code}, "suggested": [examples from the evidence documents: {"quote", "doc_id", "title", "page",
   "start", "end", "project"}]}]}`.
@@ -1846,7 +1847,90 @@ terms.
 - Then `POST /api/projects/{p}/codebooks` with `"start": "theory"` and `"source": {"codes": [the drafts kept, with the
   examples ticked], "doc_ids": [the documents they come from]}` (`"doc_id"` for one still works); an example from a
   theory document, or from any of `doc_ids`, is dropped. 0.19: with codes from more than one document, each
-  document's codes become a group named after it (a draft code's `source_doc` says which; it is not stored).
+  document's codes become a group named after it (a draft code's `source_doc` says which; it is not stored). With
+  `"groups": [{"group", "group_name"}]` in `source` (the framework draft below) those groups are used, each code
+  keeps its own `group`, a code's `source_docs` (a list) names its documents, and the research log adds "in G groups".
+
+**A codebook from theory documents: the framework draft** (roadmap K2, `theoryframe.py`). One draft per project, kept
+in the project folder (`drafts/codebook-from-theory.json`, not shared through the team folder). A draft is
+
+```
+{"version": 1, "id", "title", "name", "where": "project" | "home", "doc_ids": [...], "focus": "", "created_at",
+ "updated_at",
+ "reading": {"state": "none" | "running" | "read" | "failed", "job": id | null, "model": str | null, "at": iso | null,
+             "parts", "parts_read", "drafted", "problems": [one line each], "frame_task": id | null,
+             "input": hash of (doc_ids, focus) the reading answered | null,
+             "before"? (the state before a reading started), "stale" (GET and PUT only: the focus changed since)},
+ "groups": [{"key": "g1", "name", "about"}],
+ "concepts": [{"key": "c" + 10 hex, "group": a group's key | "", "name", "meaning", "when_to_use", "when_not",
+               "words": [...], "core": bool, "how": "ai" | "glossary" | "defined" | "heading" | "own", "keep": bool,
+               "touched": bool (the person changed it, or added it: a reading leaves it as it is),
+               "checked": bool (the person has looked it over; a reading leaves it as it is too),
+               "sources": [{"doc_id", "title", "quote", "start", "end", "page"}],
+               "examples": [{"quote", "doc_id", "title", "page", "start", "end", "project"}],
+               "ai": {"model", "meaning", "when_to_use", "when_not"} | null (the AI's words, to tell what was rewritten)}],
+ "left_out": [{"name", "doc_id", "title", "quote", "start", "end", "page"}],   (drafted, not in the framework: a name
+                                                    once, none the framework has, none whose quote is a scrap)
+ "rev": n}   (raised at every write)
+```
+
+- `GET /api/projects/{p}/codebook-theory/draft` → `{"draft": draft | null, "offer": offer | null, "documents":
+  [{"doc_id", "title", "theory"}]}`. `offer` = `{"offered" (the AI may read one document at least), "why" (one line
+  when not), "reader": "claude" | "local" | "main" | null, "parts" (in all), "documents": [{"doc_id", "title", "level",
+  "parts", "offered", "why"}]}` (a document marked No AI: `offered` false, and its `why` says only the terms it
+  defines itself are used). A reading whose job is gone (the app restarted, or it was stopped) is shown as `"read"`
+  when the draft had been read before, else `"failed"` (with a line in `problems`) or `"none"` (stopped), never as
+  `"running"` for ever.
+- `POST …/codebook-theory/draft` `{"title", "name", "where": "project" | "home", "doc_ids": [...], "focus"?}` →
+  `{"draft", "offer"}`: a new draft (it replaces the one there) from what the documents define outright (glossary
+  entries, defined terms, heading phrases), joined across documents by name, ungrouped; glossary entries start kept.
+  400 when the name is taken or not a codebook name, no document is given, or `where` is neither; 404 for a document
+  not in the project.
+- `PUT …/codebook-theory/draft` `{"title"?, "name"?, "where"?, "focus"?, "groups"?, "concepts"?, "rev"?}` (each
+  whole: the list sent replaces the list) → `{"draft"}`. `name` must be free for a codebook (400 when not). With `rev` (the draft's `rev` as the page loaded it), a draft that changed since
+  (a reading ended, another tab saved) answers 409 and nothing is written: load it again. Concepts are matched to the stored ones by `key` (a missing or unknown key makes a new
+  concept, `how: "own"`); `ai` is the app's and cannot be sent; a source must be a span of one of the draft's
+  documents (`quote` equal to the text from `start` to `end`, as `lookup` gives them), else it is dropped; an example
+  must be a span of an evidence document too (`quote` equal to its text from `start` to `end`, as `evidence` gives
+  them; its title and page are the document's), so one from a theory or working document, or from one of `doc_ids`,
+  or with words the document does not hold, is dropped; a `group` not among the groups becomes
+  "". At most 60 concepts, 12 groups and 8 examples a concept; 400 for a concept without a name or too many concepts;
+  404 without a draft.
+- `DELETE …/codebook-theory/draft` → `{"ok": true}`: the draft is discarded (a reading that runs is stopped).
+- `POST …/codebook-theory/draft/read` → `{"job"}`: a `theory-frame` job (`job.scope` = `"theory-draft"`; a reading
+  that runs already is the one answered). Every part of every document the AI may read is drafted (`theory_codes`,
+  one task a part, all queued at once for Claude Code), then one `theory_frame` task (prompt `theory-frame-v1`, Opus)
+  joins the drafts into groups and concepts; core concepts start kept; what the person touched stays as it is. When
+  the frame is refused three times, the concepts are the drafts, ungrouped, and `reading.problems` says so. The job's
+  result: `{"ok" (a framework was put together), "stopped", "withdrawn", "state", "model", "parts", "parts_read",
+  "drafted", "groups", "concepts", "problems", "reused", "frame_task", "discarded"}`. Stop takes the waiting
+  `theory_codes` and `theory_frame` tasks out of the queue. 400 (`offer.why`) when no AI may read any of the
+  documents; 404 without a draft.
+- `POST …/codebook-theory/draft/evidence` `{"concept": {"name", "meaning"?, "when_to_use"?, "words"?}, "skip"?:
+  [passage ids], "k"?: 1 to 8 (4)}` → `{"passages": [{"quote", "doc_id", "title", "page", "start", "end", "project",
+  "passage_id", "matched", "marks", "found_by"}]}`: passages of the evidence documents only (never a theory or working
+  document, nor the draft's own), found by the concept's `words` (without any, its name): a word counts as the field
+  writes it (a phrase as a phrase: "repair knowledge" never finds "repair" alone), and `matched` lists the words
+  found in the quote, `marks` where they stand in it (`[start, end]` pairs in characters). Of each passage the sentence (or two that follow each other) that holds the most of them
+  (`start`/`end` in the document's text); the passages with the most words first, one per document before a second
+  of any. A sentence that could be no example is passed over: a question (an interview guide), a run of references,
+  a table's cells, a line of figures. Where the words find fewer than `k` and the project has vectors of the chosen
+  embedding model, passages found by meaning (`found_by: "meaning"`, `matched` empty) fill the rest. No AI.
+- `GET …/codebook-theory/draft/counts` → `{"documents": n, "counts": {concept key: n}}`: in how many of the evidence
+  documents each concept's words are found in a sentence that could be an example (as `evidence` finds them; no AI),
+  for the draft as it is kept. 404 without a draft.
+- `GET …/codebook-theory/draft/lookup?term=…` → `{"term", "sources": [{"doc_id", "title", "uses" (sentences that use
+  it), "options": [{"quote", "start", "end", "page", "score"}]}], "passages": [the evidence for the term, as above]}`:
+  of each of the draft's documents, the three sentences that best say what the term means (its glossary entry first;
+  `options` empty when the document does not use it). 400 without a term; 404 without a draft.
+- `POST …/codebook-theory/draft/make` → `{"codebook"}` (as `GET …/codebooks/{name}`): the kept concepts become codes
+  (`code`: the name with a capital first letter, at most 40 characters; `description`: the meaning, then `In the
+  theory: “quote” (title, p. N).` and `Also defined in title (p. N) and title (p. N).` for the other sources; with
+  no meaning the quoted line alone; `include`: when to use it; `exclude`: when not; `keywords`: the words; the kept
+  examples; the framework's groups) through `POST …/codebooks`' `"start": "theory"`, with the *AI draft* mark
+  (`ai_draft`, `"from": "theory"`) on the fields that still hold the AI's words. The draft is then gone. 409 while
+  its reading runs. 400 when no
+  concept is kept or two kept concepts share a name; 404 without a draft.
 
 **Concepts: paths, time and groups** (roadmap D3, D4, `conceptpaths.py`).
 

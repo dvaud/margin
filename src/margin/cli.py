@@ -982,7 +982,7 @@ def _project_name(ws) -> str:
 
 def _cmd_08(a, ws) -> int:
     """The commands of 0.8: prepare tasks for Claude Code; the queue."""
-    from . import claimcheck, home, profile, routing, taskqueue
+    from . import claimcheck, frameworks, home, profile, routing, taskqueue
     from . import tasks as tk
 
     if a.cmd == "prepare":
@@ -1003,7 +1003,7 @@ def _cmd_08(a, ws) -> int:
                     print(f"Problem: {e}", file=sys.stderr)
                     return 1
             elif a.kind == "label":
-                fw = a.framework or home.load_settings().get("profile_framework") or "sdg"
+                fw = a.framework or frameworks.chosen(home.load_settings().get("profile_framework"), ws)
                 profile.ensure_pass1(ws, fw)
                 plan = profile.label_plan(ws, fw, a.docs, a.all_passages, a.limit)
                 made["tasks"] = profile.make_label_tasks(ws, fw, plan["passage_ids"], r.model("label"), a.all_passages)

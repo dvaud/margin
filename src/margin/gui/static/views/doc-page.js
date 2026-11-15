@@ -49,7 +49,7 @@ export async function renderDocument(view, [docId], query) {
   const watchers = [];
   const cleanups = [];
   let tab = DOC_TABS.some(([k]) => k === query.tab) ? query.tab : null;
-  let framework = query.framework || App.settings().profile_framework || "sdg";
+  let framework = query.framework || App.framework();
 
   // The head (docs/DESIGN.md 4.14) says each thing once: the title, then the facts with the way to the original as
   // the last of them, then the bibliography's line. The file's name and the work's name in the bibliography are said
@@ -555,7 +555,7 @@ export async function renderDocument(view, [docId], query) {
     const s = new URLSearchParams();
     for (const [k, v] of Object.entries(query)) if (!["tab", "code", "find", "framework", "preview"].includes(k)) s.set(k, v);
     if (tab) s.set("tab", tab);
-    if (framework !== (App.settings().profile_framework || "sdg")) s.set("framework", framework);
+    if (framework !== App.framework()) s.set("framework", framework);
     if (tab === "search" && panels.search && panels.search.query()) s.set("find", panels.search.query());
     const qs = s.toString();
     history.replaceState(null, "", `#/doc/${encodeURIComponent(docId)}${qs ? "?" + qs : ""}`);

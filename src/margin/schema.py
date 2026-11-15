@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .taxonomy import (CLAIM_SEGMENTS, DIRECTIONS, EVIDENCE_VERDICTS, HORIZONS, INFLUENCES, SCALES, SIDES, VERDICTS,
                        normalise_target)
@@ -362,6 +362,95 @@ class TheoryCodesOut(BaseModel):
     note: Optional[str] = None
 
 
+class FrameConcept(BaseModel):
+    """One concept of the framework put together from a theory's drafted concepts (theory-frame-v1). `from` names the
+    drafts it joins (by their numbers); `from_` in Python, as `from` is a reserved word."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = Field(min_length=2, max_length=60)
+    from_: list[int] = Field(alias="from", min_length=1)
+    meaning: str = Field(min_length=10, max_length=600)
+    when_to_use: str = Field(min_length=10, max_length=500)
+    not_when: Optional[str] = Field(default=None, max_length=400)
+    words: list[str] = Field(min_length=3, max_length=12)
+    core: bool = False
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _name(cls, v):
+        v = " ".join(str(v or "").split()).strip(" .\"'")
+        if len(v.split()) > 6:
+            raise ValueError("the name must have at most six words")
+        return v
+
+    @field_validator("from_", mode="before")
+    @classmethod
+    def _nums(cls, v):
+        if isinstance(v, (int, str)):
+            v = [v]
+        out = []
+        for x in v or []:
+            if isinstance(x, str) and x.strip().isdigit():
+                x = int(x.strip())
+            if isinstance(x, bool) or not isinstance(x, int) or x < 1:
+                raise ValueError(f"`from` holds the numbers of drafts (1 or more), not {x!r}")
+            out.append(x)
+        return out
+
+    @field_validator("meaning", "when_to_use", mode="before")
+    @classmethod
+    def _flat(cls, v):
+        return " ".join(str(v or "").split())
+
+    @field_validator("not_when", mode="before")
+    @classmethod
+    def _none(cls, v):
+        v = " ".join(str(v or "").split())
+        return None if v.lower().strip(" .") in ("", "none", "null", "n/a") else v
+
+    @field_validator("words", mode="before")
+    @classmethod
+    def _words(cls, v):
+        out = []
+        for w in v or []:
+            w = " ".join(str(w or "").split())
+            if len(w) > 60:
+                raise ValueError(f"a word or phrase of at most 60 characters, not {w[:60]!r}…")
+            if w and w.lower() not in [x.lower() for x in out]:
+                out.append(w)
+        return out
+
+
+class FrameGroup(BaseModel):
+    name: str = Field(min_length=2, max_length=60)
+    about: str = Field(default="", max_length=200)
+    concepts: list[FrameConcept] = Field(min_length=1)
+
+    @field_validator("name", "about", mode="before")
+    @classmethod
+    def _flat(cls, v):
+        return " ".join(str(v or "").split())
+
+
+MAX_FRAME_CONCEPTS = 30
+
+
+class TheoryFrameOut(BaseModel):
+    """The framework of a codebook from theory documents (theory-frame-v1, theoryframe.py): groups of concepts, each
+    concept joining drafts of one or more documents."""
+    groups: list[FrameGroup] = Field(min_length=1, max_length=6)
+    note: Optional[str] = None
+
+    @field_validator("groups")
+    @classmethod
+    def _at_most(cls, v):
+        n = sum(len(g.concepts) for g in v)
+        if n > MAX_FRAME_CONCEPTS:
+            raise ValueError(f"at most {MAX_FRAME_CONCEPTS} concepts in all, not {n}: join or leave out the least "
+                             "central")
+        return v
+
+
 class CodeDefinitionOut(BaseModel):
     """K1 (the optional AI part): a code's definition, when to use it and when not, drafted from its examples
     (code-definition-v1). The definition and when to use it each name a quote that shows them."""
@@ -469,6 +558,8 @@ def output_schema(kind: str) -> dict:
         s = _inline(TheoryCodesOut.model_json_schema())
     elif kind == "code_definition":
         s = _inline(CodeDefinitionOut.model_json_schema())
+    elif kind == "theory_frame":
+        s = _inline(TheoryFrameOut.model_json_schema(by_alias=True))
     else:
         raise ValueError(f"no output schema for task kind {kind!r}")
     return _require_all(s)

@@ -109,7 +109,9 @@ def _still_drafted(d: Any, code: dict) -> dict | None:
            if _clean_text(d.get(k), 4000) and _clean_text(d.get(k), 4000) == _clean_text(code.get(k), 4000)}
     if not out:
         return None
-    return {"model": _clean_text(d.get("model"), 80), "at": _clean_text(d.get("at"), 40), **out}
+    # K2 (the framework draft): where the words come from ("theory": a codebook made from theory documents)
+    frm = {"from": _clean_text(d.get("from"), 20)} if _clean_text(d.get("from"), 20) else {}
+    return {"model": _clean_text(d.get("model"), 80), "at": _clean_text(d.get("at"), 40), **frm, **out}
 
 
 def drafted_codes(ws: Workspace, name: str) -> int:
@@ -190,7 +192,7 @@ def load(ws: Workspace, name: str) -> dict:
     st["removed"] = removed_codes(ws, name)
     st["stale"] = stale(ws, name)
     st["versions"] = len(_version_files(ws, name))
-    st["profile_default"] = name == _profile_default()
+    st["profile_default"] = name == _profile_default(ws)
     st["clashes"] = clashes(ws, name)  # 0.18: a colleague's version of a code you both changed (sync)
     return st
 
@@ -268,10 +270,10 @@ def settle_clash(ws: Workspace, name: str, uid: str, keep: str, why: str | None 
     return load(ws, name)
 
 
-def _profile_default() -> str:
+def _profile_default(ws: Workspace) -> str:
     from .home import load_settings
 
-    return load_settings().get("profile_framework") or "sdg"
+    return frameworks.chosen(load_settings().get("profile_framework"), ws)
 
 
 def removed_codes(ws: Workspace, name: str) -> list[dict]:
@@ -328,7 +330,7 @@ def list_all(ws: Workspace) -> dict:
     labels = {r[0]: r[1] for r in ws.query("SELECT framework, COUNT(*) FROM labels GROUP BY framework")}
     checks = {r[0]: r[1] for r in ws.query("SELECT framework, COUNT(*) FROM hypotheses WHERE framework IS NOT NULL "
                                            "GROUP BY framework")}
-    default = _profile_default()
+    default = _profile_default(ws)
     for fw in frameworks.available(ws).values():
         info = fw.info()
         try:
@@ -916,7 +918,8 @@ def create(ws: Workspace, name: str, title: str = "", where: str = "project", st
     """A new codebook. `start`: "fresh" (empty), "themes" (`source`: {"codes": [...]} drafts from `from_themes`, the
     ones a person kept), "theory" (0.18.1: `source`: {"codes": [...], "doc_ids": [...]} drafts from `theorycodes.candidates`,
     the ones a person kept, examples from theory documents dropped; 0.19: several documents, each a group of codes;
-    "doc_id" for one still works), "copy" (`source`: {"of": a codebook's name}), "csv" (`source`: {"csv": text}),
+    "doc_id" for one still works; the framework draft, theoryframe.make: "groups": [{"group", "group_name"}], the
+    codes keeping their own group, and each code's "source_docs" naming its documents), "copy" (`source`: {"of": a codebook's name}), "csv" (`source`: {"csv": text}),
     "qdc" (`source`: {"file": base64, "filename"} of a .qdc or .qdpx, or {"qdc": text}; the result's "imported" says
     what was brought in, what was folded and what left out: qdc_import.py; `prepared`: qdc_import.from_path's result,
     for a file on this computer, never from the app's API)."""
@@ -972,8 +975,17 @@ def create(ws: Workspace, name: str, title: str = "", where: str = "project", st
             raise ValueError("Tick at least one concept to start from.")
         titles = {r["doc_id"]: r["title"] or "" for r in ws.query(
             f"SELECT doc_id, title FROM documents WHERE doc_id IN ({','.join('?' * len(ids))})", ids)} if ids else {}
-        used = [d for d in ids if d in titles and any(c.get("source_doc") == d for c in picked)]
-        if len(used) > 1:
+
+        def docs_of(c: dict) -> list:
+            return c.get("source_docs") if isinstance(c.get("source_docs"), list) else [c.get("source_doc")]
+
+        used = [d for d in ids if d in titles and any(d in docs_of(c) for c in picked)]
+        framework = source.get("groups") if isinstance(source.get("groups"), list) else None
+        if framework is not None:
+            # the framework draft (theoryframe.py): its own groups (what the concepts share, across documents)
+            state["groups"] = [{"group": _clean_text(g.get("group"), 60), "group_name": _clean_text(g.get("group_name"), 120)}
+                               for g in framework if isinstance(g, dict) and _clean_text(g.get("group"), 60)]
+        elif len(used) > 1:
             state["groups"] = [{"group": str(i), "group_name": (titles[d] or f"Theory document {i}")[:120]}
                                for i, d in enumerate(used, 1)]
             number = {d: str(i) for i, d in enumerate(used, 1)}
@@ -983,13 +995,16 @@ def create(ws: Workspace, name: str, title: str = "", where: str = "project", st
         # the documents the kept codes come from (a ticked document none of whose concepts was kept is not named);
         # codes that do not say (an older editor): every document sent
         named = [researchlog.quoted(titles[d] or "untitled", 80) for d in
-                 (used if any(c.get("source_doc") for c in picked) else ids) if d in titles]
+                 (used if any(any(docs_of(c)) for c in picked) else ids) if d in titles]
         if len(named) == 1:
             how = f"{n_c} of the theory document {named[0]}"
         elif named:
             how = f"{n_c} of {len(named)} theory documents: {', '.join(named[:-1])} and {named[-1]}"
         else:
             how = f"{n_c} of a theory document"
+        if framework is not None:
+            n_g = len({c.get("group") for c in picked if c.get("group")})
+            how += f", in {n_g} group{'s' if n_g != 1 else ''}"
     elif start != "fresh":
         raise ValueError("Start fresh, from themes, from a theory document, from a copy, from a CSV file or from a "
                          "REFI-QDA codebook (.qdc).")

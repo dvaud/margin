@@ -224,9 +224,10 @@ def test_drafts_come_back_unticked_marked_and_without_the_level_0_candidates(pro
     assert " ".join(text[d["start"]:d["end"]].split()).lower() == NEW_CONCEPT[1] and d["page"] == 1
     assert c["code"]["description"].startswith(f"“{d['quote']}” (Thinking in systems, p. 1)")
     assert c["ticked"] is False
-    # the dialog: AI drafts are never ticked (only the terms Level 0 says are: `ticked`), and are marked "AI draft"
-    js = (ROOT / "src/margin/gui/static/views/codebooks.js").read_text(encoding="utf-8")
-    assert 'c.how === "defined") && !c.ai' in js and "c.ticked" in js and '"AI draft"' in js and '"Draft with AI"' in js
+    # the draft page (the dialog's tick list is gone): the AI reads on request, and its words are marked "AI draft"
+    js = (ROOT / "src/margin/gui/static/views/theory-draft.js").read_text(encoding="utf-8")
+    assert '"Read the theory"' in js and '"AI draft"' in js and "withAI(" in js
+    assert "Draft with AI" not in (ROOT / "src/margin/gui/static/views/codebooks.js").read_text(encoding="utf-8")
 
 
 def test_examples_still_come_only_from_the_evidence(project):
@@ -275,7 +276,7 @@ def test_the_routes_offer_it_and_run_it_as_a_job(api, tmp_path):  # noqa: F811
     assert job["state"] == "done", job
     got = job["result"]
     # the offline demo offers the Level-0 candidates the passages use: the terms the theory defines itself are left
-    # out as repeats (a heading or a frequent word may come back with the sentence the draft chose)
+    # out as repeats (a heading may come back with the sentence the draft chose)
     assert got["ok"] and got["model"] and all(c["ai"] and c["how"] == "ai" for c in got["concepts"])
     assert got["parts"] == got["parts_read"] == 1 and offer["parts"] == 1
     level0 = {c["term"].lower() for c in api("GET", f"/api/projects/Lens/codebook-theory/{theory}")[1]["concepts"]

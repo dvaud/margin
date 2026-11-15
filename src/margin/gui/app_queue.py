@@ -51,7 +51,7 @@ class QueueMixin:
             except Exception:  # noqa: BLE001 - an older project without the table
                 return 0
 
-        fw = self.settings().get("profile_framework") or "sdg"
+        fw = frameworks.chosen(self.settings().get("profile_framework"), ws)
         runs = n("SELECT COUNT(*) FROM theme_runs")
         run = ws.query("SELECT run_id FROM theme_runs ORDER BY created_at DESC LIMIT 1") if runs else []
         out = {
@@ -213,7 +213,7 @@ class QueueMixin:
         from .. import profile
 
         ws = self.ws(name)
-        fw = str(body.get("framework") or self.settings().get("profile_framework") or "sdg")
+        fw = str(body.get("framework") or frameworks.chosen(self.settings().get("profile_framework"), ws))
         frameworks.get(fw, ws)
         emb = self._embedder_for(ws)
 
@@ -227,7 +227,7 @@ class QueueMixin:
         from .. import profile, runs
 
         ws = self.ws(name)
-        fw = _str(q, "framework") or self.settings().get("profile_framework") or "sdg"
+        fw = _str(q, "framework") or frameworks.chosen(self.settings().get("profile_framework"), ws)
         frameworks.get(fw, ws)
         docs = _list(q, "docs")
         plan = profile.label_plan(ws, fw, docs, _bool(q, "all"))
@@ -244,7 +244,7 @@ class QueueMixin:
         from .. import profile
 
         ws = self.ws(name)
-        fw = str(body.get("framework") or self.settings().get("profile_framework") or "sdg")
+        fw = str(body.get("framework") or frameworks.chosen(self.settings().get("profile_framework"), ws))
         frameworks.get(fw, ws)
         docs = body.get("doc_ids") or None
         if docs is not None and not (isinstance(docs, list) and all(isinstance(d, str) for d in docs)):
@@ -265,7 +265,7 @@ class QueueMixin:
         from .. import profile
 
         ws = self.ws(name)
-        fw = str(body.get("framework") or self.settings().get("profile_framework") or "sdg")
+        fw = str(body.get("framework") or frameworks.chosen(self.settings().get("profile_framework"), ws))
         frameworks.get(fw, ws)  # a plain mistake is reported at once, not as a failed job (0.11.1)
         if not ws.scalar("SELECT 1 FROM labels WHERE framework=? AND source='model' LIMIT 1", (fw,)):
             raise ApiError(409, "No passage has AI labels yet in this codebook: there is nothing to compare with.")

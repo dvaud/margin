@@ -115,10 +115,10 @@ def test_rename_stands_in_the_opened_row_and_on_the_page():
     assert "named: d.named" in page
 
 
-def test_the_theory_dialog_can_start_claude_code_itself():
-    js = _js("views/codebooks.js")
-    draft = js[js.index("const draftWithAI = async (btn) => {"):js.index('const draftBtn = button({ onClick: () => draftWithAI(draftBtn) }')]
-    assert 'startClaude(App.project, { command: q.command, foldType: true, always: true })' in draft
-    assert 'q.route === "claude_code" && offer.reader !== "local"' in draft
-    assert "clear(startSlot);" in draft
-    assert "startSlot);" in js[js.index('const draftBtn = button({ onClick: () => draftWithAI(draftBtn) }'):]
+def test_the_theory_draft_page_can_start_claude_code_itself():
+    # the dialog whose backdrop covered the sidebar's Start is gone: a codebook from theory is drafted on a page of
+    # its own, and while its reading waits for Claude Code the card shows the queue's notice with Start Claude Code
+    assert "draftWithAI" not in _js("views/codebooks.js")
+    js = _js("views/theory-draft.js")
+    tick = js[js.index("function tickRunning("):js.index("function theoryRead(")]
+    assert "queueNotice(q)" in tick and "stopButton({ onClick: stopReading })" in tick

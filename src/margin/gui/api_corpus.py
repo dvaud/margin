@@ -23,6 +23,17 @@ ROUTES: list[tuple[str, str, str]] = [
     ("PUT", rf"/api/projects/{P}/documents/{P}/title", "put_document_title"),
     # K2 part 2: a codebook from a theory document (theorycodes.py)
     ("GET", rf"/api/projects/{P}/codebook-theory", "get_codebook_theory_docs"),
+    # K2, the framework draft (theoryframe.py): one draft per project, its reading, the evidence, a term looked up,
+    # and the codebook made from it. Before codebook-theory/{doc}, which "draft" would match.
+    ("GET", rf"/api/projects/{P}/codebook-theory/draft", "get_codebook_theory_draft"),
+    ("POST", rf"/api/projects/{P}/codebook-theory/draft", "post_codebook_theory_draft"),
+    ("PUT", rf"/api/projects/{P}/codebook-theory/draft", "put_codebook_theory_draft"),
+    ("DELETE", rf"/api/projects/{P}/codebook-theory/draft", "delete_codebook_theory_draft"),
+    ("POST", rf"/api/projects/{P}/codebook-theory/draft/read", "post_codebook_theory_draft_read"),
+    ("POST", rf"/api/projects/{P}/codebook-theory/draft/evidence", "post_codebook_theory_draft_evidence"),
+    ("GET", rf"/api/projects/{P}/codebook-theory/draft/lookup", "get_codebook_theory_draft_lookup"),
+    ("GET", rf"/api/projects/{P}/codebook-theory/draft/counts", "get_codebook_theory_draft_counts"),
+    ("POST", rf"/api/projects/{P}/codebook-theory/draft/make", "post_codebook_theory_draft_make"),
     ("GET", rf"/api/projects/{P}/codebook-theory/{P}", "get_codebook_theory"),
     # 0.18.4 (K2 part 2, the optional AI part): whether the AI may draft a theory document's concepts, and the draft
     ("GET", rf"/api/projects/{P}/codebook-theory/{P}/ai", "get_codebook_theory_ai"),
@@ -45,7 +56,11 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST", rf"/api/projects/{P}/documents/{P}/nonscientific-suggestion", "post_nonscientific_suggestion"),
 ]
 DOWNLOADS: set[str] = {"get_figure_image"}  # A7: in an <img>, as get_page_image is
-NOT_A_CHANGE: set[str] = set()
+NOT_A_CHANGE: set[str] = {
+    # K2, the framework draft: the draft is a file of this computer's project folder that the shared folder does not
+    # carry (only the codebook made from it is shared), and the evidence is a search
+    "post_codebook_theory_draft", "put_codebook_theory_draft", "delete_codebook_theory_draft",
+    "post_codebook_theory_draft_evidence"}
 
 
 class CorpusApi:
@@ -125,6 +140,190 @@ class CorpusApi:
         ws = self.app.ws(name)
         rows = ws.query("SELECT doc_id, title, role FROM documents ORDER BY role IS NOT 'theory', title")   # (N3)
         return {"documents": [{"doc_id": r["doc_id"], "title": r["title"], "theory": r["role"] == "theory"} for r in rows]}
+
+    # ---- K2, the framework draft (theoryframe.py) ------------------------------------------------------------------
+    def _theory_job(self, draft: dict):
+        """The job of the draft's running reading, while it runs; None otherwise."""
+        r = draft["reading"]
+        job = self.app.jobs.jobs.get(r.get("job") or "") if r.get("state") == "running" else None
+        return job if job is not None and job.state in ("queued", "running") else None
+
+    def _theory_view(self, draft: dict | None) -> dict | None:
+        """The draft as the page reads it: a reading whose job died (the app restarted, or the job ended without
+        writing its end) is never shown as running for ever."""
+        from .. import theoryframe
+
+        if draft is None:
+            return None
+        r = draft["reading"]
+        # the focus changed since the last reading (the documents never do): reading again gives another framework
+        stale = bool(r.get("input")) and r["input"] != theoryframe._input_hash(draft["doc_ids"], draft.get("focus") or "")
+        draft = {**draft, "reading": {**r, "stale": stale}}
+        r = draft["reading"]
+        if r.get("state") != "running" or self._theory_job(draft) is not None:
+            return draft
+        job = self.app.jobs.jobs.get(r.get("job") or "")
+        if r.get("before") == "read":
+            state = "read"
+        else:
+            state = "none" if job is not None and job.state == "cancelled" else "failed"
+        why = (job.error if job is not None and job.error else
+               "The reading stopped before it was done (the app was closed, or it was stopped).")
+        return {**draft, "reading": {**r, "state": state, "problems": list(r.get("problems") or [])
+                                     + ([why] if state == "failed" else [])}}
+
+    def _theory_draft(self, ws) -> dict:
+        from .. import theoryframe
+
+        d = theoryframe.load(ws)
+        if d is None:
+            raise ApiError(404, theoryframe.NO_DRAFT)
+        return d
+
+    def get_codebook_theory_draft(self, name, q):
+        """{"draft": draft | null, "offer": whether the AI may read its documents (theoryframe.offer) | null,
+        "documents": the documents a draft can start from, theory first (as GET …/codebook-theory)}."""
+        from .. import theoryframe
+
+        ws = self.app.ws(name)
+        d = self._theory_view(theoryframe.load(ws))
+        return {"draft": d, "offer": theoryframe.offer(ws, d["doc_ids"], self.app.settings()) if d else None,
+                **self.get_codebook_theory_docs(name, q)}
+
+    def post_codebook_theory_draft(self, name, q):
+        """Body {"title", "name", "where", "doc_ids", "focus"?}: a new draft (it replaces the one there), its
+        framework without AI. {"draft", "offer"}."""
+        from .. import theoryframe
+
+        ws = self.app.ws(name)
+        body = self._body()
+        old = theoryframe.load(ws)
+        job = self._theory_job(old) if old else None
+        if job is not None:   # a reading of the draft this one replaces: stopped, as when a draft is discarded
+            self.app.jobs.cancel(job)
+        try:
+            d = theoryframe.start(ws, str(body.get("title") or ""), str(body.get("name") or ""),
+                                  str(body.get("where") or "project"), body.get("doc_ids"), str(body.get("focus") or ""))
+        except KeyError:
+            raise ApiError(404, "No such document in this project.") from None
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
+        return {"draft": d, "offer": theoryframe.offer(ws, d["doc_ids"], self.app.settings())}
+
+    def put_codebook_theory_draft(self, name, q):
+        """Body: what changed, {"title"?, "name"?, "where"?, "focus"?, "groups"?, "concepts"?, "rev"?}
+        (theoryframe.save). {"draft"};
+        409 when "rev" is not the draft's (it changed since the page loaded it)."""
+        from .. import theoryframe
+
+        try:
+            return {"draft": self._theory_view(theoryframe.save(self.app.ws(name), self._body()))}
+        except theoryframe.Stale as e:   # the page's draft is older than the one kept: it loads it again
+            raise ApiError(409, str(e)) from None
+        except LookupError as e:
+            raise ApiError(404, str(e)) from None
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
+
+    def delete_codebook_theory_draft(self, name, q):
+        """The draft is discarded (a reading that runs is stopped). {"ok": true}."""
+        from .. import theoryframe
+
+        ws = self.app.ws(name)
+        d = theoryframe.load(ws)
+        job = self._theory_job(d) if d else None
+        if job is not None:
+            self.app.jobs.cancel(job)
+        theoryframe.discard(ws)
+        return {"ok": True}
+
+    def post_codebook_theory_draft_read(self, name, q):
+        """{"job"}: the AI reads the draft's theory documents and puts the framework together (theoryframe.read), as
+        a job that waits its turn like every AI job. A reading that runs already is the one answered."""
+        from .. import theorycodes, theoryframe
+
+        ws = self.app.ws(name)
+        d = self._theory_draft(ws)
+        running = self._theory_job(d)
+        if running is not None:
+            return {"job": running.view()}
+        offer = theoryframe.offer(ws, d["doc_ids"], self.app.settings())
+        if not offer["offered"]:
+            raise ApiError(400, offer["why"])
+        job = self.app.start_queued_job(
+            "theory-frame", f"The AI reads the theory for “{d['title'][:60]}”", name,
+            lambda job, be, model, prog: theoryframe.read(ws, be, model, prog, job.cancel.is_set, job=job.id),
+            withdraw=(theorycodes.AI_KIND, theoryframe.KIND))
+        job.scope = "theory-draft"
+        theoryframe.mark_running(ws, job.id)
+        return {"job": job.view()}
+
+    def post_codebook_theory_draft_evidence(self, name, q):
+        """Body {"concept": {"name", "meaning"?, "when_to_use"?, "words"?}, "skip"?: [passage ids], "k"?: 1 to 8}:
+        passages of the evidence documents that may show the concept (theoryframe.evidence, no AI). {"passages"}."""
+        from .. import theoryframe
+
+        ws = self.app.ws(name)
+        body = self._body()
+        concept = body.get("concept")
+        if not isinstance(concept, dict):
+            raise ApiError(400, "Send the concept: {\"concept\": {\"name\", \"when_to_use\", \"words\"}}.")
+        skip = body.get("skip") or []
+        if not isinstance(skip, list):
+            raise ApiError(400, "\"skip\" is a list of passage ids.")
+        try:
+            k = max(1, min(8, int(body.get("k") or 4)))
+        except (TypeError, ValueError):
+            k = 4
+        return {"passages": theoryframe.evidence(ws, concept, k=k, skip=[str(x) for x in skip],
+                                                 embedder=self._quiet_embedder(ws))}
+
+    def _quiet_embedder(self, ws):
+        """The app's embedder when this project has vectors from it already (as the Search page's search by meaning
+        gets it), else None; any problem getting it: None, and the search goes by keywords."""
+        try:
+            return self.app._embedder_for(ws)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def get_codebook_theory_draft_counts(self, name, q):
+        """{"documents": n, "counts": {concept key: n}}: in how many of the evidence documents each concept's words
+        are found (theoryframe.evidence_counts, no AI), for the draft as it is kept."""
+        from .. import theoryframe
+
+        ws = self.app.ws(name)
+        self._theory_draft(ws)
+        return theoryframe.evidence_counts(ws)
+
+    def get_codebook_theory_draft_lookup(self, name, q):
+        """?term=…: the term in each of the draft's theory documents (theoryframe.lookup), and "passages": the evidence
+        for it (theoryframe.evidence)."""
+        from .. import theoryframe
+
+        ws = self.app.ws(name)
+        d = self._theory_draft(ws)
+        term = (_str(q, "term") or "").strip()
+        try:
+            got = theoryframe.lookup(ws, d["doc_ids"], term)
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
+        return {**got, "passages": theoryframe.evidence(ws, {"name": got["term"], "words": [got["term"]]},
+                                                        embedder=self._quiet_embedder(ws))}
+
+    def post_codebook_theory_draft_make(self, name, q):
+        """The kept concepts become a codebook (theoryframe.make) and the draft is gone. {"codebook"}."""
+        from .. import theoryframe
+
+        ws = self.app.ws(name)
+        d = theoryframe.load(ws)
+        if d is not None and self._theory_job(d) is not None:
+            raise ApiError(409, "The AI is still reading the theory: wait until it is done, or stop it.")
+        try:
+            return {"codebook": theoryframe.make(ws)}
+        except LookupError as e:
+            raise ApiError(404, str(e)) from None
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
 
     # ---- D3 and D4 -----------------------------------------------------------------------------------------------
     def get_concept_paths(self, name, q):

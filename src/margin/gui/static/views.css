@@ -735,16 +735,6 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .cb-theme { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; cursor: pointer; }
 .cb-theme input { margin-top: 4px; }
 .cb-theme-desc { display: block; color: var(--text-2); font-size: var(--fs-small); }
-.cb-theory-why { display: block; }   /* 0.18.4: why the AI offers a drafted concept */
-/* 0.18.4: a theory's concept stacks: its name and definition, then its examples under them (side by side, a phone
-   squeezed the definition into a narrow column) */
-.cb-theory { flex-direction: column; gap: var(--space-1); }
-.cb-theory-head { display: flex; gap: var(--space-2); align-items: flex-start; cursor: pointer; }
-.cb-theory-examples { display: flex; flex-direction: column; gap: var(--space-1); padding-left: var(--space-5); }
-.cb-theory-example { display: flex; gap: var(--space-2); align-items: flex-start; }
-.cb-theory-ai { margin: var(--space-2) 0 var(--space-3); }
-/* 0.19: a theory's concepts in their own list; with several theories, one group (a .cb-run) per document */
-.cb-theory-list { display: flex; flex-direction: column; gap: 12px; }
 .cb-theme-name { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; }
 .cb-steps { display: inline-flex; gap: 2px; }
 .cb-step { min-height: 0; }
@@ -806,6 +796,59 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 /* 0.18 (L1): a code you and a colleague both changed: a card per code holding a comparison (compare(), components.css
    4.27); each side's fields as a list, what differs marked by a line and said in words (" · differs") */
 .cb-clashes { margin: 0 0 var(--space-4); }
+/* K2: a codebook from theory, drafted (views/theory-draft.js): the editor's group cards, rows, detail and bar, and
+   these places of its own */
+.cb-draft-notice { margin-bottom: var(--space-3); }
+.td-theory { margin-bottom: var(--space-3); }
+.td-theory > p { margin: 0 0 var(--space-2); }
+.td-work { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
+.td-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.td-frame { border: 0; padding: 0; margin: 0; min-width: 0; }
+.td-framework > p { margin: 0 0 var(--space-2); }
+.td-filter { margin-bottom: var(--space-2); }
+.td-jumps { margin: 0 0 var(--space-3); }
+.td-group-input { max-width: 360px; flex: 1 1 200px; }
+.td-about { margin: calc(-1 * var(--space-1)) 0 var(--space-2); }
+.td-row > .btn { align-self: center; margin: 0 var(--space-2) 0 var(--space-1); }
+.td-divider { list-style: none; padding: var(--space-3) 10px var(--space-1); border-top: 1px solid var(--border); }
+.td-detail { padding-left: 10px; }
+.td-part { padding: var(--space-3) 0; }
+.td-part + .td-part { border-top: 1px solid var(--border); }
+.td-h3 { font-size: var(--fs-section); margin: 0 0 var(--space-2); }
+.td-quotes, .td-kept, .td-found { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-2); }
+.td-quote-text { margin: 0 0 var(--space-1); }
+.td-where { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-1); margin: 0 0 var(--space-1); }
+.td-passage .btn-row, .td-passage > p { margin: 0 0 var(--space-1); }
+.td-kept-mark { display: inline-flex; align-items: center; gap: var(--space-1); }
+.td-more-doc { margin-top: var(--space-2); }
+.td-more-doc > p { margin: 0 0 var(--space-1); }
+.td-options { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.td-options li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); }
+.td-pick { display: flex; gap: var(--space-2); align-items: flex-start; cursor: pointer; }
+.td-pick input { margin-top: var(--space-1); }
+.td-ev-foot { margin-top: var(--space-1); }
+.td-foot { margin-bottom: var(--space-3); }
+.td-aside { margin-bottom: var(--space-3); }
+.td-aside-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; }
+.td-aside-list li { display: grid; grid-template-columns: minmax(120px, 200px) minmax(80px, 160px) 1fr auto; gap: var(--space-3); align-items: center; padding: 6px 0; }
+.td-aside-list li + li { border-top: 1px solid var(--border); }
+.td-aside-quote { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.td-add { margin-bottom: var(--space-4); }
+.td-add-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.td-add-row > .input { flex: 1 1 240px; max-width: 420px; }
+.td-lookup > p { margin: var(--space-2) 0; }
+.td-bar-note { flex: 1 1 auto; }
+@media (max-width: 520px) { .td-bar-note { display: none; } }   /* a phone's bar: the counts and the button */
+@container cb-codes (max-width: 620px) {
+  .td-concept .cb-code-desc { white-space: nowrap; }
+  .td-row { align-items: flex-start; }
+  .td-row > .btn { align-self: flex-start; margin-top: var(--space-1); }
+}
+@media (max-width: 620px) {
+  .td-aside-list li { grid-template-columns: 1fr auto; }
+  .td-aside-where, .td-aside-quote { grid-column: 1 / -1; }
+  .td-aside-list li > .btn { grid-column: 2; grid-row: 1; }
+}
 /* roles (H8): a colleague's renames and merges offered, as a card (decisionCard()) */
 .cb-offer:not(:empty) { margin: 0 0 var(--space-3); }
 .cb-clashes > .notice { margin-bottom: var(--space-3); }
