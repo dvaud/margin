@@ -1,8 +1,10 @@
 // The live progress panel of a check (also used for batches and "read more"): updated in place from the job's
 // progress every poll, so running spinners do not restart and the page does not flicker.
-import { App, api, h, icon, replace, clear, fmt, cancelJob, showError, queueNotice, startClaude, watchJob, TERMINAL, P, button, card, fold, link, notice, stopButton, setBusy } from "../lib.js";
+import { App, api, h, icon, replace, clear, fmt, cancelJob, showError, queueNotice, localPanel, startClaude, watchJob, TERMINAL, P, button, card, fold, link, notice, stopButton, setBusy } from "../lib.js";
 
 const STEP_ICON = { pending: "circle", running: "loader", done: "check" };
+// 0.19.4: the backends of Settings that are a model on this computer (its panel shows while it reads)
+const LOCAL_MAIN = new Set(["ollama", "openai", "auto"]);
 const plainPhase = (phase) => ({ waiting: "The AI is getting ready and reading", thinking: "The AI is thinking it over", writing: "The AI is writing down its judgement", done: "The AI has finished" }[phase] || "The AI is working");
 
 export class ProgressPanel {
@@ -280,7 +282,13 @@ export function simpleProgress(job, labelFn) {
   const running = job.state === "queued" || job.state === "running";
   const label = job.waiting_for ? job.waiting_for.message   // 0.18 queued jobs
     : labelFn ? labelFn(p, job) : (p.file ? `${done} of ${total} · ${p.file}` : total ? `${done} of ${total}` : "Starting…");
+  // 0.19.4: a local model at work has its own panel, beside Claude Code's when both read (the local one reads first)
+  const m = p.model;
+  const localNow = running && m && m.phase && m.phase !== "done" && (m.who === "local" || LOCAL_MAIN.has(App.settings().backend));
   return h("div", { class: "stack prg-line" },
+    localNow ? localPanel(m.phase === "refused"
+      ? { model: m.model, memory: m.memory, refused: m.memory ? null : m.error, head: "Your local model was not started: its passages wait", note: "When this run has finished, you can start it from this card." }
+      : { model: m.model, running: { phase: m.phase } }) : null,
     running && p.queue ? queueNotice(p.queue) : null,
     h("div", { class: "row prg-line-head" }, h("span", { class: "it" }, running ? h("span", { class: "running-dot", "aria-hidden": "true" }) : null, h("strong", {}, label)), h("span", { class: "muted small" }, fmt.secs(job.seconds))),
     h("div", { class: "progress-bar " + (running && !total ? "indeterminate" : ""), role: "progressbar", "aria-valuemin": 0, "aria-valuemax": total || 100, "aria-valuenow": total ? done : null, "aria-label": label },

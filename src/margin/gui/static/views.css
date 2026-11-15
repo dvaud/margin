@@ -672,14 +672,20 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .pf-ai .ev-tech-list { margin-bottom: 4px; }
 .pf-ai-compact { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--border); }
 .pf-ai-compact .pf-ai-title { font-size: var(--fs-body); }
-/* the codes addressed most */
-.pf-top { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+/* the codes addressed most. The rows share their columns (subgrid), so the codes' column is as wide as its widest
+   code asks, up to 14rem, and the bars and counts line up down the list. A short mark ("3.4") stands in the mono; a
+   name (a codebook of your own, up to 40 characters: .pf-top-named, set by the page as the heat grid does, DESIGN
+   4.25) is set in the interface's face and wraps in its column. A code never runs over its description and is never
+   cut short; beside names the description takes two lines. */
+.pf-top { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: fit-content(14rem) minmax(0, 1fr) minmax(80px, 180px) auto; gap: 4px 12px; }
 .pf-top li {
- display: grid; grid-template-columns: 3.6em minmax(0, 1fr) minmax(80px, 180px) auto; gap: 4px 12px; align-items: center;
-  padding: 5px 10px; border-radius: var(--radius-ctl); background: var(--surface); border: 1px solid var(--border); font-size: var(--fs-small); 
+  display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; row-gap: 4px; align-items: center;
+  padding: 5px 10px; border-radius: var(--radius-ctl); background: var(--surface); border: 1px solid var(--border); font-size: var(--fs-small);
 }
-.pf-top-code { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: var(--fw-strong); color: var(--accent-text); }
+.pf-top-code { min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: var(--fw-strong); color: var(--accent-text); overflow-wrap: anywhere; }
+.pf-top-named .pf-top-code { font-family: var(--font-ui); font-size: var(--fs-small); line-height: 1.3; }
 .pf-top-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.pf-top-named .pf-top-desc { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
 .pf-top-bar { height: 8px; background: var(--surface-3); border-radius: var(--radius-pill); overflow: hidden; }
 .pf-top-bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
 .pf-top-n { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -690,7 +696,8 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
    cell by an outline. */
 .pf-grid-key { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin: 0 0 8px; }
 @media (max-width: 860px) {
-  .pf-top li { grid-template-columns: 3.4em minmax(0, 1fr); grid-template-areas: "code n" "desc desc"; }
+  .pf-top { grid-template-columns: minmax(0, 1fr) auto; }
+  .pf-top li { grid-template-areas: "code n" "desc desc"; }
   .pf-top-code { grid-area: code; }
   .pf-top-n { grid-area: n; justify-self: end; }
   .pf-top-desc { grid-area: desc; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -1562,6 +1569,11 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .cc-step strong { display: block; }
 /* Start Claude Code (queue notices, the sidebar panel) */
 .start-claude { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+/* 0.19.4: the local panel (localPanel()): the Claude Code panel's rows, in the local notice */
+.lp-eyebrow { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-weight: var(--fw-strong); }
+.lp-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lp-start { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lp-model-label { color: var(--text-2); }
 .sc-start, .sc-running { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* the button's hint is a line of its own under it, never read as part of the AI mark beside the button */
 .sc-start > .muted { flex: 1 0 100%; }

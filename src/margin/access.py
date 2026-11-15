@@ -667,6 +667,7 @@ class Readers:
         self._settings = settings
         self._local: tuple | None = None
         self._local_tried = False
+        self._report = None                    # 0.19.4: how the local model reports to the page (_wire)
         self.local_problem: str | None = None
         # 0.13.11: the local model's reports while it reads (info dicts, marked "who": "local") and the job's Stop;
         # without them, those of the main backend are used
@@ -722,10 +723,28 @@ class Readers:
                   or getattr(self.backend, "progress", None))
         stop = (self.should_stop or getattr(self.backend, "local_should_stop", None)
                 or getattr(self.backend, "should_stop", None))
+        self._report = report
         if report is not None and hasattr(be, "progress"):
             be.progress = lambda info, _r=report: _r({**info, "who": "local"})
         if stop is not None and hasattr(be, "should_stop"):
             be.should_stop = stop
+
+    def local_ended(self, refused=None) -> None:
+        """0.19.4: tell the page the local model reads nothing more in this job (phase "done"), or that it was not
+        started (phase "refused", with why: a MemoryShort gives its numbers too), so its panel does not go on saying
+        it is loading."""
+        report = getattr(self, "_report", None)
+        if report is None or self._local is None:
+            return
+        info = {"who": "local", "model": self._local[1], "phase": "refused" if refused else "done"}
+        if refused:
+            info["error"] = str(refused)
+            if hasattr(refused, "need"):
+                info["memory"] = {"need": refused.need, "free": refused.free, "short": True}
+        try:
+            report(info)
+        except Exception:  # noqa: BLE001 - a display problem must never stop the work
+            pass
 
     def stopped(self) -> bool:
         """Whether the job was stopped (a local model's "Stopped." is not a model that cannot be reached)."""
@@ -773,6 +792,34 @@ class Readers:
     def for_task(self, ws: Workspace, task_id: str):
         lv = ws.scalar("SELECT access FROM tasks WHERE task_id=?", (task_id,)) or "cloud"
         return self.for_level(lv)
+
+
+def local_status(settings: dict) -> dict:
+    """0.19.4: the local model that reads documents marked Only a local AI, for the local panel, without starting it:
+    {"model", "server", "memory": {"loaded"} or {"need", "free", "short"}} (memory only where the server says enough),
+    {"model", "problem"} when it cannot be used, {"same_as_main": True} when the main model reads them itself, or
+    {"model": None, "problem"} when none is chosen."""
+    from .home import make_restricted_backend, restricted_choice
+    from .llm import BackendError
+
+    choice = restricted_choice(settings)
+    if not choice:
+        return {"model": None, "problem": "No local model is chosen for documents marked Only a local AI "
+                                          "(Settings → AI)."}
+    if choice.get("same_as_main"):
+        return {"same_as_main": True}
+    try:
+        got = make_restricted_backend(settings)
+    except BackendError as e:
+        return {"model": choice.get("model"), "server": choice.get("server"), "problem": str(e)}
+    if got is None:
+        return {"model": None, "problem": "No local model is chosen for documents marked Only a local AI."}
+    be, model = got
+    out: dict = {"model": model, "server": choice.get("server")}
+    st = be.memory_status(model) if hasattr(be, "memory_status") else None
+    if st:
+        out["memory"] = st
+    return out
 
 
 def allowed_docs(ws: Workspace, allowed: set[str]) -> set[str]:

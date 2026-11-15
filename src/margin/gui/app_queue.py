@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .api_common import ONE_START, ApiError, Cancelled, Job, _body_int, _bool, _list, _str, benchmark_table
 from .progress import Tracker
-from .. import addons, claimcheck, frameworks, home, runs as runs_mod, taskqueue, tasks as tasks_mod
+from .. import access, addons, claimcheck, frameworks, home, runs as runs_mod, taskqueue, tasks as tasks_mod
 from ..claude_setup import setup_info as claude_setup_info
 from ..llm import BackendError
 
@@ -146,8 +146,6 @@ class QueueMixin:
         """A job in which the local model (Settings' local model for restricted documents) answers the queue's tasks
         here: `what` "mix" (the kinds the AI mix gives it first, unsure ones going up to Claude) or "limit" (every
         waiting task, after Claude Code reached the plan's usage limit)."""
-        from .. import access
-
         ws = self.ws(name)
 
         def run(job: Job):
@@ -238,7 +236,10 @@ class QueueMixin:
         except (BackendError, ValueError) as e:
             rp = {"error": str(e), "changed": [], "seconds_per_task": None, "now": {}}
         sec = rp.get("seconds_per_task")
-        return {**plan, "run": rp, "estimate_seconds": round(sec * plan["to_read"]) if sec else None}
+        out = {**plan, "run": rp, "estimate_seconds": round(sec * plan["to_read"]) if sec else None}
+        if plan.get("local") and not rp.get("error"):
+            out["local_model"] = access.local_status(self.settings())  # 0.19.4: the local panel's model and memory
+        return out
 
     def start_labels(self, name: str, body: dict) -> Job:
         from .. import profile
@@ -257,7 +258,8 @@ class QueueMixin:
             raise ApiError(400, "passage_ids must be a list of passage ids.")
         job = self._model_job("label", f"The AI labels passages ({fw})", name, lambda job, be, model, prog:
                                profile.run_labels(ws, fw, be, model, docs, bool(body.get("all_passages")), limit,
-                                                  progress=prog, should_stop=job.cancel.is_set, passage_ids=pids))
+                                                  progress=prog, should_stop=job.cancel.is_set, passage_ids=pids,
+                                                  force=bool(body.get("force"))))
         job.scope = ",".join(docs) if docs else fw
         return job
 

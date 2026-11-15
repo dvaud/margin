@@ -908,8 +908,8 @@ export const UI = {
   iconButton: "icon-btn", iconButtonSm: "icon-btn icon-btn-sm",
   link: { plain: "", title: "link-title", back: "link-back", next: "link-next", external: "link-external", jump: "link-jump" },
   tag: { neutral: "chip", code: "chip chip-code", attention: "warn-chip", count: "chip chip-count" },
-  notice: { info: "notice notice-info", done: "notice notice-ok", attention: "notice notice-warn", error: "notice notice-error" },
-  noticeIcon: { info: "info", done: "check", attention: "alert-triangle", error: "alert-circle" },
+  notice: { info: "notice notice-info", done: "notice notice-ok", attention: "notice notice-warn", error: "notice notice-error", local: "notice notice-local" },
+  noticeIcon: { info: "info", done: "check", attention: "alert-triangle", error: "alert-circle", local: "house" },
   card: "card", cardSm: "card-sm", fold: "fold", foldSm: "fold-sm", choice: "seg", choiceButton: "seg-btn", option: "option-card",
   input: "input", select: "select", textarea: "textarea", search: "search-field",
   menu: "menu-list", menuItem: "menu-item", menuSep: "menu-sep",
@@ -1657,6 +1657,8 @@ export function heatHead(text, { title, spoken } = {}) {
 // grid fits its frame that way. Once it would not, a name per column shows four of thirty codes at a time, so the
 // names are set at a slant over narrow columns instead (`.heat-slant`), which shows most of them at once.
 const NAMED_HEAD = 10, NAME_COL = 6.5;
+// The same question for any place that sets codes (0.19.4: the Codes profile's ranked codes): are these names?
+export const codesAreNames = (codes) => codes.some((c) => String(c).length > NAMED_HEAD);
 
 // 0.18.2: a heat grid in its frame (components.css, 4.25 The heat grid). Both of its axes are data, so a grid wider
 // than the page still scrolls sideways, but never silently: while columns are out of sight, a bar above it says which
@@ -1667,7 +1669,7 @@ const NAMED_HEAD = 10, NAME_COL = 6.5;
 // `label` names the grid (its region, the layer's title); `unit` is what its columns are, in the plural.
 export function heatGrid(table, { label, unit = "columns" } = {}) {
   const texts = [...table.querySelectorAll("thead .heat-head-text")];
-  const named = texts.some((t) => t.textContent.length > NAMED_HEAD);
+  const named = codesAreNames(texts.map((t) => t.textContent));
   table.classList.toggle("heat-named", named);
   // the head of the column under the pointer (or holding the focus) is marked, so that a name is found from a cell far
   // below it
@@ -2260,6 +2262,89 @@ function choiceChanged(project, from) {
     if (e.box === from || e.project !== project) continue;
     if (e.box.isConnected) e.redraw(); else if (e.box.dataset.drawn) SC_LIVE.delete(e);
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 0.19.4: the local model's panel, the twin of the Claude Code panel (queueNotice + startClaude) for a model on this
+// computer. The same order (what waits, the start row, the model's own row, the AI line at its foot) and the same
+// buttons, so the two read as one family; told apart by its box (docs/DESIGN.md 4.12, the local notice: the page's own
+// ground, a stronger edge, "On this computer" over its head) and the house wherever Claude's panel has the inbox and
+// the cloud. It shows what Claude Code's panel cannot know: the model's memory against what this computer has free.
+//
+// opts: model (its name), memory ({ loaded } or { need, free, short } in bytes, from /api/local-status), problem (why
+// it cannot be used), count + noun (what waits: 33, "passage"), running ({ phase, seconds, done, total }: the model
+// is reading; the card around it holds Stop), refused (the job's MemoryShort words: it was not started), onStart(force)
+// (the start row; force: "Start it anyway").
+const GiB = 1 << 30;
+const gb = (n) => `${(n / GiB).toFixed(1)} GB`;
+const LOCAL_PHASE = { waiting: "is loading and reading", thinking: "is thinking it over", writing: "is writing its answer", done: "has finished" };
+
+export function localPanel(opts = {}) {
+  // opts.load: the panel asks /api/local-status for the model and its memory itself, and fills them in when they come
+  const box = h("div", { class: "local-panel" });
+  let st = { ...opts };
+  const draw = () => replace(box, localPanelBody(st));
+  draw();
+  if (opts.load) api("GET", "/api/local-status").then((r) => {
+    if (!r || r.same_as_main) return;
+    st = { ...st, model: st.model || r.model, memory: st.memory || r.memory, problem: st.problem || r.problem };
+    draw();
+  }).catch(() => {});
+  return box;
+}
+
+let LP_SEQ = 0;   // each local panel's own ids
+// opts beyond localPanel's: blocking (the local model's work is all that is left, so a model that cannot start needs
+// you: the attention notice, and Start is the panel's main button), sub (one more line under the head: "Claude labels
+// the other 2 meanwhile."), anywayText (only the Start it anyway button, with these words: the card's own main button
+// starts the rest), status (what came of the last press, said once), note (a line where the buttons would be).
+function localPanelBody(o) {
+  const name = o.model || "your local model";
+  const noun = o.noun || "passage";
+  const mem = o.memory;
+  const short = !!(mem && mem.short) || !!o.refused;
+  const alarm = (short && o.blocking) || !!o.problem;
+  const id = `lp-${++LP_SEQ}`;
+  // the house in every state: the eyebrow says whose panel this is, whatever its tone
+  const parts = [h("p", { class: "lp-eyebrow small", id }, icon("house", { size: 13 }), "On this computer")];
+  if (o.running) {
+    parts.push(h("p", { class: "lp-head" }, h("span", { class: "running-dot", "aria-hidden": "true" }),
+      h("strong", {}, `${o.model || "Your local model"} ${LOCAL_PHASE[o.running.phase] || "is reading"}`)));
+  } else {
+    parts.push(h("p", { class: "lp-head" }, h("strong", {}, o.head || (o.count ? `${plural(o.count, noun)} ${o.count === 1 ? "waits" : "wait"} for your local model` : "Waiting for your local model"))));
+  }
+  if (o.sub) parts.push(h("p", { class: "muted small" }, o.sub));
+  // the memory line, one sentence from the numbers: what Claude Code's panel has no need of
+  if (o.problem) parts.push(h("p", { class: "small" }, o.problem));
+  else if (mem && mem.need) {
+    const words = `Needs about ${gb(mem.need)} of memory; ${gb(mem.free)} is free now.${short ? " Close other programs, or choose a smaller model in Settings › AI." : ""}`;
+    parts.push(short && !alarm ? h("p", { class: "lp-mem small" }, workState("attention", words)) : h("p", { class: `lp-mem small${short ? "" : " muted"}` }, words));
+  } else if (o.refused) parts.push(h("p", { class: "lp-mem small" }, o.refused));
+  else if (mem && mem.loaded && !o.running) parts.push(h("p", { class: "lp-mem muted small" }, `${o.model || "Your local model"} is in memory already: it starts at once.`));
+  if (!o.running && !o.problem && o.onStart) {
+    const go = async (b, force) => {
+      b.disabled = true;
+      try { await o.onStart(force); } catch (e) { showError(e); b.disabled = false; }
+    };
+    const anyway = short ? button({ kind: o.anywayText ? "standard" : "quiet", sm: true, onClick: async () => {
+      const ok = await confirmDialog({ title: `Start ${name} anyway?`, danger: false, confirmText: "Start it anyway",
+        message: h("p", {}, "The computer may become very slow, or stop answering for a while, until the model has finished. What you have open is kept.") });
+      if (ok) go(anyway, true);
+    } }, o.anywayText || "Start it anyway") : null;
+    if (o.anywayText) {
+      if (anyway) parts.push(h("div", { class: "lp-start" }, withAI(anyway)));
+    } else {
+      const start = button({ kind: "main", sm: true, icon: "play", onClick: () => go(start, false) }, `Start ${name}`);
+      parts.push(h("div", { class: "lp-start" }, anyway ? withAI(start, anyway) : withAI(start),
+        anyway ? null : h("span", { class: "muted small" }, "Runs here, in this app, and stops by itself when nothing waits.")));
+    }
+  } else if (o.note) parts.push(h("p", { class: "muted small" }, o.note));
+  if (o.status) parts.push(h("p", { class: "small", role: "status" }, o.status));
+  // the model's own row, where Claude's panel has Thought and its helpers (not while it reads: nothing to change then)
+  if (!o.running) parts.push(h("p", { class: "lp-model small" }, h("span", { class: "lp-model-label" }, "Model"), " ",
+    h("span", { class: "mono" }, o.model || "none chosen"), " · ", link({ href: "#/settings/model" }, o.problem && !o.model ? "Choose one in Settings › AI" : "Change it in Settings › AI")));
+  parts.push(aiWhere(`The ${noun}s it reads never leave this computer.`, "local"));
+  return notice({ kind: alarm ? "attention" : "local", icon: alarm ? undefined : false, class: "local-notice", role: "group", "aria-labelledby": id }, ...parts);
 }
 
 // 0.13.10: how fast Claude Code works: how many helpers it starts at once (one, two or four). Faster is done sooner

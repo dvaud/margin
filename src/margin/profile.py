@@ -413,15 +413,23 @@ class _WsShim:
 
 def run_labels(ws: Workspace, framework: str, backend, model: str, doc_ids: list[str] | None = None,
                all_passages: bool = False, limit: int | None = None, progress: Callable | None = None,
-               should_stop: Callable[[], bool] | None = None, passage_ids: list[str] | None = None) -> dict:
+               should_stop: Callable[[], bool] | None = None, passage_ids: list[str] | None = None,
+               force: bool = False) -> dict:
     """The model pass as a job: make the tasks, answer them one by one (resumable), record the run. `passage_ids`:
-    only these passages (0.16)."""
+    only these passages (0.16).
+
+    0.19.4: the passages of documents marked Only a local AI are read first, by the local model, while Claude Code
+    takes its own from the queue. When the local model cannot start (too little memory free: `llm.MemoryShort`, or it
+    cannot be reached), those passages wait and the others are read all the same: the result says how many wait and
+    why (`local_waiting`, `memory_short`, `local_problem`). `force` starts the local model even when this computer
+    seems to have too little memory free for it (the person chose "Start it anyway")."""
     from . import runs, tasks
+    from .llm import BackendError, MemoryShort
 
     from . import access
 
     plan = label_plan(ws, framework, doc_ids, all_passages, limit, passage_ids)
-    readers = access.Readers(backend, model)
+    readers = access.Readers(backend, model, should_stop=should_stop, check_memory=not force)
     dflt = access.default(ws)
     lv = access.levels(ws)
     doc_of = access.doc_of_passages(ws._conn(), plan["passage_ids"]) if plan["passage_ids"] else {}
@@ -434,6 +442,11 @@ def run_labels(ws: Workspace, framework: str, backend, model: str, doc_ids: list
         else:
             reader_of[pid] = got
     plan["passage_ids"] = [p for p in plan["passage_ids"] if p in reader_of]
+    # the local model's passages first: it reads here while Claude Code answers its own from the queue
+    by_local = {p for p, got in reader_of.items() if got[0] is not backend}
+    plan["passage_ids"].sort(key=lambda p: p not in by_local)
+    local_off: str | None = None   # why the local model reads nothing more in this run
+    local_said = False             # whether the page was told the local model has ended
     make_label_tasks(ws, framework, plan["passage_ids"], model, all_passages)
     run_id = runs.start(ws, "label", framework, backend, model, len(plan["passage_ids"]))
     done = failed = 0
@@ -457,7 +470,24 @@ def run_labels(ws: Workspace, framework: str, backend, model: str, doc_ids: list
         if got is None:
             skipped += 1
             continue
-        ok, _errs = tasks.run_one(ws, tid, got[0], got[1])
+        local = got[0] is not backend
+        if local and local_off:
+            continue  # waits for the local model, as the passages before it
+        if not local and by_local and not local_said:
+            local_said = True
+            readers.local_ended(readers.memory_short or local_off)  # its passages came first: its panel says it has ended
+        try:
+            ok, _errs = tasks.run_one(ws, tid, got[0], got[1])
+        except MemoryShort as e:
+            readers.memory_short, local_off = e, str(e)
+            continue
+        except BackendError as e:
+            if not local or readers.stopped():
+                raise
+            readers.local_problem = local_off = str(e)
+            continue
+        if local:
+            readers.read += 1
         if getattr(backend, "name", "") != "claude_code":  # by queue the connector measures (waiting is not reading)
             runs.timing(ws, "label", runs._routed(backend, "label", model), time.time() - t0)
         done += ok
@@ -471,10 +501,26 @@ def run_labels(ws: Workspace, framework: str, backend, model: str, doc_ids: list
             change["added"] += len(got - cand)
     if getattr(getattr(backend, "router", None), "route", "") == "local" and not (should_stop and should_stop()):
         tasks.run_stepups(ws, backend, ["label"], should_stop)  # the stronger model once, after the small one
+    if by_local and not local_said:
+        readers.local_ended(readers.memory_short or local_off)
     runs.finish(ws, run_id, done + failed)
+    readers.free_memory()  # a large local model lets go of its memory once it has read
+    waiting = 0
+    if local_off:
+        head = f"label:{framework}:"
+        waiting = int(ws.scalar(
+            f"SELECT COUNT(*) FROM tasks WHERE task_id IN ({','.join('?' * len(by_local))}) AND status != 'done'",
+            [head + p for p in by_local]) or 0) if by_local else 0
+    local_model = readers._local[1] if readers._local and by_local else None
     return {"framework": framework, "read": done, "failed": failed, "planned": len(plan["passage_ids"]),
             "stopped": bool(should_stop and should_stop()), "changes": change,
-            "skipped_restricted": skipped + plan.get("no_ai", 0)}
+            "skipped_restricted": skipped + plan.get("no_ai", 0),
+            "local_read": readers.read, "local_waiting": waiting, "local_model": local_model,
+            "memory_short": str(readers.memory_short) if readers.memory_short else None,
+            # 0.19.4: the numbers, so the local panel writes its one sentence (need and free, in bytes)
+            "memory": ({"need": readers.memory_short.need, "free": readers.memory_short.free, "short": True}
+                       if readers.memory_short else None),
+            "local_problem": None if readers.memory_short else (local_off or None)}
 
 
 # ---------------------------------------------------------------------------------------------

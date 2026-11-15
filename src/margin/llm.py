@@ -626,24 +626,33 @@ class OllamaBackend:
                      if self._same(m.get("name") or m.get("model") or "", model)), 0)
         return size + self.num_ctx * KV_BYTES_PER_TOKEN if size > 0 else None
 
-    def check_memory(self, model: str) -> None:
-        """0.13.11: raise MemoryShort when the model is not in memory yet and this computer has clearly too little
-        free for it. The memory of the other models Ollama holds counts as free (Ollama lets go of them to make
-        room). Nothing is checked without `memory_guard`, or when Ollama or the computer do not say enough."""
-        if not self.memory_guard:
-            return
+    def memory_status(self, model: str) -> dict | None:
+        """0.19.4: the model's memory against what this computer has free now, for the page that would start it:
+        {"loaded": True} when Ollama holds it already, else {"need", "free", "short"} in bytes (the memory of the other
+        models Ollama holds counts as free: Ollama lets go of them to make room). None when Ollama or the computer
+        do not say enough."""
         try:
             held = self._call("/api/ps", timeout=5).get("models", []) or []
         except BackendError:
-            return
+            return None
         if any(self._same(m.get("name") or m.get("model") or "", model) for m in held):
-            return
+            return {"loaded": True, "short": False}
         need = self.memory_need(model)
         free = free_memory() if need else None
-        if need and free is not None:
-            free += sum(int(m.get("size") or 0) for m in held)
-            if free < need:
-                raise MemoryShort(model, need, free)
+        if not need or free is None:
+            return None
+        free += sum(int(m.get("size") or 0) for m in held)
+        return {"loaded": False, "need": int(need), "free": int(free), "short": free < need}
+
+    def check_memory(self, model: str) -> None:
+        """0.13.11: raise MemoryShort when the model is not in memory yet and this computer has clearly too little
+        free for it (see memory_status). Nothing is checked without `memory_guard`, or when Ollama or the computer
+        do not say enough."""
+        if not self.memory_guard:
+            return
+        st = self.memory_status(model)
+        if st and st.get("short"):
+            raise MemoryShort(model, st["need"], st["free"])
 
     def unload(self, model: str) -> bool:
         """Free the memory a model holds (Ollama unloads it at once with keep_alive 0). False if Ollama refused."""

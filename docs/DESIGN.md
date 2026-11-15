@@ -488,6 +488,7 @@ per card. **Not for:** a fact about one item (a [tag](#410-tags-and-counts)), wh
 | Done | `"done"` | The same, with a tick | A state the page is about that stays true: *Ollama is installed and running* |
 | Attention | `"attention"` | Amber ground and edge, the triangle | Needs you before you go on |
 | Error | `"error"` | Red ground and edge, the alert circle | Did not work |
+| Local | `"local"` | The page's own ground, the strong edge, no icon of its own (its eyebrow wears the house) | The local panel only: work for the model on this computer |
 
 A message about what just happened on this page that stays in view (*Done in 2.0 s*, *Moved here, into the evidence*,
 *Showing the 4 hypotheses of one set*) is a notice too, done or info: a page never draws a message box of its own.
@@ -496,6 +497,17 @@ link (a next-step link to the page where the work is done) after its words. Anot
 (the cloud, the inbox, the pause) when it says more. A list of problems (one per colleague, or one per kind) is notices
 one under the other, each with its own plain message: `noticeList([{ kind, person, text, action, live }])`; the list
 stands in its place, so none of its rows is an alert unless its `live` says so.
+
+**The two AI panels** (0.19.4) are notices that hold more than one action, the one exception to "one action or one
+link": the Claude Code panel (`queueNotice()`: the inbox, grey, *Start Claude Code*, Thought, the helpers, the command
+to type, the cloud line) and its twin, the local panel (`localPanel()`: the local notice, *On this computer* with the
+house over its head, what waits, the model's memory against what this computer has free, *Start <model>* and a quiet
+*Start it anyway*, the model's row, the house line). The same rows in the same order, so the two read as one family;
+the ground, the eyebrow and the house tell them apart. When the local model cannot start and its work is all that is
+left, the local panel is an attention notice (it needs you) and keeps its eyebrow; when Claude goes on with the rest,
+only its memory line is amber (`workState("attention")`). Both may stand in one card, the local one first: it reads
+first, while Claude Code takes its own. While the model reads, its panel has no buttons and no model row, and no live
+region of its own (the card's progress is one).
 
 **Heard:** each notice is read once, and only what comes of an action interrupts.
 
@@ -779,7 +791,10 @@ than ten characters) are set in the interface's face: wrapped, a column each, wh
 and once it would not, at a slant over columns as narrow as a mark's, on two lines at most, so that most of thirty
 codes show at once where a name per column showed four. Never a name on one line with the column as wide as it, and
 never a name cut short to fit: hovering a head says the whole code and its description, and the head of the column
-under the pointer or the focus darkens, so a slanted name is found from a cell far below it. **Make it:** the cells
+under the pointer or the focus darkens, so a slanted name is found from a cell far below it. A list that sets codes
+in a column of its own asks the same question (`codesAreNames()`): the Codes profile's ranked codes set a mark in the
+mono and a name in the interface's face, wrapped in a column the rows share, never run over the description beside
+it. **Make it:** the cells
 with `heatCell(n, max, label, prefix, onClick)`, a column of codes with `heatHead(text, { title, spoken })`, the grid
 in its frame with `heatGrid(table, { label, unit })` (never a `.map-wrap` by hand; it chooses how the heads are set).
 **Lives in:** `components.css` § 4.25.

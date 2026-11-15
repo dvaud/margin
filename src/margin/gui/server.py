@@ -1508,6 +1508,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", r"/api/servers/pull", "post_pull"),
     # 0.15.6: Ollama installed (or started) from the app, as Claude Code is
     ("GET", r"/api/ollama", "get_ollama"),
+    ("GET", r"/api/local-status", "get_local_status"),
     ("POST", r"/api/ollama/install", "post_ollama_install"),
     ("POST", r"/api/ollama/start", "post_ollama_start"),
     ("GET", r"/api/projects", "get_projects"),

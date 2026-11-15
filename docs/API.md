@@ -253,6 +253,14 @@ whether Ollama is on this computer, running or not: `{"installed", "path", "syst
 "how": "app" | "terminal", "line", "manual"}` (`how`: the app installs it itself, or on Linux opens a terminal window
 running Ollama's own `line`; `manual`: Ollama's installer file, for doing it by hand).
 
+`GET /api/local-status` (0.19.4) → the local model that reads documents marked Only a local AI, for the local panel,
+without starting it: `{"model", "server", "memory"}` where `memory` is `{"loaded": true}` when the model server holds it
+already, else `{"need", "free", "short"}` in bytes (left out when the server or the computer does not say enough);
+`{"model", "problem"}` when it cannot be used; `{"same_as_main": true}` when the main model reads those documents itself.
+`GET …/profile/plan` gives the same as `local_model` when passages of such documents wait, and `POST …/profile/label`
+takes `{"force": true}` to start the local model with too little memory free (*Start it anyway*); its job's result
+says `local_waiting`, `local_read`, `local_model`, `memory_short`, `memory` and `local_problem`.
+
 `GET /api/ollama` (0.15.6) → what the page shows before Ollama is installed from the app: `ollama_app`'s fields plus
 `"size": {"bytes", "exact"}` (the download for this kind of computer, as ollama.com says it now, kept an hour; when
 ollama.com cannot be asked, the size known in November 2026, `exact` false: 1.7 GB for Windows, 230 MB for macOS),

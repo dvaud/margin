@@ -115,6 +115,13 @@ class SetupApi:
     def post_test(self, q):
         return self.app.test_backend()
 
+    def get_local_status(self, q):
+        """0.19.4: the local model for documents marked Only a local AI, for the local panel: its name and its memory
+        against what this computer has free now (access.local_status). Nothing is started."""
+        from .. import access
+
+        return access.local_status(self.app.settings())
+
     def get_ollama(self, q):
         """0.15.6: before Ollama is installed from the app: how big the download is on this kind of computer, the free
         space it needs and the free space there is (asks ollama.com for the size)."""

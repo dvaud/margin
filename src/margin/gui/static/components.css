@@ -326,6 +326,11 @@ details.card > summary .muted { font-weight: var(--fw-regular); }
 .notice-warn > .icon { color: var(--attention); }
 .notice-error { border-color: var(--danger-line); background: var(--danger-soft); }
 .notice-error > .icon { color: var(--danger); }
+/* 0.19.4: the local notice: work for the model on this computer (the local panel, localPanel()). The page's own
+   ground and a stronger edge where Claude Code's notice is grey, so the two panels are told apart at a glance; the house
+   instead of the inbox. Its words are the info notice's. */
+.notice-local { border-color: var(--border-strong); background: var(--surface); }
+.notice-local > .icon { color: var(--text-2); }
 
 /* ==== 4.13 Empty states */
 /* Nothing here yet, and the one step that fills it: a dashed frame, a 28 px icon, a title, a sentence or two, then one

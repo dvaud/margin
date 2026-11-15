@@ -498,10 +498,11 @@ def test_a_stop_while_a_part_waits_for_claude_code_takes_the_other_parts_out_of_
     be = ClaudeCodeBackend()
     be.should_stop = stop.is_set
     raised: list = []
+    returned: list = []
 
     def draft():
         try:
-            theorycodes.draft_with_ai(ws, theory, be, "sonnet", should_stop=stop.is_set)
+            returned.append(theorycodes.draft_with_ai(ws, theory, be, "sonnet", should_stop=stop.is_set))
         except BackendError as e:
             raised.append(str(e))
 
@@ -514,7 +515,10 @@ def test_a_stop_while_a_part_waits_for_claude_code_takes_the_other_parts_out_of_
     assert ws.scalar("SELECT COUNT(*) FROM tasks WHERE kind='theory_codes' AND queued=1") == n
     stop.set()
     th.join(20)
-    assert not th.is_alive() and raised == ["Stopped."]
+    # 0.19.4: Stop is honoured either inside the wait (it raises) or between two parts (the draft returns, stopped):
+    # which one depends on the moment it arrives, so a slow runner saw the second (CI, Linux, 2026-11-15)
+    assert not th.is_alive()
+    assert raised == ["Stopped."] or (not raised and returned and returned[0]["stopped"]), (raised, returned)
     assert ws.scalar("SELECT COUNT(*) FROM tasks WHERE kind='theory_codes' AND queued=1") == 0
 
 
