@@ -1,4 +1,4 @@
-"""0.13.5: fixes found while building Margin on Margin.
+"""0.13.5: fixes found while building an app on Margin.
 
 - Accented names in zips that do not mark them as UTF-8 (Finder's Compress) are read right.
 - *Import a project* takes a project folder zipped by hand, not only a zip made with *Download as a zip*.

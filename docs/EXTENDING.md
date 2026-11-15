@@ -1,6 +1,6 @@
 # Building on Margin
 
-An app built on Margin (Margin is one) adds its features **in files of its own**, plus a short list of files that
+An app built on Margin adds its features **in files of its own**, plus a short list of files that
 Margin creates once and never edits again: the **local layer**. A new Margin release then merges without clashes,
 because it never touches what the app wrote.
 
@@ -9,7 +9,7 @@ changes for people who use Margin itself.
 
 ## Two ways to build on Margin
 
-- **A fork** (a copy of Margin's repository, like Margin) fills in the local-layer files listed below. Its own new
+- **A fork** (a copy of Margin's repository) fills in the local-layer files listed below. Its own new
   modules, views and tests live in files Margin does not have.
 - **A separate package** installed next to Margin names an add-on module under the Python entry point group
   `margin.extensions`, in its `pyproject.toml`:

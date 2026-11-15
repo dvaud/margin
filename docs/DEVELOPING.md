@@ -261,7 +261,7 @@ editing its files is in [EXTENDING.md](EXTENDING.md).
 - The README's *New in* is written by `prepare` (between its two `<!-- new-in -->` markers); update the manual and
   the other sections of the README as the last two sections say.
 - **Release candidates (0.15).** The roadmap ([`docs/ROADMAP.md`](ROADMAP.md): what each release builds, and what
-  waits; Margin keeps its own plans in its own repository) gives every minor release a release candidate, in use for at least a
+  waits) gives every minor release a release candidate, in use for at least a
   week: a `## 0.15.0rc1` changelog entry, tagged `v0.15.0rc1` (the package's version is made from the tag).
   The workflow drafts it as a GitHub pre-release, which the install line and the app's *Update* never take (GitHub's
   *latest* is the latest full release); its notes give install lines with its own files. A copy of a candidate is
@@ -350,8 +350,7 @@ program, so write plainly: say what each thing does for the researcher, not how 
 
 **What it is for.** It is the front door: what Margin is, how to install and update it, what is new, how to cite it,
 and where to go next. It is the only place for nothing: every fact in it also lives in the manual, the changelog or
-this file, and the README links there instead of copying. Aim for about 100 lines. Margin's README is its own: Margin's
-sync (`tools/sync_margin.py` in Margin) keeps Margin's README and leaves Margin's alone.
+this file, and the README links there instead of copying. Aim for about 100 lines.
 
 **Its sections, in this order:**
 
@@ -471,8 +470,7 @@ picture it made:
 (Any Python with Playwright and Chromium will do; the dev server itself runs in the project's `.venv`.) A new picture
 is a line in the script's `SHOTS` and a function `shot_<name>`. `result.png` carries numbered marks, and the table
 under it in `review.md` follows their order. The test fails for a picture that is missing, one that no page shows, or
-one over 300 KB. Margin's sync brings the pages and pictures across; run the script there too, so its pictures show
-its own name.
+one over 300 KB.
 
 **At each release:**
 

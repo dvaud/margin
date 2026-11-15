@@ -131,10 +131,10 @@ def test_the_stand_in_addon_changes_the_name_and_the_look(api, addon):  # noqa: 
 
 
 def test_a_fork_changes_the_name_in_gui_extensions(api, local_addon):  # noqa: F811
-    local_addon.set(BRAND={"name": "Margin", "tagline": "a writing companion", "logo": ""})
+    local_addon.set(BRAND={"name": "Fieldnotes", "tagline": "notes from the field", "logo": ""})
     assert addons.names() == ["local"]
     b = api("GET", "/api/state")[1]["brand"]
-    assert b["name"] == "Margin" and b["tagline"] == "a writing companion" and b["logo"] == "/static/logo.svg"
+    assert b["name"] == "Fieldnotes" and b["tagline"] == "notes from the field" and b["logo"] == "/static/logo.svg"
 
 
 def test_an_addon_that_fails_to_load_leaves_margin_running(api, monkeypatch):  # noqa: F811

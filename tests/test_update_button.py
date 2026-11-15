@@ -1,4 +1,4 @@
-"""0.13.1: "Update Margin" in the app installs the newest version and restarts into it (as Margin 0.2.1 does).
+"""0.13.1: "Update Margin" in the app installs the newest version and restarts into it.
 
 - GET /api/update says whether a newer Margin waits (the latest GitHub release, new commits on a git copy's branch,
   or a newer version already on disk);
