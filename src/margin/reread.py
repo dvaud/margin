@@ -596,6 +596,12 @@ def _check(ws: Workspace, cx, doc_id: str, verify_file: bool = True, tasks: list
     if reader >= ingest.READER:
         out["reason"] = "This document was read by the current reader already: there is nothing to do."
         return out
+    from . import languages
+
+    kind = cx.execute("SELECT kind FROM documents WHERE doc_id=?", (doc_id,)).fetchone()[0]
+    if not languages.new_reader_changes(reader, languages.summary_for(cx, doc_id, keep=False), kind):   # 0.19: reader 5 to 6
+        out["reason"] = "The new reader reads this document as it is read now: there is nothing to do."
+        return out
     f = original_file(ws, doc_id, verify=False)
     if not f["available"]:
         out["reason"] = ("No original file was recorded for this document, so it cannot be read again."
@@ -965,11 +971,30 @@ def _plan(ws: Workspace, cx, doc_id: str, new_doc, m: _Map | None = None,
     texts = {r[0]: r[1] for r in cx.execute("SELECT claim_id, text FROM user_claims")}
     breaks = _breaks(ws, [(pid, doc_id, by_old[pid].start, by_old[pid].end)
                           for s, pids in subjects.items() if s[0] == "user_claim" for pid in pids])
+    # 0.19.0rc2: a subject's excerpts on this document that are not on the reading moved (they name the new reading's
+    # passages already: a colleague's, brought in from their newer reading) take their passages, as another excerpt of
+    # the subject does; an SDG pack claim is looked up under its new id too. Judgements and second opinions already on
+    # the new reading are kept apart row by row below (`on_new`), so a move never breaks on UNIQUE
+    taken: dict[tuple, set[str]] = defaultdict(set)
+    lo, hi = f"{doc_id}:", f"{doc_id};"
+    for sk, sid, pid in cx.execute("SELECT subject_kind, subject_id, passage_id FROM verifications WHERE passage_id >= ? "
+                                   "AND passage_id < ?", (lo, hi)).fetchall():
+        if pid not in old_set:
+            taken[(sk, sid)].add(pid)
+    on_new = {("j",) + tuple(r) for r in cx.execute(
+        "SELECT claim_id, passage_id, person_id FROM judgements WHERE passage_id >= ? AND passage_id < ?", (lo, hi))
+        if r[1] not in old_set}
+    on_new |= {("s",) + tuple(r) for r in cx.execute(
+        "SELECT subject_id, passage_id, model FROM second_opinions WHERE passage_id >= ? AND passage_id < ?", (lo, hi))
+        if r[1] not in old_set}
     keys: dict[tuple, dict[str, str]] = {}
     anchors: dict[tuple, dict] = defaultdict(dict)
+    over: dict[tuple, dict[str, str]] = defaultdict(dict)   # an excerpt taken by one there already: where that is
     for s, pids in subjects.items():
+        tk = taken.get(s, set()) | (taken.get((s[0], claim_map[s[1]]), set()) if s[0] == "claim" and s[1] in claim_map
+                                    else set())
         keys[s] = _excerpt_keys(m, s, sorted(pids, key=lambda x: by_old[x].start), by_sp, tomb, plan, texts, old_page,
-                                anchors[s])
+                                anchors[s], tk, over[s])
     jby = defaultdict(list)
     for j in jrows:
         jby[(("user_claim", j["claim_id"]), j["passage_id"])].append(j)
@@ -1016,15 +1041,28 @@ def _plan(ws: Workspace, cx, doc_id: str, new_doc, m: _Map | None = None,
                          refers_start=ref[0] if ref else None, refers_end=ref[1] if ref else None,
                          page=(m.page_at(a[0]) if a else m.by_new[key].page) if placed else v["page"])
             for j in jby.get((s, pid), []):
-                u = pl(j["quote"], j["start"])
-                plan.upd("judgements", j["rid"], passage_id=key, start=u[0] if u else None, end=u[1] if u else None)
+                # 0.19.0rc2: a person's judgement goes where its excerpt goes; when that excerpt is one already on the
+                # new reading (`over`), to it, unless the person judged it there already; one that would meet the
+                # person's own judgement already on its passage stays a record (never two of one person on one)
+                to, at_ok = key, placed
+                if not placed and over[s].get(pid) and ("j", s[1], over[s][pid], j["person_id"]) not in on_new:
+                    to, at_ok = over[s][pid], True
+                elif placed and ("j", s[1], key, j["person_id"]) in on_new:
+                    to, at_ok = tomb[pid], False
+                on_new.add(("j", s[1], to, j["person_id"]))
+                u = (m.place(j["quote"], j["start"], pid) if at_ok and j["quote"] else None)
+                plan.upd("judgements", j["rid"], passage_id=to, start=u[0] if u else None, end=u[1] if u else None)
                 if j["verdict"] or j["note"]:
-                    plan.counts["judgement"]["moved" if placed else "not_placed"] += 1
+                    plan.counts["judgement"]["moved" if at_ok else "not_placed"] += 1
             for r in sby.get((s, pid), []):
-                a = pl(r["quote"], r["start"])
-                plan.upd("second_opinions", r["rid"], passage_id=key, start=a[0] if a else None,
+                to, at_ok = key, placed
+                if placed and ("s", s[1], key, r["model"]) in on_new:
+                    to, at_ok = tomb[pid], False   # the same model's second opinion is on its passage already
+                on_new.add(("s", s[1], to, r["model"]))
+                a = m.place(r["quote"], r["start"], pid) if at_ok and r["quote"] else None
+                plan.upd("second_opinions", r["rid"], passage_id=to, start=a[0] if a else None,
                          end=a[1] if a else None)
-                plan.counts["second_opinion"]["moved" if placed else "not_placed"] += 1
+                plan.counts["second_opinion"]["moved" if at_ok else "not_placed"] += 1
 
     # --- results of renamed tasks --------------------------------------------------------------------------------
     for old_id, new_id in plan.renamed.items():
@@ -1295,11 +1333,12 @@ def _map_payload(obj: Any, f) -> Any:
 
 
 def _excerpt_keys(m: _Map, s: tuple, pids: list[str], by_sp: dict, tomb: dict, plan: _Plan, texts: dict,
-                  old_page, anchors: dict) -> dict[str, str]:
+                  old_page, anchors: dict, taken: set[str] = frozenset(),
+                  over: dict | None = None) -> dict[str, str]:
     """The new passage of each excerpt of one subject (a check's part, an SDG pack claim): the passage holding its
     quote (the AI's; and the person's judgement in force must be found too), or without a quote the passage most of
     its text is in; a tombstone where that cannot be found, or where another excerpt of the subject took the
-    passage."""
+    passage (one moved with it, or one already on the new reading: `taken`; `over` then says which)."""
     found = []
     for pid in pids:
         p = m.by_old[pid]
@@ -1321,10 +1360,16 @@ def _excerpt_keys(m: _Map, s: tuple, pids: list[str], by_sp: dict, tomb: dict, p
         found.append((pid, ok, anchor, why, key_q, at, p))
     order = sorted(found, key=lambda x: (not x[1], x[2] is None, x[2][0] if x[2] else x[6].start))
     out: dict[str, str] = {}
-    used: set[str] = set()
+    used: set[str] = set(taken)
     for pid, ok, anchor, why, q, at, p in order:
         key = (m.passage_at(anchor[0]).pid if anchor else m.main.get(pid)) if ok else None
         if key is not None and key in used:
+            if over is not None and key in taken:
+                # the same excerpt, already on the new reading (a colleague's): the judgements go to it, and this row
+                # stays as a record without counting as a result with no place (nothing of it is lost)
+                over[pid] = key
+                out[pid] = tomb[pid]
+                continue
             key, why = None, "shared"
         if key is not None and anchor:
             anchors[pid] = (q if anchor is not None and q else None, anchor)
@@ -1571,6 +1616,10 @@ def _apply(ws: Workspace, cx, doc_id: str, plan: _Plan, info: dict, new_doc, who
                 __version__, text_fp(new_doc.text), raw.ocr_pages if raw.kind == "pdf" else drow.get("ocr_pages"),
                 raw.scanned_pages if raw.kind == "pdf" else drow.get("scanned_pages"), json.dumps(fps), sent, doc_id))
     ingest.store_reading(cx, new_doc, doc_id)  # with the person's corrections of its blocks applied again
+    # 0.19.0rc2: a reading made here is this copy's person's own; a mark that an earlier reading was made for a
+    # colleague's accepted proposal (`ownership.move_now` sets it again after this, when that is why) goes, or the
+    # owner's own new reading of a document removed and added since would never reach the project
+    cx.execute("UPDATE canon_seen SET read_from=NULL WHERE doc=?", (doc_id,))
     for sql, args in plan.after:
         cx.execute(sql, args)
     ws.bump_corpus(cx)

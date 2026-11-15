@@ -148,7 +148,9 @@ export async function renderDocument(view, [docId], query) {
   function labelParts(b) {
     return [b.label ? h("b", {}, b.label) : null,
       b.bound ? h("span", { class: "dv-mine" }, b.bound === "start" ? "the text starts here (you said)" : "the text ends here (you said)") : null,
-      b.changed ? h("span", { class: "dv-mine" }, b.included ? "restored by you" : "left out by you") : null,
+      // 0.19: left out because the person keeps the document's other language
+      b.lang_out ? h("span", { class: "dv-mine" }, `left out: ${b.lang_out.language} (you kept ${b.lang_out.kept})`)
+        : b.changed ? h("span", { class: "dv-mine" }, b.included ? "restored by you" : "left out by you") : null,
       b.kind === "table" && b.included === false && !b.changed ? h("span", { class: "dv-mine dv-muted" }, "left out") : null,
       reading ? blockActions(b) : null];
   }
@@ -207,7 +209,8 @@ export async function renderDocument(view, [docId], query) {
     get showLeftOut() { return showLeftOut; }, set showLeftOut(v) { showLeftOut = v; },
   };
   // Restore, Leave out and where the text starts or ends, in place (doc-leave-out.js)
-  const { blockActions } = leaveOut(ctx);
+  const { blockActions, changeLanguage } = leaveOut(ctx);
+  ctx.changeLanguage = changeLanguage;   // 0.19: the Reading panel's "Keep only English"
   // 0.15: after a move to the new reader, the folds holding what changed stay open
   const keptOpen = new Set(keep.place && keep.place.doc === docId ? keep.place.open || [] : []);
   list.appendChild(selBar);

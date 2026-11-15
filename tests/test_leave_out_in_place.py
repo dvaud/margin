@@ -120,3 +120,29 @@ def test_blocks_elsewhere_with_the_same_words_are_sent_back_too(api, tmp_path):
     assert notes[2] in r["group"] and not set(notes) - {notes[2]} & set(r["group"])  # the others are not its passage
     st, r = api("PUT", f"{base}/blocks/{notes[0]}", {"included": True})
     assert {b["n"] for b in r["blocks"]} >= set(notes) and all(b["included"] for b in r["blocks"] if b["n"] in notes)
+
+
+def test_each_block_says_how_many_blocks_go_with_it(api, tmp_path):
+    """A web page's menu (short lines read as headings) can share one passage with the first paragraph: Leave out on
+    "Search" took out seventeen blocks, and nothing said so beforehand. Each block now says how many others go with
+    it (`together`), exactly as many as Leave out and Restore then take."""
+    menu = ["Skip to Main Content", "Search", "Submit", "English", "Nederlands", "Home", "About", "Contact"]
+    body = [f"Repair Café is a free meeting place where people repair broken things together. Paragraph {i} tells how "
+            "volunteers help visitors fix clothes, furniture, appliances and bicycles, which keeps things in use."
+            for i in range(1, 9)]
+    path = tmp_path / "about.html"
+    path.write_text("<html><head><title>About</title></head><body>" + "".join(f"<p>{x}</p>" for x in menu)
+                    + "<h1>About Repair Café</h1>" + "".join(f"<p>{x}</p>" for x in body) + "</body></html>",
+                    encoding="utf-8")
+    (d,) = _project(api, [path])
+    base = f"/api/projects/R/documents/{d['doc_id']}"
+    blocks = _all_blocks(api, base)
+    assert any(b["together"] > 0 for b in blocks.values())   # the menu goes with something
+    for n, b in blocks.items():
+        if not b["included"]:
+            continue
+        st, r = api("PUT", f"{base}/blocks/{n}", {"included": False})
+        assert st == 200 and r["together"] == b["together"] + 1 == len(r["group"]), b["text"]
+        st, r = api("PUT", f"{base}/blocks/{n}", {"included": True})
+        assert st == 200 and r["together"] == b["together"] + 1
+    assert _all_blocks(api, base) == blocks

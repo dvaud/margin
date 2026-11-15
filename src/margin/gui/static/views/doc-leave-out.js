@@ -9,9 +9,16 @@ export function leaveOut(ctx) {
     if (b.kind === "figure" && (d.reader || 1) >= 5) return null;   // 0.18.1: a reader-5 figure is never read: nothing to leave out or restore
     const wrap = h("div", { class: "dv-act" });
     const where = b.label || `${b.kind_text || "text"}${b.page ? `, page ${b.page}` : ""}`;
+    // what goes with it (blocks read as one passage: a heading and the text under it, short lines put together),
+    // said on the button before it is pressed: a web page's menu read as headings can share a passage with its first
+    // paragraph, and Leave out on "Search" took out seventeen blocks without a word beforehand
+    const more = b.together || 0;
+    const count = more ? ` ${fmt.num(more + 1)} blocks` : "";
+    const word = (w) => h("span", {}, w, more ? h("span", { class: "dv-act-more" }, `${fmt.num(more + 1)} together`) : null);
+    const withIt = more ? ` With it go the ${plural(more, "other block")} read together with it as one passage.` : "";
     const btn = b.included === false
-      ? button({ kind: "quiet", sm: true, "aria-label": `Restore: ${where}`, title: "Count this in searches, codes, themes and checks again", onClick: (e) => setIncluded(b, true, e.currentTarget) }, icon("refresh", { size: 12 }), "Restore")
-      : button({ kind: "quiet", sm: true, "aria-label": `Leave out: ${where}`, title: b.kind === "heading" || b.kind === "title" ? "Leave this heading and the text under it out of searches, codes, themes and checks" : "Leave this out of searches, codes, themes and checks (a heading above it goes with it)", onClick: (e) => setIncluded(b, false, e.currentTarget) }, icon("minus", { size: 12 }), "Leave out");
+      ? button({ kind: "quiet", sm: true, "aria-label": `Restore${count}: ${where}`, title: `Count this in searches, codes, themes and checks again.${withIt}`, onClick: (e) => setIncluded(b, true, e.currentTarget) }, icon("refresh", { size: 12 }), word("Restore"))
+      : button({ kind: "quiet", sm: true, "aria-label": `Leave out${count}: ${where}`, title: `${b.kind === "heading" || b.kind === "title" ? "Leave this heading and the text under it out of searches, codes, themes and checks." : "Leave this out of searches, codes, themes and checks (a heading above it goes with it)."}${withIt}`, onClick: (e) => setIncluded(b, false, e.currentTarget) }, icon("minus", { size: 12 }), word("Leave out"));
     wrap.appendChild(btn);
     // 0.15.1: the same for every block that looks like this one (running heads, page numbers, a repeated label)
     if (b.alike > 0) wrap.appendChild(button({ kind: "quiet", sm: true, "aria-label": `${b.included === false ? "Restore" : "Leave out"} all ${b.alike + 1} blocks like this: ${where}`,
@@ -185,5 +192,17 @@ export function leaveOut(ctx) {
     const mine = clicked && rows.get(clicked.n);
     return !!mine && !isShown(mine.row);
   }
-  return { blockActions };
+  // 0.19: keep one language of a document in two (keep null: both count again); the Reading panel asks for it.
+  // Resolves to the server's answer ({keep, left_out, restored, languages, ...}), or null when it did not work.
+  function changeLanguage(keep) {
+    return inTurn(async () => {
+      let r;
+      try { r = await api("PUT", `${docBase}/language`, { keep }); }
+      catch (e) { showError(e); return null; }
+      d.languages = Object.assign({}, d.languages || {}, r.languages || {}, { kept: r.keep });
+      await showChange(r, null, false);
+      return r;
+    });
+  }
+  return { blockActions, changeLanguage };
 }

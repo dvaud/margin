@@ -557,9 +557,10 @@ def _key(b) -> tuple:
 
 
 def figures(rec: PageShapes, lines: list, tables: list[Obj], dims: tuple[float, float], body_size: float | None,
-            skip_keys: set, pno: int) -> list[Obj]:
-    """The figures of a page: images, forms and clusters of drawing with the small type that labels them."""
-    from . import reader
+            skip_keys: set, pno: int, forms: bool = False) -> list[Obj]:
+    """The figures of a page: images, forms and clusters of drawing with the small type that labels them. Reader 6
+    (`forms`): a form is a figure however many words it shows (`reader6.form_figure`)."""
+    from . import reader, reader6
 
     page_w, page_h = dims
     out: list[Obj] = []
@@ -578,7 +579,7 @@ def figures(rec: PageShapes, lines: list, tables: list[Obj], dims: tuple[float, 
         members = _absorb(box, lines, taken, body_size)
         if sum(len(ln.text) for ln in members) > 0.5 * page_chars and len(members) >= 8:
             continue      # a page wrapped in a form, or a page of mostly labels: not a figure
-        if not image:
+        if not image and not (forms and reader6.form_figure(box, rec)):
             chars = sum(len(ln.text) for ln in members)
             if chars > 900 or (chars > 300 and _area(box) > 0.5 * page_w * page_h):
                 continue  # more words than a chart has, or a page laid out with boxes (a slide): it is text
@@ -605,7 +606,7 @@ def figures(rec: PageShapes, lines: list, tables: list[Obj], dims: tuple[float, 
 # a page
 # ------------------------------------------------------------------------------------------------------------------
 def page_objects(rec: PageShapes | None, lines: list, dims: tuple[float, float], body_size: float | None,
-                 skip_keys: set, pno: int) -> tuple[list[Obj], list]:
+                 skip_keys: set, pno: int, forms: bool = False) -> tuple[list[Obj], list]:
     """The tables and figures a page's rules and drawings make, and the page's lines without theirs. Page furniture
     that stands inside a table's rules (a number of the last row at the foot of the page) is a cell, not furniture."""
     if rec is None or not lines or not dims[0]:
@@ -620,7 +621,7 @@ def page_objects(rec: PageShapes | None, lines: list, dims: tuple[float, float],
         for t in tables:
             for ln in t.lines:
                 ln.furniture = ""
-    figs = figures(rec, [ln for ln in placed if not ln.furniture], tables, dims, body_size, skip_keys, pno) \
+    figs = figures(rec, [ln for ln in placed if not ln.furniture], tables, dims, body_size, skip_keys, pno, forms) \
         if (rec.figures or rec.drawings) else []
     if not tables and not figs:
         return [], lines

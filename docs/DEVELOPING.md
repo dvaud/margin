@@ -128,6 +128,7 @@ themes and at 390 px wide.
 | `reader.py` | The reader of 0.15 (reader 2; `read_blocks(raw, version=3)` adds `reader3.py`): lines with their boxes (pdfminer), page furniture, columns and reading order, blocks and their kinds, tables, text repair, passages that never mix what is read with what is left out, the reading report, a person's Restore and Leave out and *Text starts / ends here* (`choose_inclusion`, `apply_choices`) |
 | `reader3.py` | What reader 3 (0.15.1) adds, on the text alone: running heads and page numbers by repetition in lines without positions, text printed twice, paragraphs in hard-wrapped text, headings where a file marks none, a book's contents, front and end matter and index, ligatures broken by a space, words run together, and the report's warnings |
 | `reader4.py` | What reader 4 (0.17.2) adds: a text file with one paragraph per line read paragraph by paragraph (its Word changes, content controls and nested tables, are in `ingest._read_docx`) |
+| `reader6.py` | What reader 6 (0.19) adds, for PDFs only: a pdfminer device that honours a form's /BBox (hidden text of a draft page shown through a window is not read), a form of many words kept as one figure, publishing details after the text has begun set aside as front matter, a journal's name that begins the running head not taken for the title (reader 5's rules are in `reader5.py`); reader 6's two languages kept apart, in any kind of file, are `languages.py`'s |
 | `reread.py` | *Read with the new reader* (0.15): a document of a project read again by the new reader, its results moved by their quotes, all or nothing |
 | `measure.py`, `pdfmake.py` | `margin measure` (0.15): how well each reader reads PDFs of known text (made by `pdfmake`, a small PDF writer), quotes that still find their place, timings, determinism; the validation report of each release |
 | `bundle.py` | A whole project as one zip (export and import); every project and the settings, to move to another computer (0.10) |
@@ -321,7 +322,11 @@ recorded and announced:
   (0.5 to 0.14), 2 is `reader.py` (0.15.0), 3 is `reader.py` with `reader3.py` (0.15.1;
   `reader.read_blocks(raw, version=2)` still reads exactly as 0.15.0 did, which a test checks to the byte), 4 adds
   `reader4.py` and reads Word files otherwise (0.17.2; a Word file whose text reader 4 reads otherwise keeps reader
-  3's text in `RawDoc.before_4`, so `build_document(raw, version=3)` reads as before from any raw). Check a change
+  3's text in `RawDoc.before_4`, so `build_document(raw, version=3)` reads as before from any raw), 5 adds
+  `reader5.py` (0.18.1: ruled tables, tables over a page, figures), and 6 adds `reader6.py` (0.19, PDFs only: text a
+  form crops away left out, publishing details in the first page's footer and a journal's name that begins the
+  running head set aside, running heads beside a page number found; and, any kind of file, `languages.py`: no passage
+  holds both languages of a document in two). Check a change
   with `tools/reader_fingerprints.py` (a folder of files, before and after) and `tools/reader_fingerprints_pytest.py`
   (every document the tests read). A change
   that gives a document other text or passages raises it, and goes

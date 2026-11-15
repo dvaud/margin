@@ -113,6 +113,8 @@ export function blocksLine(d) {
   if (d.role) out.push(d.role === "evidence" ? "Marked as evidence again." : d.role === "working" ? "Marked as a working document: never a source, left out of themes, check excerpts, key terms and the corpus’s code counts." : "Marked as theory: left out of themes, codebook labels, check excerpts and key terms.");
   // 0.18.6: a document marked Non-scientific (its judgements no longer count in answers), or counted again
   if (d.nonscientific !== undefined) out.push(d.nonscientific ? "Marked as non-scientific: no judgement of its excerpts counts in an answer." : "Counted as scientific again.");
+  // 0.19: one language of a document in two kept (languages.py), or both again
+  if (d.language) out.push(d.language === "both" ? "Both languages of the document count again." : `Only its ${d.language_name || d.language} counts: the other language is left out.`);
   return out.join(" ") || "Which passages are read was changed.";
 }
 

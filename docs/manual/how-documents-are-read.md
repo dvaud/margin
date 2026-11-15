@@ -25,6 +25,7 @@ where it is.
 | 3 | 0.15.1 | Reader 2, plus text files and books: running heads, page numbers, paragraphs and headings found from the text alone. |
 | 4 | 0.17.2 | Reader 3, plus: a text file with one paragraph per line, and a Word file's content controls and tables inside tables (see *What reader 4 changed* below). PDFs and web pages read as with reader 3. |
 | 5 | 0.18.1 | Reader 4, plus: tables found from their ruled lines and joined across pages, figures as blocks of their own with their captions, and a Word file's or web page's pictures by their alternative text (see *What reader 5 changed* below). Plain text files read as with reader 4. |
+| 6 | 0.19 | Reader 5, plus, in PDFs: text a figure hides is not read, publishing details at the foot of the first page are set aside, the title is not the journal's name, and running heads beside a page number are found; and, in a document printed in two languages (a side-by-side translation), no passage holds both (see *What reader 6 changed* below). Other documents read as with reader 5. |
 
 
 ## What the reader does
@@ -95,6 +96,35 @@ gone. Reader 3 reads such files by rules on the text alone (no AI):
 The picture itself is never stored and never sent to an AI: the reading view draws it from the original PDF when it
 is shown, so a large corpus does not grow. Kept out on purpose: reading the text inside pictures (OCR of figures),
 storing pictures, and tables or figures on scanned pages (a page with no text layer).
+
+**What reader 6 changed.** Reader 6 reads PDFs otherwise than reader 5, and a document in two languages of any kind;
+other Word files, web pages and text files read the same. In PDFs:
+
+- **Text a figure hides.** Some publishers (MDPI among them) make a figure by showing a window onto a whole draft
+  page. The rest of that page is hidden, but its words were still in the file, and reader 5 read them: dozens of
+  one-line "figures" between the lines of the real text, which broke every paragraph on the page in pieces. Reader 6
+  reads only what the window shows, so the figure is one block with its caption and the paragraphs are whole.
+- **Publishing details after the text has begun.** Elsevier and others print the e-mail addresses, the DOI and the
+  dates ("Received …", "Available online …") at the foot of the first page, after the introduction has started, and
+  reader 5 read them as text. Reader 6 sets them aside as front matter: what stands at the foot of the first page in
+  smaller type (a numbered note there is a footnote), and on the first two pages a short paragraph that starts with
+  such a detail. A paragraph that is only a link or a DOI is set aside anywhere. "Received wisdom holds …" stays text.
+- **The title, not the journal.** A journal's name printed larger than the title was taken for the title. When the
+  name begins the first page's running head (as at Elsevier) and a title follows it, the name is now front matter;
+  a title over two lines is kept whole. A cover page that names only the journal (Taylor & Francis), or a title
+  interleaved with a column beside it, can still give the wrong title.
+- **Running heads beside a page number.** A running head with the page number at the other end of its line was found
+  on only every other page; the rest read as text, often as a heading. Reader 6 finds it on every page, so a reference
+  list or an end note that runs over a page is no longer cut by it, and a byline or date before the text (a newspaper
+  article's "By …") is set aside with the front matter.
+- **A document in two languages.** In a document with at least a fifth of its text, and five paragraphs, in a
+  second language, a paragraph is never carried on from one language into the other (a Spanish column ending without
+  a full stop, the English one starting in lower case, were read as one paragraph), and short paragraphs of the two
+  languages are never put together into one passage. So *Keep only English*
+  ([A document in two languages](reading.md#a-document-in-two-languages)) leaves the other language out entirely.
+
+Only the documents this changes are offered the new reader: PDFs, and documents in two languages one of whose passages
+held both.
 
 
 ## Measuring how well Margin reads

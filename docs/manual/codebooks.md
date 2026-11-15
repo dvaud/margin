@@ -30,7 +30,7 @@ above them, with the reason.
 | --- | --- |
 | *Start fresh* | An empty codebook: add codes and groups yourself. |
 | *From the themes* | You tick themes found in the documents; each becomes a draft code (see below). |
-| *From a theory document* (0.18.1) | You tick the concepts of a theory you read the documents through; each becomes a draft code with its definition quoted from the theory (see below). |
+| *From theory documents* (0.18.1) | You tick the concepts of one or several theories you read the documents through; each becomes a draft code with its definition quoted from its theory (see below). |
 | *A copy of a codebook* | The SDG targets, or one of yours, to change. |
 | *From a CSV file* | A spreadsheet saved as CSV (see below). |
 | *From NVivo, ATLAS.ti or MAXQDA* | A REFI-QDA codebook (`.qdc`), or the codebook of a REFI-QDA project (`.qdpx`) (see below). |
@@ -40,16 +40,20 @@ the theme, its key terms as *Words it is matched by* and its best passages as ex
 When the codebook is kept with all projects, the themes of every project are offered. Find the themes first (*Themes*
 in the sidebar): it takes seconds and needs no AI.
 
-**From a theory document (0.18.1).** Choose the document (those marked as theory come first: [Theory
-documents](explore.md#theory-documents)). Margin offers its concepts, without AI: the terms it defines ("a stock is
+**From theory documents (0.18.1; several at once since 0.19).** Tick the documents the codes should come from: one theory, or several (a
+framework built from five authors, say). Those marked as theory are ticked to begin with ([Theory
+documents](explore.md#theory-documents)). With several, each document's concepts are listed in a section of their
+own, and each becomes a group of codes named after the document. A concept that two documents both define (*practice*
+in two practice theorists) is offered once for each, with each author's own definition; if you keep both, each gets
+its document's title after its name, and you can merge or rename them in the editor. Margin offers each document's concepts, without AI: the terms it defines ("a stock is
 …", "by a reinforcing loop we mean …", "X is defined as …", "X refers to …"), its headings, and the words and short
 phrases it uses often. Each comes with its definition **quoted from the theory, with its page** (the quote, then the
 document's title and the page), which becomes the code's description. Terms the text defines are ticked. Under each concept, sentences from the **evidence documents** that use
 its words are offered as examples, unticked: an example is kept only when you tick it, and never comes from a theory
-document. So the labeller learns what a reinforcing loop looks like in your field, not in the theory's own examples.
+document or from any of the documents you started from. So the labeller learns what a reinforcing loop looks like in your field, not in the theory's own examples.
 Words set in italics are not offered (the readers do not keep slant).
 
-**Draft with AI.** Beside the concepts found without AI, *Draft with AI* asks the AI to draft the theory's concepts.
+**Draft with AI.** Beside the concepts found without AI, *Draft with AI* asks the AI to draft the theory's concepts (with several documents, each section has its own button).
 It reads the passages of the theory where those concepts are defined or used most, and gives each concept a short
 name, its definition quoted exactly from the theory with its page, and one line on why it is a concept of the theory.
 Every quote is checked against the document, and a definition must be at least three words that say more than the

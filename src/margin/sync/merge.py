@@ -464,6 +464,13 @@ class _Merge(CodebookRules, ReadingRules, ShareRules, OwnerRules):
         unit_of = _check_unit if kind == "check" else _themes_unit
         fps = _fingerprints(cx)
         canon_in, canon_here = _canon(self.icx), _canon(cx)
+        # 0.19.0rc2: a document this copy keeps out (removed here: it cannot follow a colleague's newer reading of it)
+        # is named in their version as this copy last read it. Another reading of a document this person removed is
+        # no change of a check; named by their reading, every version of a check with an excerpt on it differed from
+        # this copy's, and each round made a sync-clash copy of the last copy, without end
+        held = {r[0] for r in cx.execute("SELECT doc_id FROM documents")}
+        kept_out = {r[0] for r in cx.execute("SELECT key FROM sync_removed WHERE kind='document' AND fp IS NOT NULL")}
+        canon_in = {**canon_in, **{d: canon_here[d] for d in kept_out - held if d in canon_here}}
         seen_here, seen_there = self._seen(cx, kind), self._seen(self.icx, kind)
         copies_here, copies_there = self._copies(cx, kind), self._copies(self.icx, kind)
         removed = {r[0] for r in cx.execute("SELECT key FROM sync_removed WHERE kind=?", (kind,))}

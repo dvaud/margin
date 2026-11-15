@@ -150,6 +150,11 @@ def document_overview(ws: Workspace) -> list[dict]:
     """One row per document with the checks a reader needs before trusting it as a source."""
     bad = unreadable_docs(ws)
     claims = {r[0]: r[1] for r in ws.query("SELECT doc_id, COUNT(DISTINCT claim_id) FROM claims GROUP BY doc_id")}
+    from . import languages
+    from .ingest import READER
+
+    # 0.19: a document reader 5 read is offered reader 6 only when it would read otherwise
+    langs = languages.of_documents(ws) if READER == 6 else {}
     out = []
     for d in ws.query("SELECT d.doc_id, d.title, d.kind, d.n_pages, d.n_chars, d.path, d.added_at, d.ocr_pages, "
                       "d.scanned_pages, (SELECT COUNT(*) FROM passages p WHERE p.doc_id=d.doc_id AND p.section='body') AS body, "
@@ -173,7 +178,9 @@ def document_overview(ws: Workspace) -> list[dict]:
                     "added": (d["added_at"] or "")[:16].replace("T", " "), "added_at": d["added_at"] or "",
                     "check": "; ".join(flags), "scanned": scan, "ocr_pages": ocr, "scanned_pages": scanned,
                     # 0.15: the reader that read it and the Margin version (None: before 0.15), and how well it read
-                    "reader": d["reader"], "app_version": d["app_version"], **_reading_summary(d["reading_json"])})
+                    "reader": d["reader"], "app_version": d["app_version"], **_reading_summary(d["reading_json"]),
+                    "new_reader_changes": languages.new_reader_changes(d["reader"], langs.get(d["doc_id"]),
+                                                                       d["kind"])})
     return out
 
 

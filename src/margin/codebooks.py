@@ -910,8 +910,9 @@ def _free_name(ws: Workspace, name: str) -> str:
 def create(ws: Workspace, name: str, title: str = "", where: str = "project", start: str = "fresh",
            source: dict | None = None, label: str = "code", prepared: dict | None = None) -> dict:
     """A new codebook. `start`: "fresh" (empty), "themes" (`source`: {"codes": [...]} drafts from `from_themes`, the
-    ones a person kept), "theory" (0.18.1: `source`: {"codes": [...], "doc_id"} drafts from `theorycodes.candidates`,
-    the ones a person kept, examples from theory documents dropped), "copy" (`source`: {"of": a codebook's name}), "csv" (`source`: {"csv": text}),
+    ones a person kept), "theory" (0.18.1: `source`: {"codes": [...], "doc_ids": [...]} drafts from `theorycodes.candidates`,
+    the ones a person kept, examples from theory documents dropped; 0.19: several documents, each a group of codes;
+    "doc_id" for one still works), "copy" (`source`: {"of": a codebook's name}), "csv" (`source`: {"csv": text}),
     "qdc" (`source`: {"file": base64, "filename"} of a .qdc or .qdpx, or {"qdc": text}; the result's "imported" says
     what was brought in, what was folded and what left out: qdc_import.py; `prepared`: qdc_import.from_path's result,
     for a file on this computer, never from the app's API)."""
@@ -953,16 +954,38 @@ def create(ws: Workspace, name: str, title: str = "", where: str = "project", st
     elif start == "theory":
         # 0.18.1 (K2 part 2, theorycodes.py): the concepts of a theory document a person ticked, each with its
         # definition quoted from the theory; examples only from the evidence documents
+        # 0.19: from several theory documents at once (`doc_ids`; `doc_id` alone still works): each document's
+        # concepts become a group named after it, and an example never comes from any of them
         from . import theorycodes
 
-        picked = theorycodes.keep_evidence_examples(ws, [c for c in (source.get("codes") or []) if isinstance(c, dict)])
+        raw = source.get("doc_ids") if source.get("doc_ids") is not None else [source.get("doc_id")]
+        if not isinstance(raw, list):
+            raise ValueError("Say the theory documents as a list (doc_ids).")
+        ids = list(dict.fromkeys(str(d) for d in raw if isinstance(d, str) and d))
+        picked = theorycodes.keep_evidence_examples(
+            ws, [c for c in (source.get("codes") or []) if isinstance(c, dict)], ids)
         if not picked:
             raise ValueError("Tick at least one concept to start from.")
+        titles = {r["doc_id"]: r["title"] or "" for r in ws.query(
+            f"SELECT doc_id, title FROM documents WHERE doc_id IN ({','.join('?' * len(ids))})", ids)} if ids else {}
+        used = [d for d in ids if d in titles and any(c.get("source_doc") == d for c in picked)]
+        if len(used) > 1:
+            state["groups"] = [{"group": str(i), "group_name": (titles[d] or f"Theory document {i}")[:120]}
+                               for i, d in enumerate(used, 1)]
+            number = {d: str(i) for i, d in enumerate(used, 1)}
+            picked = [{**c, "group": number.get(c.get("source_doc"), c.get("group") or "")} for c in picked]
         state["codes"] = picked
-        doc = ws.query("SELECT title FROM documents WHERE doc_id=?", (str(source.get("doc_id") or ""),))
-        how = (f"{len(picked)} concept{'s' if len(picked) != 1 else ''} of the theory document "
-               f"{researchlog.quoted(doc[0]['title'], 80)}" if doc else
-               f"{len(picked)} concept{'s' if len(picked) != 1 else ''} of a theory document")
+        n_c = f"{len(picked)} concept{'s' if len(picked) != 1 else ''}"
+        # the documents the kept codes come from (a ticked document none of whose concepts was kept is not named);
+        # codes that do not say (an older editor): every document sent
+        named = [researchlog.quoted(titles[d] or "untitled", 80) for d in
+                 (used if any(c.get("source_doc") for c in picked) else ids) if d in titles]
+        if len(named) == 1:
+            how = f"{n_c} of the theory document {named[0]}"
+        elif named:
+            how = f"{n_c} of {len(named)} theory documents: {', '.join(named[:-1])} and {named[-1]}"
+        else:
+            how = f"{n_c} of a theory document"
     elif start != "fresh":
         raise ValueError("Start fresh, from themes, from a theory document, from a copy, from a CSV file or from a "
                          "REFI-QDA codebook (.qdc).")

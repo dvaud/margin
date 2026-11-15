@@ -18,6 +18,7 @@ runs as a job in a background thread; the page polls /api/jobs/<id> for its prog
 """
 from __future__ import annotations
 
+import bisect
 import json
 import mimetypes
 import os
@@ -457,6 +458,15 @@ class App(LibraryMixin, QueueMixin):
         # 0.15: how the document was read (the reading report, A5) and whether it has the new reader's blocks
         out["reading"] = reading_report(ws, doc_id, out.pop("reading_json"), out["reader"])
         out["new_reader"] = ingest.READER
+        # 0.19: its languages (a document in two: keep one), and whether the new reader would read it otherwise
+        from .. import languages
+
+        langs = languages.summary(ws, doc_id)   # (never waits for other work on the project)
+        kept = languages.kept_language({r[0]: 1 for r in ws.query(
+            "SELECT fp FROM block_choices WHERE doc_id=? AND fp LIKE 'lang:%'", (doc_id,))})
+        out["languages"] = dict(langs or {}, kept=kept,
+                                names={c: languages.name(c) for c in ((langs or {}).get("shares") or {})})
+        out["new_reader_changes"] = languages.new_reader_changes(out["reader"], langs, out["kind"])
         out["file_title"] = bibliography.file_title(d[0])  # 0.13.3: the title read from the file, if replaced
         out["file"] = re.sub(r".*[/\\]", "", out.pop("path") or "")
         out["total_passages"] = int(ws.scalar("SELECT COUNT(*) FROM passages WHERE doc_id=?", (doc_id,)) or 0)
@@ -568,6 +578,17 @@ class App(LibraryMixin, QueueMixin):
         choices = {r["fp"]: r["included"] for r in ws.query("SELECT fp, included FROM block_choices WHERE doc_id=?",
                                                              (doc_id,))}
         marks = {side: reader2.bound_index(choices, side, fps) for side in reader2.BOUNDS}
+        together = App.passage_runs(ws, doc_id, rows)
+        # 0.19: the language the person keeps of a document in two: which blocks that leaves out
+        from .. import languages
+
+        kept = languages.kept_language(choices)
+        lang_of: list = [None] * len(rows)
+        if kept:
+            items = [(text[r["start"]:r["end"]], r["kind"]) for r in rows]
+            two = languages.survey(items)["two"]
+            if two and kept in two:
+                lang_of = languages.block_languages(items, two)
         out = []
         for idx, r in chosen:
             kind, pg = r["kind"], r["page"]
@@ -590,13 +611,34 @@ class App(LibraryMixin, QueueMixin):
                  "changed": bool(r["included"]) != (kind in reader2.INCLUDED) or fps[idx] in choices, "joined": joined,
                  "box": [r["x0"], r["y0"], r["x1"], r["y1"]] if r["x0"] is not None else None,
                  "alike": alike[shapes[idx]] - 1 if shapes[idx] else 0,
+                 "together": together[idx],
                  "share": round(idx / max(1, len(rows) - 1), 3),
                  "bound": next((side for side, at in marks.items() if at == idx), None)}
+            lg = lang_of[idx]
+            if lg is not None and lg not in (languages.MIXED, kept) and not r["included"] and fps[idx] not in choices:
+                b["lang_out"] = {"language": languages.name(lg), "kept": languages.name(kept)}
             t = tables.get(r["n"])
             if t is not None:
                 b["table"] = {"n": t["n"], "caption": t["caption"], "rows": json.loads(t["rows_json"] or "[]")}
             out.append(b)
         return out, len(rows)
+
+    @staticmethod
+    def passage_runs(ws, doc_id: str, rows) -> list[int]:
+        """How many other blocks *Leave out* or *Restore* on each block (`rows`, in order) takes with it: those that
+        share a passage with it, as `set_block` finds them (a heading with the text under it, short lines put
+        together). A web page's menu of short lines read as headings can share one passage with its first paragraph:
+        the button says so before it is pressed. Blocks out of order: 0 for each (not worth a slow count)."""
+        starts = [r["start"] for r in rows]
+        ends = [r["end"] for r in rows]
+        if not rows or any(x > y for x, y in zip(starts, starts[1:])) or any(x > y for x, y in zip(ends, ends[1:])):
+            return [0] * len(rows)
+        lo, hi = list(range(len(rows))), list(range(1, len(rows) + 1))
+        for p in ws.query("SELECT start, end FROM passages WHERE doc_id=?", (doc_id,)):
+            i, j = bisect.bisect_right(ends, p["start"]), bisect.bisect_left(starts, p["end"])
+            for k in range(i, j):   # the blocks this passage touches: one run
+                lo[k], hi[k] = min(lo[k], i), max(hi[k], j)
+        return [hi[k] - lo[k] - 1 for k in range(len(rows))]
 
     @staticmethod
     def block_shapes(text: str, rows) -> list[str | None]:
@@ -647,8 +689,10 @@ class App(LibraryMixin, QueueMixin):
             # 0.15.1: what each block would be without a choice of its own: its kind, and where the person said the
             # text starts and ends (a paragraph restored after the end needs a choice of its own)
             all_rows = cx.execute("SELECT n, start, end, kind FROM blocks WHERE doc_id=? ORDER BY n", (doc_id,)).fetchall()
+            # (0.19: and the language the person keeps, so a block of the other language restored keeps its choice)
             marks = {r[0]: r[1] for r in cx.execute("SELECT fp, included FROM block_choices WHERE doc_id=? AND "
-                                                    "(fp LIKE 'start:%' OR fp LIKE 'end:%')", (doc_id,))}
+                                                    "(fp LIKE 'start:%' OR fp LIKE 'end:%' OR fp LIKE 'lang:%')",
+                                                    (doc_id,))}
             plain = dict(zip((r[0] for r in all_rows),
                              reader2.choose_inclusion([(text[r[1]:r[2]], r[3]) for r in all_rows], marks)))
             fps = set()
@@ -670,6 +714,50 @@ class App(LibraryMixin, QueueMixin):
         same = {r[0] for r in all_rows if reader2.block_fp(text[r[1]:r[2]]) in fps}
         blocks, _total = App.reading_blocks(ws, doc_id, text, 0, 0, only=mine | set(moved) | same)
         return {"blocks": blocks, "group": sorted(mine), "together": len(mine), "alike": len(targets),
+                "doc": App.reading_now(ws, doc_id)}
+
+    def set_language(self, name: str, doc_id: str, keep: str | None) -> dict:
+        """0.19: keep one language of a document in two (a side-by-side translation): the blocks of the other
+        language are left out of searches, codes, themes and checks (None: both count again). Kept as the block
+        choice `lang:<code>`, so it holds when the document is read again and travels as *Leave out* does; a block
+        the person restored or left out themselves keeps their choice."""
+        from .. import languages, people, researchlog
+        from .. import reader as reader2
+
+        ws = self.ws(name)
+        with ws.connect() as cx:
+            row = cx.execute("SELECT title FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+            if row is None:
+                raise ApiError(404, "No such document.")
+            langs = languages.summary_for(cx, doc_id)
+            if langs is None:
+                raise ApiError(404, "This document has no blocks to mark (it was read before 0.15).")
+            two = langs.get("two") or []
+            if keep is not None and keep not in two:
+                raise ApiError(400, "This document is not in that language and another: there is nothing to keep."
+                               if not two else f"keep must be one of {', '.join(two)}, or null.")
+            was = languages.kept_language({r[0]: 1 for r in cx.execute(
+                "SELECT fp FROM block_choices WHERE doc_id=? AND fp LIKE 'lang:%'", (doc_id,))})
+            before = {r[0]: r[1] for r in cx.execute("SELECT n, included FROM blocks WHERE doc_id=?", (doc_id,))}
+            cx.execute("DELETE FROM block_choices WHERE doc_id=? AND fp LIKE 'lang:%'", (doc_id,))
+            if keep is not None:
+                cx.execute("INSERT INTO block_choices(doc_id, fp, included, kind, person_id, at) VALUES (?,?,1,'lang',?,?)",
+                           (doc_id, languages.key(keep), people.me(), _now()))
+            reader2.apply_choices(cx, doc_id)
+            after = {r[0]: r[1] for r in cx.execute("SELECT n, included FROM blocks WHERE doc_id=?", (doc_id,))}
+            changed = [k for k, v in after.items() if before.get(k) != v]
+            if keep != was:
+                ws.bump_corpus(cx)
+                other = next((c for c in two if c != keep), None)
+                text = (f"Kept only the {languages.name(keep)} of this document in two languages: its "
+                        f"{languages.name(other)} is left out of searches, codes, themes and checks."
+                        if keep else "Both languages of this document count again.")
+                researchlog.record(cx, "document-language", text, "document", doc_id, row[0],
+                                   data={"keep": keep, "was": was, "blocks": len(changed)})
+            text_all = cx.execute("SELECT text FROM documents WHERE doc_id=?", (doc_id,)).fetchone()[0] or ""
+        blocks, _total = App.reading_blocks(ws, doc_id, text_all, 0, 0, only=set(changed))
+        return {"keep": keep, "changed": len(changed), "left_out": sum(1 for k in changed if not after[k]),
+                "restored": sum(1 for k in changed if after[k]), "languages": langs, "blocks": blocks,
                 "doc": App.reading_now(ws, doc_id)}
 
     def set_bound(self, name: str, doc_id: str, side: str, n: int | None) -> dict:
@@ -1416,6 +1504,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", rf"/api/projects/{P}/documents/{P}/file", "get_document_file"),
     ("PUT", rf"/api/projects/{P}/documents/{P}/blocks/{P}", "put_block"),
     ("PUT", rf"/api/projects/{P}/documents/{P}/bounds", "put_bounds"),
+    ("PUT", rf"/api/projects/{P}/documents/{P}/language", "put_language"),
     ("GET", rf"/api/projects/{P}/documents/{P}/reread", "get_reread"),
     ("POST", rf"/api/projects/{P}/documents/{P}/reread", "post_reread_document"),
     ("POST", rf"/api/projects/{P}/new-reader", "post_new_reader_many"),

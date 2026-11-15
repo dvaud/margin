@@ -12,7 +12,7 @@ from _fakedom import NODE
 from test_reader import _project
 from test_app import api, home  # noqa: F401  (fixtures)
 
-from margin import measure, reader
+from margin import ingest, measure, reader
 
 VIEWS = Path(__file__).resolve().parents[1] / "src" / "margin" / "gui" / "static" / "views"
 needs_pdfminer = pytest.mark.skipif(not reader.pdfminer_available(), reason="the pdfminer extra is not installed")
@@ -36,7 +36,7 @@ def test_reader_5_is_offered_where_it_can_change_the_reading(tmp_path):
     offered = {(d["reader"], d["kind"]) for d, yes in zip(docs, json.loads(r.stdout)) if yes}
     every = {(r, k) for r in (1, 2, 3) for k in ("pdf", "html", "text", "docx")}  # reader 3 text: offered 4 and 5
     assert offered == every | {(4, "pdf"), (4, "html"), (4, "docx")}  # a reader-4 text file reads the same by reader 5
-    assert re.search(r"^export const reader = \{ latest: 5 \};", _src("doc-shared.js"), re.M)
+    assert re.search(r"^export const reader = \{ latest: 6 \};", _src("doc-shared.js"), re.M)   # 0.19: reader 6
 
 
 def test_a_figure_is_shown_in_the_text_with_its_caption_and_its_page():
@@ -69,7 +69,7 @@ def test_a_figure_is_shown_in_the_text_with_its_caption_and_its_page():
 def test_the_news_of_reader_5_is_said_to_documents_of_reader_4():
     src = _src("sources.js", "doc-reading.js", "doc-shared.js")
     assert "const READER_5_NEWS = " in src and "shows figures and pictures with their captions" in src
-    assert ": READER_5_NEWS)" in src and "`Read by the reader of Margin 0.17.2 to 0.18.0. ${READER_5_NEWS}`" in src
+    assert "? READER_5_NEWS : READER_6_NEWS)" in src and "`Read by the reader of Margin 0.17.2 to 0.18.0. ${READER_5_NEWS}`" in src
     assert "`Read by the reader of Margin 0.15.1 to 0.17.1. ${READER_4_NEWS}`" in src  # reader 3 keeps its sentence
 
 
@@ -80,7 +80,7 @@ def test_a_figure_of_reader_5_has_its_box_and_its_picture(api, tmp_path):  # noq
     case = next(c for c in measure.make_table_figure_texts(tmp_path / "known") if c.name == "j_figures")
     docs = _project(api, tmp_path, [case.path])
     d = next(iter(docs.values()))
-    assert d["reader"] == 5
+    assert d["reader"] == ingest.READER   # (0.19: the current reader, 6)
     st, v = api("GET", f"/api/projects/R/documents/{d['doc_id']}?view=blocks&limit=500")
     assert st == 200
     figs = [b for b in v["blocks"] if b["kind"] == "figure"]

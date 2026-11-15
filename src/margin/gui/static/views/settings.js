@@ -950,7 +950,9 @@ function channelField(st) {
   return h("div", {}, field("Which new versions to offer", sel, { help: "From 0.16 on, a release candidate (a try-out of the next version) comes out at least a week before each new version, so you can try it on your own projects. Try it on a project you do not share with colleagues: going back to the stable version can show sync clashes (nothing is lost)." }), state);
 }
 
-// 0.15: a problem report without knowing GitHub: the technical details to paste, and the form to paste them in
+// 0.15: a problem report without knowing GitHub: the technical details to paste, and the form to paste them in.
+// After 0.18.0rc2: the repository itself too, for the code, the releases and the roadmap.
+const REPO_URL = "https://github.com/dvaud/margin";
 function problemRow() {
   const btn = button({}, icon("copy", { size: 14 }), "Copy technical details");
   btn.addEventListener("click", async () => {
@@ -963,7 +965,8 @@ function problemRow() {
   const box = h("div", {});
   return h("div", {}, h("p", { class: "muted small set-problem-help" }, "Something does not work? Copy the technical details (the version, the system and the AI route: no file names, project names or keys) and paste them in a report."),
     h("div", { class: "save-row" }, btn,
-      link({ kind: "external", href: "https://github.com/dvaud/margin/issues/new?template=problem.yml" }, "Report a problem (on GitHub)")), box);
+      link({ kind: "external", href: `${REPO_URL}/issues/new?template=problem.yml` }, "Report a problem (on GitHub)"),
+      link({ kind: "external", href: REPO_URL }, "Source code (on GitHub)")), box);
 }
 
 // 0.11: every passage sent to Claude, as a table for records such as a data management plan

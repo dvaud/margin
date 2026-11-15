@@ -798,6 +798,11 @@ reader), `"new_reader"` (the reader new documents get), `"reading"` (the reading
 "warnings": [sentence], "quality": "good"|"fair"|"poor"}`; for a document read before 0.15 `{"reader": 1, "older":
 true, "pages", "ocr_pages", "scanned_pages", "passages", "body_passages", "unreadable_passages", "warnings": [],
 "quality": null}`), `"page_images"` (a picture of each page can be had), `"tables"` and `"paragraphs"` (counts).
+0.19: `"languages"`: `{"shares": {code: share of the characters whose language is known}, "blocks": {code: n},
+"two": [first, second] | null (a document in two languages), "mixed_passages" (passages that hold both: a reading
+before reader 6), "kept": code | null (the language the person keeps), "names": {code: name}, "v"}` (also kept in the
+reading report as `languages`, without `kept` and `names`), and `"new_reader_changes"`: whether the new reader would
+read it otherwise (a document reader 5 read only when one of its passages holds both of its languages).
 With `&view=blocks`, a document read by the new reader comes block by block in reading order (`limit` up to 1000):
 each block adds `"kind"` (`title`, `heading`, `abstract`, `body`, `caption`, `table`, `footnote`, `front`, `back`,
 `references`, `figure`, `furniture`), `"kind_text"` (in words), `"included"` (searches, codes, themes and checks read
@@ -830,6 +835,16 @@ number; 404 for no such block, or a document without blocks (read before 0.15).
 In `?view=blocks` (0.15.1), each block also has `alike` (how many other blocks look the same), `share` (where it
 stands in the document, 0 to 1) and `bound` (`"start"`, `"end"` or null); `changed` is also true for a block with a
 choice of its own.
+
+`PUT /api/projects/<p>/documents/<doc_id>/language` (0.19) `{"keep": "<language code>"|null}` → keep one language of
+a document in two (a side-by-side translation): the blocks of its other language are left out of searches, codes,
+themes and checks (`null`: both count again). Blocks in both languages (a title printed twice) and blocks whose
+language cannot be told still count; a block the person restored or left out themselves keeps their choice. Kept in
+`block_choices` as `lang:<code>`, so it holds when the document is read again and travels between copies as *Leave
+out* does (one language at a time). Logged as `document-language`. `{"keep", "changed", "left_out", "restored",
+"languages", "blocks", "doc"}` (`blocks` and `doc` as for `…/bounds`). 400 when `keep` is not a string or null, or
+not one of the document's two languages; 404 for no such document, or one without blocks (read before 0.15). In
+`?view=blocks`, a block left out by that choice has `lang_out: {"language", "kept"}` (language names).
 
 `GET /api/projects/<p>/documents/<doc_id>/pages/<n>.png?scale=1.5` (also `?token=`, for an `<img>`) → page `n` of the
 original PDF as a PNG (`scale` 0.5 to 3 times 72 dots per inch), drawn with pypdfium2 (the OCR extra); 404 with the
@@ -868,7 +883,10 @@ place: those are kept as records that point nowhere, as a move from the document
 (`reread.move(keep_all=False)`). `moved` entries also give `no_place`, `kept` entries `cannot: true` when the document
 cannot be read again now, and the result has `summary`: `{"moved", "left_as_they_were", "results_moved",
 "results_without_place", "moved_anyway"}`. The list of documents (`GET …/documents`) gives `new_reader`
-(`ingest.READER`) beside each document's `reader`.
+(`ingest.READER`) beside each document's `reader`, and (0.19) `new_reader_changes`. 0.19: a document reader 5
+read is one of "the documents an earlier reader read" only when reader 6 would read it otherwise (a PDF, or a
+document one of whose passages holds both languages of a document in two); `POST …/reread` of any other answers 409
+with the reason.
 
 `POST /api/projects/<p>/new-reader/preview` `{"doc_ids"?: [doc_id]}` (0.18.0rc2) → `{"job"}` (kind
 `new_reader_preview`): the dry run before moving several documents; same `doc_ids` rules, errors and 409 as the move.
@@ -1815,7 +1833,9 @@ terms.
   "suggested": [examples from the evidence documents: {"quote", "doc_id", "title", "page", "start", "end",
   "project"}]}]}`.
 - Then `POST /api/projects/{p}/codebooks` with `"start": "theory"` and `"source": {"codes": [the drafts kept, with the
-  examples ticked], "doc_id"}`; an example from a theory document is dropped.
+  examples ticked], "doc_ids": [the documents they come from]}` (`"doc_id"` for one still works); an example from a
+  theory document, or from any of `doc_ids`, is dropped. 0.19: with codes from more than one document, each
+  document's codes become a group named after it (a draft code's `source_doc` says which; it is not stored).
 
 **Concepts: paths, time and groups** (roadmap D3, D4, `conceptpaths.py`).
 

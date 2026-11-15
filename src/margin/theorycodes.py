@@ -26,6 +26,10 @@ words; the quote check sends a quote that is not there back to be fixed, as for 
 document's own AI setting picks the reader (Claude, a local AI, or none: then no draft is offered). The drafts join the
 Level-0 list unticked and marked as the AI's, without the candidates already there; their examples still come only
 from the evidence (`suggest_examples`), never from the AI. A draft asked again with the same input reuses its answer.
+
+0.19: **several theory documents at once** (a framework built from five authors). The editor asks for each document's
+candidates (and its AI draft) separately; each draft code says which document it comes from (`source_doc`), and
+`codebooks.create` makes one group of codes per document and keeps no example from any of them.
 """
 from __future__ import annotations
 
@@ -33,7 +37,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from typing import Callable
+from typing import Callable, Iterable
 
 from .store import Workspace
 from .textutil import split_sentences
@@ -192,17 +196,19 @@ def candidates(ws: Workspace, doc_id: str, limit: int = MAX_CANDIDATES, with_exa
         c["count"] = grams.get(k, 0)
     order = {"defined": 0, "heading": 1, "frequent": 2}
     picked = sorted(found.values(), key=lambda c: (order[c["how"]], -c["count"], c["term"].lower()))[:limit]
-    out = [{**c, "code": _draft_code(c["term"], c["definition"], title),
+    out = [{**c, "code": _draft_code(c["term"], c["definition"], title, doc_id),
             "suggested": suggest_examples(ws, c["term"], exclude_doc=doc_id) if with_examples else []} for c in picked]
     return {"doc_id": doc_id, "title": title, "role": role, "concepts": out}
 
 
-def _draft_code(term: str, d: dict | None, title: str) -> dict:
-    """A draft code: the term as its name, its definition quoted with the document and page as its description."""
+def _draft_code(term: str, d: dict | None, title: str, doc_id: str = "") -> dict:
+    """A draft code: the term as its name, its definition quoted with the document and page as its description.
+    `source_doc` (0.19: a codebook may start from several theory documents) says which theory it comes from, so
+    `codebooks.create` can group the codes by theory; it is not written to the codebook itself."""
     page = f", p. {d['page']}" if d and d.get("page") else ""
     desc = f"“{d['quote']}” ({title}{page})" if d else f"A concept of {title}."
     return {"code": term[:40], "description": desc[:2000], "described": bool(d), "group": "",
-            "keywords": [term.lower()], "include": "", "exclude": "", "examples": []}
+            "keywords": [term.lower()], "include": "", "exclude": "", "examples": [], "source_doc": doc_id}
 
 
 def suggest_examples(ws: Workspace, term: str, k: int = MAX_EXAMPLES, exclude_doc: str | None = None) -> list[dict]:
@@ -242,12 +248,13 @@ def suggest_examples(ws: Workspace, term: str, k: int = MAX_EXAMPLES, exclude_do
     return out
 
 
-def keep_evidence_examples(ws: Workspace, codes: list[dict]) -> list[dict]:
+def keep_evidence_examples(ws: Workspace, codes: list[dict], sources: Iterable[str] = ()) -> list[dict]:
     """The codes a person kept, with any example from a theory document taken out (the rule of K2: examples come only
-    from the evidence)."""
+    from the evidence). `sources`: the documents the codes were drafted from, left out too even when one is not marked
+    as theory (with several theories, one theory's sentence must not become an example of another's concept)."""
     from .docrole import not_evidence_docs
 
-    theory = not_evidence_docs(ws._conn())   # N3: nor from a working document
+    theory = not_evidence_docs(ws._conn()) | {str(d) for d in sources if d}   # N3: nor from a working document
     out = []
     for c in codes:
         if not isinstance(c, dict):
@@ -428,7 +435,7 @@ def ai_drafts(ws: Workspace, task_id: str, skip: set[str] | None = None) -> list
              "page": (_page(ws, doc_id, a) if a is not None else None) or p.get("page")}
         term = c.name[0].upper() + c.name[1:] if c.name[:1].islower() else c.name
         out.append({"term": term, "how": "ai", "ai": True, "reason": c.reason, "count": 0, "definition": d,
-                    "code": _draft_code(term, d, title), "model": r[0]["model"],
+                    "code": _draft_code(term, d, title, doc_id), "model": r[0]["model"],
                     "suggested": suggest_examples(ws, term, exclude_doc=doc_id)})
     return out
 

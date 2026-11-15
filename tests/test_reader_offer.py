@@ -30,3 +30,21 @@ def test_reader_4_is_offered_only_where_it_can_change_the_reading(tmp_path):
     assert offered == {(1, "pdf"), (1, "html"), (1, "text"), (1, "docx"),
                        (2, "pdf"), (2, "html"), (2, "text"), (2, "docx"),
                        (3, "text"), (3, "docx")}
+
+
+@pytest.mark.skipif(not NODE, reason="node is not installed")
+def test_reader_6_is_offered_only_to_a_document_it_reads_otherwise(tmp_path):
+    """0.19: the server says whether reader 6 changes a document (`new_reader_changes`: a reader-5 PDF, or a reader-5
+    document one of whose passages holds both languages of a document in two); older readings are offered it as
+    before."""
+    src = SOURCES.read_text(encoding="utf-8")
+    m = re.search(r"^export function newReaderFor\(d, latest\) \{.*?^\}", src, re.S | re.M)
+    docs = [{"reader": 5, "kind": "pdf", "new_reader_changes": False}, {"reader": 5, "kind": "pdf", "new_reader_changes": True},
+            {"reader": 4, "kind": "pdf", "new_reader_changes": True}, {"reader": 6, "kind": "pdf", "new_reader_changes": False},
+            {"reader": 5, "kind": "pdf"}]
+    probe = tmp_path / "probe.mjs"
+    probe.write_text(m.group(0) + f"\nconsole.log(JSON.stringify({json.dumps(docs)}.map((d) => newReaderFor(d, 6))));\n",
+                     encoding="utf-8")
+    r = subprocess.run([NODE, str(probe)], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout) == [False, True, True, False, True]

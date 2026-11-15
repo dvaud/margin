@@ -327,15 +327,21 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 /* the actions sit in the label column, under where the block is cited: never over the text */
 .doc-view .passage-row .pp { position: relative; align-self: start; }
 .doc-view .dv-act {
- position: absolute; top: 100%; left: -6px; z-index: 2; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; margin-top: 2px; opacity: 0; transition: opacity .12s;
-  /* Up to four actions: on a card of their own, so they float clearly over the row below */
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-ctl); padding: 2px; box-shadow: var(--shadow); pointer-events: none; 
+ position: absolute; top: 100%; left: -14px; z-index: 2; display: flex; flex-direction: column; align-items: stretch; gap: 1px; margin-top: 2px; opacity: 0; transition: opacity .12s;
+  /* Up to four actions: on a card of their own, so they float clearly over the row below, as wide as the label
+     column and its gap, never wider (a wider card hid the start of the next row's text); a long label wraps */
+  width: calc(100% + 24px); box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-ctl); padding: 2px; box-shadow: var(--shadow); pointer-events: none;
 }
-.doc-view .passage-row:hover .dv-act, .doc-view .passage-row:focus-within .dv-act { pointer-events: auto; }
+.doc-view .dv-act .btn { white-space: normal; justify-content: flex-start; align-items: flex-start; text-align: left; height: auto; }
+.doc-view .dv-act .btn .icon { flex: none; margin-top: .15em; }
+.doc-view .dv-act-more { display: block; font-size: var(--fs-xs); color: var(--muted); }
+/* One card at a time: the row pointed at, or the row the keyboard is in. Not :focus-within: a button keeps the focus
+   after a click, so its card stayed open beside the next row pointed at (two cards at once) */
+.doc-view .passage-row:hover .dv-act, .doc-view .passage-row:has(:focus-visible) .dv-act { pointer-events: auto; opacity: 1; }
 .doc-view .dv-fold .passage-row { min-height: 4.4em; }
-.doc-view .passage-row:hover .dv-act, .doc-view .passage-row:focus-within .dv-act { opacity: 1; }
 @media (hover: none) {
-  .doc-view .dv-act { opacity: 1; pointer-events: auto; position: static; margin-top: 4px; background: none; border: 0; padding: 0; box-shadow: none; }
+  .doc-view .dv-act { opacity: 1; pointer-events: auto; position: static; width: auto; margin-top: 4px; background: none; border: 0; padding: 0; box-shadow: none; }
 }
 .doc-view .passage-row.dv-joined { border-top: 0; padding-top: 2px; }
 .doc-view .dv-mine { display: block; margin-top: 4px; font-size: var(--fs-label); color: var(--accent-text); }
@@ -350,7 +356,7 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .doc-view .dv-fold .passage-row { border-top: 1px dashed var(--border); }
 /* The label's words fade, not the label (a faded label would put its actions under the next row) */
 .doc-view .passage-row.dv-out .dv-body, .doc-view .passage-row.dv-out .pp > :not(.dv-act) { opacity: .62; }
-.doc-view .passage-row:hover, .doc-view .passage-row:focus-within { position: relative; z-index: 3; }
+.doc-view .passage-row:hover, .doc-view .passage-row:has(:focus-visible) { position: relative; z-index: 3; }
 .doc-view .passage-row.dv-out .dv-body p { font-family: var(--font-ui); font-size: var(--fs-small); }
 /* Leave out in place: the block greys, then folds away into the line "Left out of the text", which glows a
    moment; a restored block glows where it joins the text (no redraw of the document) */
@@ -391,6 +397,9 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .dv-pbox:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 /* A reading marked as checked by the person */
 .dv-checked { margin: 0 0 12px; }
+.dv-languages { margin: 0 0 12px; }
+.dv-languages .btn-row { margin-top: 8px; }
+.dv-lang-kept { margin: 0 0 6px; }
 /* a document's reference: in the Documents list and in the document viewer */
 .dv-bib { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin: 6px 0 0; font-size: var(--fs-small); color: var(--text-2); }
 .dv-bib .sep { color: var(--faint); }
@@ -722,6 +731,8 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .cb-theory-examples { display: flex; flex-direction: column; gap: var(--space-1); padding-left: var(--space-5); }
 .cb-theory-example { display: flex; gap: var(--space-2); align-items: flex-start; }
 .cb-theory-ai { margin: var(--space-2) 0 var(--space-3); }
+/* 0.19: a theory's concepts in their own list; with several theories, one group (a .cb-run) per document */
+.cb-theory-list { display: flex; flex-direction: column; gap: 12px; }
 .cb-theme-name { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; }
 .cb-steps { display: inline-flex; gap: 2px; }
 .cb-step { min-height: 0; }

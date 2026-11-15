@@ -6,16 +6,24 @@ import { api, h, icon, fmt, P, TERMINAL, session, link, tag } from "../lib.js";
 // 0.15: how a document was read, in the list: one that read badly or has something to check (0.15.7: until the
 // person marks the reading as checked), or one read by an earlier reader (0.15.7: also 0.15.0's; its link opens the
 // preview of the move)
-export const reader = { latest: 5 };  // ingest.READER, as the list of documents says it
+export const reader = { latest: 6 };  // ingest.READER, as the list of documents says it
 // 0.17.2: what reader 4 reads otherwise than reader 3 (only text files and Word files can change)
 // 0.17.2: reader 4 reads only text and Word files otherwise than reader 3, so a reader-3 PDF or web page is not offered
 // it (it would read the same); documents of earlier readers are offered it whatever their kind
 // 0.18.1: from reader 5 a plain text file reads the same as by reader 4 (reader 5 changes tables, figures and pictures),
 // so a reader-4 text file is not offered the move
+// 0.19: reader 6 reads PDFs otherwise than reader 5, and a document in two languages of any kind; the server says which
+// (`new_reader_changes`); without that word, a reader-5 document of another kind than a PDF is not offered it (nor a
+// reader-4 text file)
 export function newReaderFor(d, latest) {
   const r = d.reader || 1;
-  return r < latest && !(r === 3 && latest === 4 && !["text", "docx"].includes(d.kind)) && !(r === 4 && latest === 5 && d.kind === "text");
+  // 0.19: the server says whether the new reader would read it otherwise (languages.new_reader_changes: reader 6
+  // changes a PDF, and a document in two languages one of whose passages holds both)
+  if (typeof d.new_reader_changes === "boolean") return r < latest && d.new_reader_changes;
+  return r < latest && !(r === 3 && latest === 4 && !["text", "docx"].includes(d.kind)) && !(r === 4 && latest >= 5 && d.kind === "text")
+    && !(r === 5 && latest === 6 && d.kind !== "pdf");
 }
+export const READER_6_NEWS = "The new reader also leaves out text a PDF hides behind a figure (a draft page cut to a window), sets aside the e-mails, DOI and dates some publishers print at the foot of the first page, takes the title rather than the journal's name where that name begins the running head, and sets aside running heads it missed on every other page. In a document printed in two languages (a side-by-side translation) it keeps the two apart: no passage holds both, so keeping one language leaves the other out entirely. Other documents read the same.";
 export const READER_5_NEWS = "The new reader also finds tables from their ruled lines, joins a table that runs on to the next page, and shows figures and pictures with their captions (drawn from the original PDF, never stored). Other text reads the same.";
 export const READER_4_NEWS = "The new reader takes each line of a text file without blank lines between its paragraphs as a paragraph of its own, and reads the text in a Word file's content controls and a table inside a table once. Other documents read the same.";
 export function readingNote(d) {

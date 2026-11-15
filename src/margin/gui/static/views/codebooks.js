@@ -97,7 +97,7 @@ export async function newCodebook(start = "fresh", opts = {}) {
   const whereSel = choice({ label: "Kept", value: where, options: [["project", "With this project"], ["home", "With all my projects"]], onPick: (w) => { where = w; } });
   const STARTS = [["fresh", "Start fresh", "An empty codebook: add codes and groups yourself.", "plus"],
     ["themes", "From the themes", "The themes found in the documents become draft codes: short names made of their names, their descriptions, key terms and best passages. Tick the ones to keep.", "shapes"],
-    ["theory", "From a theory document", "The concepts of a theory you read the documents through (terms it defines, its headings, words it uses often) become draft codes, each with its definition quoted from the theory and its page. Examples come only from the evidence, when you tick them. Without AI; the AI can draft more when you ask.", "book-marked"],
+    ["theory", "From theory documents", "The concepts of one or several theories you read the documents through (terms they define, their headings, words they use often) become draft codes, each with its definition quoted from its theory, with the page. Examples come only from the evidence, when you tick them. Without AI; the AI can draft more when you ask.", "book-marked"],
     ["copy", "A copy of a codebook", "The SDG targets or one of yours, to change.", "copy"],
     ["csv", "From a CSV file", "Columns code and description (and group, group_name, when_to_use, when_not_to_use, keywords, examples).", "upload"],
     // K1 "In and out" (qdc_import.py): a REFI-QDA codebook, or the codebook of a REFI-QDA project
@@ -284,95 +284,153 @@ async function pickThemes(all) {
 // examples from the evidence documents offered unticked: an example is kept only when you tick it. 0.18.4: *Draft with
 // AI* beside them, where the document's AI setting allows: the AI's concepts join the list unticked, marked AI draft,
 // each definition quoted from the theory (checked); their examples still come only from the evidence.
+// 0.19: several documents at once (a framework is often built from more than one author). Each ticked document gets
+// its own section of concepts with its own *Draft with AI* (each document's AI setting decides who reads it); the same
+// concept in two documents is offered once for each, as each defines it, and when both are kept each gets its
+// document's title after its name. No example comes from any of the chosen documents; the server groups the codes by
+// document (codebooks.create).
 async function pickTheory() {
   const base = `/api/projects/${P(App.project)}/codebook-theory`;
   let docs;
   try { docs = (await api("GET", base)).documents; } catch (e) { showError(e); return null; }
-  if (!docs.length) { toast("Add the theory document to the project first.", "info"); return null; }
+  if (!docs.length) { toast("Add the theory documents to the project first.", "info"); return null; }
   const theory = docs.filter((d) => d.theory);
-  const docSel = select({ "aria-label": "Theory document" }, docs.map((d) => h("option", { value: d.doc_id }, `${d.title}${d.theory ? " (theory)" : ""}`)));
-  const first = await dialog({ title: "Start from a theory document", body: h("div", { class: "stack" },
-    h("p", {}, theory.length ? "Which theory should the codes come from?" : "No document is marked as theory yet (Documents: a row’s menu, Mark as theory). You can still start from any document."),
-    field("Document", docSel)),
-    actions: [{ text: "Cancel", value: null }, { text: "Next", value: true, primary: true }] });
+  const docBoxes = docs.map((d) => [h("input", { type: "checkbox", checked: d.theory }), d]);
+  const err = h("div", { class: "field-error", role: "alert" });
+  const first = await dialog({ title: "Start from theory documents", body: h("div", { class: "stack" },
+    h("p", {}, theory.length ? "Which theories should the codes come from? Tick every one: the concepts of each are listed apart, each with its definition quoted from it."
+      : "No document is marked as theory yet (Documents: a row’s menu, Mark as theory). You can still tick any documents."),
+    h("div", { class: "cb-theme-pick", role: "group", "aria-label": "Theory documents" },
+      docBoxes.map(([cb, d]) => h("label", { class: "cb-theme" }, cb, h("span", {}, d.title, d.theory ? h("span", { class: "muted small" }, " · theory") : null)))),
+    err),
+    actions: [{ text: "Cancel", value: null }, { text: "Next", value: true, primary: true, onClick: () => {
+      if (docBoxes.some(([cb]) => cb.checked)) return true;
+      err.textContent = "Tick at least one document.";
+      return false;
+    } }] });
   if (!first) return null;
-  let r;
-  try { r = await api("GET", `${base}/${P(docSel.value)}`); } catch (e) { showError(e); return null; }
-  let offer = null;
-  try { offer = await api("GET", `${base}/${P(r.doc_id)}/ai`); } catch (_) { offer = null; }   // without it: no AI part
-  if (!r.concepts.length && !(offer && offer.offered)) { toast("No concepts were found in this document: start fresh instead.", "info"); return null; }
+  const chosen = docBoxes.filter(([cb]) => cb.checked).map(([, d]) => d.doc_id);
+  const fromChosen = new Set(chosen);
+  let found;
+  try {
+    found = await Promise.all(chosen.map(async (id) => {
+      const r = await api("GET", `${base}/${P(id)}`);
+      let offer = null;
+      try { offer = await api("GET", `${base}/${P(id)}/ai`); } catch (_) { offer = null; }   // without it: no AI part
+      return { r, offer };
+    }));
+  } catch (e) { showError(e); return null; }
+  const skipped = found.filter(({ r, offer }) => !r.concepts.length && !(offer && offer.offered)).map(({ r }) => r.title);
+  found = found.filter(({ r, offer }) => r.concepts.length || (offer && offer.offered));
+  if (!found.length) { toast(`No concepts were found in ${chosen.length > 1 ? "these documents" : "this document"}: start fresh instead.`, "info"); return null; }
+  const many = found.length > 1;
   const HOW = { defined: "defined in the text", heading: "a heading", frequent: "used often" };
-  const rows = [];
-  const names = new Set();
+  const rows = [];   // [checkbox, concept, example boxes, document's title]
+  const jobs = new Set();   // running drafts' jobs: stopped if the dialog closes before they end
   const norm = (t) => { const s = String(t || "").toLowerCase().replace(/^[\s.,:;'"’()]+|[\s.,:;'"’()]+$/g, ""); return s.length > 4 && s.endsWith("s") && !s.endsWith("ss") ? s.slice(0, -1) : s; };
-  const list = h("div", { class: "cb-theme-pick cb-theory-pick" });
-  const addRow = (c) => {
-    const k = norm(c.term);
-    if (names.has(k)) return false;
-    names.add(k);
-    const cb = h("input", { type: "checkbox", checked: c.how === "defined" && !c.ai });
-    const exBoxes = (c.suggested || []).map((e) => [h("input", { type: "checkbox", "aria-label": `Keep this example for ${c.term}` }), e]);
-    rows.push([cb, c, exBoxes]);
-    list.appendChild(h("div", { class: "cb-theme cb-theory" },
-      h("label", { class: "cb-theory-head" }, cb, h("span", {},
-        h("strong", { class: "cb-theme-code" }, c.code.code),
-        c.ai ? [" ", tag({ title: "The AI drafted this concept: its definition is quoted from the theory and was checked against it. Read it before you tick it." }, "AI draft")]
-          : h("span", { class: "muted small" }, ` · ${HOW[c.how] || c.how}`),
-        h("span", { class: "cb-theme-desc" }, c.definition ? c.code.description : "No definition found in the text: add one in the editor."),
-        c.ai && c.reason ? h("span", { class: "muted small cb-theory-why" }, `Why the AI offers it: ${c.reason}`) : null)),
-      exBoxes.length ? h("div", { class: "cb-theory-examples" }, h("span", { class: "muted small" }, "Examples from the evidence (tick to keep):"),
-        exBoxes.map(([x, e]) => h("label", { class: "cb-theory-example small" }, x, h("span", {}, `“${e.quote}” `, h("span", { class: "muted" }, `${e.title}${e.page ? `, p. ${e.page}` : ""}`))))) : null));
-    return true;
-  };
-  r.concepts.forEach(addRow);
-  const empty = r.concepts.length ? null : h("p", { class: "muted" }, "No concepts were found in the document’s headings or definitions. The AI can draft them.");
-  // the AI part: a button with its AI mark, and the AI line under it; or one line on why it is not offered
-  let aiPart = null;
-  if (offer && offer.offered) {
-    const draftBtn = button({ onClick: () => draftWithAI(draftBtn) }, "Draft with AI");
-    aiPart = h("div", { class: "cb-theory-ai" }, h("div", { class: "btn-row" }, withAI(draftBtn)),
-      offer.reader === "local"   // the AI line under the action, as everywhere (DESIGN.md 4.4)
-        ? aiWhere("The AI on this computer reads the passages of this document where its concepts are defined or used most: the text never leaves it.", "local")
-        : readsLine("the passages of this document where its concepts are defined or used most"));
-  } else if (offer && offer.why) {
-    aiPart = h("p", { class: "muted small cb-theory-ai" }, offer.why);
-  }
-  let drafting = false;
-  let draftJob = null;   // the running draft's job: stopped if the dialog closes before it ends
-  async function draftWithAI(btn) {
-    if (drafting) return;
-    drafting = true;
-    let drafted = false;
-    setBusy(btn, true);
-    try {
-      const res = await api("POST", `${base}/${P(r.doc_id)}/ai`);
-      draftJob = res.job.id;
-      const job = await watchJob(res.job.id).promise;
-      if (!list.isConnected) return;   // the dialog was closed meanwhile
-      if (job.state !== "done") { if (job.error) toast(job.error, "error"); return; }
-      const got = job.result || {};
-      if (got.stopped) return;   // stopped by the person: nothing was drafted
-      if (got.withdrawn) { toast(got.why || "The request was taken back before the AI answered. Try again.", "warn"); return; }
-      if (!got.ok) { toast("The AI’s definitions could not be found in the document, so nothing was added. Try again, or tick the concepts found without AI.", "warn"); return; }
-      const added = (got.concepts || []).filter(addRow).length;
-      if (empty) empty.remove();
-      toast(added ? `The AI drafted ${plural(added, "concept")}, added at the end of the list, unticked. Read each before you tick it.`
-        : "The AI found no concepts beyond those already listed.", added ? "ok" : "info");
-      drafted = true;   // asked once is enough: asking again only gives the kept answer back
-    } catch (e) { showError(e); }
-    finally {
-      drafting = false; draftJob = null;
-      if (btn.isConnected) { setBusy(btn, false); if (drafted) { btn.disabled = true; btn.textContent = "Drafted with AI"; } }
+  const pick = h("div", { class: "cb-theme-pick cb-theory-pick" });
+  for (const { r, offer } of found) {
+    const names = new Set();   // a concept once per document: two documents may each define it
+    const list = h("div", { class: "cb-theory-list" });
+    const addRow = (c) => {
+      const k = norm(c.term);
+      if (names.has(k)) return false;
+      names.add(k);
+      const cb = h("input", { type: "checkbox", checked: c.how === "defined" && !c.ai });
+      const exBoxes = (c.suggested || []).filter((e) => !fromChosen.has(e.doc_id))
+        .map((e) => [h("input", { type: "checkbox", "aria-label": `Keep this example for ${c.term}` }), e]);
+      rows.push([cb, c, exBoxes, r.title]);
+      list.appendChild(h("div", { class: "cb-theme cb-theory" },
+        h("label", { class: "cb-theory-head" }, cb, h("span", {},
+          h("strong", { class: "cb-theme-code" }, c.code.code),
+          c.ai ? [" ", tag({ title: "The AI drafted this concept: its definition is quoted from the theory and was checked against it. Read it before you tick it." }, "AI draft")]
+            : h("span", { class: "muted small" }, ` · ${HOW[c.how] || c.how}`),
+          h("span", { class: "cb-theme-desc" }, c.definition ? c.code.description : "No definition found in the text: add one in the editor."),
+          c.ai && c.reason ? h("span", { class: "muted small cb-theory-why" }, `Why the AI offers it: ${c.reason}`) : null)),
+        exBoxes.length ? h("div", { class: "cb-theory-examples" }, h("span", { class: "muted small" }, "Examples from the evidence (tick to keep):"),
+          exBoxes.map(([x, e]) => h("label", { class: "cb-theory-example small" }, x, h("span", {}, `“${e.quote}” `, h("span", { class: "muted" }, `${e.title}${e.page ? `, p. ${e.page}` : ""}`))))) : null));
+      return true;
+    };
+    r.concepts.forEach(addRow);
+    const empty = r.concepts.length ? null : h("p", { class: "muted" }, "No concepts were found in the document’s headings or definitions. The AI can draft them.");
+    // the AI part: a button with its AI mark, and the AI line under it; or one line on why it is not offered
+    let aiPart = null;
+    let drafting = false;
+    const draftWithAI = async (btn) => {
+      if (drafting) return;
+      drafting = true;
+      let drafted = false;
+      let jobId = null;
+      setBusy(btn, true);
+      try {
+        const res = await api("POST", `${base}/${P(r.doc_id)}/ai`);
+        jobId = res.job.id;
+        if (!list.isConnected) { api("POST", `/api/jobs/${P(jobId)}/cancel`).catch(() => {}); return; }   // closed while asking
+        jobs.add(jobId);
+        const job = await watchJob(jobId).promise;
+        if (!list.isConnected) return;   // the dialog was closed meanwhile
+        if (job.state !== "done") { if (job.error) toast(job.error, "error"); return; }
+        const got = job.result || {};
+        if (got.stopped) return;   // stopped by the person: nothing was drafted
+        if (got.withdrawn) { toast(got.why || "The request was taken back before the AI answered. Try again.", "warn"); return; }
+        if (!got.ok) { toast("The AI’s definitions could not be found in the document, so nothing was added. Try again, or tick the concepts found without AI.", "warn"); return; }
+        const added = (got.concepts || []).filter(addRow).length;
+        if (empty) empty.remove();
+        const where = many ? `the concepts of “${cutAtWord(r.title, 60)}”` : "the list";
+        toast(added ? `The AI drafted ${plural(added, "concept")}, added at the end of ${where}, unticked. Read each before you tick it.`
+          : "The AI found no concepts beyond those already listed.", added ? "ok" : "info");
+        drafted = true;   // asked once is enough: asking again only gives the kept answer back
+      } catch (e) { showError(e); }
+      finally {
+        drafting = false;
+        if (jobId) jobs.delete(jobId);
+        if (btn.isConnected) { setBusy(btn, false); if (drafted) { btn.disabled = true; btn.textContent = "Drafted with AI"; } }
+      }
+    };
+    if (offer && offer.offered) {
+      const draftBtn = button({ onClick: () => draftWithAI(draftBtn) }, "Draft with AI");
+      aiPart = h("div", { class: "cb-theory-ai" }, h("div", { class: "btn-row" }, withAI(draftBtn)),
+        offer.reader === "local"   // the AI line under the action, as everywhere (DESIGN.md 4.4)
+          ? aiWhere("The AI on this computer reads the passages of this document where its concepts are defined or used most: the text never leaves it.", "local")
+          : readsLine("the passages of this document where its concepts are defined or used most"));
+    } else if (offer && offer.why) {
+      aiPart = h("p", { class: "muted small cb-theory-ai" }, offer.why);
     }
+    pick.appendChild(many
+      ? h("fieldset", { class: "cb-run cb-theory-doc" }, h("legend", {}, `Concepts of “${r.title}”`), aiPart, empty, list)
+      : h("div", {}, aiPart, empty, list));
   }
-  const ok = await dialog({ title: `Concepts of “${r.title}”`, wide: true,
-    body: h("div", {}, h("p", {}, "Each concept you tick becomes a draft code with its definition quoted from the theory. Terms the text defines are ticked; headings and words it uses often are offered too. You edit them next."), aiPart, empty, list),
+  const intro = "Each concept you tick becomes a draft code with its definition quoted from the theory. Terms the text defines are ticked; headings and words it uses often are offered too. You edit them next.";
+  const ok = await dialog({ title: many ? `Concepts of ${found.length} theory documents` : `Concepts of “${found[0].r.title}”`, wide: true,
+    body: h("div", {}, h("p", {}, intro),
+      many ? h("p", { class: "muted small" }, "Each document’s concepts become a group of codes named after it. A concept two documents both define is offered for each, as each defines it.") : null,
+      skipped.length ? h("p", { class: "muted small" }, `No concepts were found in ${skipped.map((t) => `“${t}”`).join(", ")}.`) : null,
+      pick),
     actions: [{ text: "Cancel", value: null }, { text: "Make the codebook", value: true, primary: true }] });
-  if (draftJob) api("POST", `/api/jobs/${P(draftJob)}/cancel`).catch(() => {});   // closed while the AI drafts: stop it
+  for (const id of jobs) api("POST", `/api/jobs/${P(id)}/cancel`).catch(() => {});   // closed while the AI drafts: stop it
   if (!ok) return null;
-  const codes = rows.filter(([cb]) => cb.checked).map(([, c, ex]) => ({ ...c.code, examples: ex.filter(([x]) => x.checked).map(([, e]) => e) }));
-  if (!codes.length) { toast("Tick at least one concept.", "info"); return null; }
-  return { codes, doc_id: r.doc_id };
+  const kept = rows.filter(([cb]) => cb.checked);
+  if (!kept.length) { toast("Tick at least one concept.", "info"); return null; }
+  // the same name from two documents: each gets its document's title after it (cut to fit 40 characters; none for a
+  // document without a title), then a number if two still meet
+  const count = new Map();
+  for (const [, c] of kept) count.set(c.code.code.toLowerCase(), (count.get(c.code.code.toLowerCase()) || 0) + 1);
+  const codes = kept.map(([, c, ex, title]) => {
+    let name = c.code.code;
+    const from = cutAtWord(String(title || "").trim(), 18);
+    if (count.get(name.toLowerCase()) > 1 && from) {
+      name = `${cutAtWord(name, Math.max(8, 40 - from.length - 3))} (${from})`.slice(0, 40);
+    }
+    return { ...c.code, code: name, examples: ex.filter(([x]) => x.checked).map(([, e]) => e) };
+  });
+  const seen = new Map();
+  for (const c of codes) {
+    const k = c.code.toLowerCase();
+    const n = (seen.get(k) || 0) + 1;
+    seen.set(k, n);
+    if (n > 1) c.code = `${cutAtWord(c.code, 40 - ` (${n})`.length)} (${n})`;
+  }
+  return { codes, doc_ids: found.map(({ r }) => r.doc_id) };
 }
 
 // `text` in at most `n` characters, cut before a word (only a single word longer than `n` is cut inside)

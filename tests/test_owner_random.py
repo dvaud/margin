@@ -181,8 +181,9 @@ class Run:
             r = folder.sync_now(p.ws)
             bad = [x for x in r["problems"] if x["kind"] not in ("documents",)]
             self.check_that(not bad, f"{p.name}'s round had problems: {bad}")
-            for d in r.get("moves_due") or []:
-                ownership.move_now(p.ws, d)
+            moved = [d for d in r.get("moves_due") or [] if ownership.move_now(p.ws, d)["moved"]]
+        for d in moved:
+            self.moved(p, d)
         self.say(p, f"synced (wrote {(r.get('wrote') or {}).get('seq')})")
         return r
 
@@ -266,6 +267,7 @@ class Run:
         d = self.rng.choice(docs)
         with p:
             reread.move(p.ws, d, p.id)
+        self.moved(p, d)
         self.say(p, f"read {d} again")
         return True
 
@@ -340,15 +342,17 @@ class Run:
             return False
         q = self.rng.choice(sorted(ws, key=_key))
         yes = self.rng.random() < 0.6
+        moved = []
         with p:
             if yes:
                 ownership.accept(p.ws, q["id"])
-                for d in ownership.moves_due(p.ws):
-                    ownership.move_now(p.ws, d)
+                moved = [d for d in ownership.moves_due(p.ws) if ownership.move_now(p.ws, d)["moved"]]
                 if q["kind"] == "loosen":
                     self.owner_loosened.add((p.name, q["doc"]))
             else:
                 ownership.decline(p.ws, q["id"], "random")
+        for d in moved:
+            self.moved(p, d)
         self.say(p, f"{'accepted' if yes else 'declined'} {q['kind']} of {q['doc']} by {q['by']['name']}")
         return True
 
@@ -415,6 +419,23 @@ class Run:
                 self.a_level(p, looser=a == "loosen")
             else:
                 getattr(self, f"a_{a}")(p)
+
+    def moved(self, p: Person, d: str) -> None:
+        """`p`'s copy read `d` again (their own act, or following the project): each judgement of theirs on it is
+        placed on the new reading's passage that holds its words, which may be another passage than before (reader 1
+        reads a short report as one passage, reader 5 as three). The result is kept, not lost: as many excerpts, the
+        same verdicts and notes, only passage ids of `d` other, and none left as a record (a tombstone id) that was on a
+        passage; what `p` has is then what is kept from here on."""
+        for h, want in list(self.mine[p.name].items()):
+            got = self.results(p, h)
+            if got == want or got is None or want is None:
+                continue
+            same = (got[0] == want[0] and sorted((v, n) for _, v, n in got[1]) == sorted((v, n) for _, v, n in want[1])
+                    and all(a == b or (a.split(":")[0] == d and b.split(":")[0] == d
+                                       and (reread.is_tombstone(b) or not reread.is_tombstone(a)))
+                            for a, b in zip(sorted(x[0] for x in got[1]), sorted(x[0] for x in want[1]))))
+            self.check_that(same, f"{p.name}'s check {h} changed when {d} was read again: {want} -> {got}")
+            self.mine[p.name][h] = got
 
     # ---- what is checked ------------------------------------------------------------------------------------------
     def results(self, p: Person, h: str) -> tuple | None:

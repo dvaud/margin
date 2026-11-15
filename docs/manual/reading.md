@@ -6,6 +6,8 @@
 > - The reading view shows each document the way it was read: what counts, and what was left out. *Leave out* and
 >   *Restore* put it right.
 > - The *Reading* panel says how well it was read and what to look at; *Checked: it reads well enough* clears the mark.
+> - A document printed in two languages (a side-by-side translation): *Keep only English* leaves the other language
+>   out.
 > - A document read by an older reader can be moved to the newest, one at a time or many at once; every result follows
 >   its quote.
 > - How a file becomes text, and what each reader changed: [How documents are read](how-documents-are-read.md).
@@ -45,7 +47,8 @@ the words inside it, if any, are under a small fold *Words in the figure*. A fig
 themes or checks, so it has no *Leave out* or *Restore*. A picture of a Word file or web page, or one whose PDF is no
 longer there, shows only its alternative text or its words, folded under *Left out of the text* as before.
 
-A heading goes with the text under it, and short paragraphs that share a passage go together. Your choice is kept by
+A heading goes with the text under it, and short paragraphs that share a passage go together: *Leave out* and
+*Restore* then say how many blocks go (*17 together*) before you press them. Your choice is kept by
 the block's words, so it holds when the document is read again; *restored by you*, *left out by you* or *the text
 starts here (you said)* stands beside the block. A block you restore before the start or after the end still counts.
 Changing what counts makes keyword codes, key terms and themes out of date, as adding a document does.
@@ -65,14 +68,46 @@ takes it back). A new reading of the document asks again.
 with every block the reader found outlined: solid for what counts, dashed for what was left out. It follows the text
 as you scroll; click an outline to go to that block.
 
+## A document in two languages
+
+Some journals print each article twice, in the original language and in English, column beside column (a
+*side-by-side translation*). Margin reads the columns one after the other, so it has every finding twice: search by
+meaning finds both, a check may quote the other language, codes and themes count each point twice.
+
+When at least a fifth of a document's text is in a second language, the *Reading* panel says so, with the share of
+each: *In two languages: English 52 %, Spanish 48 %*. **Keep only English** (or the other one) leaves the paragraphs,
+headings and captions of the other language out of searches, codes, themes and checks. They stay in the text, folded
+under *Left out of the text*, each marked *left out: Spanish (you kept English)*. **Count both again** takes it back.
+
+- Each paragraph's language is told by its common words, for the document's two languages only. A paragraph in both
+  (a title printed in both languages) and one whose language cannot be told (a name, a page number) still count.
+  So does a short quotation in the other language inside the language you keep; a longer one, a paragraph of its
+  own, is left out with the rest of that language.
+- Your *Restore* or *Leave out* of a paragraph wins: restore a paragraph of the other language and it counts.
+- The choice is kept with the document, so it holds when the document is read again, and travels to your colleagues
+  as *Leave out* does: in a project with an owner, a Member's choice is a proposal.
+- A colleague whose Margin is older than 0.19 keeps your choice but does not apply it: their copy still reads both
+  languages until they update.
+- **Read with the new reader.** A reader before reader 6 (Margin 0.19) sometimes put a paragraph of each language
+  into one passage: where a column ended without a full stop and the next started in lower case, it took the second
+  for the end of the first. Such a passage still counts, the other language with it; the panel says how many there
+  are. Reader 6 keeps the two languages apart, and is offered for those documents (and, for what else it changes, for
+  PDFs): any other document in one language reads the same with it.
+
+Changing what counts makes keyword codes, key terms and themes out of date, as adding a document does.
+
 ## Read with the new reader
 
 A document read by an older reader keeps that reading, and the list of documents marks it (*read before 0.15*, or
 *read by an earlier reader*). Its *Reading* panel offers **Read with the new reader** (the mark in the list opens it
 with the preview already started). It is offered only where the new reader can change the reading: a PDF or web page
-read by reader 3 was not offered reader 4, and a plain text file read by reader 4 is not offered reader 5, as each
-would read the same. Reader 5 changes PDFs with ruled tables, tables over two pages or figures, and Word files and web
-pages with pictures; the preview says what would change.
+read by reader 3 was not offered reader 4, a plain text file read by reader 4 is not offered reader 5, and of the
+documents reader 5 read only PDFs and documents in two languages that have a passage in both are offered reader 6, as
+the others would read the same. Reader 5 changes PDFs with ruled tables,
+tables over two pages or figures, and Word files and web pages with pictures; reader 6 changes PDFs with text hidden
+behind a figure, publishing details at the foot of the first page, or running heads beside a page number, and any
+document in two languages one of whose passages holds both. The preview
+says what would change.
 
 ```mermaid
 flowchart LR

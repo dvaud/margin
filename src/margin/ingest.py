@@ -36,12 +36,16 @@ SUPPORTED = {".pdf", ".html", ".htm", ".txt", ".md", ".docx"}
 # text or passages raises this number: documents already in a project keep the reading they have, so every result in
 # them stays where it is, until a person has one read with the new reader (planned with the next reader); only new
 # documents get the new reader.
-READER = 5  # 1: Margin 0.5 to 0.14 (pypdf's page text, cut by sentences); 2: Margin 0.15.0 (reader.py);
+READER = 6  # 1: Margin 0.5 to 0.14 (pypdf's page text, cut by sentences); 2: Margin 0.15.0 (reader.py);
             # 3: Margin 0.15.1 (reader.py with reader3.py: text-only files, books, words run together);
             # 4: Margin 0.17.2 (reader4.py: a text file's lines as paragraphs; Word's nested tables read once, and
             #    its content controls read)
             # 5: Margin 0.18.1 (reader5.py: tables from their ruled lines, a table over a page joined, figures and
             #    images as blocks of their own; a Word file's or web page's image captions and alternative text)
+            # 6: Margin 0.19 (reader6.py, PDFs only: text a form crops away left out, a form of words one figure,
+            #    publishing details in the first page's footer set aside, a journal's name not the title; and, any
+            #    kind of file, languages.py: in a document in two languages, a side-by-side translation, no passage
+            #    holds both)
 REF_HEADING = re.compile(
     r"(?:^|\s)(References|REFERENCES|Bibliography|BIBLIOGRAPHY|Literature [Cc]ited|Works [Cc]ited|Reference [Ll]ist)"
     r"\s*:?\s+(?=\[?\(?\d|[A-Z][A-Za-z'\-]+,?\s+[A-Z]|[A-Z]{2,})"

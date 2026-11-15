@@ -1799,8 +1799,9 @@ def _apply_delta(base: dict, delta: dict) -> dict:
         if v is None:
             out.pop(fp, None)
         elif isinstance(v, list) and v:
-            side = fp.split(":", 1)[0] if fp.startswith(("start:", "end:", "role:")) else None
-            if side:  # the text starts (or ends) in one place only; 0.19.0 (N3): a document has one role only
+            side = fp.split(":", 1)[0] if fp.startswith(("start:", "end:", "role:", "lang:")) else None
+            if side:  # the text starts (or ends) in one place only; 0.19.0 (N3): a document has one role only;
+                #       0.19: one language is kept, never two
                 for other in [f for f in out if f.startswith(side + ":")]:
                     out.pop(other)
             out[fp] = [1 if v[0] else 0, v[1] if len(v) > 1 else None]
@@ -1820,6 +1821,12 @@ def _delta_words(delta: dict) -> dict:
                 out.setdefault("role", "evidence")
         elif fp.startswith("mark:"):  # 0.18.6 (docrole.py): marked Non-scientific, or counted as scientific again
             out[fp.split(":", 1)[1]] = bool(v is not None and v[0])
+        elif fp.startswith("lang:"):  # 0.19 (languages.py): one language of a document in two kept, or both again
+            from .stopwords import NAMES
+
+            if v is not None or out.get("language") in (None, "both"):   # from one language to another: the new one
+                out["language"] = fp.split(":", 1)[1] if v is not None else "both"
+                out["language_name"] = NAMES.get(out["language"], out["language"])
         elif v is None:
             out["undone"] += 1
         else:
@@ -2046,6 +2053,11 @@ def _reading(ctx: _Ctx, doc: str, L: dict, k: dict, s: dict, apply: bool) -> Non
         # both ways (`move_now`), is its proposer's: neither proposed again in this person's name nor written as theirs
         same = [p for p in ctx.about("reread", doc) if p["detail"].get("to_fp") == L["text_fp"]
                 and p["by"] in (me, held_for)]
+        # 0.19.0rc2: an accepted proposal of this reading, while the project reads the document with an older reader
+        # again (it was removed and added since; not an accept that stopped counting, §4.5), is spent: it neither
+        # covers this reading nor lets the owner's copy write it as already accepted; it is proposed (or written) anew
+        spent = [p for p in same if not k["void"]["read"] and ctx.state(p)[0] == "accepted"]
+        same = [p for p in same if p not in spent]
         mine = [p for p in same if p["by"] == me]
         if held_for and held_for != me:
             pass
@@ -2054,7 +2066,10 @@ def _reading(ctx: _Ctx, doc: str, L: dict, k: dict, s: dict, apply: bool) -> Non
                         sha1=(L["sha1"] or "").split("~")[0] or None)
             ctx.follow(doc, "read")
         elif not ctx.writes and not same:
-            ctx.propose("reread", doc, L["title"], (L["text_fp"],),
+            # a spent proposal of the same reading has the id this one would take: the project's read event sets
+            # the new one apart
+            key = (L["text_fp"], k["read_n"], k["read_by"]) if any(p["by"] == me for p in spent) else (L["text_fp"],)
+            ctx.propose("reread", doc, L["title"], key,
                         {"from_fp": k["text_fp"], "from_reader": k["reader"] or 1, "to_fp": L["text_fp"],
                          "to_reader": L["reader"]})
     elif (s.get("read_tried") or 0) != k["read_n"]:  # the project reads it with a newer reader: due here

@@ -200,9 +200,17 @@ def made_with(ws: Workspace) -> dict:
     from .ingest import READER
     from .update import version_tuple
 
-    docs = [{**dict(r), "label": version_label(r["app_version"]), "older": r["reader"] < READER} for r in ws.query(
-        "SELECT COALESCE(reader, 1) AS reader, app_version, COUNT(*) AS n FROM documents "
-        "GROUP BY COALESCE(reader, 1), app_version ORDER BY reader, app_version")]
+    from . import languages
+
+    # 0.19: a document is older only when the new reader would read it otherwise (`languages.new_reader_changes`)
+    langs = languages.of_documents(ws) if READER == 6 else {}
+    groups: dict[tuple, int] = {}
+    for r in ws.query("SELECT doc_id, COALESCE(reader, 1) AS reader, kind, app_version FROM documents"):
+        older = languages.new_reader_changes(r["reader"], langs.get(r["doc_id"]), r["kind"], READER)
+        k = (r["reader"], r["app_version"], older)
+        groups[k] = groups.get(k, 0) + 1
+    docs = [{"reader": rd, "app_version": v, "n": n, "label": version_label(v), "older": old}
+            for (rd, v, old), n in sorted(groups.items(), key=lambda x: (x[0][0], x[0][1] or "", x[0][2]))]
     now_t = version_tuple(current)
     res = []
     for what, sql in (("checks", "SELECT app_version, COUNT(*) FROM hypotheses GROUP BY app_version"),

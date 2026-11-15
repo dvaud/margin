@@ -136,6 +136,48 @@ def test_the_ticked_concepts_become_an_ordinary_codebook_without_theory_examples
         codebooks.create(ws, "empty", "Nothing", start="theory", source={"codes": [], "doc_id": theory})
 
 
+SECOND_THEORY = ("Practice theory\n\n"
+                 "A practice is a routinised way in which bodies move, objects are handled and the world is "
+                 "understood. A delay is the time a practice needs before a new tool becomes part of its routine.\n")
+
+
+def test_a_codebook_from_several_theory_documents(project, tmp_path):
+    """0.19: the concepts of several theories in one codebook, a group of codes for each document, the log naming
+    them all; an example never comes from any of the chosen documents, even one not marked as theory."""
+    ws, meadows, ev = project
+    d = tmp_path / "more"
+    d.mkdir()
+    (d / "practice.txt").write_text(SECOND_THEORY, encoding="utf-8")
+    ingest.ingest(ws, [d])
+    practice = ws.scalar("SELECT doc_id FROM documents WHERE text LIKE '%routinised way%'")
+    a, b = _by_term(theorycodes.candidates(ws, meadows)), _by_term(theorycodes.candidates(ws, practice))
+    assert a["delay"]["code"]["source_doc"] == meadows and b["delay"]["code"]["source_doc"] == practice
+    # the editor gives both "Delay"s their document's title (pickTheory), as here
+    keep = [dict(a["stock"]["code"]), {**a["delay"]["code"], "code": "Delay (Thinking in systems)"},
+            dict(b["practice"]["code"]), {**b["delay"]["code"], "code": "Delay (Practice theory)"}]
+    # a sentence of the other chosen theory, offered as an example, is dropped (it is not marked as theory)
+    keep[0]["examples"] = [{"quote": "A practice is a routinised way", "doc_id": practice, "title": "Practice theory"}]
+    cb = codebooks.create(ws, "lenses", "Two lenses", start="theory",
+                          source={"codes": keep, "doc_ids": [meadows, practice]})
+    codes = {c["code"]: c for c in cb["codes"]}
+    assert set(codes) == {"Stock", "Delay (Thinking in systems)", "Practice", "Delay (Practice theory)"}
+    assert codes["Stock"]["examples"] == []
+    groups = {g["group"]: g["group_name"] for g in cb["groups"]}
+    assert codes["Stock"]["group"] == codes["Delay (Thinking in systems)"]["group"] != codes["Practice"]["group"]
+    assert groups[codes["Practice"]["group"]] == "Practice theory"
+    assert "Thinking in systems" in groups[codes["Stock"]["group"]]
+    log = ws.query("SELECT text FROM research_log WHERE kind='codebook-added'")[0][0]
+    assert "4 concepts of 2 theory documents" in log and "Practice theory" in log and "Thinking in systems" in log
+    # two ticked but concepts kept from one: no groups, and the log names only the document they come from
+    one = codebooks.create(ws, "one", "One lens", start="theory",
+                           source={"codes": keep[2:3], "doc_ids": [meadows, practice]})
+    assert {c["group"] for c in one["codes"]} == {""}
+    log = ws.query("SELECT text FROM research_log WHERE kind='codebook-added' AND subject_id='one'")[0][0]
+    assert "of the theory document “Practice theory”" in log and "Thinking in systems" not in log
+    with pytest.raises(ValueError):
+        codebooks.create(ws, "bad", "Bad", start="theory", source={"codes": keep[2:3], "doc_ids": practice})
+
+
 def test_the_routes(api, tmp_path):  # noqa: F811
     from margin import home
 

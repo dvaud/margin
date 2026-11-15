@@ -176,6 +176,13 @@ class DocumentsApi:
             raise ApiError(400, "block must be a block number or null.")
         return self.app.set_bound(name, doc_id, side, n)
 
+    def put_language(self, name, doc_id, q):
+        """0.19: {"keep": a language code | null}: keep one language of a document in two (null: both count)."""
+        keep = self._body().get("keep")
+        if keep is not None and not isinstance(keep, str):
+            raise ApiError(400, "keep must be a language code or null.")
+        return self.app.set_language(name, doc_id, keep)
+
     def get_reread(self, name, doc_id, q):
         """0.15 (A0): what *Read with the new reader* would do to this document, without doing it."""
         from .. import reread
@@ -205,8 +212,7 @@ class DocumentsApi:
 
         ws = self.app.ws(name)
         body = self._body()
-        older = [r["doc_id"] for r in ws.query("SELECT doc_id FROM documents WHERE COALESCE(reader, 1) < ? "
-                                               "ORDER BY title", (ingest.READER,))]
+        older = _older(ws)
         ids = body.get("doc_ids")
         if ids is not None:
             if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
@@ -225,8 +231,7 @@ class DocumentsApi:
         how many results would lose their place, and which. Nothing is stored or changed."""
         ws = self.app.ws(name)
         body = self._body()
-        older = [r["doc_id"] for r in ws.query("SELECT doc_id FROM documents WHERE COALESCE(reader, 1) < ? "
-                                               "ORDER BY title", (ingest.READER,))]
+        older = _older(ws)
         ids = body.get("doc_ids")
         if ids is not None:
             if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
@@ -341,3 +346,14 @@ class DocumentsApi:
     def get_passage(self, name, passage_id, q):
         around = max(0, min(int(_float(q, "around", 1)), 5))
         return claimcheck.neighbours(self.app.ws(name), passage_id, around, around)
+
+
+def _older(ws) -> list[str]:
+    """The documents the new reader would read otherwise (0.19: a document reader 5 read, or a text file reader 4
+    read, only when one of its passages holds both languages of a document in two), by title."""
+    from .. import languages
+
+    rows = ws.query("SELECT doc_id, kind, COALESCE(reader, 1) AS reader FROM documents WHERE COALESCE(reader, 1) < ? "
+                    "ORDER BY title", (ingest.READER,))
+    langs = languages.of_documents(ws) if any(r["reader"] >= 4 for r in rows) else {}
+    return [r["doc_id"] for r in rows if languages.new_reader_changes(r["reader"], langs.get(r["doc_id"]), r["kind"])]

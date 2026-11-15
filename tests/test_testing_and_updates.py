@@ -194,6 +194,7 @@ def test_the_endpoint_and_the_page_carry_it():
     js = (ROOT / "src/margin/gui/static/views/settings.js").read_text("utf-8")
     assert "Copy technical details" in js and "Stable (recommended)" in js and "Try new versions early" in js
     assert 'target: "_blank", rel: "noopener"' in js and "issues/new?template=problem.yml" in js
+    assert '"https://github.com/dvaud/margin"' in js and 'href: REPO_URL }, "Source code (on GitHub)"' in js
 
 
 # --- the issue forms, the security policy, the workflow --------------------------------------------------------------
