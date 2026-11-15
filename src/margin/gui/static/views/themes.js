@@ -4,7 +4,7 @@
 // A theme that is not relevant can be removed (its passages are left out until it is brought back), and a new theme
 // found in its place, on this computer without AI (POST …/new, job "theme-new").
 import { featureEyebrow, withAI } from "../features.js";
-import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks, button, choice, link, tag, notice, card, input, select, textarea, fold, readsLine, stopButton, menu, inset, searchHref, drawInSteps, heatGrid } from "../lib.js";
+import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks, button, choice, link, tag, notice, card, input, select, textarea, fold, readsLine, stopButton, menu, inset, searchHref, drawInSteps, heatGrid, heatHead } from "../lib.js";
 import { simpleProgress, MiniJob, jobError } from "./progress.js";
 import { historyButton, askWhy } from "./versions.js";
 import { shareBar } from "./share.js";   // 0.18 (L1)
@@ -323,7 +323,7 @@ async function renderRun(view, runId, info, query) {
     const table = h("table", { class: "map-table th-grid th-codes" },
       h("caption", { class: "visually-hidden" }, `Themes by ${fwLabel}: the number of passages`),
       h("thead", {}, h("tr", {}, h("th", { scope: "col", class: "map-hyp-head" }, "Theme"),
-        cg.codes.map((code) => h("th", { scope: "col", class: "th-code-head", title: desc && desc[code] ? `${code}: ${desc[code]}` : code }, code)))),
+        cg.codes.map((code) => heatHead(code, { title: desc && desc[code] ? `${code}: ${desc[code]}` : code })))),
       h("tbody", {}, v.themes.map((t) => {
         const row = cells[String(t.theme_id)] || {};
         const href = themeHref(runId, t.theme_id);

@@ -11,7 +11,7 @@ import re
 import time
 from pathlib import Path
 
-from .api_common import ApiError, XLSX, _csv, _disposition, _filename, _float, _str, _usable_embedder
+from .api_common import ApiError, XLSX, _csv, _disposition, _filename, _float, _int, _str, _usable_embedder
 from .. import claimcheck, home, sync, taskqueue
 from ..llm import BackendError
 
@@ -427,6 +427,13 @@ class ChecksApi:
 
     def get_queue(self, name, q):
         return self.app.queue(name)
+
+    def get_queue_preview(self, name, q):
+        """What Claude Code would be sent for the next batch (read only: nothing is claimed or recorded)."""
+        try:
+            return taskqueue.preview(self.app.ws(name), _str(q, "kind"), _int(q, "start", 0, 0, 1_000_000))
+        except ValueError as e:
+            raise ApiError(400, str(e)) from e
 
     def post_queue_order(self, name, q):
         body = self._body()

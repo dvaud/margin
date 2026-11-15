@@ -2,7 +2,7 @@
 // this project, kind by kind: do first, hold or go on, remove; Start Claude Code with its speed and helpers; or answer
 // it with the AI model of Settings. (Until 0.16.1 this was the queue panel at the foot of the sidebar; the sidebar now
 // shows only the work's essentials, in its status area, and links here.)
-import { App, api, h, icon, replace, toast, showError, confirmDialog, P, watchJob, startClaude, button, card, tag, withAI, readsLine, aiWhere, notice } from "../lib.js";
+import { App, api, h, icon, replace, toast, showError, confirmDialog, P, watchJob, startClaude, button, card, tag, withAI, readsLine, notice, queueAiLine } from "../lib.js";
 
 export function queueSection() {
   const body = h("div", { class: "queue-section", "aria-live": "polite" });
@@ -57,7 +57,7 @@ export function queueSection() {
     if (kinds.length || s.backend === "claude_code") parts.push(h("div", { class: "qp-start" }, startClaude(App.project, { command: q.command })));
     // where the tasks' text goes (docs/DESIGN.md 4.4): under the card's AI actions. With Claude Code, under Start Claude
     // Code; with another AI, under "Answer them here instead"
-    if (s.backend === "claude_code") parts.push(aiWhere(q.privacy || "Claude Code sends the passages inside the tasks it takes to Anthropic.", "cloud"));
+    if (s.backend === "claude_code") parts.push(queueAiLine(q.privacy, kinds.length ? App.project : null));
     // 0.18.1 (I1): the AI mix's share, answered here by the local model (an open check does it by itself)
     if (q.for_local && s.backend === "claude_code") {
       parts.push(h("div", { class: "qp-here" }, ...withAI(button({ sm: true, onClick: async () => {

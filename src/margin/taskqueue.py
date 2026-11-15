@@ -52,6 +52,8 @@ NOUN = taskkinds.Table("noun")
 SHORT = taskkinds.Table("short")
 KIND_TITLE = taskkinds.Table("title")
 
+HOW_TO_ANSWER = ("Answer every task as the system instruction says: one JSON object per task, quotes copied exactly "
+                 "from that task's text. Then call submit_answers with this claim and [{task_id, answer}] for each task.")
 PRIVACY_LINE = ("Claude Code sends the passages inside the tasks it takes to Anthropic; your documents, results and "
                 "reviews stay on this computer.")
 
@@ -648,12 +650,117 @@ def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, mod
         return {"claim": cid, "kind": k, "model": m, "helper": hp, "prompt_version": prompts.VERSIONS[k],
                 "system": system, "tasks": picked, "expires_at": expires, "codebook_once": bool(shared),
                 "still_waiting": left,
-                "how_to_answer": ("Answer every task as the system instruction says: one JSON object per task, quotes "
-                                  "copied exactly from that task's text. Then call submit_answers with this claim and "
-                                  "[{task_id, answer}] for each task.")}
+                "how_to_answer": HOW_TO_ANSWER}
     what = f" of kind {kind}" if kind else ""
     by = f" for {model}" if model else ""
     return {"claim": None, "note": f"Nothing{what}{by} is waiting in the queue."}
+
+
+PREVIEW_SHOWN = 20  # the most tasks one preview shows (a batch takes 50 at most; most kinds take 5 to 20)
+
+
+def preview(ws: Workspace, kind: str | None = None, start: int = 0) -> dict:
+    """What Claude Code would be sent for the next batch of `kind` (the first kind that waits, in the queue's order,
+    when None), built as `next_tasks` builds it but without claiming a task or writing to the ledger: the batch's
+    instruction, each task's text, and the whole reply of the connector's `next_tasks` as Claude Code receives it.
+    `start` skips that many tasks of the batch's model and helper (the batch after this one).
+
+    Returns {"kind", "title", "model", "helper", "system", "tasks": [{"task_id", "prompt", "documents"}], "raw",
+    "waiting", "being_answered", "start", "more"}, or {"kind": None, "note"} when nothing waits."""
+    from .llm import estimate_tokens
+    from .tasks import render
+
+    if local_only():
+        return {"kind": None, "note": "This installation keeps everything on this computer: nothing is sent to "
+                                      "Claude Code."}
+    if kind and kind not in KINDS:
+        raise ValueError(f"Unknown kind of task {kind!r}. Kinds: {', '.join(KINDS)}.")
+    r = router(ws)
+    o, held = order(ws)
+    lent = mix_kinds()
+    start = max(0, int(start or 0))
+    for k in [kind] if kind else [k for k in o if k not in held]:
+        cand = [t for t in _waiting_rows(ws, k) if not _lent(t, lent)]
+        if not cand:
+            continue
+        m, hp = effective_model(cand[0], r), effective_helper(cand[0], r)
+        cand = [t for t in cand if effective_model(t, r) == m and effective_helper(t, r) == hp]
+        size = max(1, min(int(BATCH.get(k, 5)), PREVIEW_SHOWN))
+        system = prompts.system_prompt(k)
+        cap = min(TOKEN_BUDGET, CONNECTOR_CAP - 2000 - estimate_tokens(system))
+        picked: list[dict] = []
+        budget = skipped = 0
+        with ws.connect() as cx:
+            dflt = access._default_from_cx(cx)
+            for t in cand:
+                if len(picked) >= size:
+                    break
+                full = cx.execute("SELECT * FROM tasks WHERE task_id=?", (t["task_id"],)).fetchone()
+                if full is None or not access.would_leave(cx, t["task_id"], dflt):
+                    continue
+                if skipped < start:
+                    skipped += 1
+                    continue
+                _sys, user = render(ws, full)
+                cost = estimate_tokens(user)
+                if picked and budget + cost > cap:
+                    break
+                payload = json.loads(full["payload_json"])
+                picked.append({"task_id": t["task_id"], "prompt": user, "payload": payload,
+                               "documents": _documents_of(cx, payload)})
+                budget += cost
+        if not picked:
+            if start:
+                return {"kind": k, "title": KIND_TITLE.get(k, k), "start": start, "tasks": [], "more": False,
+                        "note": "Nothing more of this kind waits."}
+            continue
+        shared = prompts.shared_codebook(k, [p["payload"] for p in picked])
+        if shared:
+            system = f"{system}\n\n{shared['codebook']}"
+            for p, user in zip(picked, shared["prompts"]):
+                p["prompt"] = user
+        for p in picked:
+            p.pop("payload")
+        waiting = _waiting_count(ws, k)
+        # the reply of the connector's next_tasks, as Claude Code's helper reads it (a claim id is made only when a
+        # batch is really taken; the time a claim ends is the same 30 minutes from then)
+        raw = {"claim": "(made when the batch is taken)", "kind": k, "model": m, "helper": hp,
+               "prompt_version": prompts.VERSIONS[k], "system": system,
+               "tasks": [{"task_id": p["task_id"], "prompt": p["prompt"]} for p in picked],
+               "expires_at": f"({CLAIM_MINUTES} minutes after it is taken)", "codebook_once": bool(shared),
+               "still_waiting": max(0, waiting - len(picked)),
+               "how_to_answer": HOW_TO_ANSWER}
+        return {"kind": k, "title": KIND_TITLE.get(k, k), "model": m, "helper": hp, "system": system,
+                "tasks": picked, "raw": json.dumps(raw, ensure_ascii=False, indent=1),
+                "waiting": waiting, "being_answered": _held_count(ws, k), "start": start,
+                "more": start + len(picked) < len(cand)}
+    what = f" of {KIND_TITLE.get(kind, kind)}" if kind else ""
+    return {"kind": kind, "note": f"Nothing{what} waits for Claude Code now, so nothing is about to be sent."}
+
+
+def _documents_of(cx, payload) -> list[dict]:
+    """The documents (title and pages) whose passages a task's text holds, for the preview's heading per task."""
+    pids, dids = access.ids_in(payload)
+    pages: dict[str, set] = {}
+    for pid in sorted(pids)[:200]:
+        row = cx.execute("SELECT doc_id, page FROM passages WHERE passage_id=?", (pid,)).fetchone()
+        if row:
+            pages.setdefault(row[0], set())
+            if row[1] is not None:
+                pages[row[0]].add(row[1])
+    for d in dids:
+        pages.setdefault(d, set())
+    out = []
+    for d, pg in pages.items():
+        row = cx.execute("SELECT title FROM documents WHERE doc_id=?", (d,)).fetchone()
+        if row is not None:
+            out.append({"doc_id": d, "title": row[0] or "untitled", "pages": sorted(pg)})
+    return out
+
+
+def _held_count(ws: Workspace, kind: str) -> int:
+    return int(ws.scalar(f"SELECT COUNT(*) FROM tasks t WHERE {_HELD} AND {WAITING} AND +t.kind=?",
+                         (_cutoff(), kind)) or 0)
 
 
 def _find(ws: Workspace, claim_id: str):
@@ -933,7 +1040,7 @@ def queue_info(ws: Workspace, kind: str) -> dict:
             run_total, run_done = _run_counts(ws, k, first[k]) if first[k] else (0, 0)
             paused_text = _paused_text(k, run_done, run_total, command)
     return {"text": text, "waiting": n, "being_answered": being, "paused": paused, "paused_text": paused_text,
-            "command": command, "estimate": estimate, "privacy": PRIVACY_LINE}
+            "command": command, "estimate": estimate, "privacy": PRIVACY_LINE, "kind": kind}
 
 
 # ---------------------------------------------------------------------------------------------

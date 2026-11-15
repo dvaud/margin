@@ -106,7 +106,11 @@ export async function renderDocument(view, [docId], query) {
   const figureFailed = new Set();      // figures whose picture could not be drawn: folded, as before
   const figureEls = new Map();         // n -> its <figure>, kept so a repaint does not load the picture again
   // (reader 5 only: an earlier reader's "figure" is the words inside a figure, folded with its Restore, review 9)
-  const shownFigure = (b) => reading && (d.reader || 1) >= 5 && b.kind === "figure" && !!b.box && !!d.page_images && !figureFailed.has(b.n);
+  const pictured = (b) => reading && (d.reader || 1) >= 5 && b.kind === "figure" && !!b.box && !!d.page_images && !figureFailed.has(b.n);
+  // 2026-11-15: a figure the person left out (an advert, a logo) is folded with a small picture of it, where Restore
+  // brings it back (doc-leave-out.js)
+  const shownFigure = (b) => pictured(b) && !b.hidden;
+  const leftFigure = (b) => pictured(b) && !!b.hidden;
   // a figure's caption: the caption block just after it, else just before it
   function captionOf(b) {
     const i = loaded.indexOf(b);
@@ -136,6 +140,13 @@ export async function renderDocument(view, [docId], query) {
     replace(el.words, (b.text || "").trim() ? fold({ sm: true }, "Words in the figure", blockText({ ...b, kind: "figure-words" }, decos)) : null);
     return el.fig;
   }
+  // a figure left out, in its fold: a small picture of it, so the person sees what Restore brings back, and its words
+  function figureThumb(b, decos) {
+    const img = h("img", { class: "dv-figure-img", loading: "lazy", decoding: "async",
+      src: `${docBase}/figures/${b.n}.png?scale=1&token=${encodeURIComponent(TOKEN)}`, alt: `Figure on page ${b.page}, left out` });
+    img.addEventListener("error", () => img.remove());
+    return h("div", { class: "dv-figure-thumb" }, img, (b.text || "").trim() ? blockText({ ...b, kind: "figure-words" }, decos) : null);
+  }
   // its picture could not be drawn (the original is gone, or the page cannot be read): folded as before, silently
   function figureGone(b) {
     if (figureFailed.has(b.n)) return;
@@ -150,6 +161,7 @@ export async function renderDocument(view, [docId], query) {
     f.appendChild(r.row);
     r.sig = null;
     replace(r.body, blockText(b, []));
+    replace(r.label, labelParts(b));   // nothing to leave out or restore any more
   }
   function openPageAt(page) {
     openTab("page");
@@ -190,6 +202,7 @@ export async function renderDocument(view, [docId], query) {
       list.insertBefore(h("div", { class: "dv-page-mark", id: `page-${b.page}` }, h("span", {}, `Page ${b.page}`)), selBar);
     }
     if (reading && b.included === false && b.kind !== "table" && !shownFigure(b)) {
+      const kind = leftFigure(b) ? "picture" : b.kind;   // a figure left out by the person: a picture, not its words
       if (!leftFold) {
         leftFold = { el: h("details", { class: "dv-fold" }), kinds: new Map() };
         leftFold.sum = h("summary", {});
@@ -198,7 +211,7 @@ export async function renderDocument(view, [docId], query) {
         list.insertBefore(leftFold.el, selBar);
       }
       if (openNs.has(b.n)) leftFold.el.open = true;
-      leftFold.kinds.set(b.kind, (leftFold.kinds.get(b.kind) || 0) + 1);
+      leftFold.kinds.set(kind, (leftFold.kinds.get(kind) || 0) + 1);
       replace(leftFold.sum, icon("chevron-right", { size: 13 }), h("span", {}, "Left out of the text: ", [...leftFold.kinds].map(([k, n]) => kindCount(k, n)).join(", ")));
       leftFold.el.appendChild(row);
     } else {
@@ -292,12 +305,12 @@ export async function renderDocument(view, [docId], query) {
       open = open.filter((x) => x.end > b.start);   // ended before this block: no later block has it either
       const r = rows.get(b.n);
       const mine = open.filter((x) => x.start < b.end);
-      const fig = shownFigure(b);
+      const fig = shownFigure(b), thumb = leftFigure(b);
       const sig = mine.map((x) => `${x.start}-${x.end}-${x.cls}-${x.term || ""}-${x.note || ""}`).join("|")
-        + (fig ? `|fig:${(captionOf(b) || {}).n ?? ""}` : "");   // its caption may come with the next blocks loaded
+        + (fig ? `|fig:${(captionOf(b) || {}).n ?? ""}` : thumb ? "|thumb" : "");   // its caption may come with the next blocks loaded
       if (r.sig === sig) continue;
       r.sig = sig;
-      replace(r.body, fig ? figureBody(b, mine) : blockText(b, mine));
+      replace(r.body, fig ? figureBody(b, mine) : thumb ? figureThumb(b, mine) : blockText(b, mine));
     }
   }
   // A block’s text cut at its headings (as blockNode does), each piece under the decorations that cover it. The

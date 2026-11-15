@@ -1495,6 +1495,16 @@ def block_fp(text: str) -> str:
     return hashlib.sha1(words.encode("utf-8")).hexdigest()[:16]
 
 
+def figure_key(page, box) -> str | None:
+    """2026-11-15: the choice that leaves a reader-5 figure (a picture with its box on its page) out of the reading:
+    an advert, a logo, a picture that is no part of the document. A figure is never read, so its `included` says
+    nothing; this mark only folds its picture away under "Left out of the text". Kept by its page and its box (a
+    picture often has no words to find it by), so it holds when the document is read again."""
+    if page is None or not box or any(v is None for v in box):
+        return None
+    return "fig:{}:{}".format(page, ":".join(str(round(float(v))) for v in box))
+
+
 BOUNDS = ("start", "end")   # 0.15.1: "Text starts here" and "Text ends here", kept in block_choices as "<side>:<fp>:<k>"
 
 

@@ -613,12 +613,14 @@ class App(LibraryMixin, QueueMixin):
                 label = reader2.furniture_label(text[r["start"]:r["end"]])
             else:
                 label = reader2.KIND_LABEL.get(kind) or reader2.KIND_TEXT.get(kind, kind).capitalize()
+            hidden = kind == "figure" and reader2.figure_key(pg, (r["x0"], r["y0"], r["x1"], r["y1"])) in choices
             b = {"n": r["n"], "label": label, "page": pg, "paragraph": para, "kind": kind,
                  "kind_text": reader2.KIND_TEXT.get(kind, kind), "included": bool(r["included"]),
                  "start": r["start"], "end": r["end"], "text": text[r["start"]:r["end"]],
                  "headings": [{"at": 0, "end": r["end"] - r["start"], "text": text[r["start"]:r["end"]]}]
                  if kind in ("heading", "title") else [],
-                 "changed": bool(r["included"]) != (kind in reader2.INCLUDED) or fps[idx] in choices, "joined": joined,
+                 "changed": bool(r["included"]) != (kind in reader2.INCLUDED) or fps[idx] in choices or hidden,
+                 "hidden": hidden, "joined": joined,
                  "box": [r["x0"], r["y0"], r["x1"], r["y1"]] if r["x0"] is not None else None,
                  "alike": alike[shapes[idx]] - 1 if shapes[idx] else 0,
                  "together": together[idx],
@@ -675,6 +677,21 @@ class App(LibraryMixin, QueueMixin):
             row = cx.execute("SELECT start, end FROM blocks WHERE doc_id=? AND n=?", (doc_id, n)).fetchone()
             if not text or not row:
                 raise ApiError(404, "No such block in this document.")
+            # 2026-11-15: a reader-5 figure is never read: Leave out folds its picture away (an advert, a logo),
+            # Restore shows it again; what searches, codes, themes and checks read does not change (no corpus bump)
+            fig = cx.execute("SELECT page, x0, y0, x1, y1 FROM blocks WHERE doc_id=? AND n=? AND kind='figure'",
+                             (doc_id, n)).fetchone()
+            key = reader2.figure_key(fig[0], fig[1:]) if fig else None
+            if key:
+                cx.execute("DELETE FROM block_choices WHERE doc_id=? AND fp=?", (doc_id, key))
+                if not included:
+                    cx.execute("INSERT INTO block_choices(doc_id, fp, included, kind, person_id, at) "
+                               "VALUES (?,?,0,'figure',?,?)", (doc_id, key, people.me(), _now()))
+        if key:
+            blocks, _total = App.reading_blocks(ws, doc_id, text[0], 0, 0, only={n})
+            return {"blocks": blocks, "group": [n], "together": 1, "alike": 1, "figure": True,
+                    "doc": App.reading_now(ws, doc_id)}
+        with ws.connect() as cx:
             text = text[0]
             targets = [tuple(row)]
             if alike:
@@ -1605,6 +1622,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", rf"/api/projects/{P}/flexiconc\.sqlite", "get_flexiconc"),
     # 0.8: the task queue (Claude Code), model routing, the plugin's set-up
     ("GET", rf"/api/projects/{P}/queue", "get_queue"),
+    ("GET", rf"/api/projects/{P}/queue/preview", "get_queue_preview"),
     ("POST", rf"/api/projects/{P}/queue/order", "post_queue_order"),
     ("POST", rf"/api/projects/{P}/queue/withdraw", "post_queue_withdraw"),
     ("POST", rf"/api/projects/{P}/queue/run", "post_queue_run"),

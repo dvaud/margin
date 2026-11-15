@@ -1430,6 +1430,11 @@ that no session has taken yet out of the queue; a check by queue is removed whol
   "run_done"}], "groups": [{"kind", "model", "helper", "waiting"}], "order": [...], "held": [...], "waiting",
   "being_answered", "paused", "paused_text"?, "last_answer_at", "privacy", "command", "claim_minutes", "route",
   "setup": {...as GET /api/claude-setup}}`. Reading it also takes the next steps of checks by queue.
+- `GET /api/projects/<p>/queue/preview?kind=&start=` → `{"kind", "title", "model", "helper", "system", "tasks":
+  [{"task_id", "prompt", "documents": [{"doc_id", "title", "pages"}]}], "raw", "waiting", "being_answered", "start",
+  "more"}`, or `{"kind", "note"}` when nothing waits: the next batch of `kind` (the first kind that waits when none)
+  word for word as `next_tasks` would hand it to Claude Code, `raw` the connector's whole reply. Read only: nothing is
+  claimed or written to the ledger. `start` skips that many tasks (the batch after). 400 for an unknown kind.
 - `POST /api/projects/<p>/queue/order` `{"kind", "action": "first" | "hold" | "go" | "reset"}` → `{"order", "held"}`.
 - `POST /api/projects/<p>/queue/withdraw` `{"kind"}` → `{"withdrawn", "checks_removed"}`.
 - `POST /api/projects/<p>/queue/run` `{"kinds"?: [...]}` → job (kind `queue-run`): the AI model of Settings answers

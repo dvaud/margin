@@ -6,9 +6,18 @@ import { api, h, icon, replace, toast, showError, fmt, download, plural, button 
 export function leaveOut(ctx) {
   const { d, docBase, list, selBar, rows, loaded, panels, shownFigure, labelParts, place, paint } = ctx;
   function blockActions(b) {
-    if (b.kind === "figure" && (d.reader || 1) >= 5) return null;   // 0.18.1: a reader-5 figure is never read: nothing to leave out or restore
     const wrap = h("div", { class: "dv-act" });
     const where = b.label || `${b.kind_text || "text"}${b.page ? `, page ${b.page}` : ""}`;
+    // 0.18.1: a reader-5 figure is never read. 2026-11-15: but a picture shown in the text can be left out of it (an
+    // advert, a logo), and restored; one not shown (no box, no page pictures) has nothing to leave out or restore
+    if (b.kind === "figure" && (d.reader || 1) >= 5) {
+      if (!shownFigure(b) && !b.hidden) return null;
+      const at = `figure${b.page ? `, page ${b.page}` : ""}`;
+      wrap.appendChild(b.hidden
+        ? button({ kind: "quiet", sm: true, "aria-label": `Restore: ${at}`, title: "Show this picture in the text again", onClick: (e) => setIncluded(b, true, e.currentTarget) }, icon("refresh", { size: 12 }), "Restore")
+        : button({ kind: "quiet", sm: true, "aria-label": `Leave out: ${at}`, title: "Fold this picture away under “Left out of the text” (an advert, a logo, a picture that is no part of the document). A figure is never read, so searches, codes, themes and checks do not change.", onClick: (e) => setIncluded(b, false, e.currentTarget) }, icon("minus", { size: 12 }), "Leave out"));
+      return wrap;
+    }
     // what goes with it (blocks read as one passage: a heading and the text under it, short lines put together),
     // said on the button before it is pressed: a web page's menu read as headings can share a passage with its first
     // paragraph, and Leave out on "Search" took out seventeen blocks without a word beforehand
@@ -52,6 +61,10 @@ export function leaveOut(ctx) {
     try { r = await api("PUT", `${docBase}/blocks/${b.n}`, alike ? { included, alike: true } : { included }); }
     catch (e) { btn.disabled = false; if (greyNow) r0.row.classList.remove("dv-leaving"); showError(e); return; }
     const folded = await showChange(r, b, hadFocus);
+    if (r.figure) {   // a picture: nothing read changes
+      toast(included ? "Restored: the picture is in the text again." : `Left out: the picture${folded ? " is folded under “Left out of the text”, where Restore brings it back" : " is left out of the text"}. Nothing that searches, codes, themes and checks read changes.`, "ok");
+      return;
+    }
     // where it went, when it folded away out of sight
     const away = (them) => (!included && folded ? ` ${them ? "They are" : "It is"} folded under “Left out of the text”, where Restore brings ${them ? "them" : "it"} back.` : "");
     if (alike) {
@@ -163,7 +176,9 @@ export function leaveOut(ctx) {
       const r = rows.get(n);
       if (!r) continue;
       Object.assign(r.b, x);
-      r.row.classList.toggle("dv-out", r.b.included === false);
+      r.row.classList.toggle("dv-out", r.b.included === false && !shownFigure(r.b));
+      r.row.classList.toggle("dv-figure-row", shownFigure(r.b));
+      if (r.b.kind === "figure") r.sig = null;   // its picture, or the small one in its fold: drawn again by paint()
       r.row.classList.toggle("dv-changed", !!r.b.changed);
       replace(r.label, labelParts(r.b));
     }
@@ -172,6 +187,7 @@ export function leaveOut(ctx) {
     ctx.resetFold();
     for (const b of loaded) place(b, rows.get(b.n).row, openThen);
     for (const el of list.querySelectorAll(".dv-leaving, .dv-folding")) { el.classList.remove("dv-leaving", "dv-folding"); el.style.height = ""; }
+    if (loaded.some((b) => b.kind === "figure" && rows.get(b.n).sig === null)) paint();
     if (anchor) {
       const dy = anchor.getBoundingClientRect().top - top0;
       if (Math.abs(dy) >= 1) window.scrollBy(0, dy);

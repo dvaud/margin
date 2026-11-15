@@ -275,6 +275,44 @@ def test_order_hold_and_paused(home, corpus):
     assert st["paused"] and st["paused_text"].startswith("Paused at 0 of ") and "/margin-run O" in st["paused_text"]
 
 
+def test_see_what_is_sent_shows_the_next_batch_and_takes_nothing(home, corpus):
+    """"See what is sent" (the queue's AI line): the next batch word for word as next_tasks hands it to Claude Code,
+    without claiming a task or writing a ledger row; a document no AI may read is never in it."""
+    from margin import access, taskqueue
+
+    ws, _pids = _queued_labels(home, corpus, "S")
+    before = ws.scalar("SELECT COUNT(*) FROM ai_sent")
+    pv = taskqueue.preview(ws, "label")
+    assert pv["kind"] == "label" and pv["tasks"] and pv["waiting"] >= len(pv["tasks"])
+    assert all(t["documents"] and t["documents"][0]["title"] for t in pv["tasks"])
+    assert ws.scalar("SELECT COUNT(*) FROM ai_sent") == before                       # nothing recorded as sent
+    assert ws.scalar("SELECT COUNT(*) FROM tasks WHERE claimed_by IS NOT NULL") == 0  # nothing claimed
+    raw = json.loads(pv["raw"])
+    assert raw["system"] == pv["system"] and [t["prompt"] for t in raw["tasks"]] == [t["prompt"] for t in pv["tasks"]]
+    # the batch after this one starts where it ends
+    after = taskqueue.preview(ws, "label", start=len(pv["tasks"]))
+    assert not {t["task_id"] for t in after["tasks"]} & {t["task_id"] for t in pv["tasks"]}
+    # what Claude Code then takes is what the preview showed
+    got = taskqueue.next_tasks(ws, "label", n=len(pv["tasks"]))
+    assert got["system"] == pv["system"]
+    assert [(t["task_id"], t["prompt"]) for t in got["tasks"]] == [(t["task_id"], t["prompt"]) for t in pv["tasks"]]
+    taskqueue.release(ws, got["claim"])
+    # a document marked No AI drops out of the preview, as it drops out of a batch
+    first_doc = pv["tasks"][0]["documents"][0]["doc_id"]
+    access.set_documents(ws, [first_doc], "none")
+    again = taskqueue.preview(ws, "label")
+    assert all(first_doc not in {d["doc_id"] for d in t["documents"]} for t in again.get("tasks", []))
+    # nothing of a kind waits: a note, no tasks
+    assert not taskqueue.preview(ws, "theme").get("tasks")
+
+
+def test_see_what_is_sent_through_the_app(api, corpus):
+    _project(api, corpus)
+    st, r = api("GET", "/api/projects/P/queue/preview")
+    assert st == 200 and not r.get("tasks") and r["note"]
+    assert api("GET", "/api/projects/P/queue/preview?kind=nope")[0] == 400
+
+
 # ---------------------------------------------------------------------------------------------
 # G3: routing and stepping up, on the three routes
 # ---------------------------------------------------------------------------------------------

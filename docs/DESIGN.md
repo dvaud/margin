@@ -772,9 +772,17 @@ Evidence map, where both sides can be long, has documents as columns. A grid wid
 silently: a bar above it says which show ("Documents 1–6 of 23"), with arrows that move it a frame at a time, the
 frame's right edge shades while there is more that way, and **Full screen** lays the grid over the whole window
 (`.grid-full`), where it scrolls every way like a spreadsheet, its header row and first column held in place; Escape,
-*Exit full screen* or following a link from it closes it. A grid that fits shows no bar. **Make it:** the cells with
-`heatCell(n, max, label, prefix, onClick)`, the grid in its frame with `heatGrid(table, { label, unit })` (never a
-`.map-wrap` by hand). **Lives in:** `components.css` § 4.25.
+*Exit full screen* or following a link from it closes it. A grid that fits shows no bar. A column of codes is headed
+by the code as it is written, and how depends on what the grid's codes are. Short marks ("3.4", "SDG 12") stand
+upright in the mono over narrow columns. Names (a codebook of your own, up to 40 characters: a grid with a code longer
+than ten characters) are set in the interface's face: wrapped, a column each, while the grid fits its frame that way;
+and once it would not, at a slant over columns as narrow as a mark's, on two lines at most, so that most of thirty
+codes show at once where a name per column showed four. Never a name on one line with the column as wide as it, and
+never a name cut short to fit: hovering a head says the whole code and its description, and the head of the column
+under the pointer or the focus darkens, so a slanted name is found from a cell far below it. **Make it:** the cells
+with `heatCell(n, max, label, prefix, onClick)`, a column of codes with `heatHead(text, { title, spoken })`, the grid
+in its frame with `heatGrid(table, { label, unit })` (never a `.map-wrap` by hand; it chooses how the heads are set).
+**Lives in:** `components.css` § 4.25.
 
 ### 4.26 Excerpt cards
 

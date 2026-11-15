@@ -568,12 +568,14 @@ def test_the_commands_say_a_file_does_not_carry_the_mark(project, tmp_path, caps
         assert "AI’s draft" not in capsys.readouterr().err
 
 
-def test_the_editor_says_it_beside_the_downloads():
+def test_the_editor_says_it_in_the_page_head():
     js = (ROOT / "src/margin/gui/static/views/codebooks.js").read_text(encoding="utf-8")
-    # beside the two downloads, in the page head's row; kept up to date as the fields are rewritten; no dialog
+    # a line of the page head under the title's line, not among the actions (there it wrapped them to three rows and
+    # stood the buttons above the back link); kept up to date as the fields are rewritten; no dialog
     head = js.split("  function drawHead() {", 1)[1].split("\n  }\n", 1)[0]
-    assert '"Download as .qdc"),\n        dlNote, more),' in head and "drawDlNote();" in head
-    assert 'h("span", { class: "muted small cb-dl-note" })' in js
+    assert "meta: dlNote," in head and "drawDlNote();" in head
+    assert '"Download as .qdc"),\n        more),' in head
+    assert 'h("p", { class: "muted small cb-dl-note" })' in js
     assert js.count("drawDlNote();") == 2      # in the head, and with the AI draft mark under the fields
     assert "confirm(" not in head and "dialog(" not in head
 

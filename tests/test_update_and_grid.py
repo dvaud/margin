@@ -47,6 +47,36 @@ def test_heat_levels_outrank_the_row_hover():
             assert max(_specificity(x) for x in sels) > strongest_hover, f".{p}-l{lv} loses to the row hover"
 
 
+def test_code_columns_are_headed_by_one_helper_and_names_are_never_one_long_line():
+    """A codebook of your own has names for codes ("Public trust in medical AI"). Each stood on one line in the mono,
+    so a column was as wide as its name and four of thirty-two codes showed at a time."""
+    from _static import all_css
+
+    lib = (STATIC / "lib.js").read_text("utf-8")
+    assert "export function heatHead(" in lib
+    for view in ("themes.js", "profile.js"):
+        js = (STATIC / "views" / view).read_text("utf-8")
+        assert "heatHead(" in js, view
+        assert "th-code-head" not in js and "pf-code-head" not in js, f"{view} heads its code columns by hand"
+    css = all_css()
+    assert "th-code-head" not in css and "pf-code-head" not in css
+    rules = dict((sel.strip(), body) for s, body in _rules(css) for sel in s.split(","))
+    # a mark stays on its line; a name wraps (and is never cut to fit: at most its lines are clamped)
+    assert "nowrap" in rules[".heat-head"]
+    assert "white-space: normal" in rules[".heat-named thead th.heat-head"]
+    assert "line-clamp" in rules[".heat-named .heat-head-text"] and "ellipsis" not in rules[".heat-named .heat-head-text"]
+    # heatGrid() chooses: names when a head is long, slanted once a column each would not fit the frame
+    grid = lib[lib.index("export function heatGrid("):]
+    assert '"heat-named"' in grid and '"heat-slant"' in grid and "NAME_COL" in grid
+    assert "rotate(-45deg)" in rules[".heat-slant .heat-head-turn"]
+    # a slanted name hangs over the next columns: no head is positioned (its ground would cover its neighbour's
+    # name), so in Full screen the header row is held as a whole, and the rows end in a column to hang over
+    assert "sticky" in rules[".grid-full .map-table.heat-slant thead"]
+    assert "static" in rules[".grid-full .map-table.heat-slant thead th.heat-head"]
+    assert _specificity(".grid-full .map-table.heat-slant thead th.heat-head") > _specificity(".grid-full .map-table thead th")
+    assert "table-cell" in rules[".heat-slant tr::after"]
+
+
 def test_darkest_cell_has_its_own_token_in_every_theme():
     app = (STATIC / "tokens.css").read_text("utf-8")  # 0.13.5: the tokens moved out of app.css
     assert app.count("--heat-4:") == 3  # light, dark by system setting, dark by choice

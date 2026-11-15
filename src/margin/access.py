@@ -462,6 +462,24 @@ def recheck(cx, task_id: str, dflt: str | None = None, budget: bool = True) -> s
     row = cx.execute("SELECT access, payload_json FROM tasks WHERE task_id=?", (task_id,)).fetchone()
     if row is None:
         return None
+    stored, lv = _level_now(cx, row, dflt, budget)
+    if lv != stored:
+        cx.execute("UPDATE tasks SET access=? WHERE task_id=?", (lv, task_id))
+        if lv != "cloud":
+            cx.execute("UPDATE tasks SET queued=0, queued_at=NULL WHERE task_id=? AND COALESCE(queued, 0)=1",
+                       (task_id,))
+    return lv
+
+
+def would_leave(cx, task_id: str, dflt: str | None = None) -> bool:
+    """Whether the task's text would leave for a cloud model now, as `recheck` would find it, without writing
+    anything (the preview of what Claude Code is sent)."""
+    row = cx.execute("SELECT access, payload_json FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+    return row is not None and _level_now(cx, row, dflt, True)[1] == "cloud"
+
+
+def _level_now(cx, row, dflt: str | None, budget: bool) -> tuple[str, str]:
+    """(the stored setting, the setting worked out again) of a task row (access, payload_json): see `recheck`."""
     stored = row[0] if row[0] in LEVELS else "cloud"
     lv = stored
     if stored != "none":
@@ -475,12 +493,7 @@ def recheck(cx, task_id: str, dflt: str | None = None, budget: bool = True) -> s
                 capped = _label_docs(cx, payload, dflt, budget=True)
                 if capped != "cloud" and not _all_sent(cx, payload):
                     lv = capped
-    if lv != stored:
-        cx.execute("UPDATE tasks SET access=? WHERE task_id=?", (lv, task_id))
-        if lv != "cloud":
-            cx.execute("UPDATE tasks SET queued=0, queued_at=NULL WHERE task_id=? AND COALESCE(queued, 0)=1",
-                       (task_id,))
-    return lv
+    return stored, lv
 
 
 def set_documents(ws: Workspace, doc_ids: list[str], setting: Any = _KEEP, note: Any = _KEEP,

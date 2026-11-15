@@ -4,7 +4,7 @@
 // says why it is there; a person can agree, change or reject it (in the document viewer, Codes panel).
 // The pieces shared with the document viewer (the AI-labelling card, the keyword pass, wording) are exported from here.
 import { featureEyebrow, viewTabs, withAI } from "../features.js";
-import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, addDocumentsFirst, fmt, pageHead, P, emptyState, download, switchControl, navigate, plural, shortTitle, cap, runningJob, heatCell, downloadLinks, helpMark, drawInSteps, button, link, notice, card, tag, input, select, fold, choice, readsLine, inset, heatGrid } from "../lib.js";
+import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, addDocumentsFirst, fmt, pageHead, P, emptyState, download, switchControl, navigate, plural, shortTitle, cap, runningJob, heatCell, downloadLinks, helpMark, drawInSteps, button, link, notice, card, tag, input, select, fold, choice, readsLine, inset, heatGrid, heatHead } from "../lib.js";
 import { jobCard } from "./progress.js";
 import { roleTag } from "./doc-role.js";   // 0.19.0 (N3): a working document's row in the grid
 
@@ -436,8 +436,8 @@ export async function renderProfile(view, params, query) {
     const table = h("table", { class: "map-table pf-grid" },
       h("caption", { class: "visually-hidden" }, `Documents by ${unit}: the number of passages`),
       h("thead", {}, h("tr", {}, h("th", { scope: "col", class: "map-hyp-head" }, "Document"),
-        codes.map((c) => h("th", { scope: "col", class: "pf-code-head", title: `${cap(unit)} ${c.code}: ${c.description || ""} · ${plural(c.passages, "passage")} in ${plural(c.documents, "document")}` },
-          h("span", { "aria-hidden": "true" }, c.code), h("span", { class: "visually-hidden" }, `${unit} ${c.code}: ${shortTitle(c.description, 60)}`))))),
+        codes.map((c) => heatHead(c.code, { title: `${cap(unit)} ${c.code}: ${c.description || ""} · ${plural(c.passages, "passage")} in ${plural(c.documents, "document")}`,
+          spoken: `${unit} ${c.code}: ${shortTitle(c.description, 60)}` })))),
       tbody);
     // 0.16 (H5): the rows are drawn as the grid scrolls into view (a project of several hundred documents had tens of
     // thousands of cells to draw before the page showed)

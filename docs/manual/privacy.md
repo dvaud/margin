@@ -19,7 +19,7 @@ promise: [PRIVACY.md](../PRIVACY.md).
 | --- | --- |
 | **Stays on your computer** | Projects (plain folders with one SQLite database each) and settings, in `~/margin` or `MARGIN_HOME`. The documents themselves, your judgements, notes, highlights, the research log and reviews. They go to a colleague only as you choose: a project zip you send yourself, or a folder your team shares ([Working together](#working-together)); never to the AI. |
 | **To a folder your team shares** (0.17.0) | Only once you choose one for a project: the documents' text and files, and what you shared of your own work. Your cloud service or network drive carries it from there ([Working together](#working-together)). |
-| **To Anthropic, on your Claude plan** | With Claude Code: only the passages inside the tasks it takes, from documents Claude may read. Margin never sees your Claude login. |
+| **To Anthropic, on your Claude plan** | With Claude Code: only the passages inside the tasks it takes, from documents Claude may read. *See what is sent*, under the line that says so, shows the next batch word for word. Margin never sees your Claude login. |
 | **To Anthropic, on a team key** | With the Claude API, only after *Allow cloud models* is switched on (or `--backend anthropic` on the command line): the hypothesis and the passages read. |
 | **Into your chat** | With the [connector](claude-code.md#claude-in-a-chat-the-connector): the passages shown to Claude are part of your chat. |
 | **Nowhere** | With a model on this computer, every word stays on it. |

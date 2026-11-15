@@ -52,7 +52,7 @@ export function readingNote(d) {
 const KIND_PLURAL = { title: ["title", "titles"], heading: ["heading", "headings"], abstract: ["abstract paragraph", "abstract paragraphs"], body: ["paragraph", "paragraphs"],
   caption: ["caption", "captions"], table: ["table", "tables"], footnote: ["footnote", "footnotes"], front: ["part of the front matter (authors, publishing details)", "parts of the front matter (authors, publishing details)"],
   back: ["end note (acknowledgements, funding, licence)", "end notes (acknowledgements, funding, licence)"], references: ["part of the reference list", "parts of the reference list"],
-  figure: ["piece of text inside a figure", "pieces of text inside figures"], furniture: ["running head or page number", "running heads and page numbers"],
+  figure: ["piece of text inside a figure", "pieces of text inside figures"], picture: ["figure", "figures"], furniture: ["running head or page number", "running heads and page numbers"],
   // 0.15.1 (reader 3)
   contents: ["line of the table of contents", "lines of the table of contents"], index: ["part of the index", "parts of the index"] };
 export const kindCount = (k, n) => `${fmt.num(n)} ${(KIND_PLURAL[k] || [k, k])[n === 1 ? 0 : 1]}`;

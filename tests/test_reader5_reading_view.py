@@ -43,7 +43,8 @@ def test_a_figure_is_shown_in_the_text_with_its_caption_and_its_page():
     src = _src("doc-page.js", "doc-leave-out.js", "doc-reading.js")
     # shown, not folded: in place(), the fold of the left-out blocks while changing them, and the greying
     # (reader 5 only: an earlier reader's figure block is the words inside a figure, folded with its Restore)
-    assert "const shownFigure = (b) => reading && (d.reader || 1) >= 5 && b.kind === \"figure\" && !!b.box && !!d.page_images" in src
+    assert "const pictured = (b) => reading && (d.reader || 1) >= 5 && b.kind === \"figure\" && !!b.box && !!d.page_images" in src
+    assert "const shownFigure = (b) => pictured(b) && !b.hidden;" in src
     assert 'b.included === false && b.kind !== "table" && !shownFigure(b)) {' in src           # place()
     assert 'const folds = (b) => b.included === false && b.kind !== "table" && !shownFigure(b);' in src
     assert 'b.kind !== "table" && !shownFigure(b);' in src                                     # greyNow
@@ -60,10 +61,32 @@ def test_a_figure_is_shown_in_the_text_with_its_caption_and_its_page():
     gone = src[src.index("function figureGone(b) {"):src.index("function openPageAt(page) {")]
     assert "figureFailed.add(b.n)" in gone and "dv-fold" in gone and "toast" not in gone and "showError" not in gone
     assert 'img.addEventListener("error", () => figureGone(b))' in body
-    # the Page panel opens at the figure's page; nothing to leave out or restore on a figure
+    # the Page panel opens at the figure's page
     assert "goTo: (p) => go(p, false)" in src and "panels.page.goTo(page)" in src
-    acts = src[src.index("function blockActions(b) {"):]
-    assert acts.index('if (b.kind === "figure" && (d.reader || 1) >= 5) return null;') < acts.index("Leave out")
+
+
+def test_a_figure_shown_in_the_text_can_be_left_out_and_restored():
+    """2026-11-15: a picture that is no part of the document (an advert, a logo) can be left out of the reading: it
+    folds away with a small picture of it, and Restore shows it again. A figure is never read, so nothing read changes."""
+    src = _src("doc-page.js", "doc-leave-out.js", "doc-shared.js")
+    acts = src[src.index("function blockActions(b) {"):src.index("// 0.16: Restore, Leave out and where the text")]
+    fig = acts[acts.index('if (b.kind === "figure" && (d.reader || 1) >= 5) {'):acts.index("return wrap;")]
+    assert "if (!shownFigure(b) && !b.hidden) return null;" in fig      # a figure not shown: nothing to do
+    assert '"Restore"' in fig and '"Leave out"' in fig and "setIncluded(b, true" in fig and "setIncluded(b, false" in fig
+    assert "const leftFigure = (b) => pictured(b) && !!b.hidden;" in src
+    assert 'const kind = leftFigure(b) ? "picture" : b.kind;' in src and 'picture: ["figure", "figures"]' in src
+    thumb = src[src.index("function figureThumb(b, decos) {"):src.index("function figureGone(b) {")]
+    assert "/figures/${b.n}.png?scale=1&token=" in thumb and 'img.addEventListener("error", () => img.remove())' in thumb
+    assert "thumb ? figureThumb(b, mine)" in src
+    # in place: the row's classes follow whether its picture is shown, and it is drawn again
+    assert 'r.row.classList.toggle("dv-out", r.b.included === false && !shownFigure(r.b));' in src
+    assert 'r.row.classList.toggle("dv-figure-row", shownFigure(r.b));' in src
+    assert "if (r.figure) {" in src and "Nothing that searches, codes, themes and checks read changes." in src
+
+
+def test_figure_key_is_kept_by_page_and_box():
+    assert reader.figure_key(4, (72.4, 100.6, 300.2, 250)) == "fig:4:72:101:300:250"
+    assert reader.figure_key(None, (1, 2, 3, 4)) is None and reader.figure_key(2, (None, None, None, None)) is None
 
 
 def test_the_news_of_reader_5_is_said_to_documents_of_reader_4():
@@ -91,3 +114,28 @@ def test_a_figure_of_reader_5_has_its_box_and_its_picture(api, tmp_path):  # noq
     st, png = api("GET", f"/api/projects/R/documents/{d['doc_id']}/figures/{figs[0]['n']}.png?scale=1.5&token={api.token}",
                   token=False)
     assert st == 200 and png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+@needs_pdfminer
+def test_leaving_out_a_figure_folds_it_and_changes_nothing_read(api, tmp_path):  # noqa: F811
+    """2026-11-15: Leave out on a reader-5 figure marks it hidden (kept by page and box, so it holds when read again);
+    what is read, the corpus version and the other blocks stay as they were; Restore takes the mark away."""
+    case = next(c for c in measure.make_table_figure_texts(tmp_path / "known") if c.name == "j_figures")
+    docs = _project(api, tmp_path, [case.path])
+    d = next(iter(docs.values()))
+    base = f"/api/projects/R/documents/{d['doc_id']}"
+    before = api("GET", f"{base}?view=blocks&limit=500")[1]
+    fig = next(b for b in before["blocks"] if b["kind"] == "figure")
+    assert fig["hidden"] is False and fig["changed"] is False
+    others = [b for b in before["blocks"] if b["n"] != fig["n"]]
+    st, r = api("PUT", f"{base}/blocks/{fig['n']}", {"included": False})
+    assert st == 200 and r["figure"] is True and r["group"] == [fig["n"]]
+    (b,) = r["blocks"]
+    assert b["n"] == fig["n"] and b["hidden"] is True and b["changed"] is True and b["included"] is False
+    after = api("GET", f"{base}?view=blocks&limit=500")[1]
+    assert [x for x in after["blocks"] if x["n"] != fig["n"]] == others
+    assert {k: after[k] for k in ("left_out", "passages_read", "passages_all")} == \
+        {k: before[k] for k in ("left_out", "passages_read", "passages_all")}
+    st, r = api("PUT", f"{base}/blocks/{fig['n']}", {"included": True})
+    assert st == 200 and r["blocks"][0]["hidden"] is False and r["blocks"][0]["changed"] is False
+    assert api("GET", f"{base}?view=blocks&limit=500")[1]["blocks"] == before["blocks"]

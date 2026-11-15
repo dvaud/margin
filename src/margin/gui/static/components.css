@@ -825,6 +825,32 @@ mark.kw-also { background: color-mix(in srgb, var(--accent-soft) 60%, transparen
 .map-table .map-hyp-head { z-index: 3; background: var(--surface-2); }
 .map-hyp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; font-family: var(--font-ui); }
 .map-doc-head { min-width: 120px; max-width: 170px; }
+/* A column of codes: heatHead() (lib.js). A short mark ("3.4") stands upright in the mono over a narrow column. A
+   grid that has a name among its codes (a codebook of your own, up to 40 characters; .heat-named, set by heatGrid())
+   sets every head in the interface's face, wrapped over a column of its own while the grid fits its frame. Once it
+   would not fit (.heat-slant), the names are set at a slant over columns as narrow as a mark's, on two lines at most:
+   a name on one line makes its column as wide as itself, and a handful of thirty codes showed at a time. A slanted
+   name hangs over the columns to its right, so the row ends in an empty column the last names hang over (::after),
+   and no head is positioned (a positioned head's ground would be painted over its neighbour's name): in Full screen
+   the header row is held as a whole. A name runs along the middle of its column's lane (two lines of it fill the
+   lane), and the header row is as tall as the longest name asks (heatGrid() measures the names and sets the row's
+   height; the column to hang over is as wide as the longest name allowed, 9rem, reaches). The head of the column
+   under the pointer or the focus darkens ([data-at]). */
+.heat-head { min-width: 3em; font-family: var(--font-mono); white-space: nowrap; text-align: center; cursor: help; }
+.heat-head[data-at] { color: var(--text); }
+.heat-named thead th.heat-head { min-width: 6.5rem; max-width: 9rem; font-family: var(--font-ui); font-weight: var(--fw-regular); color: var(--text-2); white-space: normal; }
+.heat-named thead th.heat-head[data-at] { color: var(--accent-text); }
+.heat-named .heat-head-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; line-height: 1.2; text-wrap: balance; }
+.heat-slant thead th.heat-head { min-width: 3.2rem; max-width: 3.2rem; padding: 0 0 14px; text-align: left; }
+.heat-slant .heat-head-turn { display: block; width: 0; margin-left: 50%; transform: rotate(-45deg) translateY(50%); transform-origin: 0 100%; }
+.heat-slant .heat-head-text { -webkit-line-clamp: 2; width: max-content; max-width: 9rem; }
+.heat-slant td.map-cell { padding-left: 4px; padding-right: 4px; }
+.heat-slant tr::after { content: ""; display: table-cell; padding-left: 6rem; border-bottom: 1px solid var(--border); }
+.heat-slant thead tr::after { background: var(--surface-2); }
+.heat-slant tbody tr:last-child::after { border-bottom: 0; }
+.heat-slant tbody tr:hover::after { background: var(--surface-2); }
+.grid-full .map-table.heat-slant thead { position: sticky; top: 0; z-index: 3; }
+.grid-full .map-table.heat-slant thead th.heat-head { position: static; }
 .map-cell { position: relative; text-align: center; vertical-align: middle; font-variant-numeric: tabular-nums; }
 .map-cell.m-none, .map-cell.heat-l0 { color: var(--faint); }
 .row-link:hover .map-hyp, .row-link:hover .map-cell.heat-l0, .row-link:hover .map-cell.m-none { background: var(--surface-2); }

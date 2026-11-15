@@ -28,7 +28,7 @@ function draftFields(c) {
 const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 function listWords(xs) { return xs.length < 2 ? (xs[0] || "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`; }
 // The audit's DEC-2: a downloaded file (CSV, .qdc) does not carry the AI draft mark. While codes on screen still hold
-// the AI's words, one short line beside the downloads says so (codebooks.py `draft_note`, which the commands print);
+// the AI's words, one short line in the page head, under the title, says so (codebooks.py `draft_note`, which the commands print);
 // none when no code does. No dialog: the download stays one click.
 function draftNote(codes) {
   const n = (codes || []).filter((c) => draftFields(c).length).length;
@@ -413,7 +413,9 @@ export async function renderCodebook(view, [name]) {
   const ro = !cb.editable;
 
   // ---- the head
-  const dlNote = h("span", { class: "muted small cb-dl-note" });   // DEC-2: beside the downloads (`draftNote`)
+  // DEC-2 (`draftNote`): a line of the head, under the title's line. Among the actions it wrapped them to three rows
+  // and stood the buttons above the back link (the back link sits on the actions' last row)
+  const dlNote = h("p", { class: "muted small cb-dl-note" });
   function drawDlNote() {
     const t = draftNote(st.codes);
     dlNote.textContent = t || "";
@@ -433,6 +435,7 @@ export async function renderCodebook(view, [name]) {
       sub: h("span", { class: "cb-meta" }, whereBadge(cb.where), `${plural(st.codes.length, "code")} · each is called “${st.label}”`,
         cb.used.labels ? ` · ${plural(cb.used.labels, "label")} in this project` : "", cb.used.checks ? ` · ${plural(cb.used.checks, "check")}` : "",
         cb.shadows_home ? h("span", { class: "muted" }, " · this project's own copy of a codebook kept with all projects") : null),
+      meta: dlNote,
       actions: h("div", { class: "btn-row" },
         ro ? button({ kind: "main", sm: true, onClick: () => newCodebook("copy", { of: cb.name, title: `${cb.title} (copy)` }) }, icon("copy", { size: 14 }), "Make a copy to change it") : null,
         button({ sm: true, title: "Without AI: how many passages and documents the keyword pass would pick for each code", disabled: trying, onClick: (e) => tryIt(e.currentTarget) }, icon("zap", { size: 14 }), "Try it"),
@@ -442,7 +445,7 @@ export async function renderCodebook(view, [name]) {
         downloadButton({ onClick: () => download(`${base}.csv`).catch(showError) }, "CSV"),
         // 0.18.7 (G5): the codebook for NVivo, ATLAS.ti and MAXQDA
         downloadButton({ title: "A REFI-QDA codebook, for NVivo, ATLAS.ti and MAXQDA: each code with its definition", onClick: () => download(`${base}.qdc`).catch(showError) }, "Download as .qdc"),
-        dlNote, more),
+        more),
     }), sharing);
   }
 
@@ -669,7 +672,7 @@ export async function renderCodebook(view, [name]) {
       const f = draftFields(c);
       replace(mark, f.length ? h("p", { class: "small" }, tag({ icon: "sparkles" }, "AI draft"), " ",
         `${capital(listWords(f.map((k) => DRAFT_LABEL[k])))} ${f.length === 1 ? "is" : "are"} still the AI’s words${c.ai_draft.model ? ` (${c.ai_draft.model})` : ""}, drafted from the examples. Rewrite ${f.length === 1 ? "it" : "them"} in your own words; the mark goes when you do.`) : null);
-      drawDlNote();   // the line beside the downloads counts what is on screen
+      drawDlNote();   // the line under the title counts what is on screen
     };
     drawMark();
     const exList = h("ul", { class: "cb-examples" });

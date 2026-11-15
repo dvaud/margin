@@ -382,6 +382,7 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .doc-view .dv-figure-cap { margin: 6px 0 0; }
 .doc-view .dv-figure-act { margin-top: 4px; }
 .doc-view .dv-figure-words { margin-top: 4px; }
+.doc-view .dv-figure-thumb .dv-figure-img { max-height: 96px; width: auto; opacity: .7; margin-bottom: 4px; }
 .doc-view .dv-table { border-collapse: collapse; font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
 .doc-view .dv-table { width: 100%; }
 .doc-view .dv-table th, .doc-view .dv-table td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; vertical-align: top; overflow-wrap: normal; word-break: normal; white-space: normal; }
@@ -683,7 +684,6 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .pf-top-bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
 .pf-top-n { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* the documents × codes grid (the map component) */
-.pf-code-head { position: relative; font-family: var(--font-mono); font-size: var(--fs-xs); white-space: nowrap; text-align: center; min-width: 3em; cursor: help; }
 .pf-cell { min-width: 2.6em; font-size: var(--fs-small); color: var(--text-2); }
 /* The levels above outrank the row hover (`.row-link:hover .map-cell`: td + two classes), so the darkest cells keep
    their light numbers on their own ground; the hovered row is marked by its document cell and empty cells, the hovered
@@ -724,6 +724,7 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .cb-card-go { padding-right: 12px; color: var(--muted); }
 .cb-start p { margin: 0 0 12px; }
 .cb-meta { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.cb-dl-note { max-width: 46em; margin: 6px 0 0; }   /* DEC-2: the codes still holding the AI's draft, under the title's line */
 .cb-start-pick { grid-template-columns: 1fr; }
 .cb-start-extra { margin-top: 8px; }
 .cb-import-notes { margin: 0; padding-left: 1.25em; }   /* K1: the .qdc summary, in a .stack (no extra gap) */
@@ -1003,7 +1004,6 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .th-doclist .muted { white-space: nowrap; }
 .th-job .grow { min-width: 0; }
 /* The levels outrank the row hover (`.row-link:hover .map-cell`), so the heat colours stay */
-.th-code-head { font-family: var(--font-mono); font-size: var(--fs-xs); white-space: nowrap; text-align: center; min-width: 3em; cursor: help; }
 .th-fw .select { width: auto; }
 .th-runs .th-run-now td { background: var(--surface-2); }
 @media (max-width: 860px) {
@@ -1899,3 +1899,10 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 /* 0.18.5: on a phone the top bar is 49 px (its 32 px button, 8 px above and under, its edge): the group heads stick
    right under it */
 @media (max-width: 860px) { .doc-group-head { top: 49px; } .doc-group { scroll-margin-top: 49px; } }
+/* "See what is sent" (the queue's AI line): the next batch, word for word as Claude Code receives it */
+.ai-where .sent-btn { margin-left: 4px; vertical-align: baseline; }
+.sent-preview > p { margin: 0 0 var(--space-2); }
+.sent-task h3 { margin: var(--space-3) 0 4px; font-size: var(--fs-small); }
+.sent-box { margin: 4px 0 var(--space-2); }
+.sent-text { margin: 0; max-height: 18em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.45; color: var(--text); }
