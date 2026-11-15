@@ -4,7 +4,7 @@
 // A theme that is not relevant can be removed (its passages are left out until it is brought back), and a new theme
 // found in its place, on this computer without AI (POST …/new, job "theme-new").
 import { featureEyebrow, withAI } from "../features.js";
-import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks, button, choice, link, tag, notice, card, input, select, textarea, fold, readsLine, stopButton, menu, inset, searchHref, drawInSteps, heatGrid, heatHead } from "../lib.js";
+import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks, button, choice, link, tag, notice, card, input, select, textarea, fold, readsLine, stopButton, menu, inset, searchHref, drawInSteps, heatGrid, heatHead, jobFailed } from "../lib.js";
 import { simpleProgress, MiniJob, jobError } from "./progress.js";
 import { historyButton, askWhy } from "./versions.js";
 import { shareBar } from "./share.js";   // 0.18 (L1)
@@ -478,7 +478,7 @@ async function renderRun(view, runId, info, query) {
       if (job.state === "done") {
         const res = job.result || {};
         toast(`The AI named ${plural(res.named || 0, "theme")}${res.failed ? `; ${res.failed} could not be named (their quotes did not check out)` : ""}.`, res.failed ? "warn" : "ok");
-      } else if (job.state === "error") showError({ message: job.error, kind: job.error_kind });
+      } else if (job.state === "error") jobFailed(job, (j) => followNames(j.id), nameJob);   // 0.19.4: a refused local model: its panel
       else toast("Stopped. The themes named so far keep their names.", "info", { small: true });
       await reload();
     }).catch(showError);

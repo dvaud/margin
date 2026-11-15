@@ -23,6 +23,7 @@ percentage) treats a document as `local` for new tasks once Claude has read that
 """
 from __future__ import annotations
 
+import contextvars
 import ipaddress
 import json
 import sqlite3
@@ -657,12 +658,17 @@ def require(backend, task, where=None) -> None:
                           f"{ROUTE_NAMES.get(getattr(backend, 'name', ''), 'this model')} may not read it.")
 
 
+# 0.19.4: "Start it anyway" for a job the local model was refused in for memory: the job runs again with this set
+# (gui/api_common.Jobs.again), and the local model for documents marked Only a local AI starts whatever memory is free
+FORCE_LOCAL: contextvars.ContextVar[bool] = contextvars.ContextVar("margin_force_local", default=False)
+
+
 class Readers:
     """The model that reads each setting: the main one where it may, the local model for restricted documents for
     `local` when the main one is Claude, nobody for `none`."""
 
     def __init__(self, backend, model: str, settings: dict | None = None, progress=None, should_stop=None,
-                 check_memory: bool = True):
+                 check_memory: bool | None = None):
         self.backend, self.model = backend, model
         self._settings = settings
         self._local: tuple | None = None
@@ -672,7 +678,8 @@ class Readers:
         # 0.13.11: the local model's reports while it reads (info dicts, marked "who": "local") and the job's Stop;
         # without them, those of the main backend are used
         self.progress, self.should_stop = progress, should_stop
-        self.check_memory = check_memory       # False: the person chose "Start it anyway"
+        # False: the person chose "Start it anyway" (by default: unless the job runs again for it, FORCE_LOCAL)
+        self.check_memory = (not FORCE_LOCAL.get()) if check_memory is None else check_memory
         self.memory_short = None               # the MemoryShort that kept the local model from starting
         self.read = 0                          # the parts the local model for restricted documents has read
         # 0.18.1 (I1, I2): the AI mix's tasks the local model answered itself, and those that went to Claude Code

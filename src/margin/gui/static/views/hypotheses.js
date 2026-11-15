@@ -6,7 +6,7 @@
 // after the other. The progress of the check the page follows is under the box, then every answer (history.js), with
 // the checks still running or waiting their turn at the top. The evidence map is the place's other view (map.js).
 import { featureEyebrow, withAI, viewTabs } from "../features.js";
-import { App, api, h, icon, readsLine, replace, clear, append, toast, showError, fmt, pageHead, navigate, watchJob, P, debounce, session, emptyState, statusBadge, download, downloadLinks, button, iconButton, link, notice, tag, card, fold, fileButton, select, textarea, input as fieldInput, choice, latest, norm, readTextFile } from "../lib.js";
+import { App, api, h, icon, readsLine, replace, clear, append, toast, showError, fmt, pageHead, navigate, watchJob, P, debounce, session, emptyState, statusBadge, download, downloadLinks, button, iconButton, link, notice, tag, card, fold, fileButton, select, textarea, input as fieldInput, choice, latest, norm, readTextFile, jobFailed } from "../lib.js";
 import { checkOptions, pickCode } from "./options.js";
 import { ProgressPanel } from "./progress.js";
 import { answersList } from "./history.js";
@@ -404,7 +404,7 @@ export async function renderHypotheses(view, params, query) {
         while (prepared.terms.length < prepared.parts.length) prepared.terms.push([]);
         drawPrepared();
       } else if (job.state === "cancelled") discardPrepared();
-      else if (job.state === "error") { discardPrepared(); showError({ message: job.error, kind: job.error_kind }); }
+      else if (job.state === "error") { discardPrepared(); jobFailed(job); }
     } catch (e) { looking = false; discardPrepared(); if (lostDoc(e)) untie(true); else showError(e); }
     drawButtons();
   });
@@ -501,7 +501,7 @@ export async function renderHypotheses(view, params, query) {
       } else if (job.state === "cancelled") {
         toast("The check was stopped. Nothing was saved.", "info");
       } else if (job.state === "error") {
-        showError({ message: job.error, kind: job.error_kind });
+        jobFailed(job);
       }
     }).catch((e) => { session("activeCheck", null); ended(jobId); showError(e); });
   }

@@ -3,7 +3,7 @@
 // the same `passages` the cards are drawn from, so sections and numbers always agree. A person's judgement
 // replaces the AI's; it is protected (no silent overwrite) and every save can be undone.
 import { App, api, h, icon, madeWithFact, readsLine, aiWhere, judgementIcon, pageHead, replace, clear, append, toast, showError, fmt, statusBadge, gradeBadge, codeChip, passageNode, cpToIndex, indexToCp, cpLength, breaksToIndex, latest, popNote, gradeWords, navigate, watchJob, P, TOKEN, TERMINAL, confirmDialog, dialog, download, debounce, store, GRADE_TEXT, STATUS_SHORT, strictness, docsCountSentence, queueNotice, localPanel, auditorName, strongerMark,
-  button, iconButton, link, tag, notice, card as cardBox, fold as foldBox, choice, helpMark, downloadButton, textarea, input as fieldInput, select as selectField, reviewedMark, emptyState, personMark, lazyList, switchControl } from "../lib.js";
+  button, iconButton, link, tag, notice, card as cardBox, fold as foldBox, choice, helpMark, downloadButton, textarea, input as fieldInput, select as selectField, reviewedMark, emptyState, personMark, lazyList, switchControl, jobFailed } from "../lib.js";
 import { withAI } from "../features.js";
 import { ProgressPanel, MiniJob } from "./progress.js";
 import { originLink } from "../registry.js";
@@ -1111,7 +1111,7 @@ export async function renderResult(view, [hypId], query) {
       try { fresh = await fetchResult(); }   // null: a newer request was made, and draws
       catch (e) { if (e.status === 404) { await load(); return; } showError(e); }   // deleted meanwhile: load() says so
       if (job.state === "done") { try { await onDone(job, fresh || current); } catch (e) { showError(e); } }
-      else if (job.state === "error") (extra.onError ? extra.onError(job) : showError({ message: job.error, kind: job.error_kind }));
+      else if (job.state === "error") (extra.onError ? extra.onError(job) : jobFailed(job, (j) => followJob(j.id, kind, title, onDone, extra)));
       else if (job.state === "cancelled") toast("Stopped.", "info", { small: true, ttl: 2500 });
       if (fresh) { current = fresh; draw(fresh); }   // draw() keeps the scroll position, and the card the person acted on in place
     }).catch((e) => { running.delete(jobId); showError(e); });
@@ -2003,7 +2003,7 @@ export async function renderResult(view, [hypId], query) {
           if (n) termsOpen.delete(part.claim_id);
           toast(n ? `${n} more ${n === 1 ? "excerpt" : "excerpts"} read. See “Just now” in the answer box.` : "Nothing new was found for these words.", n ? "ok" : "warn", { small: true, ttl: 4000 });
           if (mine()) { current = fresh; draw(fresh); window.scrollTo(0, y); }
-        } else if (job.state === "error") showError({ message: job.error, kind: job.error_kind });
+        } else if (job.state === "error") jobFailed(job);
         else replace(status);
       } catch (e) { showError(e); }
       moreBtn.disabled = termsGo.disabled = false;

@@ -3,7 +3,7 @@
 // makes a phrase. A line opens its document at the words, or starts a check about what it says.
 import { featureEyebrow } from "../features.js";
 import { simpleProgress } from "./progress.js";
-import { App, api, h, icon, replace, clear, showError, toast, watchJob, TERMINAL, addDocumentsFirst, download, pageHead, emptyState, fmt, P, navigate, helpMark, downloadLinks, button, link, notice, card, input, select, fold, choice, shortTitle, textPositions, cpLength, latest, lazyList } from "../lib.js";
+import { App, api, h, icon, replace, clear, showError, toast, watchJob, TERMINAL, addDocumentsFirst, download, pageHead, emptyState, fmt, P, navigate, helpMark, downloadLinks, button, link, notice, card, input, select, fold, choice, shortTitle, textPositions, cpLength, latest, lazyList, jobFailed } from "../lib.js";
 
 const MODES = [
   ["any", "any of the words"],
@@ -201,7 +201,7 @@ export async function renderSearch(view, params, query) {
       try { info.search = (await api("GET", `/api/projects/${P(project)}`)).search || {}; } catch (_) { /* keep what it was */ }
       setUpMeaning(info.search);
       if (j.state === "done") toast("Search by meaning is ready.", "ok");
-      else if (j.state === "error") showError({ message: j.error, kind: j.error_kind });
+      else if (j.state === "error") jobFailed(j);
     }, () => { if (meaningBox.isConnected) setUpMeaning(info.search); });
   }
   // an index job that already runs for this project: shown as progress at once

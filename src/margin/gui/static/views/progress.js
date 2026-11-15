@@ -1,6 +1,6 @@
 // The live progress panel of a check (also used for batches and "read more"): updated in place from the job's
 // progress every poll, so running spinners do not restart and the page does not flicker.
-import { App, api, h, icon, replace, clear, fmt, cancelJob, showError, queueNotice, localPanel, startClaude, watchJob, TERMINAL, P, button, card, fold, link, notice, stopButton, setBusy } from "../lib.js";
+import { App, api, h, icon, replace, clear, fmt, cancelJob, showError, queueNotice, localPanel, memoryRefused, startClaude, watchJob, TERMINAL, P, button, card, fold, link, notice, stopButton, setBusy } from "../lib.js";
 
 const STEP_ICON = { pending: "circle", running: "loader", done: "check" };
 // 0.19.4: the backends of Settings that are a model on this computer (its panel shows while it reads)
@@ -320,7 +320,12 @@ export function jobCard(box, jobId, title, labelFn, onEnd, opts = {}) {
     cancel.hidden = !queued;
   });
   w.promise.then((job) => {
-    if (job.state === "error") {
+    if (job.state === "error" && job.error_kind === "memory" && job.can_run_again) {
+      // 0.19.4: the local model was not started: its panel, whose Start runs the job again in this card
+      head.textContent = "Waiting for your local model";
+      stop.hidden = cancel.hidden = true;
+      replace(pb, memoryRefused(job, (j) => jobCard(box, j.id, title, labelFn, onEnd, opts)));
+    } else if (job.state === "error") {
       head.textContent = "It did not work";
       replace(pb, jobError(job));
     } else if (job.state === "cancelled") {

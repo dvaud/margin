@@ -769,7 +769,11 @@ def make_restricted_backend(settings: dict):
                            "server. Install it, or choose another one in Settings → AI.")
     be.model_note = None
     if hasattr(be, "memory_guard"):
-        be.memory_guard = True  # 0.13.11: it starts beside Claude unasked: never on a computer without room for it
+        from .access import FORCE_LOCAL
+
+        # 0.13.11: it starts beside Claude unasked: never on a computer without room for it, unless the person chose
+        # "Start it anyway" for this job (0.19.4)
+        be.memory_guard = not FORCE_LOCAL.get()
     return be, model
 
 

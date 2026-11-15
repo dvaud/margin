@@ -2327,7 +2327,7 @@ function localPanelBody(o) {
       try { await o.onStart(force); } catch (e) { showError(e); b.disabled = false; }
     };
     const anyway = short ? button({ kind: o.anywayText ? "standard" : "quiet", sm: true, onClick: async () => {
-      const ok = await confirmDialog({ title: `Start ${name} anyway?`, danger: false, confirmText: "Start it anyway",
+      const ok = o.confirm === false || await confirmDialog({ title: `Start ${name} anyway?`, danger: false, confirmText: "Start it anyway",
         message: h("p", {}, "The computer may become very slow, or stop answering for a while, until the model has finished. What you have open is kept.") });
       if (ok) go(anyway, true);
     } }, o.anywayText || "Start it anyway") : null;
@@ -2345,6 +2345,36 @@ function localPanelBody(o) {
     h("span", { class: "mono" }, o.model || "none chosen"), " · ", link({ href: "#/settings/model" }, o.problem && !o.model ? "Choose one in Settings › AI" : "Change it in Settings › AI")));
   parts.push(aiWhere(`The ${noun}s it reads never leave this computer.`, "local"));
   return notice({ kind: alarm ? "attention" : "local", icon: alarm ? undefined : false, class: "local-notice", role: "group", "aria-labelledby": id }, ...parts);
+}
+
+// 0.19.4: a job the local model was not started in (too little memory free: job.error_kind "memory"). Its panel, in
+// place of an error: the memory against what is free, Start <model> (the job runs again, and the model is checked
+// again) and Start it anyway (the job runs again whatever memory is free), POST /api/jobs/<id>/again. `onStarted(job)`
+// follows the new job. Without `box`, a dialog holds the panel.
+export function memoryRefused(job, onStarted, opts = {}) {
+  const mem = job.memory || {};
+  const again = async (force) => {
+    const r = await api("POST", `/api/jobs/${P(job.id)}/again`, force ? { force: true } : {});
+    if (opts.close) opts.close();
+    if (onStarted) onStarted(r.job);
+  };
+  return localPanel({ model: mem.model, memory: mem.need ? mem : null, refused: mem.need ? null : job.error, blocking: true,
+    head: opts.head || `${mem.model || "Your local model"} was not started, so “${job.title || "this work"}” waits for it`,
+    noun: opts.noun || "passage", confirm: opts.confirm, onStart: job.can_run_again ? again : null, load: true });
+}
+
+// What a page does with a job that did not work: a local model refused for memory gets its panel (in `box`, or a
+// dialog), anything else the usual error toast.
+export function jobFailed(job, onStarted, box) {
+  onStarted = onStarted || ((j) => toast(`Started again: ${j.title}. It shows in the status area.`, "ok"));
+  if (job.error_kind === "memory" && job.can_run_again) {
+    if (box) { box.hidden = false; replace(box, memoryRefused(job, onStarted)); return; }
+    let dlg = null;
+    const body = memoryRefused(job, onStarted, { confirm: false, close: () => { if (dlg) { dlg.close(); dlg.remove(); } } });
+    dialog({ title: "Too little memory free for your local model", body, onOpen: (d) => { dlg = d; } });
+    return;
+  }
+  showError({ message: job.error, kind: job.error_kind });
 }
 
 // 0.13.10: how fast Claude Code works: how many helpers it starts at once (one, two or four). Faster is done sooner

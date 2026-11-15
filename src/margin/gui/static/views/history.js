@@ -1,7 +1,7 @@
 // The answers: every hypothesis checked in the project, newest first, with the checks still running or waiting their
 // turn at the top. 0.17.0: no page of its own any more (it was Results): the Hypotheses page shows it under the box
 // where hypotheses are written. Counts come from the API at the current strictness.
-import { App, api, h, icon, replace, clear, showError, failedLoad, toast, fmt, statusBadge, P, debounce, emptyState, watchJob, latest, norm, TERMINAL, STATUS_SHORT, strictness, auditorName, strongerMark, helpMark, judgementIcon, onJobsChanged, button, link, input, workState , choice, lazyList, searchField, readsLine, notice, card, tag } from "../lib.js";
+import { App, api, h, icon, replace, clear, showError, failedLoad, toast, fmt, statusBadge, P, debounce, emptyState, watchJob, latest, norm, TERMINAL, STATUS_SHORT, strictness, auditorName, strongerMark, helpMark, judgementIcon, onJobsChanged, button, link, input, workState , choice, lazyList, searchField, readsLine, notice, card, tag, jobFailed } from "../lib.js";
 import { ProgressPanel } from "./progress.js";
 import { withAI } from "../features.js";
 
@@ -99,7 +99,7 @@ export async function answersList(box, query, opts = {}) {
           const n = r.passages || 0;
           toast(`${n} more ${n === 1 ? "excerpt was" : "excerpts were"} read for this answer.`, "ok", { ttl: 6000, action: { href: `#/h/${encodeURIComponent(r.hyp_id)}`, text: "Open the answer" } });
         }
-      } else if (job.state === "error") showError({ message: job.error, kind: job.error_kind });
+      } else if (job.state === "error") jobFailed(job);
       await refresh();
     }).catch(showError);
   }

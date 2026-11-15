@@ -429,7 +429,7 @@ def run_labels(ws: Workspace, framework: str, backend, model: str, doc_ids: list
     from . import access
 
     plan = label_plan(ws, framework, doc_ids, all_passages, limit, passage_ids)
-    readers = access.Readers(backend, model, should_stop=should_stop, check_memory=not force)
+    readers = access.Readers(backend, model, should_stop=should_stop, check_memory=False if force else None)
     dflt = access.default(ws)
     lv = access.levels(ws)
     doc_of = access.doc_of_passages(ws._conn(), plan["passage_ids"]) if plan["passage_ids"] else {}

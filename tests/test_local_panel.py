@@ -146,3 +146,76 @@ def test_the_local_panel_is_built_like_the_claude_code_panel():
     assert ".notice-local {" in css
     for page in ("profile.js", "progress.js", "result.js"):
         assert "localPanel(" in (static / "views" / page).read_text(encoding="utf-8"), page
+
+
+# -- 0.19.4, after the release: any job the local model was refused in runs again from its panel ----------------------
+def test_a_job_refused_for_memory_runs_again_and_can_start_it_anyway():
+    """Found on the Themes page: naming the themes stopped with the memory message in a toast, and nothing on the
+    page could start the model. Now the job keeps the numbers, and runs again (checked again, or Start it anyway)."""
+    import time
+
+    from margin.gui.api_common import Jobs
+
+    seen: list[bool] = []
+
+    def name_themes(job):
+        readers = access.Readers(None, "")
+        seen.append(readers.check_memory)
+        if readers.check_memory:
+            raise llm.MemoryShort("qwen3.5:9b", int(8.1 * GB), int(6.9 * GB))
+        return {"named": 3}
+
+    def wait(job):
+        for _ in range(200):
+            if job.state in ("done", "error", "cancelled"):
+                return job
+            time.sleep(0.01)
+        raise AssertionError("the job did not end")
+
+    jobs = Jobs()
+    first = wait(jobs.start("theme-names", "The AI names the themes", "P", name_themes, uses_model=True))
+    v = first.view()
+    assert v["error_kind"] == "memory" and v["can_run_again"] is True
+    assert v["memory"] == {"need": int(8.1 * GB), "free": int(6.9 * GB), "short": True, "model": "qwen3.5:9b"}
+    # run again as it was: the memory is checked again (and still too little)
+    again = wait(jobs.again(first))
+    assert again.error_kind == "memory" and again.title == first.title and again.kind == first.kind
+    # Start it anyway: this run only starts the model whatever memory is free
+    anyway = wait(jobs.again(again, force_local=True))
+    assert anyway.state == "done" and anyway.result == {"named": 3}
+    assert seen == [True, True, False]
+    assert access.FORCE_LOCAL.get() is False   # nothing leaks out of the job's run
+    # a job that did not stop for memory does not run again from here
+    other = wait(jobs.start("x", "Other", "P", lambda job: {"ok": 1}, uses_model=False))
+    with pytest.raises(ValueError):
+        jobs.again(other)
+
+
+def test_start_it_anyway_turns_the_guard_off_for_the_restricted_model(monkeypatch):
+    s = {**home.DEFAULTS, "num_ctx": 8192, "think": "off", "backend": "claude_code",
+         "restricted_server": "ollama", "restricted_model": "qwen3.5:9b"}
+    monkeypatch.setattr(home, "_make_backend", lambda st, key, kinds: (
+        home._ollama(st, st["ollama_url"], st["ollama_model"], False), st["ollama_model"]))
+    assert home.make_restricted_backend(s)[0].memory_guard is True
+    token = access.FORCE_LOCAL.set(True)
+    try:
+        assert home.make_restricted_backend(s)[0].memory_guard is False
+        assert access.Readers(None, "").check_memory is False
+        assert access.Readers(None, "", check_memory=True).check_memory is True   # an explicit choice stands
+    finally:
+        access.FORCE_LOCAL.reset(token)
+
+
+def test_pages_show_the_local_panel_not_a_toast_for_a_refused_model():
+    from pathlib import Path
+
+    static = Path(profile.__file__).parent / "gui" / "static"
+    lib = (static / "lib.js").read_text(encoding="utf-8")
+    assert "export function jobFailed(" in lib and "export function memoryRefused(" in lib and "/again`" in lib
+    themes = (static / "views" / "themes.js").read_text(encoding="utf-8")
+    assert "jobFailed(job, (j) => followNames(j.id), nameJob)" in themes
+    assert 'error_kind === "memory" && job.can_run_again' in (static / "views" / "progress.js").read_text(encoding="utf-8")
+    for page in ("concepts.js", "hypotheses.js", "history.js", "search.js", "result.js", "themes.js"):
+        js = (static / "views" / page).read_text(encoding="utf-8")
+        assert "showError({ message: job.error, kind: job.error_kind })" not in js.replace(
+            'if (job.error_kind !== "memory") { showError({ message: job.error, kind: job.error_kind }); return; }', ""), page

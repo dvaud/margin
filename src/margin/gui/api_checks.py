@@ -422,6 +422,15 @@ class ChecksApi:
         self.app.jobs.cancel(job)  # 0.18 (M6): a job waiting for its turn leaves the queue at once
         return {"job": job.view(full=False)}
 
+    def post_job_again(self, job_id, q):
+        """0.19.4: a job the local model was refused in for memory runs again; {"force": true}: Start it anyway."""
+        job = self.app.jobs.get(job_id)
+        try:
+            again = self.app.jobs.again(job, force_local=bool(self._body().get("force")))
+        except ValueError as e:
+            raise ApiError(409, str(e)) from e
+        return {"job": again.view()}
+
     def post_benchmark(self, q):
         return {"job": self.app.start_benchmark(self._body()).view()}
 

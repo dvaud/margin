@@ -56,6 +56,11 @@ class Job:
         self.admitted = False           # it has had its turn in the project (it runs, or waits only for the model)
         self.blocker: Job | None = None  # the job it waits for, while it waits for its turn
         self.background = False         # started by the app itself (the shared folder's poller), not the person
+        # 0.19.4: the local model was refused for memory ({"need", "free", "short"}); how to run the job again
+        # (Jobs.again), and whether this run starts the local model whatever memory is free ("Start it anyway")
+        self.memory: dict | None = None
+        self.again_args: tuple | None = None
+        self.force_local = False
 
     def view(self, full: bool = True) -> dict:
         end = self.finished or time.time()
@@ -64,6 +69,9 @@ class Job:
                "seconds": round(end - (self.started or end), 1), "error": self.error, "error_kind": self.error_kind,
                "scope": self.scope, "queue": self.queue, "waiting_for": self.waiting_for(),
                "background": self.background, "where": job_where(self)}
+        if self.error_kind == "memory":   # 0.19.4: the numbers for the local panel, and whether it can run again
+            out["memory"] = self.memory
+            out["can_run_again"] = self.again_args is not None
         if full:
             out["progress"] = self.tracker.state() if self.tracker else self.progress
             out["result"] = self.result
@@ -166,7 +174,7 @@ class Jobs:
 
     def start(self, kind: str, title: str, project: str | None, fn: Callable[[Job], Any], uses_model: bool,
               unique: bool = False, lane: str | None = None, serial: str | None = None, background: bool = False,
-              if_free: bool = False, scope: str | None = None) -> Job | None:
+              if_free: bool = False, scope: str | None = None, force_local: bool = False) -> Job | None:
         """`unique`: when a job of this kind is already queued or running for the project, that one is returned and
         nothing starts (a second press of a button, or a second tab, must not do the same work twice).
 
@@ -174,6 +182,8 @@ class Jobs:
         run beside (see LANES); it waits for them in the queue. `background`: started by the app, not the person.
         `if_free`: start only when it would not have to wait; None (nothing started) otherwise."""
         job = Job(kind, title, project)
+        job.again_args = (kind, title, project, fn, uses_model, lane, serial, scope)
+        job.force_local = force_local
         job.lane = lane if lane is not None else LANE_OF_KIND.get(kind)
         job.serial, job.background, job.scope = serial, background, scope
         with self.lock:
@@ -213,7 +223,13 @@ class Jobs:
                     if job.cancel.is_set():
                         raise Cancelled()
                     job.state, job.started = "running", time.time()
-                    job.result = fn(job)
+                    from .. import access
+
+                    token = access.FORCE_LOCAL.set(job.force_local)   # 0.19.4: Start it anyway, for this job only
+                    try:
+                        job.result = fn(job)
+                    finally:
+                        access.FORCE_LOCAL.reset(token)
                     job.state = "cancelled" if job.cancel.is_set() and job.result is None else "done"
                 finally:
                     if lock:
@@ -222,6 +238,7 @@ class Jobs:
                 job.state = "cancelled"
             except llm.MemoryShort as e:  # 0.13.11: in plain words, not as "the AI model is not answering"
                 job.state, job.error, job.error_kind = "error", str(e), "memory"
+                job.memory = {"need": e.need, "free": e.free, "short": True, "model": e.model}
             except BackendError as e:
                 stopped = job.cancel.is_set() and str(e).startswith("Stopped")
                 job.state, job.error, job.error_kind = ("cancelled", None, None) if stopped else ("error", str(e), "backend")
@@ -245,6 +262,16 @@ class Jobs:
 
         threading.Thread(target=run, daemon=True, name=f"job-{kind}-{job.id}").start()
         return job
+
+    def again(self, job: Job, force_local: bool = False) -> Job:
+        """0.19.4: run a job the local model was refused in for memory again, the same work from the start (what it
+        had done is kept, as each kind resumes where it stopped); `force_local` starts the local model whatever memory
+        is free (the person chose "Start it anyway")."""
+        if job.error_kind != "memory" or job.again_args is None:
+            raise ValueError("Only a job the local model was not started in can run again from here.")
+        kind, title, project, fn, uses_model, lane, serial, scope = job.again_args
+        return self.start(kind, title, project, fn, uses_model, lane=lane, serial=serial, scope=scope,
+                          force_local=force_local)
 
     # -- 0.18 (M6): the project's queue --------------------------------------------------------------------------
     def _blocker(self, job: Job) -> Job | None:

@@ -1122,7 +1122,7 @@ class App(LibraryMixin, QueueMixin):
             job.tracker = tracker
             self._wire(job, be, tracker)  # a local main model reads them itself
             readers = access.Readers(be, model, progress=tracker.model_report, should_stop=job.cancel.is_set,
-                                     check_memory=not force)
+                                     check_memory=False if force else None)
             try:
                 n = claimcheck.run_local_parts(
                     ws, [hyp_id], readers, retry_failed=True,
@@ -1578,6 +1578,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", r"/api/jobs", "get_jobs"),
     ("GET", rf"/api/jobs/{P}", "get_job"),
     ("POST", rf"/api/jobs/{P}/cancel", "post_cancel"),
+    ("POST", rf"/api/jobs/{P}/again", "post_job_again"),
     ("POST", r"/api/benchmark", "post_benchmark"),
     # 0.7
     ("POST", r"/api/servers/repeatable", "post_repeatable"),

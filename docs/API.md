@@ -253,6 +253,11 @@ whether Ollama is on this computer, running or not: `{"installed", "path", "syst
 "how": "app" | "terminal", "line", "manual"}` (`how`: the app installs it itself, or on Linux opens a terminal window
 running Ollama's own `line`; `manual`: Ollama's installer file, for doing it by hand).
 
+`POST /api/jobs/<id>/again` (0.19.5) → runs again a job the local model was refused in for memory (its view says
+`error_kind: "memory"`, `memory: {"need", "free", "short", "model"}` and `can_run_again`): the same work, from where it
+stood. `{"force": true}`: *Start it anyway*, the local model starts whatever memory is free, for that run only. Gives
+`{"job"}`; 409 for any other job.
+
 `GET /api/local-status` (0.19.4) → the local model that reads documents marked Only a local AI, for the local panel,
 without starting it: `{"model", "server", "memory"}` where `memory` is `{"loaded": true}` when the model server holds it
 already, else `{"need", "free", "short"}` in bytes (left out when the server or the computer does not say enough);
