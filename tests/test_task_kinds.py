@@ -49,9 +49,10 @@ _order = list(SNAPSHOT["taskqueue.ORDER"])
 _order.insert(_order.index("theme") + 1, _TC)  # after the theme names, before the links
 SNAPSHOT["taskqueue.ORDER"] = tuple(_order)
 for _key, _value in {"routing.ROW_OF": _TC, "routing.CLAUDE_DEFAULTS": ("sonnet", "opus"), "routing.LOCAL_DEFAULTS": "large",
-                     "routing.HELPERS": "margin-namer", "prompts.VERSIONS": "theory-codes-v1", "taskqueue.BATCH": 1,
-                     "taskqueue.NOUN": ("theory document to draft codes from", "theory documents to draft codes from"),
-                     "taskqueue.SHORT": "theory documents to draft codes from",
+                     "routing.HELPERS": "margin-namer", "prompts.VERSIONS": "theory-codes-v2", "taskqueue.BATCH": 1,
+                     "taskqueue.NOUN": ("part of a theory document to draft codes from",
+                                        "parts of theory documents to draft codes from"),
+                     "taskqueue.SHORT": "parts of theory documents to draft codes from",
                      "taskqueue.KIND_TITLE": "Codes from a theory document", "llm.OUTPUT_CAP": 3000}.items():
     SNAPSHOT[_key][_TC] = _value
 # K1 (the optional AI part): a code's definition drafted from its examples (codedefine.py)

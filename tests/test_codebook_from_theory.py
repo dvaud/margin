@@ -201,4 +201,227 @@ def test_the_routes(api, tmp_path):  # noqa: F811
     assert api("GET", "/api/projects/Lens/codebook-theory/nope")[0] == 404
 
 
+# ---- a book, not a few pages: its glossary, and what is not the theory's own prose ---------------------------------
+_PLACES = ("mill", "ferry", "orchard", "quarry", "harbour", "market", "chapel", "smithy", "tannery", "bakery")
+_FOLK = ("carters", "weavers", "millers", "shepherds", "masons", "coopers", "fishers", "tailors")
+
+
+def _filler(n: int, word: str) -> list[str]:
+    """`n` paragraphs that define nothing, no two alike."""
+    return [f"The {word} at the {_PLACES[i % 10]} went on as before among the {_FOLK[(i // 10) % 8]}. Nobody wrote "
+            f"about what happened that season." for i in range(n)]
+
+
+def _page(n: int, *paras: str) -> list[str]:
+    """A page as a book's file often holds it: a running head first, a printer's mark last."""
+    return ["THINKING IN SYSTEMS", *paras, f"TIS final pgs {n} 5/2/09 10:37:{n:02d}"]
+
+
+BOOK = "\n\n".join(sum([
+    ["Thinking in systems", "Contents", "1.1 The basics 3 1.2 Feedback 9 1.3 Traps 21", "Glossary 40"],
+    _page(1, "1. The basics",
+          "A stock is the memory of the history of changing flows within the system. Stocks change only through flows.",
+          "All it takes is a click in the mind. Say you are a young boy who wants to grow up. This behavior is an "
+          "example of how a stock changes.",
+          "A tree is a system. Its inflow is the growth of the trees."),
+    _page(2, *_filler(12, "work")),
+    _page(3, "2. Feedback and Delays",
+          "A feedback loop is a closed chain of causal connections from a stock and back again to the stock.",
+          "Feedback loops can hold a stock near a goal. Without a feedback loop a stock drifts. Every feedback loop "
+          "takes time to act.",
+          "Delays are everywhere in systems. A delay in a feedback loop makes a system overshoot its goal."),
+    _page(4, *_filler(12, "trade")),
+    _page(5, "3. Policy Resistance—Fixes that Fail",
+          "Policy resistance comes from the different goals of the actors in a system. When policy resistance is "
+          "strong, everybody pulls hard and the stock stays where nobody wants it.",
+          "Inflow: heating = discrepancy x 10%",
+          "The way out of policy resistance is to let go."),
+    _page(6, *_filler(12, "craft")),
+    _page(7, "Glossary",
+          "Feedback loop: The mechanism that allows a change in a stock to affect a flow into or out of that same stock.",
+          "Resilience: The ability of a system to recover from perturbation. Stock: An accumulation of material or "
+          "information that has built up in a system over time.",
+          "Suboptimization: The behavior resulting from a subsystem’s goals dominating at the expense of the total "
+          "system’s goals."),
+    ["Summary of principles", "Resilience keeps a system going when it is hit, and a system without resilience breaks. "
+     "Suboptimization is what happens when a part wins and the whole loses."],
+], [])) + "\n"
+
+
+@pytest.fixture
+def book(tmp_path):
+    ws = Workspace.create(tmp_path / "proj")
+    d = tmp_path / "docs"
+    d.mkdir()
+    (d / "book.txt").write_text(BOOK, encoding="utf-8")
+    ingest.ingest(ws, [d])
+    doc = ws.scalar("SELECT doc_id FROM documents")
+    docrole.set_role(ws, doc, "theory")
+    yield ws, doc
+    ws.close_all()
+
+
+def test_the_entries_of_the_documents_own_glossary_come_first_and_only_they_are_ticked(book):
+    ws, doc = book
+    cands = theorycodes.candidates(ws, doc)
+    got = _by_term(cands)
+    assert [c["term"] for c in cands["concepts"]][:4] == ["Stock", "Feedback loop", "Resilience", "Suboptimization"]
+    assert all(got[t]["how"] == "glossary" and got[t]["ticked"] for t in ("stock", "feedback loop", "resilience"))
+    # the definition is the entry's own, quoted from the glossary (not the first sentence that uses the word), and an
+    # entry that shares a line with the one before it ("… perturbation. Stock: An accumulation …") is found too
+    assert got["stock"]["definition"]["quote"] == ("An accumulation of material or information that has built up in a "
+                                                   "system over time.")
+    assert got["resilience"]["definition"]["quote"] == "The ability of a system to recover from perturbation."
+    text = ws.scalar("SELECT text FROM documents WHERE doc_id=?", (doc,))
+    for c in cands["concepts"]:
+        d = c["definition"]
+        assert d and " ".join(text[d["start"]:d["end"]].split()) == d["quote"], c["term"]   # the document's words
+    # a document that says itself which its concepts are: nothing else is ticked
+    assert {c["term"] for c in cands["concepts"] if c["ticked"]} == {"Stock", "Feedback loop", "Resilience",
+                                                                    "Suboptimization"}
+    assert "policy resistance" in got and not got["policy resistance"]["ticked"]
+
+
+def test_what_is_not_the_theorys_prose_is_never_a_concept(book):
+    ws, doc = book
+    got = _by_term(theorycodes.candidates(ws, doc))
+    # a sentence that only starts like a definition ("All it takes is a …", "Say you are a …", "This behavior is an
+    # …", "Its inflow is the …"), and an example the text calls a system once ("A tree is a system")
+    assert not {"takes", "say", "behavior", "inflow", "tree", "click"} & set(got)
+    # running heads and printer's marks (the same line on page after page, numbers aside), the table of contents, a
+    # model's equations
+    words = {w for t in got for w in t.split()}
+    assert not {"thinking", "tis", "pgs", "final", "heating", "discrepancy", "traps", "contents"} & words
+    for c in got.values():
+        q = c["definition"]["quote"]
+        assert "TIS final" not in q and "THINKING IN SYSTEMS" not in q and " = " not in q and "1.2" not in q, q
+
+
+BOOK_PAGES = [
+    ["Resilience, Self-Organization, and Hierarchy",
+     "Resilience keeps a system working when it is hit. Self-organization lets a system make new structure of its "
+     "own. Hierarchy arranges systems inside larger systems.",
+     "A system needs resilience more than it needs speed, and self-organization more than order. Hierarchy serves "
+     "the parts when it works well."],
+    ["A: Growth",
+     "The first panel shows growth over a hundred years, and the second panel shows what follows it."],
+    ["The content and structure of the book",
+     "The content of the chapters follows the order of the lectures, and the structure of the book is plain."],
+    ["Policy Resistance—Fixes that Fail",
+     "Policy resistance comes from the different goals of the actors. The way out of policy resistance is to let go."],
+]
+
+
+def test_a_headings_terms_are_offered_one_by_one_and_a_label_or_a_phrase_is_not(tmp_path):
+    ws = Workspace.create(tmp_path / "proj")
+    try:
+        d = tmp_path / "docs"
+        d.mkdir()
+        pages = []
+        for head, *paras in BOOK_PAGES:
+            pg = pdfmake.Page()
+            pg.text(head, 72, 770, "Helvetica-Bold", 13)
+            y = 744
+            for para in paras:
+                for line in pdfmake.wrap(para, 451, "Times-Roman", 11):
+                    pg.text(line, 72, y, "Times-Roman", 11)
+                    y -= 14
+                y -= 10
+            pages.append(pg)
+        pdfmake.write(pages, d / "book.pdf", title="A book")
+        ingest.ingest(ws, [d])
+        doc = ws.scalar("SELECT doc_id FROM documents")
+        heads = [r[0] for r in ws.query("SELECT text FROM headings WHERE doc_id=?", (doc,))]
+        if "Resilience, Self-Organization, and Hierarchy" not in heads:
+            pytest.skip("the reader did not find the headings")
+        got = _by_term(theorycodes.candidates(ws, doc))
+        # "Resilience, Self-Organization, and Hierarchy": three terms; "Policy Resistance—Fixes that Fail": the term
+        for t in ("resilience", "self-organization", "hierarchy", "policy resistance"):
+            assert t in got and got[t]["how"] in ("heading", "defined"), (t, sorted(got))
+        assert got["policy resistance"]["definition"]["quote"].startswith("Policy resistance comes from")
+        # a figure's panel ("A: Growth") and a heading that is a phrase, not a list of terms, give none
+        assert not any(c["how"] == "heading" and c["term"].lower() in ("growth", "content", "structure of the book",
+                                                                      "content and structure of the book")
+                       for c in got.values())
+    finally:
+        ws.close_all()
+
+
+def _one_text(tmp_path, text: str):
+    ws = Workspace.create(tmp_path / "proj")
+    d = tmp_path / "docs"
+    d.mkdir()
+    (d / "theory.txt").write_text(text, encoding="utf-8")
+    ingest.ingest(ws, [d])
+    return ws, ws.scalar("SELECT doc_id FROM documents")
+
+
+def test_a_paragraph_with_figures_or_a_formula_in_it_is_still_prose(tmp_path):
+    """Only a line of a table of contents or of a model's equations is left out: a paragraph that says "from 2.5 to
+    3.7 percent" or "with r = 0.02" is the theory's prose, and what it defines is found."""
+    ws, doc = _one_text(tmp_path, "Growth and limits\n\n"
+                        "A doubling time is the time a stock needs to grow to twice its size. When the birth rate "
+                        "rose from 2.5 to 3.7 percent, the doubling time fell from 28 to 19 years.\n\n"
+                        "A carrying capacity is the largest population a place can keep, and with r = 0.02 the stock "
+                        "reaches the carrying capacity within a lifetime.\n\n"
+                        "1.1 Growth 3 1.2 Limits 9\n\n"
+                        "Inflow: births = population x fertility\n")
+    try:
+        got = _by_term(theorycodes.candidates(ws, doc))
+        assert got["doubling time"]["definition"]["quote"].startswith("A doubling time is the time a stock needs")
+        assert got["carrying capacity"]["definition"]["quote"].startswith("A carrying capacity is the largest")
+        assert not {"fertility", "births"} & {w for t in got for w in t.split()}       # the equation is not prose
+        # and the AI is sent both paragraphs
+        sent = " ".join(p["text"] for part in theorycodes.ai_payloads(ws, doc) for p in part["passages"])
+        assert "from 2.5 to 3.7 percent" in sent and "with r = 0.02" in sent
+    finally:
+        ws.close_all()
+
+
+def test_a_glossary_entry_too_short_to_define_anything_is_left_out_not_added_to_the_one_before(tmp_path):
+    ws, doc = _one_text(tmp_path, "A primer\n\nGlossary\n\n"
+                        "Flow: Material or information that enters or leaves a stock over a period of time.\n\n"
+                        "Stock: An accumulation.\n\n"
+                        "Delay: The time between a change and its effect on the stock it changes.\n\n"
+                        "Feedback loop: A closed chain of causal connections from a stock and back to it.\n\n"
+                        "Hierarchy: Systems organized in such a way as to create a larger system.\n")
+    try:
+        cands = theorycodes.candidates(ws, doc)
+        if not any(c["how"] == "glossary" for c in cands["concepts"]):
+            pytest.skip("the reader did not find the glossary's heading")
+        got = _by_term(cands)
+        assert got["flow"]["definition"]["quote"] == ("Material or information that enters or leaves a stock over a "
+                                                     "period of time.")
+        assert got["delay"]["how"] == "glossary" and got["hierarchy"]["how"] == "glossary"
+        assert "stock" not in got or got["stock"]["how"] != "glossary"
+    finally:
+        ws.close_all()
+
+
+def test_a_term_named_with_we_call_this_ends_where_the_sentence_goes_on(tmp_path):
+    ws, doc = _one_text(tmp_path, "Loops\n\n"
+                        "Growth feeds more growth. We call this a reinforcing loop because it grows on itself. "
+                        "A reinforcing loop runs until something stops it.\n")
+    try:
+        got = _by_term(theorycodes.candidates(ws, doc))
+        assert got["reinforcing loop"]["how"] == "defined", sorted(got)
+        assert not any("because" in t for t in got)
+    finally:
+        ws.close_all()
+
+
+def test_words_of_any_script_are_words(tmp_path):
+    """Hungarian "ő" and "ű" lie outside Latin-1: a term with them is found whole (it was cut at the letter)."""
+    ws, doc = _one_text(tmp_path, "Rendszerek\n\n"
+                        "A visszacsatolási hurok is a closed chain of causes. Every visszacsatolási hurok takes time. "
+                        "A késleltetés is the time a visszacsatolási hurok needs. The erőforrás is a stock, and "
+                        "the erőforrás of a művelődési ház is its people.\n")
+    try:
+        got = _by_term(theorycodes.candidates(ws, doc))
+        assert "visszacsatolási hurok" in got and "késleltetés" in got, sorted(got)
+        assert not any(t in got for t in ("er", "forrás", "m", "vel", "dési"))
+    finally:
+        ws.close_all()
+
+
 from test_app import api, home  # noqa: E402,F401  (fixtures)

@@ -297,11 +297,12 @@ _core(name="resolve", prompt_version="resolve-v1", claude=("sonnet", "opus"), lo
       noun=("window of references", "windows of references"), short="windows of references",
       title="References in documents", run_name="References in a document", output_cap=2500, corpus=True)
 # 0.18.4 (roadmap K2 part 2, the optional AI part): the concepts of a theory document and their definitions, each
-# quoted from it, drafted for the codebook editor's *From a theory document* (theorycodes.py). One task per draft.
-_core(name="theory_codes", prompt_version="theory-codes-v1", claude=("sonnet", "opus"), local="large",
+# quoted from it, drafted for the codebook editor's *From a theory document* (theorycodes.py). One task for each part
+# of the document (theory-codes-v2: the whole document is read; v1 read twelve passages of it in one task).
+_core(name="theory_codes", prompt_version="theory-codes-v2", claude=("sonnet", "opus"), local="large",
       helper="margin-namer", row="theory_codes", row_title="Codes from a theory document", batch=1, order=6.5,
-      noun=("theory document to draft codes from", "theory documents to draft codes from"),
-      short="theory documents to draft codes from", title="Codes from a theory document",
+      noun=("part of a theory document to draft codes from", "parts of theory documents to draft codes from"),
+      short="parts of theory documents to draft codes from", title="Codes from a theory document",
       run_name="Codes from a theory document", output_cap=3000)
 # K1 (the optional AI part): a code's definition, when to use it and when not, drafted from the passages that hold its
 # examples, for the codebook editor (codedefine.py). One task per draft.

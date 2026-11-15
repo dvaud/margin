@@ -45,23 +45,38 @@ framework built from five authors, say). Those marked as theory are ticked to be
 documents](explore.md#theory-documents)). With several, each document's concepts are listed in a section of their
 own, and each becomes a group of codes named after the document. A concept that two documents both define (*practice*
 in two practice theorists) is offered once for each, with each author's own definition; if you keep both, each gets
-its document's title after its name, and you can merge or rename them in the editor. Margin offers each document's concepts, without AI: the terms it defines ("a stock is
-…", "by a reinforcing loop we mean …", "X is defined as …", "X refers to …"), its headings, and the words and short
-phrases it uses often. Each comes with its definition **quoted from the theory, with its page** (the quote, then the
-document's title and the page), which becomes the code's description. Terms the text defines are ticked. Under each concept, sentences from the **evidence documents** that use
+its document's title after its name, and you can merge or rename them in the editor. Margin offers each document's concepts, without AI, the surest first: the entries of its own glossary when it has one
+(a heading such as *Glossary*, *Definitions* or *Key terms* over lines like "Stock: an accumulation of …"), the terms
+it defines in its text ("by a reinforcing loop we mean …", "X is defined as …", "X refers to …", and "a feedback loop
+is a …" for a phrase or a term that is also a heading), the terms its headings name, and the words and short phrases
+it uses far more often than your evidence documents do. Each comes with its definition **quoted from the theory, with
+its page** (the quote, then the document's title and the page), which becomes the code's description: the glossary's
+own entry, or else the sentence that best says what the term means. The glossary's entries are ticked; in a document
+without a glossary, the terms it defines are (none is ticked when a long text defines fewer than three: what it
+defines outright is then as likely its case as its theory). Running heads, printer's marks, tables of contents and equations are
+left out, and so are sentences that only start like a definition ("All it takes is a …") and things the text calls
+by a general name once ("A tree is a system"). A theory that argues instead of defining gives a short list this way:
+the dialog says so and points to *Draft with AI*. Under each concept, sentences from the **evidence documents** that use
 its words are offered as examples, unticked: an example is kept only when you tick it, and never comes from a theory
 document or from any of the documents you started from. So the labeller learns what a reinforcing loop looks like in your field, not in the theory's own examples.
 Words set in italics are not offered (the readers do not keep slant).
 
 **Draft with AI.** Beside the concepts found without AI, *Draft with AI* asks the AI to draft the theory's concepts (with several documents, each section has its own button).
-It reads the passages of the theory where those concepts are defined or used most, and gives each concept a short
-name, its definition quoted exactly from the theory with its page, and one line on why it is a concept of the theory.
+It reads **the whole document**, a part at a time (about 22,000 characters a part: a book of 200 pages is some 19
+parts, and the line under the button says how many; a model on this computer whose context length you set yourself
+gets smaller parts that fit it, and one set too small for any part says so), and gives each concept a short name, its definition quoted
+exactly from the theory with its page, and one line on why it is a concept of the theory and not one of its examples.
 Every quote is checked against the document, and a definition must be at least three words that say more than the
-concept's name. The AI's concepts join the end of the list unticked and marked *AI draft*, and a concept already on
-the list is not offered twice. Read each one before you tick it. Examples still come only from your evidence
+concept's name. What the parts give is put together: a concept found in several parts is offered once, with the
+sentence that defines it best, and the concepts the theory comes back to most come first (40 at most). They join the
+list unticked and marked *AI draft*. A term of the glossary or one the text defines is not offered twice; a heading or
+a frequent word the AI drafts too gets the AI's definition in its place; and once the whole document was read, the
+words that were listed only for being frequent, that the AI did not draft and you did not tick, leave the list. If a
+part could not be read (its quotes were not found after three tries), the message says how many. Read each concept
+before you tick it. Examples still come only from your evidence
 documents, never from the theory or the AI. The document's own AI setting decides who reads it: Claude, only a local
 AI on this computer, or no AI, in which case the button is not offered and the dialog says why. The draft is written
-in the research log, and asking again for the same document reuses the answer. Closing the dialog stops a draft that
+in the research log, and asking again for the same document reuses the answers, part by part. Closing the dialog stops a draft that
 is still running. Nothing changes until you tick concepts and make the codebook.
 
 **The short names (0.16.1).** A code's name is one or two words of the theme's name when your documents allow it, as

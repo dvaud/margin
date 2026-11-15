@@ -213,20 +213,27 @@ Output format
  "description": "one sentence", "description_quote": {{"passage": 2, "quote": "exact words"}}}}
 {_JSON_RULE}"""
     if kind == "theory_codes":  # 0.18.4 (K2 part 2): drafts for the codebook editor, each definition quoted
+        # theory-codes-v2: the whole document is read, a part at a time (v1 read twelve passages of it)
         return f"""You draft the concepts of a theory document: the ideas a researcher reads other documents through (for
 example stock, flow and reinforcing loop in a book on systems thinking, or practice and routine in one on practice
 theory). Each concept becomes a draft code a person checks and edits.
 
-You are given the document's title, candidate concepts found without AI (its headings, the terms it defines, the words
-it uses often), and the passages where they are defined or used most. Give the theory's own concepts, at most 25, the
-most central first:
-- name: the concept's short name as the document writes it, at most six words (no quotation marks);
+You are given the document's title, candidate concepts found without AI (hints only), and one part of the document as
+numbered passages. A long document is read in several parts: each part is drafted by itself and the drafts are put
+together afterwards, so give only what this part says. Give the theory's own concepts that this part defines or
+explains, at most 12, the most central first:
+- name: the concept's short name as the document writes it, in the singular, at most six words (no quotation marks);
 - definition: one quote, copied exactly from one passage, at least three whole words, that says what the concept means
-  in this theory (a defining sentence where there is one, such as "a stock is ..."), with that passage's number;
+  in this theory, with that passage's number. Prefer the sentence that defines it ("a stock is ...", an entry of the
+  document's glossary) over a sentence that only uses the word; one or two whole sentences, not a fragment;
 - reason: one line on why it is a concept of this theory and not a passing word.
-The candidates are hints: leave out those that are not concepts of the theory, and add a concept they miss when a
-passage defines it. Use only what the passages say, no outside knowledge. Give no examples: examples come from the
-researcher's own documents, never from the theory.
+A concept is an idea of the theory that a researcher could look for in other material (interviews, reports,
+observations). Leave out the document's own examples and cases (a bathtub, a fishery, the hospital the author
+studied), people, places and organisations, the book's own parts and methods, and general words. A part with no
+concept of the theory (a preface, a table of contents, thanks, a case description, references) gets an empty list:
+that is a good answer. The candidates are hints: leave out those that are not concepts of the theory, and add a
+concept they miss when a passage defines it. Use only what the passages say, no outside knowledge. Give no examples:
+examples come from the researcher's own documents, never from the theory.
 
 Output format
 {{"concepts": [{{"name": "reinforcing loop", "definition": {{"passage": 2, "quote": "exact words"}},
@@ -414,7 +421,8 @@ def user_prompt(kind: str, payload: dict, codes_once: bool = False) -> str:
             parts.append(f"P{p['n']} | {src}\n{p['text']}")
         return "\n\n".join(parts)
     if kind == "theory_codes":
-        parts = [f"THEORY DOCUMENT: {payload.get('title') or 'untitled'}",
+        of = f" (part {payload['part']} of {payload['parts']})" if (payload.get("parts") or 1) > 1 else ""
+        parts = [f"THEORY DOCUMENT: {payload.get('title') or 'untitled'}{of}",
                  "CANDIDATE CONCEPTS (found without AI): " + (", ".join(payload.get("candidates") or []) or "none")]
         for p in payload["passages"]:
             parts.append(f"P{p['n']}" + (f" (page {p['page']})" if p.get("page") else "") + f"\n{p['text']}")

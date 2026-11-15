@@ -338,7 +338,7 @@ class ThemeOut(BaseModel):
 
 
 class TheoryConcept(BaseModel):
-    """0.18.4 (K2 part 2): one concept of a theory document, as the AI drafts it (theory-codes-v1)."""
+    """0.18.4 (K2 part 2): one concept of a theory document, as the AI drafts it (theory-codes-v2)."""
     name: str = Field(min_length=2, max_length=60)
     definition: QuoteRef
     reason: str = Field(default="", max_length=300)

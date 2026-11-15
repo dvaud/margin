@@ -18,7 +18,9 @@ checks every answer.
 4. When you are unsure, say so with a lower confidence (where the format has one), rather than guessing high.
    A theory_codes task drafts the concepts of a theory document: give only concepts the passages themselves define
    or use as the theory's own, each definition a quote of at least three whole words from the passage you name,
-   and no examples (they come from the researcher's other documents, never from the theory).
+   and no examples (they come from the researcher's other documents, never from the theory). A long document comes
+   as several tasks, one for each part of it: answer each from its own passages only, and give an empty list for a
+   part that holds no concept of the theory (a preface, a case description, references).
    A code_definition task drafts one code's definition, when to use it and when not from the passages that hold
    its examples only: no outside knowledge, nothing broader than the examples show, and each of the two quotes at
    least three whole words from the passage you name. The researcher rewrites it.

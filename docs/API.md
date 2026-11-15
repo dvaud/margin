@@ -1828,10 +1828,16 @@ terms.
 **A codebook from a theory document** (roadmap K2 part 2, `theorycodes.py`, no AI).
 
 - `GET /api/projects/{p}/codebook-theory` → `{"documents": [{"doc_id", "title", "theory"}]}`, theory documents first.
-- `GET /api/projects/{p}/codebook-theory/{d}` → `{"doc_id", "title", "role", "concepts": [{"term", "how": "defined" |
-  "heading" | "frequent", "count", "definition": {"quote", "start", "end", "page"} | null, "code": {a draft code},
-  "suggested": [examples from the evidence documents: {"quote", "doc_id", "title", "page", "start", "end",
-  "project"}]}]}`.
+- `GET /api/projects/{p}/codebook-theory/{d}` → `{"doc_id", "title", "role", "concepts": [{"term", "how": "glossary" |
+  "defined" | "heading" | "frequent", "ticked" (offered ticked: its glossary's entries, or the terms it defines when
+  it has no glossary), "count" (the sentences that use it), "definition": {"quote", "start", "end", "page"} | null,
+  "code": {a draft code}, "suggested": [examples from the evidence documents: {"quote", "doc_id", "title", "page",
+  "start", "end", "project"}]}]}`.
+- `GET /api/projects/{p}/codebook-theory/{d}/ai` → `{"offered", "why", "reader", "level", "parts"}` (`parts`, when
+  offered: the parts the AI reads the document in). `POST` the same path starts a `theory-codes` job whose result is
+  `{"ok", "parts", "parts_read", "task_ids", "concepts": [the drafts: "how": "ai", "parts": [the parts that drafted
+  it], …], "problems", "reused", "model", "stopped", "withdrawn"?}`: one `theory_codes` task for each part of the
+  document (prompt `theory-codes-v2`); `ok` when a part at least was read.
 - Then `POST /api/projects/{p}/codebooks` with `"start": "theory"` and `"source": {"codes": [the drafts kept, with the
   examples ticked], "doc_ids": [the documents they come from]}` (`"doc_id"` for one still works); an example from a
   theory document, or from any of `doc_ids`, is dropped. 0.19: with codes from more than one document, each
