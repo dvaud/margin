@@ -1,7 +1,8 @@
-# 0.19.0rc2: Reader 6 and documents in two languages, a codebook from several theories, and sync that settles
-*A second candidate for 0.19.0.*
-- A codebook from several theory documents at once
-- Keep one language of a document in two
-- Settings → Updates links to Margin's code on GitHub
-- Reader 6 reads PDFs more cleanly: hidden text, publishing details, the title and running heads
-- Reader 6 also keeps the two languages of a document apart
+# 0.19.0: Your own drafts, a concept map, codebooks from other programs and from theory, and reader 6
+*Your own drafts beside the corpus, a concept map, codebooks from other programs and from theory, and cleaner reading.*
+- Your own working documents
+- A concept map
+- Codebooks from NVivo, ATLAS.ti or MAXQDA, and from theory
+- Reader 6
+- Your institution's drive as the team's storage space
+- Non-scientific documents counted in one check
