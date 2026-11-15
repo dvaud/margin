@@ -1,8 +1,4 @@
-# 0.19.0: Your own drafts, a concept map, codebooks from other programs and from theory, and reader 6
-*Your own drafts beside the corpus, a concept map, codebooks from other programs and from theory, and cleaner reading.*
-- Your own working documents
-- A concept map
-- Codebooks from NVivo, ATLAS.ti or MAXQDA, and from theory
-- Reader 6
-- Your institution's drive as the team's storage space
-- Non-scientific documents counted in one check
+# 0.19.1: Rename a document, and a calmer document page
+*You can now give a document a title of your own, from its row on the Documents page or from its page.*
+- Rename a document
+- Work that sends passages to Claude looks different in the sidebar
