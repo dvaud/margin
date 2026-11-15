@@ -23,12 +23,14 @@ margin-gui                 # opens http://127.0.0.1:8766 in your browser
 | `--make-launcher` | Make the Margin icon ([Install](install.md#the-margin-icon)). |
 | `--host 0.0.0.0` | Expose the app to your network (below). |
 
-The app listens on this computer only and answers only to the page it served (a token per run). Nothing is loaded
-from the internet: no CDN, no fonts, no analytics. Stop it with <kbd>Ctrl</kbd>+<kbd>C</kbd> or *Quit Margin*.
+The app listens on this computer only and answers only to the link it opens (a key, or token, per run, after
+`#token=` in the link; the page itself carries none). The terminal prints that link too; started from the icon, the
+key is in `app-token-<port>.json` in the data folder, readable by your account only. Nothing is loaded from the
+internet: no CDN, no fonts, no analytics. Stop it with <kbd>Ctrl</kbd>+<kbd>C</kbd> or *Quit*.
 
 > [!WARNING]
-> `--host 0.0.0.0` exposes the app to your network. The page then does not carry the token: open the link the
-> terminal prints (it ends in `#token=…`), and only by IP address. Do this only on a network you trust.
+> `--host 0.0.0.0` exposes the app to your network. Open the link the terminal prints (it ends in `#token=…`), and
+> only by IP address. Do this only on a network you trust.
 
 ## Checking hypotheses
 
@@ -74,13 +76,18 @@ margin --ws myproject search "electrolyser imports" --mode phrase --out hits.csv
 margin --ws myproject search water --collocates                                    # the words around the hits
 margin --ws myproject terms --rebuild                                              # the glossary; --q water filters
 margin --ws myproject concept "proton exchange membrane" --references              # a concept card as JSON
+margin --ws myproject concept-map --n 40 [--doc ID] [--year-from 2015] [--json]    # the concept map, in words
 margin --ws myproject profile --keywords-only --out profile.xlsx                   # codes by keywords, no model
 margin --ws myproject profile --framework remote --level group --limit 50          # the AI labels 50 passages
 margin --ws myproject themes --k 20 --mode auto --name-with-model --out themes.xlsx
 margin --ws myproject resolve <doc_id> [--name "the plant"]                        # follow references
 margin --ws myproject annotate <doc_id> --hyp <hyp_id> --layers judgements labels --out highlighted.pdf
 margin --ws myproject export-flexiconc project.sqlite [--framework NAME] [--no-embeddings]
+margin --ws myproject export-qdpx project.qdpx [--framework NAME]   # for NVivo, ATLAS.ti, MAXQDA (REFI-QDA)
+margin --ws myproject export-qdc NAME codebook.qdc                  # one codebook, REFI-QDA
+margin --ws myproject import-qdc codebook.qdc [NAME] [--title T] [--codebook TITLE] [--home]   # a codebook from NVivo, ATLAS.ti, MAXQDA (.qdc or .qdpx)
 margin measure [--folder DIR] [--ws PROJECT] [--timings] [--report FILE.md]       # how well Margin reads
+margin validate prepare|score|report [--project NAME] [--again NAME] [--latest DIR] [--out FILE.md]   # the AI's answers against known right answers
 ```
 
 ## Projects, Claude Code and the queue

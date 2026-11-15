@@ -7,21 +7,27 @@
 >   inside the AI's tasks are sent to Anthropic, on your own Claude plan.
 > - Every document has a setting: *Claude may read it*, *Only a local AI*, or *No AI*. Margin enforces it in code.
 > - Margin records every passage it sends to Claude, and you can download that list.
+> - Nothing is sent to anyone else: a project leaves your computer only as a zip you make yourself.
+
+
+For an ethics application or a data protection assessment, the same in their terms, with what Margin cannot
+promise: [PRIVACY.md](../PRIVACY.md).
 
 ## What goes where
 
 | Where it goes | What |
 | --- | --- |
-| **Stays on your computer** | Projects (plain folders with one SQLite database each) and settings, in `~/margin` or `MARGIN_HOME`. The documents themselves, your judgements, notes, highlights, the research log and reviews. |
-| **To Anthropic, on your Claude plan** | With Claude Code: only the passages inside the tasks it takes, from documents Claude may read. Margin never sees your Claude login. |
-| **To Anthropic, on a team key** | With the Claude API, only after *Allow cloud models* is switched on (or `--backend anthropic` on the command line): the hypothesis and the passages read. |
+| **Stays on your computer** | Projects (plain folders with one SQLite database each) and settings, in `~/margin` or `MARGIN_HOME`. The documents themselves, your judgements, notes, highlights, the research log and reviews. Never to the AI, except the passages of the tasks you start. |
+| **To Anthropic, on your Claude plan** | With Claude Code: only the passages inside the tasks it takes, from documents Claude may read. *See what is sent*, under the line that says so, shows the next batch word for word. Margin never sees your Claude login. |
+| **To Anthropic, on your own API key** | With the Claude API, only after *Allow cloud models* is switched on (or `--backend anthropic` on the command line): the hypothesis and the passages read. |
 | **To OpenAlex, and the other services you choose** | *Find literature* only: search words and, to follow citations, the DOIs of your documents. See below. |
 | **Into your chat** | With the [connector](claude-code.md#claude-in-a-chat-the-connector): the passages shown to Claude are part of your chat. |
 | **Nowhere** | With a model on this computer, every word stays on it. |
 
-Apart from the AI you chose and *Find literature*, Margin itself goes online only to look for a new version on GitHub,
-and, when you ask for them, to get Claude Code or a local model. There is no telemetry. The app is a small server on
-`127.0.0.1` with a token per run, and the page loads nothing from the internet (no CDN, fonts or analytics). Zotero is
+Apart from the AI you chose, Margin itself goes online only to look for a new version on GitHub, and, when you ask for
+them, to get Claude Code or a local model, to ask Crossref about retractions (DOIs only, never under local-only) and
+for *Find literature*. There is no telemetry. The app is a small server on `127.0.0.1` with a key
+(an access token) per run, and the page loads nothing from the internet (no CDN, fonts or analytics). Zotero is
 only read (never changed), through the Zotero app on this computer (`127.0.0.1`, port 23119) and never through Zotero's
 servers; the details of your works stay in the project and nothing about them is sent to Claude
 ([Your bibliography](bibliography.md)).
@@ -31,6 +37,17 @@ DOIs of your documents; Crossref, Semantic Scholar and Unpaywall only if you cho
 sent. It sends no text of a document or draft and uses no AI. It never runs with `--local-only`, takes nothing from a
 draft or document whose AI setting keeps it on this computer, and sends your e-mail address only if you gave one in
 *Settings*.
+
+**Who can open Margin on this computer.** Only you. The page itself carries no key, so another account
+on a shared computer cannot use Margin by opening its address. The Margin icon (or `margin-gui`) opens a link with the
+key after `#`; the browser keeps it for that tab only and takes it out of the address bar. Margin also keeps the key
+in a file that only your account can read (`app-token-<port>.json` in the data folder), so the icon can open the copy
+already running. On Windows that file is protected by your user folder, which other accounts cannot read; with a data
+folder outside it (on another drive, say) the file goes to your `AppData\Local\Margin` instead. Your projects in such
+a folder are only as private as the folder: keep the data folder in your user folder (the default) if other people
+sign in to the same computer. The address on its own, or a bookmark of it,
+shows *Open Margin from its icon*. *Settings → Technical → Your link to Margin* copies the link with the key: whoever
+has it can open Margin while it runs, so keep it to yourself.
 
 Whoever installs Margin can remove every cloud option for good (`--local-only`,
 [Settings](settings.md#for-whoever-installs-margin)).
@@ -44,22 +61,26 @@ interview transcript. A draft you check has the same three settings ([Check a dr
 | --- | --- |
 | *Claude may read it* | The AI you chose: Claude Code, the Claude API, or a local model. |
 | *Only a local AI* | A model server on this computer, or you. |
-| *No AI* | You only. Search, the keyword Profile, Concepts and Themes without AI still work. |
+| *No AI* | You only. Search, the keyword codes, Concepts and Themes without AI still work. |
 
 > [!IMPORTANT]
 > Documents you mark as local stay on this computer. Margin never sends their text to Claude, in any feature, and
 > shows you how much of every other document it has sent.
 
-<img src="../images/manual/documents.png" alt="The Documents page, with the AI column showing who may read each document" width="800">
+<img src="../images/manual/documents.png" alt="The Documents page: each document shows who may read it with AI" width="800">
 
 **Where you set it.**
 
 - **When you add documents**, the page asks *Who may read these documents with AI?*; one answer covers everything
   added at once. The first answer in a new project becomes its default (nothing is preselected the first time); later
   the default is preselected.
-- **On the Documents page**, the *AI* column has a small dropdown per document; tick several documents to change them
-  together. A note (*Why*, for example "publisher licence") is kept with the document and exported with the project;
-  it changes nothing.
+- **On the Documents page**, the list is grouped by who may read the documents (*Group by: AI setting*), each group
+  with a sentence on what the setting means; grouped otherwise (*Role*, *Needs a look*, *None*), an icon beside the
+  tick marks the documents kept from Claude (*Only a local AI*, *No AI*). The arrow at the end of a line opens the
+  document's details, where three buttons change it. *Select these N* ticks a whole group; ticked documents are
+  changed together with the bar at the bottom of the window, and the message after a change has *Undo*. A note
+  (*Why*, for example "publisher licence") is kept with the document and exported with the project; it changes
+  nothing.
 - **For large corpora**, a `manifest.csv` may have `ai_access` (`cloud`, `local` or `none`) and `ai_note` columns.
 
 On an installation without cloud models (`--local-only`) the default is *Only a local AI*, and Claude is not offered.
@@ -84,7 +105,7 @@ flowchart LR
   search's AI judgements count anywhere (Excel marks them *Not counted: the check did not work*).
 - **The AI's written note** speaks only for the excerpts it read, and is told how many others there are. The check's
   summary is always the main model's, never the local model's.
-- **Every other AI task** (a second opinion, reading an excerpt again, the Profile's AI pass, theme names, concept
+- **Every other AI task** (a second opinion, reading an excerpt again, the AI pass of *Codes*, theme names, concept
   links, references, the claims found in a draft) takes the setting of the most restricted document it touches. A theme whose passages are all
   restricted is named by the local model or keeps its key terms; two concepts found only in restricted documents are
   linked by the local model or not at all.
@@ -119,8 +140,8 @@ it load.
 Margin writes down every passage at the moment it leaves for Claude (Claude Code, the Claude API, a Claude chat through
 the connector).
 
-- The column *Sent to Claude* on the Documents page shows the share of each document's text; click it for the
-  passages, when, and for which feature.
+- A document's details on the Documents page (the arrow at the end of its line) show the share of its text under
+  *Sent to Claude*; *See what it read* lists the passages, when, and for which feature.
 - *Settings → Technical → What was sent to Claude* downloads the whole list (CSV), for example for a data management
   plan. Every part of a draft that Claude reads is recorded as well, and shown with the draft.
 - Changing a document to *Only a local AI* applies to everything not yet answered; what Claude already read stays in
@@ -131,6 +152,15 @@ the connector).
 **A cap.** In a document's dialog you can set *Claude may read at most N %*. Once Claude has read that much, its
 further passages are treated as *Only a local AI*. It is checked when tasks are made, so a check that is running can
 go over by one round of excerpts.
+
+## Moving to another computer
+
+*Move Margin to another computer* makes a file with your projects and, if you choose, your settings
+([Moving to another computer](projects.md#moving-to-another-computer)). It stays on your computers. An address of another computer's server (for what Margin reads, or for
+text recognition) is never taken silently: each one that is not on the new computer has its own tick box, off, and a
+back end left without its address goes back to its default. A saved Claude API key is never in the file. A project zip
+holds the files of the documents the project has now. A document you removed is kept aside on your computer for 30
+days, so it can be restored; it is not in a zip, and then it is deleted.
 
 ## How it is enforced
 

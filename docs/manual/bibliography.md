@@ -3,11 +3,12 @@
 # Your bibliography (Zotero)
 
 > **In short**
-> - *Bibliography* (in the sidebar, beside *Documents*) puts your Zotero library, one collection, or works you choose
+> - *Bibliography* (a view of *Documents*, a tab under the page title) puts your Zotero library, one collection, or works you choose
 >   next to the project's documents.
 > - It answers three questions: which works do I have, which do I still need to find, and which documents are not in
 >   my bibliography?
-> - It uses no AI, nothing goes over the internet, and Zotero is only read, never changed.
+> - It uses no AI, and Zotero is only read, never changed. Nothing goes over the internet unless you press *Check for
+>   retractions* (see below).
 
 <img src="../images/manual/bibliography.png" alt="The Bibliography page: four tiles and the start of one list" width="800">
 
@@ -88,6 +89,26 @@ title, not as words spread over them.
 **Works you find online.** [Find literature](literature.md) can send works to Zotero; press *Update from Zotero* here to
 match them with your documents. A linked bibliography also gives an [outline](outline.md#one-section-for-each-theme)
 its APA in-text citations.
+
+## Retractions and corrections
+
+*Check for retractions*, under the lists' choice, asks [Crossref](https://www.crossref.org) whether any of your works
+has been retracted, corrected or flagged with an expression of concern. Crossref's records include Retraction Watch's
+list and the notices publishers file.
+
+- **It runs only when you press the button.** The page says when you last checked.
+- **Only DOIs are sent.** No name, no email address, no project name. The request says only that it comes from Margin
+  and its version.
+- **It follows each document's AI setting.** A work whose document is marked *No AI* is not looked up. A work with no
+  document is.
+- **It is off under local-only.** The page says so and nothing is sent.
+- **A warning stands under the title of each work with a notice**: *Retracted* is the serious one. *Corrected* and
+  *Expression of concern* are milder. Hover over it for the notice's date and DOI.
+- **Excerpts say it too.** In a check's results, an excerpt from a document whose work has a notice shows a small
+  warning beside the document's title, so you read the notice before relying on it.
+
+A work without a DOI cannot be looked up. A lookup changes no result and no judgement. `margin retractions <project>`
+shows what the last check found; add `--check` to look up now.
 
 Margin talks to Zotero only through the Zotero app's own connection on this computer (`127.0.0.1`, port 23119), never
 through Zotero's servers. The works' details stay in the project; nothing about them is sent to Claude.

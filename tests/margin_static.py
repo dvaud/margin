@@ -1,7 +1,8 @@
-"""Margin's look is in the local layer (ENLENS 0.13.5): index.html links ENLENS's sheets and then site.css, which
-imports margin.css, all of Margin's CSS (Margin 0.6; before, m-tokens.css and one m*.css per release).
-`sheets_in_order()` is the order the browser applies them in, with site.css replaced by what it imports;
-`sections()` names margin.css's sections in order (m-tokens, m010, …) and `section(name)` gives one's rules."""
+"""Margin's look is margin.css, linked last in index.html (after ENLENS's four sheets and the installation's own, empty
+site.css): Margin's colours as token overrides, then the styles of Margin's own pages (Margin 0.6; before, m-tokens.css
+and one m*.css per release). `sheets_in_order()` is the order the browser applies them in (an @import of site.css is
+followed, though it holds none now); `sections()` names margin.css's sections in order (m-tokens, m010, …) and
+`section(name)` gives one's rules."""
 from __future__ import annotations
 
 import re

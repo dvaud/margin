@@ -20,11 +20,12 @@ flowchart LR
     V --> R["The result appears in Margin"]
 ```
 
-Claude Code answers every kind of AI task: profile labels, concept links, theme names, references, the claims found in
-a draft, checks, reading an excerpt again, second opinions and the model tests. Margin never sees your Claude login
-(Claude Code uses its own) and never runs on anyone else's plan.
+Claude Code answers every kind of AI task: labels of codes, concept links, theme names, references, the claims found
+in a draft, checks, reading an excerpt again, second opinions and the model tests. Margin never sees your Claude login
+(Claude Code uses its own) and never runs on anyone else's plan. More on what the AI is used for and how it is kept
+honest: [How the AI is used and limited](how-the-ai-is-used.md).
 
-For a shared installation that runs unattended, use the **Claude API** with the team's key instead: the same queue and
+For an installation that runs unattended, use the **Claude API** with a key of your own instead: the same queue and
 the same models per task (`margin queue run --backend anthropic`).
 
 ## Set it up once
@@ -44,12 +45,12 @@ checklist then shows three ticks.
 
 ## Start Claude Code
 
-<img src="../images/manual/waiting.png" alt="A check waiting for Claude Code, with the Start Claude Code button and the speed choice" width="800">
+<img src="../images/manual/waiting.png" alt="A check waiting for Claude Code, with the Start Claude Code button and the speed it runs at" width="800">
 
 Press an AI button in Margin. The page says what waits, for example *Waiting for Claude Code: 120 passages to label ·
 about 25 minutes*, with **Start Claude Code**. Margin then starts Claude Code in the background for that project,
 allowed only the Margin queue tools and its helpers, so a passage that tries to give it instructions can do nothing
-else. The page and the sidebar's queue panel say *Claude Code is working on it*, with *Stop Claude Code*. It stops by
+else. The page and the foot of the sidebar say *Claude Code is working on it*, with *Stop Claude Code*. It stops by
 itself when nothing waits.
 
 > [!NOTE]
@@ -58,35 +59,51 @@ itself when nothing waits.
 > your computer's settings, it has a still ring instead). The pulse stops once you press it, or once Claude Code
 > started some other way takes the work.
 
-The button is wherever work waits: a check's progress, a result that waits, the sidebar's queue panel, and the line
+The button is wherever work waits: a check's progress, an answer that waits, the status area at the foot of the sidebar
+(*Start*), and the line
 of a follow-up on a result (reading an excerpt again, reading new documents, a second opinion, a stronger model).
 
 - *Stop Claude Code* returns the batches it had taken to the queue at once.
 - Pressing *Start* twice (or in two tabs) starts one run, and each project's run works in a folder of its own.
-- *Quit Margin* and *Update and restart* stop the runs first. A run still working when Margin was closed some other
+- *Quit* and *Update and restart* stop the runs first. A run still working when Margin was closed some other
   way is recognised when Margin opens again: the page shows it as working, *Stop Claude Code* stops it, and *Start*
   does not start a second one beside it.
 - If a run ends with a problem (a usage limit, say), the page shows the end of its report.
 - The first start also adds the plugin, if that was not done yet.
 
+### How much thought
+
+**How much thought: Energy efficient · Balanced · Intelligence**, beside every *Start Claude Code*, says which Claude
+models answer each kind of task, and how hard they think ([Which model does what](models.md#how-much-thought)). The
+choice is kept: it is the same one as in *Settings → AI*, and picking it beside *Start Claude Code* changes it from
+that run on. It is for Claude only: a local model keeps its own choice.
+
 ### How fast it works
 
-Under *Start Claude Code* is **Speed: Slower · Normal · Faster**: how many helpers work at once.
+**Helpers at once** (Slower · Normal · Faster) is how many helpers work at once. You choose it in *Settings → AI*
+only; each *Start Claude Code* says it (*2 helpers at a time*) with a link there.
 
-| Speed | Helpers at once | Trade-off |
+| Helpers at once | How many | Trade-off |
 | --- | --- | --- |
 | Slower | 1 | Takes longest; easiest on your plan's limits. |
 | Normal | 2 | The default. |
 | Faster | 4 | Done sooner; uses your plan's limits faster. |
 
-The choice is kept, is the same beside every *Start Claude Code*, and is also in *Settings → AI → Speed of Claude
-Code*. A run already working keeps the speed it started with; the line *Claude Code is working on it* says how many
-helpers it has (*· 4 helpers at once*).
+A run already working keeps what it started with; the line *Claude Code is working on it* says how many helpers it
+has (*· 4 helpers at once*).
 
-**Choose the helpers for this run**, folded under the speed, lists each helper that has work waiting, with its model,
+### At your plan's usage limit
+
+When Claude Code stops because your plan's usage limit is reached, the queue keeps the work, and *Settings → AI → At
+your plan's usage limit* decides what happens next: **Wait and continue later** (start Claude Code again when the
+limit resets; the page says when, if Claude Code said it), or **Carry on with the local model**, which answers what
+waits on this computer, where it may (a local model must be chosen). Answers the local model gives count like any
+other and record which model gave them.
+
+**Choose the helpers for this run**, folded under that line beside *Start Claude Code*, lists each helper that has work waiting, with its model,
 what it would answer and how much waits (*Labeller haiku · Codebook labels · 7,868 waiting*). Set how many of each
 work at once (0 leaves that work for a later run) and **Helpers at once, in all** (1 to 8). The fold then says
-*changed* and the speed greys out; *Use the speed again*, or picking a speed, undoes it. Work that comes in during the
+*changed* and the line *2 helpers at a time* greys out; picking the number again undoes it. Work that comes in during the
 run for a helper not listed (an unsure answer for the auditor, a check's excerpts after its search words) gets one
 helper. The choice is for that run only.
 
@@ -115,16 +132,19 @@ twice, goes once to a stronger model.
 
 ## Following the work
 
-You follow the progress in Margin: on the page that waits, and in the **queue panel** under the jobs in the sidebar
-(per kind: waiting, being answered, done, the model and helper, the estimate; *Do first*, *Hold*, *Remove*).
+You follow the progress in Margin: on the page that waits, and at the foot of the sidebar, where the work takes the
+place of the line that says where your text goes: what runs, for how long, how many tasks wait and the AI's name.
+*Settings → AI → Work waiting for Claude Code* lists what waits, per kind (waiting, being answered, done, the model
+and helper, the estimate), and lets you put a task first (*Do first*), keep it back (*Hold*) or take it out
+(*Remove*).
 
-| The jobs line says | Meaning |
+| The foot of the sidebar says | Meaning |
 | --- | --- |
 | *1 task running*, with a pulsing dot | Claude Code is taking or answering the work. |
-| *1 task not running · Waiting for Claude Code to start*, in amber with a pause mark | Work waits but nothing answers it (Claude Code not started, no `/margin-run` working, no answer in the last two minutes). *Start Claude Code* is in its panel. |
+| *1 task not running · Waiting for Claude Code to start*, in the warning colour, with a *Start* button | Work waits but nothing answers it (Claude Code not started, no `/margin-run` working, no answer in the last two minutes). |
 | *Paused at 340 of 7,868 labels. To go on, type /margin-run Pilot in Claude Code.* | Answers stopped arriving. |
 
-A check waits under *Results* as *Waiting for Claude Code*: its search runs in Margin at once, and only its search
+A check waits under *Hypotheses* as *Waiting for Claude Code*: its search runs in Margin at once, and only its search
 words, parts and judging wait. It finishes when the answers arrive, even if the app was closed meanwhile.
 
 **Stopping.** A run can stop at any moment (a usage limit, a closed laptop, <kbd>Ctrl</kbd>+<kbd>C</kbd>). A batch
@@ -132,7 +152,7 @@ taken and not answered returns to the queue after 30 minutes, and the next `/mar
 nothing is lost. *Stop* on a waiting page takes its tasks that no session has taken yet out of the queue (a waiting
 check is removed whole).
 
-**Model tests with Claude Code.** *Label a sample (up to 50) again first* (profile labels) and `margin benchmark`
+**Model tests with Claude Code.** *Label a sample (up to 50) again first* (labels of codes) and `margin benchmark`
 ([Test a model before trusting it](local-models.md#test-a-model-before-trusting-it)) put their tasks in the queue of a temporary copy of the
 project, named on the waiting page (type `/margin-run "<that name>"`). The copy is removed when the test ends, so
 nothing is stored. The labels are read by the label model, and the model test answers each kind on its own model.
@@ -169,7 +189,7 @@ was installed in. Add `--home FOLDER` to either command if your projects are not
 
 ### Use it
 
-Write in the chat as you would to a colleague:
+Write in the chat as you would to a research assistant:
 
 - "Make a new project called Morocco from ~/Downloads/morocco_sources.zip" (give a path: files attached to the chat
   do not reach the connector)

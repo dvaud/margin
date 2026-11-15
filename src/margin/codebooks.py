@@ -13,7 +13,10 @@ from the documents, one per line), and a side file `<name>.json` with what a spr
 - `removed`: codes taken out, with their definitions. Their labels are not deleted: they wait under *Removed codes*
   (`removed_codes`) until the code comes back;
 - `places`: where each example quote was found (the quote check: every example is words of a document);
-- `groups`: the groups in their order, `ordered`: the codes keep the editor's order.
+- `groups`: the groups in their order, `ordered`: the codes keep the editor's order;
+- `drafted` (K1, the optional AI part, codedefine.py): the AI's words of a code's definition, *when to use it* and
+  *when not* that the person took from a draft and has not changed yet, with the model and when, so the editor marks
+  them *AI draft* until they are rewritten. A field whose words changed loses its mark at the next save.
 
 An edit changes no result by itself: labels are moved, never made or deleted. A code whose wording changed says which
 of its labels the AI made with the earlier wording (`stale`) and can have only those passages labelled again
@@ -29,14 +32,18 @@ import io
 import json
 import re
 import shutil
+import threading
 import time
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable
 
 from . import frameworks, history
 from .frameworks import BUNDLED, NAME_RE, Code
+from .review import csv_cell, csv_uncell
 from .store import Workspace, now
+from .textutil import fast_normalise, normalise
 
 MAX_CODES = 5000
 MAX_EXAMPLES = 8
@@ -93,12 +100,49 @@ def default_uid(name: str, code: str) -> str:
     return "k" + hashlib.sha1(f"{name}\0{code}".encode()).hexdigest()[:10]
 
 
+DRAFT_FIELDS = ("description", "include", "exclude")
+
+
+def _still_drafted(d: Any, code: dict) -> dict | None:
+    """K1 (the optional AI part): of the AI's words a code took from a draft (`drafted`), those its fields still
+    hold word for word, with the model and when: {"model", "at", "description"?, "include"?, "exclude"?}, or None."""
+    if not isinstance(d, dict):
+        return None
+    out = {k: _clean_text(d.get(k), 2000 if k != "description" else 4000) for k in DRAFT_FIELDS
+           if _clean_text(d.get(k), 4000) and _clean_text(d.get(k), 4000) == _clean_text(code.get(k), 4000)}
+    if not out:
+        return None
+    # K2 (the framework draft): where the words come from ("theory": a codebook made from theory documents)
+    frm = {"from": _clean_text(d.get("from"), 20)} if _clean_text(d.get("from"), 20) else {}
+    return {"model": _clean_text(d.get("model"), 80), "at": _clean_text(d.get("at"), 40), **frm, **out}
+
+
+def drafted_codes(ws: Workspace, name: str) -> int:
+    """K1 (the audit's DEC-2): how many codes of the saved codebook still hold the AI's draft words, by the check the
+    editor's *AI draft* tag uses (`_still_drafted`). A file written from the codebook (.qdc, .qdpx, CSV) does not carry
+    that mark."""
+    try:
+        return sum(1 for c in state_of(ws, name)["codes"] if c.get("ai_draft"))
+    except (KeyError, ValueError, OSError):
+        return 0
+
+
+def draft_note(n: int) -> str | None:
+    """The one sentence said beside the editor's downloads, and by `export-qdc` and `export-qdpx`, while `n` codes still
+    hold the AI's draft (codebooks.js `draftNote` says the same); None when no code does."""
+    if n <= 0:
+        return None
+    return (f"{n} {'code still holds' if n == 1 else 'codes still hold'} the AI’s draft. A downloaded file does not carry "
+            "that mark: say so to whoever you send it to.")
+
+
 # ---------------------------------------------------------------------------------------------
 # a codebook as the editor sees it
 # ---------------------------------------------------------------------------------------------
 def _state(name: str, codes: dict[str, Code], meta: dict, title: str, label: str, directional: bool) -> dict:
     ids = meta.get("ids") or {}
     places = meta.get("places") or {}
+    drafted = meta.get("drafted") if isinstance(meta.get("drafted"), dict) else {}
     groups: list[dict] = []
     seen = set()
     for g in meta.get("groups") or []:
@@ -119,6 +163,9 @@ def _state(name: str, codes: dict[str, Code], meta: dict, title: str, label: str
                     "include": c.include, "exclude": c.exclude, "keywords": list(c.keywords), "source": c.ref,
                     "examples": [{"quote": q, **{k: v for k, v in (at.get(q) or {}).items() if k != "quote"}}
                                  for q in c.examples]})
+        d = _still_drafted(drafted.get(uid), out[-1])
+        if d:
+            out[-1]["ai_draft"] = d
     for g in groups:  # a group's name is the one its codes carry
         names = [c.group_name for c in codes.values() if c.group == g["group"] and c.group_name]
         if names:
@@ -148,14 +195,14 @@ def load(ws: Workspace, name: str) -> dict:
     st["removed"] = removed_codes(ws, name)
     st["stale"] = stale(ws, name)
     st["versions"] = len(_version_files(ws, name))
-    st["profile_default"] = name == _profile_default()
+    st["profile_default"] = name == _profile_default(ws)
     return st
 
 
-def _profile_default() -> str:
+def _profile_default(ws: Workspace) -> str:
     from .home import load_settings
 
-    return load_settings().get("profile_framework") or ""  # Margin has no default codebook
+    return frameworks.chosen(load_settings().get("profile_framework"), ws)
 
 
 def removed_codes(ws: Workspace, name: str) -> list[dict]:
@@ -174,6 +221,9 @@ def removed_codes(ws: Workspace, name: str) -> list[dict]:
         uid, v = gone.get(code, (None, {}))
         out.append({"code": code, "labels": n, "uid": uid, "description": v.get("description") or "",
                     "removed_at": v.get("at"), "definition": v or None})
+        d = _still_drafted(v.get("ai_draft"), v)  # K1: brought back, the AI's words keep their mark
+        if d:
+            out[-1]["ai_draft"] = d
     return out
 
 
@@ -209,14 +259,14 @@ def list_all(ws: Workspace) -> dict:
     labels = {r[0]: r[1] for r in ws.query("SELECT framework, COUNT(*) FROM labels GROUP BY framework")}
     checks = {r[0]: r[1] for r in ws.query("SELECT framework, COUNT(*) FROM hypotheses WHERE framework IS NOT NULL "
                                            "GROUP BY framework")}
-    default = _profile_default()
+    default = _profile_default(ws)
     for fw in frameworks.available(ws).values():
         info = fw.info()
         try:
             where = locate(ws, fw.name)[0]
         except KeyError:
             where = fw.source
-        info.update(where=where, editable=where != "bundled", labels=labels.get(fw.name, 0),
+        info.update(where=where, editable=where not in ("bundled", "origin"), labels=labels.get(fw.name, 0),
                     checks=checks.get(fw.name, 0), editor=bool((fw.meta or {}).get("editor")),
                     profile_default=fw.name == default,
                     shadows_home=where == "project" and (_home_folder() / f"{fw.name}.csv").is_file())
@@ -282,6 +332,9 @@ def _clean_state(st: dict) -> dict:
                       "include": _clean_text(c.get("include"), 2000), "exclude": _clean_text(c.get("exclude"), 2000),
                       "keywords": kws[:40], "examples": exs, "split_from": str(c.get("split_from") or "") or None,
                       "source": _clean_text(c.get("source"), 600)})
+        d = _still_drafted(c.get("ai_draft"), codes[-1])
+        if d:
+            codes[-1]["ai_draft"] = d
     if len(codes) > MAX_CODES:
         raise ValueError(f"A codebook can hold at most {MAX_CODES:,} codes.")
     used = {c["group"] for c in codes}
@@ -296,8 +349,10 @@ def _csv_text(codes: list[dict], groups: list[dict]) -> str:
     w = csv.writer(buf, lineterminator="\n")
     w.writerow(COLUMNS)
     for c in codes:
-        w.writerow([c["code"], c["description"], c["group"], gname.get(c["group"], ""), c["include"], c["exclude"],
-                    "; ".join(c["keywords"]), "\n".join(e["quote"] for e in c["examples"]), c.get("source") or ""])
+        # 0.17.2: through csv_cell like every other CSV Margin writes; frameworks.parse_csv takes the apostrophe off
+        w.writerow([csv_cell(x) for x in
+                    (c["code"], c["description"], c["group"], gname.get(c["group"], ""), c["include"], c["exclude"],
+                     "; ".join(c["keywords"]), "\n".join(e["quote"] for e in c["examples"]), c.get("source") or "")])
     return buf.getvalue()
 
 
@@ -347,7 +402,8 @@ def _version_dir(f: Path, name: str) -> Path:
 
 
 def _keep_version(f: Path, name: str, label: str) -> str | None:
-    """The codebook's files as they are now, as a version (before a change). Returns its id."""
+    """The codebook's files as they are now, as a version (before a change). Returns its id. The oldest beyond KEEP
+    are not pruned here: only once the change is written (`_kept`), so a change that fails loses no real version."""
     csv_p = f / f"{name}.csv"
     if not csv_p.is_file():
         return None
@@ -360,10 +416,19 @@ def _keep_version(f: Path, name: str, label: str) -> str | None:
         "csv": frameworks.decode(csv_p.read_bytes()),
         "meta": json.loads(meta_p.read_text(encoding="utf-8")) if meta_p.is_file() else {}},
         ensure_ascii=False), encoding="utf-8")
-    old = sorted(d.glob("c*.json"), key=_order)
-    for p in old[:-KEEP]:
-        p.unlink(missing_ok=True)
     return vid
+
+
+def _kept(f: Path, name: str, vid: str | None, written: bool) -> None:
+    """After a change: written, the oldest versions beyond KEEP go; not written (the file is open in a spreadsheet),
+    the version kept for it goes, so the history shows no change that never happened."""
+    d = _version_dir(f, name)
+    if not written:
+        if vid:
+            (d / f"{vid}.json").unlink(missing_ok=True)
+        return
+    for p in sorted(d.glob("c*.json"), key=_order)[:-KEEP] if d.is_dir() else []:
+        p.unlink(missing_ok=True)
 
 
 def _order(p: Path) -> tuple:
@@ -398,6 +463,19 @@ def versions_present(ws: Workspace, ids: list[str]) -> set[str]:
                 if p.stem in want:
                     found.add(p.stem)
     return found
+
+
+def _took_draft(new: dict, old: dict) -> str | None:
+    """K1: None when this change takes no new AI draft words; else the model they come from ("" when unknown)."""
+    d = new.get("ai_draft") or {}
+    if not any(k in d and d[k] != (old.get("ai_draft") or {}).get(k) for k in DRAFT_FIELDS):
+        return None
+    return d.get("model") or ""
+
+
+def _mark_of(code: dict) -> dict:
+    """K1: a code's AI-draft mark, kept with it when it is removed or merged away, so it comes back marked."""
+    return {"ai_draft": code["ai_draft"]} if code.get("ai_draft") else {}
 
 
 def _new_uid() -> str:
@@ -458,7 +536,10 @@ def save(ws: Workspace, name: str, state: dict, merges: list[dict] | None = None
                 changes.append(f"renamed {researchlog.quoted(old['code'], 60)} to {researchlog.quoted(nc['code'], 60)}")
             if (nc["description"], nc["include"], nc["exclude"]) != (old["description"], old["include"], old["exclude"]):
                 new_events.append({"op": "reword", "uid": u, "code": nc["code"]})
-                changes.append(f"changed the wording of {researchlog.quoted(nc['code'], 60)}")
+                took = _took_draft(nc, old)
+                changes.append(f"changed the wording of {researchlog.quoted(nc['code'], 60)}"
+                               + (f" (taking the AI's draft{' from ' + took if took else ''}, to rewrite)"
+                                  if took is not None else ""))
             if nc["keywords"] != old["keywords"]:
                 changes.append(f"changed the words {researchlog.quoted(nc['code'], 60)} is matched by")
             if nc["group"] != old["group"]:
@@ -472,12 +553,12 @@ def save(ws: Workspace, name: str, state: dict, merges: list[dict] | None = None
             removed_meta[u] = {**{k: old[k] for k in ("code", "description", "group", "include", "exclude",
                                                        "keywords")},
                                "examples": [e["quote"] for e in old["examples"]], "at": at, "merged_into": into,
-                               "merged_into_uid": merged_into[u]}
+                               "merged_into_uid": merged_into[u], **_mark_of(old)}
         else:
             changes.append(f"removed {researchlog.quoted(old['code'], 60)} (its labels wait under Removed codes)")
             removed_meta[u] = {**{k: old[k] for k in ("code", "description", "group", "include", "exclude",
                                                        "keywords")},
-                               "examples": [e["quote"] for e in old["examples"]], "at": at}
+                               "examples": [e["quote"] for e in old["examples"]], "at": at, **_mark_of(old)}
     for c in new["codes"]:
         if c["uid"] and c["uid"] in cur_by_uid:
             continue
@@ -495,10 +576,12 @@ def save(ws: Workspace, name: str, state: dict, merges: list[dict] | None = None
             continue
         c["uid"] = _new_uid()
         split = c.get("split_from")
+        took = " (with the AI's draft wording, to rewrite)" if c.get("ai_draft") else ""
         if split and split in cur_by_uid:
-            changes.append(f"split {researchlog.quoted(cur_name[split], 60)}: added {researchlog.quoted(c['code'], 60)}")
+            changes.append(f"split {researchlog.quoted(cur_name[split], 60)}: added {researchlog.quoted(c['code'], 60)}"
+                           + took)
         else:
-            changes.append(f"added {researchlog.quoted(c['code'], 60)}")
+            changes.append(f"added {researchlog.quoted(c['code'], 60)}{took}")
     if new["title"] and new["title"] != cur["title"]:
         changes.append(f"renamed the codebook to {researchlog.quoted(new['title'], 80)}")
     if new["label"] != cur["label"]:
@@ -509,6 +592,10 @@ def save(ws: Workspace, name: str, state: dict, merges: list[dict] | None = None
     if [c["uid"] for c in new["codes"] if c["uid"] in cur_by_uid] != [c["uid"] for c in cur["codes"]
                                                                      if c["uid"] in new_uids] and not changes:
         changes.append("changed the order of the codes")
+    kept_groups = {g["group"] for g in new["groups"]}
+    for g in cur["groups"]:
+        if g["group"] and g["group"] not in kept_groups:
+            changes.append(f"removed the group {researchlog.quoted(g['group_name'] or g['group'], 60)}")
     if [g["group_name"] for g in new["groups"]] != [g["group_name"] for g in cur["groups"]] and not changes:
         changes.append("changed the groups")
     if not changes:
@@ -524,11 +611,12 @@ def save(ws: Workspace, name: str, state: dict, merges: list[dict] | None = None
         e.update(id=uuid.uuid4().hex[:12], at=at, seq=i)
     # the examples: each must be words of a document (here, or in the project it was found in)
     places = {}
+    where_found = find_examples(ws, [e["quote"] for c in new["codes"] for e in c["examples"] if not e.get("doc_id")])
     for c in new["codes"]:
         kept = []
         for e in c["examples"]:
             if not e.get("doc_id"):
-                got = find_example(ws, e["quote"])
+                got = where_found.get(" ".join((e["quote"] or "").split()))
                 if got:
                     e.update(got)
             kept.append({k: e.get(k) for k in ("quote", "doc_id", "title", "page", "start", "end", "project")
@@ -538,12 +626,22 @@ def save(ws: Workspace, name: str, state: dict, merges: list[dict] | None = None
     meta.update({"title": new["title"] or cur["title"], "label": new["label"], "editor": True, "ordered": True,
                  "ids": {c["code"]: c["uid"] for c in new["codes"]}, "groups": new["groups"], "places": places,
                  "removed": removed_meta, "events": events + new_events})
+    drafted = {c["uid"]: c["ai_draft"] for c in new["codes"] if c.get("ai_draft")}
+    if drafted:
+        meta["drafted"] = drafted
+    else:
+        meta.pop("drafted", None)
     if new["directional"]:
         meta["directional"] = True
     else:
         meta.pop("directional", None)
     vid = _keep_version(f, name, label)
-    _write(f, name, _csv_text(new["codes"], new["groups"]), meta)
+    try:
+        _write(f, name, _csv_text(new["codes"], new["groups"]), meta)
+    except BaseException:
+        _kept(f, name, vid, False)
+        raise
+    _kept(f, name, vid, True)
     follow(ws, name)
     text = (f"Restored the codebook {researchlog.quoted(meta['title'], 80)} to its version of {restoring}: "
             if restoring else f"Changed the codebook {researchlog.quoted(meta['title'], 80)}: ")
@@ -562,26 +660,63 @@ def save(ws: Workspace, name: str, state: dict, merges: list[dict] | None = None
 def follow(ws: Workspace, name: str | None = None) -> int:
     """Move this project's labels (and checks tagged with a code) as the codebooks' renames and merges say, once per
     change, in the order the codebook lists them (its saves' order). A colleague's labels that come in follow the
-    changes their copy had not followed (`follow_merged`, from sync.py). Returns how many labels moved."""
+    changes their copy had not followed (ENLENS's sync). Returns how many labels moved."""
     from .profile import label_id
 
     fws = frameworks.available(ws)
     moved = 0
     for fw in ([fws[name]] if name and name in fws else [] if name else list(fws.values())):
-        events = [e for e in ((fw.meta or {}).get("events") or [])
-                  if isinstance(e, dict) and e.get("op") in ("rename", "merge", "unmerge") and e.get("id")]
+        events = _events(fw.meta or {})
         if not events:
             continue
         key = f"codebook_followed:{fw.name}"
         if not set(e["id"] for e in events) - set(ws.meta(key) or []):
             continue
+        ok, _skipped = checked_events(events)  # roles (H8): an event that does not fit the list moves nothing
         with ws.connect() as cx:  # read again inside the write lock: two requests at once apply a change once
             done = set(ws.meta(key) or [])
-            for e in events:
+            for e in ok:
                 if e["id"] not in done:
                     moved += _follow_one(cx, fw.name, e, label_id)
             ws.set_meta(key, sorted({e["id"] for e in events}), cx)
     return moved
+
+
+def _events(meta: dict) -> list[dict]:
+    """A codebook's renames, merges and unmerges, in its order."""
+    return [e for e in (meta.get("events") or [])
+            if isinstance(e, dict) and e.get("op") in ("rename", "merge", "unmerge") and e.get("id")]
+
+
+def checked_events(events: list[dict]) -> tuple[list[dict], list[str]]:
+    """Roles (H8, DESIGN-roles §4.9): the events of a codebook's list that fit it, and the ids of those that do not.
+    A rename and a merge need two names. An unmerge needs an earlier merge of the list of the code it gives back
+    (`was`), into the code it takes the labels from (`from`, as that code is named by then: renames between them are
+    followed), and it gives the labels back to that code (`to == was`), or, made by the app (both events name the
+    code's id), to the name the code came back under. A list written by hand otherwise moves labels anywhere."""
+    ok, skipped = [], []
+    merges: list[dict] = []   # {"was", "into" (its name now), "uid"} of the merges so far
+    for e in events:
+        src, dst = str(e.get("from") or ""), str(e.get("to") or "")
+        if not src or not dst or src == dst:
+            skipped.append(e["id"])
+            continue
+        if e["op"] == "unmerge":
+            was = str(e.get("was") or "")
+            fits = [m for m in merges if m["was"] == was and m["into"] == src and
+                    (dst == was or (e.get("uid") and m["uid"] == e.get("uid")))]
+            if not fits:
+                skipped.append(e["id"])
+                continue
+            merges.remove(fits[-1])
+        elif e["op"] == "rename":
+            for m in merges:
+                if m["into"] == src:
+                    m["into"] = dst
+        else:
+            merges.append({"was": src, "into": dst, "uid": e.get("uid")})
+        ok.append(e)
+    return ok, skipped
 
 
 def _follow_one(cx, fw: str, e: dict, label_id: Callable, only: set | None = None, hyps: set | None = None) -> int:
@@ -613,9 +748,9 @@ def _follow_one(cx, fw: str, e: dict, label_id: Callable, only: set | None = Non
                 cx.execute("UPDATE labels SET merged_from=COALESCE(merged_from, ?) WHERE label_id=?", (src, old_id))
             elif e["op"] == "rename":  # a label there under the new name already: never lost, left as it is
                 pass
-            else:  # the same label is there under the name it goes back to: one is enough
-                cx.execute("DELETE FROM labels WHERE label_id=?", (old_id,))
-                cx.execute("UPDATE reviews SET item_id=? WHERE item_kind='label' AND item_id=?", (new_id, old_id))
+            # an unmerge, and the label is there under the name it goes back to already: roles (H8) this label stays
+            # too, marked as merged (following never deletes a label: a list of changes from someone else's file
+            # once deleted labels this way)
             n += 1
             continue
         merged = (src if e["op"] == "merge" else None)
@@ -640,32 +775,7 @@ def _follow_one(cx, fw: str, e: dict, label_id: Callable, only: set | None = Non
     return n
 
 
-def follow_merged(cx, ws: Workspace, name: str, meta: dict, theirs_done: set, incoming: set, hyps_before: set) -> None:
-    """0.16 (sync.py): a colleague's work came in. This copy's labels follow the codebook's changes this copy had not
-    followed; the labels that came in follow those the colleague's copy had not followed (each kind of label once, so
-    a swap of two names or a name used again is not undone). Then every change counts as followed here."""
-    from .profile import label_id
 
-    events = [e for e in (meta.get("events") or [])
-              if isinstance(e, dict) and e.get("op") in ("rename", "merge", "unmerge") and e.get("id")]
-    if not events:
-        return
-    key = f"codebook_followed:{name}"
-    row = cx.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
-    mine_done = set(json.loads(row[0]) if row else [])
-    incoming = set(incoming)
-    mine = {r[0] for r in cx.execute("SELECT label_id FROM labels WHERE framework=?", (name,))} - incoming
-    for e in events:
-        if e["id"] not in mine_done:
-            _follow_one(cx, name, e, label_id, only=mine, hyps=hyps_before)
-        if e["id"] not in theirs_done and incoming:
-            _follow_one(cx, name, e, label_id, only=incoming, hyps=set())
-    cx.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, json.dumps(sorted(e["id"] for e in events))))
-
-
-# ---------------------------------------------------------------------------------------------
-# making, moving, copying and removing codebooks
-# ---------------------------------------------------------------------------------------------
 def _free_name(ws: Workspace, name: str) -> str:
     n = (name or "").strip().lower().replace(" ", "_")
     n = re.sub(r"[^a-z0-9_-]", "", n)[:40]
@@ -677,9 +787,15 @@ def _free_name(ws: Workspace, name: str) -> str:
 
 
 def create(ws: Workspace, name: str, title: str = "", where: str = "project", start: str = "fresh",
-           source: dict | None = None, label: str = "code") -> dict:
+           source: dict | None = None, label: str = "code", prepared: dict | None = None) -> dict:
     """A new codebook. `start`: "fresh" (empty), "themes" (`source`: {"codes": [...]} drafts from `from_themes`, the
-    ones a person kept), "copy" (`source`: {"of": a codebook's name}), "csv" (`source`: {"csv": text})."""
+    ones a person kept), "theory" (0.18.1: `source`: {"codes": [...], "doc_ids": [...]} drafts from `theorycodes.candidates`,
+    the ones a person kept, examples from theory documents dropped; 0.19: several documents, each a group of codes;
+    "doc_id" for one still works; the framework draft, theoryframe.make: "groups": [{"group", "group_name"}], the
+    codes keeping their own group, and each code's "source_docs" naming its documents), "copy" (`source`: {"of": a codebook's name}), "csv" (`source`: {"csv": text}),
+    "qdc" (`source`: {"file": base64, "filename"} of a .qdc or .qdpx, or {"qdc": text}; the result's "imported" says
+    what was brought in, what was folded and what left out: qdc_import.py; `prepared`: qdc_import.from_path's result,
+    for a file on this computer, never from the app's API)."""
     from . import researchlog
 
     if where not in ("project", "home"):
@@ -690,6 +806,7 @@ def create(ws: Workspace, name: str, title: str = "", where: str = "project", st
     state: dict = {"title": title or n.replace("_", " ").capitalize(), "label": label or "code", "directional": False,
                    "groups": [], "codes": []}
     how = "an empty codebook"
+    imported = None
     if start == "copy":
         of = frameworks.get(str(source.get("of") or ""), ws)
         st = _state(of.name, of.codes, json.loads(json.dumps(of.meta or {})), of.title, of.label, of.directional)
@@ -702,14 +819,70 @@ def create(ws: Workspace, name: str, title: str = "", where: str = "project", st
         st = _state(n, codes, {}, state["title"], state["label"], False)
         state.update(groups=st["groups"], codes=[{**c, "uid": ""} for c in st["codes"]])
         how = "a CSV file"
+    elif start == "qdc":
+        # K1 "In and out": a REFI-QDA codebook (.qdc) or project (.qdpx) from NVivo, ATLAS.ti or MAXQDA (qdc_import.py)
+        from . import qdc_import
+
+        got = prepared if prepared is not None else qdc_import.from_source(source)   # prepared: a file read here (CLI)
+        state.update(groups=got["groups"], codes=got["codes"], title=title or got["title"] or state["title"])
+        imported = got["summary"]
+        how = "a REFI-QDA codebook (NVivo, ATLAS.ti or MAXQDA)"
     elif start == "themes":
         picked = [c for c in (source.get("codes") or []) if isinstance(c, dict)]
         if not picked:
             raise ValueError("Tick at least one theme to start from.")
         state["codes"] = picked
         how = f"{len(picked)} theme{'s' if len(picked) != 1 else ''}"
+    elif start == "theory":
+        # 0.18.1 (K2 part 2, theorycodes.py): the concepts of a theory document a person ticked, each with its
+        # definition quoted from the theory; examples only from the evidence documents
+        # 0.19: from several theory documents at once (`doc_ids`; `doc_id` alone still works): each document's
+        # concepts become a group named after it, and an example never comes from any of them
+        from . import theorycodes
+
+        raw = source.get("doc_ids") if source.get("doc_ids") is not None else [source.get("doc_id")]
+        if not isinstance(raw, list):
+            raise ValueError("Say the theory documents as a list (doc_ids).")
+        ids = list(dict.fromkeys(str(d) for d in raw if isinstance(d, str) and d))
+        picked = theorycodes.keep_evidence_examples(
+            ws, [c for c in (source.get("codes") or []) if isinstance(c, dict)], ids)
+        if not picked:
+            raise ValueError("Tick at least one concept to start from.")
+        titles = {r["doc_id"]: r["title"] or "" for r in ws.query(
+            f"SELECT doc_id, title FROM documents WHERE doc_id IN ({','.join('?' * len(ids))})", ids)} if ids else {}
+
+        def docs_of(c: dict) -> list:
+            return c.get("source_docs") if isinstance(c.get("source_docs"), list) else [c.get("source_doc")]
+
+        used = [d for d in ids if d in titles and any(d in docs_of(c) for c in picked)]
+        framework = source.get("groups") if isinstance(source.get("groups"), list) else None
+        if framework is not None:
+            # the framework draft (theoryframe.py): its own groups (what the concepts share, across documents)
+            state["groups"] = [{"group": _clean_text(g.get("group"), 60), "group_name": _clean_text(g.get("group_name"), 120)}
+                               for g in framework if isinstance(g, dict) and _clean_text(g.get("group"), 60)]
+        elif len(used) > 1:
+            state["groups"] = [{"group": str(i), "group_name": (titles[d] or f"Theory document {i}")[:120]}
+                               for i, d in enumerate(used, 1)]
+            number = {d: str(i) for i, d in enumerate(used, 1)}
+            picked = [{**c, "group": number.get(c.get("source_doc"), c.get("group") or "")} for c in picked]
+        state["codes"] = picked
+        n_c = f"{len(picked)} concept{'s' if len(picked) != 1 else ''}"
+        # the documents the kept codes come from (a ticked document none of whose concepts was kept is not named);
+        # codes that do not say (an older editor): every document sent
+        named = [researchlog.quoted(titles[d] or "untitled", 80) for d in
+                 (used if any(any(docs_of(c)) for c in picked) else ids) if d in titles]
+        if len(named) == 1:
+            how = f"{n_c} of the theory document {named[0]}"
+        elif named:
+            how = f"{n_c} of {len(named)} theory documents: {', '.join(named[:-1])} and {named[-1]}"
+        else:
+            how = f"{n_c} of a theory document"
+        if framework is not None:
+            n_g = len({c.get("group") for c in picked if c.get("group")})
+            how += f", in {n_g} group{'s' if n_g != 1 else ''}"
     elif start != "fresh":
-        raise ValueError("Start fresh, from themes, from a copy or from a CSV file.")
+        raise ValueError("Start fresh, from themes, from a theory document, from a copy, from a CSV file or from a "
+                         "REFI-QDA codebook (.qdc).")
     clean = _clean_state(state)
     for c in clean["codes"]:
         c["uid"] = _new_uid()
@@ -718,6 +891,9 @@ def create(ws: Workspace, name: str, title: str = "", where: str = "project", st
             "ids": {c["code"]: c["uid"] for c in clean["codes"]}, "groups": clean["groups"], "events": [],
             "removed": {}, "places": {c["uid"]: [{k: v for k, v in e.items() if v is not None} for e in c["examples"]]
                                       for c in clean["codes"] if c["examples"]}}
+    drafted = {c["uid"]: c["ai_draft"] for c in clean["codes"] if c.get("ai_draft")}
+    if drafted:  # K1: the AI's words keep their mark in a copy, as in a save
+        meta["drafted"] = drafted
     if clean["directional"]:
         meta["directional"] = True
     meta.update(kept)
@@ -727,7 +903,10 @@ def create(ws: Workspace, name: str, title: str = "", where: str = "project", st
                                                  f"{how}, kept {'with all projects' if where == 'home' else 'in this project'}"
                                                  f" ({len(clean['codes'])} code{'s' if len(clean['codes']) != 1 else ''}).",
                            "codebook", n, clean["title"], data={"where": where, "start": start})
-    return load(ws, n)
+    out = load(ws, n)
+    if imported is not None:
+        out["imported"] = imported
+    return out
 
 
 def remove(ws: Workspace, name: str, why: str | None = None) -> None:
@@ -740,8 +919,13 @@ def remove(ws: Workspace, name: str, why: str | None = None) -> None:
         raise ValueError("The SDG codebooks ship with the app and cannot be removed.")
     title = frameworks.get(name, ws).title
     vid = _keep_version(f, name, "removing the codebook")
-    for ext in ("csv", "json"):
-        (f / f"{name}.{ext}").unlink(missing_ok=True)
+    try:
+        (f / f"{name}.csv").unlink(missing_ok=True)
+    except OSError:   # open in a spreadsheet (Windows): nothing was removed
+        _kept(f, name, vid, False)
+        raise ValueError(_BUSY) from None
+    _kept(f, name, vid, True)
+    (f / f"{name}.json").unlink(missing_ok=True)
     with ws.connect() as cx:
         researchlog.record(cx, "codebook-removed", f"Removed the codebook {researchlog.quoted(title, 80)} "
                                                    f"({'from all projects' if where == 'home' else 'from this project'}).",
@@ -803,7 +987,21 @@ def csv_of(ws: Workspace, name: str) -> tuple[str, bytes]:
         fw = frameworks.get(name, ws)
         st = _state(name, fw.codes, {}, fw.title, fw.label, fw.directional)
         return f"{name}.csv", _csv_text(_clean_state(st)["codes"], st["groups"]).encode("utf-8-sig")
-    return f"{name}.csv", (f / f"{name}.csv").read_bytes()
+    return f"{name}.csv", _protected_csv(frameworks.decode((f / f"{name}.csv").read_bytes())).encode("utf-8")
+
+
+def _protected_csv(text: str) -> str:
+    """A codebook's file as an export a spreadsheet will not run: every cell through `csv_cell`. The file may have been
+    written before 0.17.2 or be a CSV someone imported as it was, so each cell is first taken back to what it says
+    (`csv_uncell`): one that is protected already stays as it is, not protected twice. The columns, their order and
+    the file's separator stay."""
+    text = text.lstrip("\ufeff")
+    delim = frameworks._delimiter(text)
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=delim, lineterminator="\n")
+    for row in csv.reader(io.StringIO(text), delimiter=delim):
+        w.writerow([csv_cell(csv_uncell(x)) for x in row])
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -812,21 +1010,88 @@ def csv_of(ws: Workspace, name: str) -> tuple[str, bytes]:
 def find_example(ws: Workspace, quote: str, doc_id: str | None = None) -> dict | None:
     """Where an example quote is in this project's documents (the quote check): {doc_id, title, page, start, end,
     project}, or None. The quote must be the documents' own words (as every quote is found)."""
+    return find_examples(ws, [quote], doc_id).get(" ".join((quote or "").split()))
+
+
+_LOOKED: "OrderedDict[tuple, dict | None]" = OrderedDict()   # quotes looked for, by project, documents and quote
+_LOOKED_MAX = 2000
+_LOOKED_LOCK = threading.Lock()
+
+
+def _needle(q: str) -> tuple[str, bool]:
+    """What a passage must hold for `find_quote` to find the quote in it, compared with spaces left out (its spacing
+    pass joins words split by spaces): the longest run of letters and digits of the quote's normalised words that are
+    plain ASCII (True), which every passage that holds the quote holds in `fast_normalise`'s folding too; for a quote
+    without such a run, all of its folded words (False: a capital sigma and Hangul compose differently there, so this
+    one is a best effort)."""
+    flat = "".join(normalise(q).split())
+    runs = re.findall(r"[a-z0-9]+", flat)
+    best = max(runs, key=len, default="")
+    if len(best) >= 3:
+        return best, True
+    return "".join(fast_normalise(q).split()).replace("ς", "σ"), False
+
+
+def find_examples(ws: Workspace, quotes: list[str], doc_id: str | None = None) -> dict[str, dict | None]:
+    """Where each example quote is (`find_example`), with one reading of the passages for them all. Each passage's
+    text is folded as the quote check folds it (`fast_normalise`, spaces left out) and `find_quote` decides only where
+    it holds the quote's words: SQLite's lower() and LIKE fold only ASCII letters, so a quote with a capital accented
+    letter, or a ligature in the passage, was never found. A quote looked for against the same documents (the
+    project's corpus version) is not looked for again: a codebook's every save looked again for every example
+    without a place."""
     from .textutil import find_quote
 
-    q = " ".join((quote or "").split())
-    if len(q) < 8:
-        return None
-    words = [w for w in re.findall(r"\w{4,}", q)][:3] or [q[:20]]
-    sql = "SELECT passage_id, doc_id, page, start, text FROM passages WHERE " + " AND ".join(
-        "instr(lower(text), ?) > 0" for _ in words) + (" AND doc_id=?" if doc_id else "") + " LIMIT 200"
-    for r in ws.query(sql, [w.lower() for w in words] + ([doc_id] if doc_id else [])):
-        hit = find_quote(r["text"] or "", q)
-        if hit:
-            title = ws.scalar("SELECT title FROM documents WHERE doc_id=?", (r["doc_id"],))
-            return {"doc_id": r["doc_id"], "title": title, "page": r["page"], "start": r["start"] + hit[0],
-                    "end": r["start"] + hit[1], "project": ws.project_uid(), "quote": (r["text"] or "")[hit[0]:hit[1]]}
-    return None
+    out: dict[str, dict | None] = {}
+    todo: dict[str, tuple[str, bool]] = {}
+    base = (str(ws.db_path.resolve()), ws.corpus_version(), doc_id)
+    for quote in quotes:
+        q = " ".join((quote or "").split())
+        if q in out or q in todo:
+            continue
+        if len(q) < 8:
+            out[q] = None
+            continue
+        with _LOOKED_LOCK:
+            seen = base + (q,) in _LOOKED
+            if seen:
+                _LOOKED.move_to_end(base + (q,))
+                out[q] = _LOOKED[base + (q,)]
+        if not seen:
+            todo[q] = _needle(q)
+    if todo:
+        sql = ("SELECT passage_id, doc_id, page, start, text FROM passages " +
+               ("WHERE doc_id=? ORDER BY seq" if doc_id else "ORDER BY rowid"))
+        found: dict[str, dict] = {}
+        cur = ws._conn().execute(sql, (doc_id,) if doc_id else ())
+        while len(found) < len(todo):
+            rows = cur.fetchmany(500)
+            if not rows:
+                break
+            for r in rows:
+                text = r["text"] or ""
+                flat = None
+                for q, (needle, ascii_) in todo.items():
+                    if q in found:
+                        continue
+                    if flat is None:
+                        flat = "".join(fast_normalise(text).split())
+                        folded = flat.replace("ς", "σ")
+                    if needle not in (flat if ascii_ else folded):
+                        continue
+                    hit = find_quote(text, q)
+                    if hit:
+                        title = ws.scalar("SELECT title FROM documents WHERE doc_id=?", (r["doc_id"],))
+                        found[q] = {"doc_id": r["doc_id"], "title": title, "page": r["page"],
+                                    "start": r["start"] + hit[0], "end": r["start"] + hit[1],
+                                    "project": ws.project_uid(), "quote": text[hit[0]:hit[1]]}
+        cur.close()
+        with _LOOKED_LOCK:
+            for q in todo:
+                out[q] = found.get(q)
+                _LOOKED[base + (q,)] = out[q]
+            while len(_LOOKED) > _LOOKED_MAX:
+                _LOOKED.popitem(last=False)
+    return {q: (dict(v) if v else None) for q, v in out.items()}
 
 
 def _sentence_at(text: str, n: int = 260) -> tuple[str, int, int]:
@@ -927,13 +1192,17 @@ def try_codes(ws: Workspace, state: dict, progress: Callable[[int, int], None] |
     from .profile import MAX_CANDIDATES, keyword_candidates, rank_candidates
     from .search import passage_index
 
+    from .concordance import CHUNK
+
     fw = _draft(state)
     idx = passage_index(ws)
-    rows = idx.read(list(range(len(idx.doc_of))))
+    n_rows = len(idx.doc_of)
     idf = idx.bm25.idf
     totals: dict[str, float] = {}
     per: dict[str, dict] = {c: {"passages": 0, "docs": set(), "examples": []} for c in fw.codes}
     titles = {r[0]: r[1] for r in ws.query("SELECT doc_id, title FROM documents")}
+    # the passages' text a chunk at a time, not all of it at once
+    rows = (r for k in range(0, n_rows, CHUNK) for r in idx.read(range(k, min(k + CHUNK, n_rows))))
     for n, r in enumerate(rows, 1):
         cands = keyword_candidates(fw, r["text"], idf, totals)
         for code, _c in rank_candidates(cands)[:MAX_CANDIDATES]:
@@ -945,18 +1214,18 @@ def try_codes(ws: Workspace, state: dict, progress: Callable[[int, int], None] |
                                       "title": titles.get(r["doc_id"]), "page": r["page"],
                                       "text": _sentence(r["text"], 300)})
         if progress and n % 500 == 0:
-            progress(n, len(rows))
+            progress(n, n_rows)
     total_docs = len(set(idx.doc_of))
     out = {}
     for code, p in per.items():
-        share = p["passages"] / max(1, len(rows))
+        share = p["passages"] / max(1, n_rows)
         out[code] = {"passages": p["passages"], "documents": len(p["docs"]), "examples": p["examples"],
                      "share": round(share, 4),
                      "note": ("matches nothing: add words it is matched by, or change its definition"
                               if not p["passages"] else
                               "matches a large part of the documents: its words may be too common" if share > 0.25
                               else None)}
-    return {"passages": len(rows), "documents": total_docs, "codes": out}
+    return {"passages": n_rows, "documents": total_docs, "codes": out}
 
 
 def relabel_passages(ws: Workspace, name: str, code: str) -> list[str]:

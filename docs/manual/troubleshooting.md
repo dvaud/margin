@@ -14,16 +14,16 @@ Two files in the data folder (`~/margin` unless you chose another) often say why
 | Problem | Fix |
 | --- | --- |
 | The install line stops with "does not match the release's checksum" | The download was cut off or changed on the way; nothing was installed. Run the line again later. |
-| The install line on Windows says *Margin cannot be replaced while these programs run from its folder* | Margin or Claude Code is still running (Claude Code keeps Margin connected, which runs Margin's own Python). Choose *Quit Margin* and close Claude Code: the Claude app and every terminal or editor where it runs. The line goes on by itself once they have closed; nothing was changed before. If one does not close, end it with the `Stop-Process` line it shows. |
+| The install line on Windows says *Margin cannot be replaced while these programs run from its folder* | Margin or Claude Code is still running (Claude Code keeps Margin connected, which runs Margin's own Python). Choose *Quit* and close Claude Code: the Claude app and every terminal or editor where it runs. The line goes on by itself once they have closed; nothing was changed before. If one does not close, end it with the `Stop-Process` line it shows. |
 | The install line on Windows says uv could not install Margin, "Access is denied" | A program still used Margin's folder (the lines of Margin 0.14 and earlier did not wait for it). Quit Margin, close Claude Code and run the line again. |
 | On Windows, every `margin` command says "uv trampoline failed to canonicalize script path", and the icon does nothing | An install of Margin 0.14 or earlier ran while Claude Code had Margin connected and left Margin's folder half removed. Close Claude Code and run the install line (or *Install-Margin-Windows.cmd*) again: it installs Margin whole. Your projects were not touched. |
 | The install on Windows says "Margin was installed, but C:\Users\…\margin.exe is missing", with odd letters in the name | Your user folder has a letter with an accent (C:\Users\Dávid), which the installers of Margin 0.14 and earlier misread. Run the install line or *Install-Margin-Windows.cmd* of a later Margin: it installs over the half-done copy and makes the icons. |
 | macOS says *Install Margin.command* was "Not Opened" | The file is not signed by an Apple developer. Click *Done*, then allow it once in *System Settings → Privacy & Security → Open Anyway* ([Install](install.md#or-download-a-file-and-double-click-it)), or paste the install line in Terminal instead. |
 | Windows says it protected your PC, or the browser calls *Install-Margin-Windows.cmd* uncommon | The file is not signed. Keep it, then *More info → Run anyway*, or paste the install line in PowerShell instead. |
-| There is no *Update* button in the sidebar | It shows only when there is an update. To look now, or to see why a look failed: *Settings → Technical → Updates → Check for updates*. |
-| *Update* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows, Margin 0.14 and earlier: choose *Quit Margin* and run the install line again in PowerShell. |
+| There is no *Update* button in the sidebar | It shows only when there is an update, in the place of *Quit*. To look now, or to see why a look failed: *Settings → Technical → Updates → Check for updates*. |
+| *Update* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows, Margin 0.14 and earlier: choose *Quit* and run the install line again in PowerShell. |
 | On Windows, a note says *The update to … did not finish* | Margin closed to install the new version but could not. Most often Claude Code still had Margin connected: close Claude Code, then press *Update* again. The details are in `logs/update.log`. |
-| Settings shows an older version after updating | That copy was still running. Choose *Restart now* on the notice at the top of the page, or *Quit Margin* and open Margin from its icon. |
+| Settings shows an older version after updating | That copy was still running. Choose *Restart now* on the notice at the top of the page, or *Quit* and open Margin from its icon. |
 | The page keeps saying *Starting Margin …* | After 90 seconds it says Margin did not come back: open it again from its icon (or with `margin-gui`), and look in `logs/margin.log` for the reason. |
 
 ## The icon and the app
@@ -31,6 +31,7 @@ Two files in the data folder (`~/margin` unless you chose another) often say why
 | Problem | Fix |
 | --- | --- |
 | Double-clicking the Margin icon does nothing | Look in `logs/margin.log`. Run the install line again (one-line install), or `margin-gui --make-launcher` again after moving or reinstalling Python (git copy). On macOS, if the icon was copied from another computer, right-click it and choose *Open* once. |
+| The page says *Open Margin from its icon* (a bookmark, or a tab opened by typing the address) | The address alone does not open Margin: the key is in the link the icon opens, so no one else on this computer can use it. Double-click the Margin icon, or run `margin-gui`. A tab left open from before Margin started again says the same: its key no longer works. For a bookmark, *Settings → Technical → Your link to Margin → Copy my link*; it works until Margin stops. |
 | The icon is a blank square (macOS) or a plain shortcut (Windows) | It was made without its picture. Open Margin once: it gives the icon its picture (on macOS, if Finder still shows the blank one, `killall Finder`). Or make the icon again: `margin-gui --make-launcher`. |
 | On Windows, black windows flash open and closed while Margin runs, taking the focus | Margin 0.14 and earlier started Claude Code, Tesseract and its updates in windows of their own. Update Margin. |
 | "The original file is no longer at …" | The file was moved or renamed after it was added; the app still has its text. Put it back, or add it again. |
@@ -70,7 +71,7 @@ Two files in the data folder (`~/margin` unless you chose another) often say why
 | Problem | Fix |
 | --- | --- |
 | An empty document, or *Scanned: no text* | No text layer (a scanned PDF). Install Tesseract ([Install](install.md#scanned-pdfs-optional)) and add the file again, or run OCR yourself (`ocrmypdf in.pdf out.pdf`). |
-| A document reads badly | Look at its *Reading* panel and fix it with *Leave out*, *Restore*, *Text starts here* or *Text ends here* ([How documents are read](reading.md#the-reading-view)). For a text file, add the PDF instead if you have it. |
+| A document reads badly | Look at its *Reading* panel and fix it with *Leave out*, *Restore*, *Text starts here* or *Text ends here* ([Look at how a document was read](reading.md#the-reading-view)). For a text file, add the PDF instead if you have it. |
 | An error about vectors of different sizes | The embedding model changed since search by meaning was set up: on the Documents page, press *Set up search by meaning* (or run `margin --ws FOLDER embed`). |
 | "Remove all documents" is refused | The project was copied from ENLENS and holds results of its SDG pack (extracted claims, VCA verifications). Remove documents one by one, or run `margin --ws FOLDER reset-corpus --yes` if you mean it. |
 

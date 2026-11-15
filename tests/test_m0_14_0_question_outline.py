@@ -315,7 +315,7 @@ def test_the_page_offers_it():
     for text in ("From a research question", "From all the themes", "Research question", "Add a hypothesis",
                  "Check it", "Why here", "Background", "Also bears on", "Add one you checked", "/hypotheses"):
         assert text in view, text
-    assert "#/check?text=" in view
+    assert "#/hypotheses?text=" in view and "#/check" not in view   # Hypotheses is one page
     css = (STATIC / "margin.css").read_text(encoding="utf-8")
     assert ".ol-question" in css and ".ol-item.ol-hyp" in css
     features = (STATIC / "features.js").read_text(encoding="utf-8")

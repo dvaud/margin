@@ -2,18 +2,32 @@
 // what (documents, from `balance`), then the evidence as verified quotes. Every count on the page is computed from
 // the same `passages` the cards are drawn from, so sections and numbers always agree. A person's judgement
 // replaces the AI's; it is protected (no silent overwrite) and every save can be undone.
-import { App, api, h, icon, replace, clear, append, toast, showError, fmt, statusBadge, gradeBadge, codeChip, passageNode, popNote, gradeWords, navigate, watchJob, P, TOKEN, TERMINAL, confirmDialog, dialog, download, debounce, store, GRADE_TEXT, STATUS_SHORT, strictness, docsCountSentence, queueNotice, auditorName, strongerMark } from "../lib.js";
+import { App, api, h, icon, madeWithFact, readsLine, aiWhere, judgementIcon, pageHead, replace, clear, append, toast, showError, fmt, statusBadge, gradeBadge, codeChip, passageNode, cpToIndex, indexToCp, cpLength, breaksToIndex, latest, popNote, gradeWords, navigate, watchJob, P, TOKEN, TERMINAL, confirmDialog, dialog, download, debounce, store, GRADE_TEXT, STATUS_SHORT, strictness, docsCountSentence, queueNotice, auditorName, strongerMark,
+  button, iconButton, link, tag, notice, card as cardBox, fold as foldBox, choice, helpMark, downloadButton, textarea, input as fieldInput, select as selectField, reviewedMark, emptyState, lazyList, switchControl } from "../lib.js";
+import { withAI } from "../features.js";
 import { ProgressPanel, MiniJob } from "./progress.js";
 import { originLink } from "../registry.js";
 import { addNoteToPart } from "./notes.js";
 import { historyButton, askWhy } from "./versions.js";
+import { field } from "../lib.js";   // K3: the reason beside the switch that counts non-scientific documents
 
+const LIST_PAGE = 40;   // 0.18.1 (H5): the excerpt cards of a long evidence list are drawn this many at a time, as the page scrolls
 const USER_VERDICTS = [["supports", "Supports"], ["partially_supports", "Partly supports"], ["refutes", "Contradicts"], ["not_relevant", "Not about this"]];
+
+// The moved note's way back after a judgement (docs/DESIGN.md 4.26): "Back to “…”", your earlier judgement, named by
+// where it goes; none when your earlier judgement was not your own (the card's Take back goes to the AI's), nor when
+// the judging row already offers it in one press: its "Not about this", on an excerpt the AI read. So no two buttons
+// on a card go to the same place.
+export function noteWayBack(prevVerdict, newVerdict, readBy) {
+  if (!prevVerdict) return null;
+  if (prevVerdict === "not_relevant" && readBy !== "you" && newVerdict !== "not_relevant") return null;
+  return `Back to “${prevVerdict === "not_relevant" ? "Not about this" : GRADE_TEXT[prevVerdict]}”`;
+}
 const about = (p) => p.verdict !== null && p.verdict !== undefined;   // the judgement that counts says it is about the hypothesis
 const READ_LOCAL_TITLE = "Reading with your local model";   // 0.13.11: "Read them now", while it reads
 // 0.11: who read an excerpt (its document's AI setting decides)
-const READ_BY = { claude: ["cloud", "Read by Claude", "read-claude"], local: ["house", "Read by the local model", "read-local"], ai: ["cpu", "Read by the AI", "read-ai"],
-  you: ["shield", "No AI read it", "read-you"], waiting: ["inbox", "Not read yet", "read-waiting"] };
+const READ_BY = { claude: ["cloud", "Read by Claude", "read-claude"], local: ["house", "Read by the local model", "read-local"], ai: ["eye", "Read by the AI", "read-ai"],
+  you: ["eye-off", "No AI read it", "read-you"], waiting: ["inbox", "Not read yet", "read-waiting"] };
 const READ_BY_ROUND = { claude: (n) => `Claude read ${n}`, local: (n) => `the local model read ${n}`, ai: (n) => `the AI read ${n}`, you: (n) => `${n} for your judgement`, waiting: (n) => `${n} not read yet` };
 function readByChip(p) {
   const [ic, text, cls] = READ_BY[p.read_by] || READ_BY.ai;
@@ -61,12 +75,12 @@ export function originalLink(project, docId, page, kind, opts = {}) {
     if (info.available) {
       const isPdf = k === "pdf";
       const where = isPdf ? (page ? `, at page ${page}` : "") : opts.quote ? ", at the quote" : "";
-      const link = h("a", { class: opts.button ? "btn btn-sm btn-ghost" : "it", href: originalHref(project, docId, { kind: k, page, quote: opts.quote }), target: "_blank", rel: "noopener",
-        title: `Opens ${info.name || "the original file"} in a new tab${where}${isPdf && opts.quote && opts.pdfHint ? ". The quote itself is highlighted here in the app, under “In context”." : ""}` },
+      const link = h("a", { class: "it", href: originalHref(project, docId, { kind: k, page, quote: opts.quote }), target: "_blank", rel: "noopener",
+        title: `Opens ${info.name || "the original file"} in a new tab${where}${isPdf && opts.quote && opts.pdfHint ? ". The quote itself is highlighted here in the app, under “more…” at the end of the excerpt." : ""}` },
         opts.noIcon ? null : icon("external-link", { size: 13 }), opts.text || (isPdf && page && !opts.pdfHint ? `Open the original (page ${page})` : "Open the original"));
       replace(holder, link);   // 0.12: where it opens is in its title, not in a line beside it
     } else if (opts.reason !== false) {
-      replace(holder, h("span", { class: "muted small orig-missing" }, icon("alert-triangle", { size: 12 }), " ", info.reason || "The original file is no longer available; the text the app read is shown."));
+      replace(holder, h("span", { class: "muted small orig-missing" }, icon("info", { size: 12 }), " ", info.reason || "The original file is no longer available; the text the app read is shown."));
     }
   };
   const known = originalsKnown.get(`${project}/${docId}`);
@@ -92,7 +106,8 @@ export function splitSentences(text) {
 // 0.12: the part of an excerpt a card shows at first: the sentences of the highlight with one sentence before and one
 // after (no highlight: the first two sentences), as [start, end]; null when that would hide little (then the whole
 // excerpt is shown). A sentence ends at . ! ? before a space, and at the excerpt's own paragraph breaks. opts.after: 0
-// leaves out the sentence after the highlight (on a phone).
+// leaves out the sentence after the highlight (on a phone). Every position here is a string index of `text` (the
+// app’s offsets go through cpToIndex() and breaksToIndex() first).
 export function excerptWindow(text, start, end, breaks, opts = {}) {
   text = String(text || "");
   const cuts = new Set([0, text.length]);
@@ -128,7 +143,8 @@ export function excerptWindow(text, start, end, breaks, opts = {}) {
   return text.length - (b - a) < 200 ? null : [a, b];
 }
 
-// The window of an excerpt as a passage, its highlight and breaks moved with it, an ellipsis where text is left out.
+// The window of an excerpt as a passage, its highlight and breaks moved with it, an ellipsis where text is left out
+// (string indices of `text`, as excerptWindow’s).
 function windowNode(text, start, end, cls, breaks, [a, b]) {
   const t = text.slice(a, b).replace(/\s+$/, "");
   const shifted = (breaks || []).filter((x) => x && Number.isInteger(x.at) && x.at >= a && x.at < a + t.length)
@@ -160,8 +176,33 @@ function citedIn(c) {
     c.work ? h("p", { class: "muted" }, icon("library", { size: 12 }), ` Checked against the cited work only: ${c.work}`) : null);
 }
 
+// 0.18.1 (B5): a retracted or corrected work's document says so on its excerpts. The notices of the last lookup
+// (Bibliography › Check for retractions) are read once when the page opens; no lookup happens here.
+let retractedDocs = {};
+async function loadRetractions(project) {
+  try { retractedDocs = (await api("GET", `/api/projects/${P(project)}/retractions`)).by_doc || {}; } catch { retractedDocs = {}; }
+}
+function retractedMark(docId) {
+  const ns = retractedDocs[docId];
+  if (!ns || !ns.length) return null;
+  const bad = ns.some((n) => ["retraction", "withdrawal", "removal"].includes(n.type));
+  const what = [...new Set(ns.map((n) => (n.type || "notice").replace(/_/g, " ")))].join(", ");
+  return tag({ kind: "attention", title: `Crossref lists a ${what} for the work this document is${ns[0].date ? ` (notice dated ${ns[0].date})` : ""}. Checked ${fmt.dateShort(ns[0].checked_at)}. Read the notice before relying on this excerpt.` },
+    bad ? "work retracted" : "work corrected or flagged");
+}
+
+// Why an excerpt waits for a person: its document's AI setting or (0.19.0, N3) that of the document the hypothesis's
+// words come from (`words_access` of the result)
+export function waitReason(docAccess, wordsAccess) {
+  if (docAccess === "none") return "its document is marked No AI";
+  if (wordsAccess === "none") return "the hypothesis comes from a document marked No AI";
+  if (docAccess === "local" || wordsAccess !== "local") return "its document is marked Only a local AI, and no local model is chosen";
+  return "the hypothesis comes from a document marked Only a local AI, and no local model is chosen";
+}
+
 export async function renderResult(view, [hypId], query) {
   const project = App.project;
+  await loadRetractions(project);
   const setting = App.settings().threshold ?? 0.6;
   let threshold = query.threshold !== undefined ? Number(query.threshold) : setting;
   if (Number.isNaN(threshold)) threshold = setting;
@@ -182,6 +223,12 @@ export async function renderResult(view, [hypId], query) {
   const termsResult = new Map();   // claim_id -> inline result of the last search with other words
   const running = new Map();       // job id -> {kind, mini} of a follow-up job of this result (read again, new documents, second model)
   let followNote = null;           // text shown in the follow-ups card after one of its jobs ended
+  let unread = null;               // roadmap N5: GET …/unread, fetched after the page is drawn (see unreadSlot)
+  let unreadKey = null;            // what the last fetch of it was for: the rounds read and the documents
+  let unreadSlot = null;           // where its card goes, kept across in-place updates
+  let movedNote = null;            // 0.18.1 (N4): the sentence the server gave for a judgement that moved the answer: said once, in the answer card
+  let makeExRow = null;            // 0.18.1: the table view's row maker (excerptTable), for patchInPlace
+  let lazies = [];                 // 0.18.1 (H5): the long card lists now on the page ({claim_id, lazy, items}), see evList() and findCard()
   let localJobShown = false;       // 0.13.11: see readLocalButton
   const secondShown = new Set();   // 0.11.2: "claim|passage" whose passage highlights the second opinion's quote
   const pendingQuote = new Map();  // "claim|passage" -> {text, start, end}: a sentence marked before a judgement was chosen (not saved yet)
@@ -211,7 +258,7 @@ export async function renderResult(view, [hypId], query) {
       if (!box.isConnected) return;
       const typing = (document.activeElement && document.activeElement.id === "note") || noteDirty;
       if (typing) { armWait(); return; }
-      load().catch(() => {});
+      load({ ifChanged: true }).catch(() => {});
     }, 5000);
   }
   let noteDirty = false;           // 0.14.3: a note typed and not saved yet
@@ -222,25 +269,145 @@ export async function renderResult(view, [hypId], query) {
   };
   window.addEventListener("pagehide", saveNoteOnLeave);
 
-  async function load() {
+  // The result is asked for in several places (a save, the look every few seconds, the end of a job): only the answer
+  // to the newest request is drawn, so a look answered after a save never puts the judgement back as it was.
+  // fetchResult() gives null when a newer request was made meanwhile (its answer is drawn instead).
+  const newest = latest();
+  async function fetchResult(look = false) {
+    const mine = look ? newest.quiet() : newest();   // the look every few seconds never hides a save’s answer
+    const r = await api("GET", `/api/projects/${P(project)}/hypotheses/${P(hypId)}?threshold=${threshold}`);
+    return mine() ? r : null;
+  }
+  // opts.ifChanged (the look while a check waits for Claude Code): the page is drawn again only when the answer is not
+  // the one shown, so it does not rebuild every card every few seconds while nothing has come in
+  async function load(opts = {}) {
     let r;
-    try { r = await api("GET", `/api/projects/${P(project)}/hypotheses/${P(hypId)}?threshold=${threshold}`); }
+    try { r = await fetchResult(!!opts.ifChanged); }
     catch (e) {
       if (e.status === 404) { notFound(e.data && e.data.in_project); return; }
       throw e;
+    }
+    if (!r) return;
+    if (opts.ifChanged && current && JSON.stringify(r) === JSON.stringify(current)) {
+      if (waitsForClaude(r)) armWait();   // as draw() would: look again in a few seconds
+      return;
     }
     current = r;
     draw(r);
   }
 
+  // 0.18.1 (H5): a judgement saved. The page is not drawn again whole: the result is fetched again (the same call as
+  // load()) and only what the judgement changed is made again, in place, so the scroll position, open folds, focus
+  // and the cards already drawn in a long list stay as they are: the excerpt's card (or its row in the table), the
+  // answer card (with the sentence for a judgement that moved the answer, once, as "Just now"), the evidence head's
+  // counts, a split part's own head, and the technical details' note. `saved` is the judgement route's answer
+  // ({moved: a sentence | null, …}). Anything the in-place update cannot do is drawn whole, as before: see inPlacePlan().
+  async function applyJudgement(saved) {
+    let r;
+    try { r = await fetchResult(); }
+    catch (e) {
+      if (e.status === 404) { notFound(e.data && e.data.in_project); return; }
+      throw e;
+    }
+    if (!r) return;   // a newer request was made: its answer is drawn instead
+    if (saved && typeof saved.moved === "string" && saved.moved) movedNote = saved.moved;
+    const plan = inPlacePlan(current, r);
+    current = r;
+    try {
+      if (plan) { try { patchInPlace(plan, r); return; } catch (e) { console.error(e); } }   // a surprise: draw it all
+      draw(r);
+    } finally { movedNote = null; }
+  }
+
+  // The cards that changed between the result shown and the one just fetched, or null when the page must be drawn
+  // whole: the answer is waiting, the parts or their excerpts are not the same ones in the same lists and order (an
+  // excerpt that moved between "about it" and "not about it", or among the counted ones, is shown by draw() with its
+  // "Moved" notes), anything the in-place update does not make again differs (models, documents added, a part's
+  // rounds), or many cards changed.
+  function inPlacePlan(was, now) {
+    if (!was || !now || was.status === "waiting" || now.status === "waiting" || !!was.decomposed !== !!now.decomposed) return null;
+    const rest = (x) => JSON.stringify([x.docs_added_since, x.second_read, x.disagreements, x.stronger_model, x.waiting_local, x.waiting_for_you, x.models_used]);
+    if (rest(was) !== rest(now)) return null;
+    const a = was.parts || [], b = now.parts || [];
+    if (a.length !== b.length) return null;
+    const place = (p) => `${p.passage_id}:${about(p) ? 1 : 0}${p.counted || p.user_verdict ? 1 : 0}${p.waiting_for_you ? 1 : 0}${p.waiting_local ? 1 : 0}`;   // the list it is in, and its rank there
+    const partRest = (x) => JSON.stringify([x.rounds_info, x.more_available, x.errors, x.local_failed, x.waiting_local, x.stage, x.model, x.claim, x.target]);
+    const changed = [];
+    for (let i = 0; i < a.length; i++) {
+      if (a[i].claim_id !== b[i].claim_id || partRest(a[i]) !== partRest(b[i])) return null;
+      if (["failed", "no_passages"].includes(a[i].status) || ["failed", "no_passages"].includes(b[i].status)) return null;
+      const pa = a[i].passages || [], pb = b[i].passages || [];
+      if (pa.length !== pb.length || pa.some((p, k) => place(p) !== place(pb[k]))) return null;
+      pb.forEach((p, k) => { if (JSON.stringify(p) !== JSON.stringify(pa[k])) changed.push([b[i], p]); });
+    }
+    return changed.length > 8 ? null : { changed };
+  }
+
+  function patchInPlace(plan, r) {
+    const parts = r.parts || [];
+    const single = parts.length === 1 && !r.decomposed;
+    const allPassages = parts.flatMap((p) => p.passages || []);
+    // the same excerpt in another part shows what you judged there ("also in part 2"): those cards are made again too
+    const ids = new Set(plan.changed.map(([, p]) => p.passage_id));
+    const cards = [...plan.changed];
+    for (const part of parts) for (const p of part.passages || []) if (ids.has(p.passage_id) && !cards.some(([x, q]) => x === part && q === p)) cards.push([part, p]);
+    const active = document.activeElement;
+    // the card the person acted on stays where it is on the screen: its judgement row (the button they pressed) is the anchor
+    const cardOf = ([part, p]) => box.querySelector(`[data-claim="${CSS.escape(part.claim_id)}"] [data-passage="${CSS.escape(p.passage_id)}"]`);
+    const firstEntry = cards.find((c) => cardOf(c)) || null;
+    const first = firstEntry ? cardOf(firstEntry) : null;
+    const anchor = first ? (first.querySelector(".judge") || first) : null;
+    const anchorTop = anchor ? anchor.getBoundingClientRect().top : null;
+    const y = window.scrollY;
+    focusAfter = null;
+    document.title = `${(r.status === "waiting" && r.status_text) || STATUS_SHORT[r.status] || r.status} · ${(r.text || "").slice(0, 60)} · Margin`;
+
+    const swap = (sel, fresh) => { const old = box.querySelector(sel); if (!old) throw new Error(`nothing at ${sel}`); old.replaceWith(fresh); };
+    swap(":scope > .answer", answerCard(r, parts, single, allPassages));
+    swap(":scope > .ev-section-head", evidenceHead(r, allPassages, single));
+    const tech = box.querySelector('[data-fold="tech"]');
+    if (tech) tech.replaceWith(techCard(r, parts));
+    if (!single) {
+      box.querySelectorAll("section.part-card").forEach((sec, i) => {
+        if (!parts[i]) return;
+        sec.querySelectorAll(":scope > [data-live=head]").forEach((n) => n.remove());
+        sec.prepend(...partHead(parts[i], r));
+      });
+    }
+    let focused = null;
+    for (const [part, p] of cards) {
+      if (evidenceView === "table") {
+        const row = box.querySelector(`tr[data-ex-key="${CSS.escape(`${part.claim_id}|${p.passage_id}`)}"]`);
+        if (row && makeExRow) row.replaceWith(makeExRow(part, p, Math.max(0, Number(row.firstChild.textContent) - 1)));
+        continue;
+      }
+      const old = box.querySelector(`[data-claim="${CSS.escape(part.claim_id)}"] [data-passage="${CSS.escape(p.passage_id)}"]`);
+      if (!old) continue;   // not drawn yet (a long list): it is made from the new data when it is
+      const fresh = evidenceCard(p, part);
+      const had = old.contains(active);
+      old.replaceWith(fresh);
+      if (had && !focused) focused = fresh;
+      fresh.classList.add("ev-flash");
+      setTimeout(() => fresh.classList.remove("ev-flash"), 1800);
+    }
+    if (anchor && anchorTop !== null) {
+      const fresh = cardOf(firstEntry);
+      const now = fresh ? fresh.querySelector(".judge") : null;
+      if (now) window.scrollBy(0, now.getBoundingClientRect().top - anchorTop); else window.scrollTo(0, y);
+    } else window.scrollTo(0, y);
+    // the button that was pressed was made again: the keyboard goes on from the card's first button
+    if (focused && (!document.activeElement || document.activeElement === document.body)) {
+      const next = focused.querySelector(".judge-row button");
+      if (next) next.focus({ preventScroll: true });
+    }
+  }
+
   // 0.14.3: "no longer exists" also happens when another tab switched the project: the app then says which project
   // holds the result, and the page offers to go there
   function notFound(inProject) {
-    replace(box, h("div", { class: "empty" }, icon("search-x", { size: 28 }),
-      inProject ? [h("h3", {}, `This result is in the project “${inProject}”`), h("p", {}, `Another window switched the project. Switch to “${inProject}” to see it.`),
-        h("button", { class: "btn btn-primary", type: "button", onClick: async () => { try { await api("PUT", "/api/settings", { project: inProject }); location.reload(); } catch (e) { showError(e); } } }, `Switch to “${inProject}”`)]
-      : [h("h3", {}, "This result no longer exists"), h("p", {}, "It was deleted, or it belongs to another project.")],
-      h("a", { class: "btn", href: "#/history" }, "Back to results")));
+    replace(box, inProject ? emptyState("search-x", `This result is in the project “${inProject}”`, `Another window switched the project. Switch to “${inProject}” to see it.`,
+      button({ kind: "main", onClick: async () => { try { await api("PUT", "/api/settings", { project: inProject }); location.reload(); } catch (e) { showError(e); } } }, `Switch to “${inProject}”`))
+      : emptyState("search-x", "This result no longer exists", "It was deleted, or it belongs to another project.", link({ kind: "back", href: "#/hypotheses" }, "All hypotheses")));
   }
 
   function setThreshold(t) {
@@ -252,10 +419,11 @@ export async function renderResult(view, [hypId], query) {
 
   // 0.12: a button in a card's action row that opens a panel under the row (the row itself never moves); its open
   // state survives a re-render, like a fold's
-  function panelToggle(key, label, panel, startOpen = false, chevron = true) {
+  // a toggle (docs/DESIGN.md 4.1): a small quiet button whose chevron turns while its panel, right under the row, is open
+  function panelToggle(key, label, panel, startOpen = false) {
     const open = openFolds.has(key) || startOpen;
     panel.hidden = !open;
-    const btn = h("button", { class: "btn btn-sm btn-ghost panel-toggle", type: "button", "aria-expanded": open ? "true" : "false", onMousedown: (e) => e.preventDefault() }, chevron ? icon("chevron-right", { size: 13 }) : null, label);
+    const btn = button({ kind: "quiet", sm: true, toggle: true, class: "panel-toggle", "aria-expanded": open ? "true" : "false", onMousedown: (e) => e.preventDefault() }, label);
     btn.addEventListener("click", () => {
       const on = panel.hidden;
       if (on) {   // one panel open per card: the other closes
@@ -270,16 +438,25 @@ export async function renderResult(view, [hypId], query) {
   }
 
   // <details> whose open state survives a re-render
-  function fold(key, attrs, ...children) {
-    const d = h("details", { ...attrs, open: openFolds.has(key) }, ...children);
+  // (0.17.0: made by the fold() helper; summaryTitle is the tooltip of its summary)
+  function keptFold(key, attrs, summary, ...children) {
+    const { summaryTitle, ...own } = attrs;
+    const d = foldBox({ ...own, open: openFolds.has(key) }, summary, ...children);
+    if (summaryTitle) d.firstChild.title = summaryTitle;
     d.dataset.fold = key;
     d.addEventListener("toggle", () => { if (d.open) openFolds.add(key); else openFolds.delete(key); });
     return d;
   }
 
+  // only the excerpts of documents marked Only a local AI wait (nothing for Claude Code), and whether the page waits
+  // for Claude Code, so it looks again every few seconds
+  const onlyLocalWaits = (r) => !!r.waiting_local && !(r.parts || []).some((p) => (p.rounds_info || []).some((x) => x.waiting) || ["terms", "rank", "judge"].includes(p.stage));
+  const waitsForClaude = (r) => r.status === "waiting" && !onlyLocalWaits(r);
+
   function draw(r) {
     const y = window.scrollY;
     localJobShown = false;   // 0.13.11: the running "Read them now" is shown once, at the first part that waits
+    lazies = [];
     // 0.14.3: a button (or the speed picker) with keyboard focus keeps it across the redraw
     const fa = document.activeElement;
     const refocus = fa && fa !== document.body && box.contains(fa) && fa.matches("button, a, select") ? { tag: fa.tagName, id: fa.id, text: fa.textContent.trim() } : null;
@@ -294,32 +471,31 @@ export async function renderResult(view, [hypId], query) {
     // 0.12: one quiet line under the hypothesis: when it was checked and what was read. 0.13.6: where it comes from
     // (a set, or an add-on's own kind) links back to it, from the registry (registry.js ORIGINS)
     const from = originLink(r);
-    if (r.origin === "citation") {  // 0.13.7: a citation's check belongs to Check citations, not to Results
+    if (r.origin === "citation") {  // 0.13.7 (Margin): a citation's check belongs to Check citations, not to Hypotheses
       for (const a of document.querySelectorAll("#nav a[data-route]")) {
         if (a.dataset.route === "citations") a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
       }
     }
-    box.appendChild(h("header", { class: "page-head result-head" },
-      h("div", { class: "page-head-main" },
-        h("p", { class: "eyebrow" }, from && from.eyebrow ? h("a", { href: from.href, class: "it" }, icon("arrow-left", { size: 12 }), from.eyebrow)
-          : h("a", { href: "#/history", class: "it" }, icon("arrow-left", { size: 12 }), "All results")),
-        h("h1", { id: "page-title", tabindex: "-1", class: "result-hyp" }, r.text),
-        r.code ? h("div", { style: { margin: "0 0 8px" } }, codeChip(r.framework, r.code, r.code_description, r.code_label)) : null,
-        r.origin === "citation" && r.options && r.options.citation ? citedIn(r.options.citation) : null,
-        h("p", { class: "result-meta" },
-          h("span", {}, `${r.status === "waiting" ? "Started" : "Checked"} ${fmt.date(r.created_at)}`),
-          from && from.meta ? [h("span", { class: "sep" }, "·"), h("a", { href: from.href }, from.meta)] : null))));
+    box.appendChild(pageHead(r.text, { class: "result-head", display: true, titleClass: "result-hyp",
+      back: from && from.eyebrow ? { href: from.href, text: from.eyebrow } : { href: "#/hypotheses", text: "All hypotheses" },
+      sub: r.code ? codeChip(r.framework, r.code, r.code_description, r.code_label) : null,
+      facts: [`${r.status === "waiting" ? "Started" : "Checked"} ${fmt.date(r.created_at)}`, from && from.meta ? h("a", { href: from.href }, from.meta) : null,
+        madeWithFact(r.made_with)] }));   // 0.18.1 (J4.2)
+    if (r.origin === "citation" && r.options && r.options.citation) box.appendChild(citedIn(r.options.citation));
 
-    const onlyLocal = r.waiting_local && !parts.some((p) => (p.rounds_info || []).some((x) => x.waiting) || ["terms", "rank", "judge"].includes(p.stage));
+    const onlyLocal = onlyLocalWaits(r);
     if (r.status === "waiting" && onlyLocal) {
       // 0.11: only the excerpts of documents marked Only a local AI wait (their notice is on each part)
-      box.appendChild(h("div", { class: "notice notice-info" }, icon("house"), h("p", {}, `${r.waiting_local} ${r.waiting_local === 1 ? "excerpt waits" : "excerpts wait"} for the local model; the answer counts the rest meanwhile. See “Read them now” below.`)));
+      box.appendChild(notice({ kind: "info", icon: "house" }, h("p", {}, `${r.waiting_local} ${r.waiting_local === 1 ? "excerpt waits" : "excerpts wait"} for the local model; the answer counts the rest meanwhile. See “Read them now” below.`)));
     }
     if (r.status === "waiting" && !onlyLocal) {
       // 0.8: a check by queue: Claude Code has not read (all of) it yet; the page looks again every few seconds.
       // 0.12: the answer card is the queue notice, and only what already exists is shown below it
-      box.appendChild(h("section", { class: "card answer answer-waiting", "aria-label": "Waiting for Claude Code" },
-        queueNotice({ text: "Waiting for Claude Code to read the excerpts", command: r.queue_command }, { foldType: true })));
+      // the answer is the queue's notice itself, in place of the answer card
+      const waiting = queueNotice({ text: "Waiting for Claude Code to read the excerpts", command: r.queue_command }, { foldType: true });
+      waiting.classList.add("answer-waiting");
+      waiting.setAttribute("aria-label", "Waiting for Claude Code");
+      box.appendChild(waiting);
       clearTimeout(waitTimer);
       armWait();
       if (allPassages.length) {
@@ -327,7 +503,7 @@ export async function renderResult(view, [hypId], query) {
         for (const part of parts) box.appendChild(partView(part, r, single));
       }
       box.appendChild(noteCard(r));
-      box.appendChild(h("div", { class: "result-foot" }, techCard(r, parts), h("button", { class: "link-btn danger-link", type: "button", onClick: () => deleteHyp(r) }, icon("trash", { size: 13 }), "Delete this result")));
+      box.appendChild(h("div", { class: "result-foot" }, techCard(r, parts), button({ kind: "danger", sm: true, onClick: () => deleteHyp(r) }, icon("trash", { size: 13 }), "Delete this result")));
     } else {
       // 0.12: the answer (with who says what, and documents added since), then the evidence, then the other AI models,
       // then notes and downloads: each section one purpose
@@ -335,13 +511,16 @@ export async function renderResult(view, [hypId], query) {
       box.appendChild(evidenceHead(r, allPassages, single));
       if (evidenceView === "table" && allPassages.length) box.appendChild(excerptTable(parts, single));
       for (const part of parts) box.appendChild(partView(part, r, single));
+      unreadSlot = h("div", { class: "unread-slot" });   // roadmap N5: filled when its numbers come (refreshUnread)
+      box.appendChild(unreadSlot);
+      refreshUnread(r);
       box.appendChild(modelsCard(r, allPassages));
       box.appendChild(noteCard(r));
       box.appendChild(downloadsCard(r, parts));
       box.appendChild(h("div", { class: "result-foot" }, techCard(r, parts),
         // 0.16 (F5): your judgements as they were before each change, to compare and restore
-        historyButton("check", hypId, { text: "History of your judgements", onRestored: async () => { current = await api("GET", `/api/projects/${P(project)}/hypotheses/${P(hypId)}?threshold=${threshold}`); draw(current); } }),
-        h("button", { class: "link-btn danger-link", type: "button", onClick: () => deleteHyp(r) }, icon("trash", { size: 13 }), "Delete this result")));
+        historyButton("check", hypId, { text: "History of your judgements", onRestored: () => load().catch(showError) }),
+        button({ kind: "danger", sm: true, onClick: () => deleteHyp(r) }, icon("trash", { size: 13 }), "Delete this result")));
     }
 
     // keep the person's place after a save or a re-read: the card they acted on stays where it was on the screen,
@@ -354,7 +533,7 @@ export async function renderResult(view, [hypId], query) {
     }
     if (focusAfter) {
       const f = focusAfter; focusAfter = null;
-      const el = box.querySelector(`${f.claim_id ? `[data-claim="${CSS.escape(f.claim_id)}"] ` : ""}[data-passage="${CSS.escape(f.passage_id)}"]`);
+      const el = findCard(f.claim_id, f.passage_id);
       if (el) {
         const fl = el.closest("details"); if (fl && !fl.open) { fl.open = true; openFolds.add(fl.dataset.fold); }
         const nowIn = el.closest(".also-read") ? "rest" : "evidence";
@@ -368,19 +547,18 @@ export async function renderResult(view, [hypId], query) {
           const what = movedList ? (nowIn === "rest" ? "Moved to “not about this hypothesis”" : "Moved into the evidence list")
             : `Moved ${newIndex > f.index ? "down" : "up"} the list (sorted by judgement)`;
           const showIt = () => { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("ev-flash"); setTimeout(() => el.classList.remove("ev-flash"), 1800); };
-          const ph = h("div", { class: "moved-ph", role: "status" }, icon("arrow-right", { size: 13 }),
-            h("span", {}, what, " · "),
-            h("button", { class: "link-btn", type: "button", onClick: showIt }, "Show it"),
-            f.undo ? [" · ", h("button", { class: "link-btn", type: "button", onClick: f.undo }, "Undo")] : null);
+          // the place it left: a one-line note like the card's own (which is the one a screen reader hears)
+          const ph = notice({ kind: "info", icon: "arrow-right", class: "moved-ph" },
+            h("p", {}, what, " · ", link({ kind: "jump", onClick: showIt }, "Show it")));
           if (oldList) {
             const kids = [...oldList.children].filter((e) => e.classList.contains("ev") && e !== el);
             // insert before the card that now holds the old index (the card itself is skipped: it left that place)
             oldList.insertBefore(ph, kids[Math.min(f.index, kids.length)] || null);
           } else el.parentElement.insertBefore(ph, el);
           // and the card itself says where it went
-          el.insertBefore(h("div", { class: "moved-note", role: "status" }, icon("arrow-right", { size: 13 }),
-            h("span", {}, movedList ? (nowIn === "rest" ? "Moved here, to the excerpts that are not about this: " : "Moved here, into the evidence: ") : `Moved ${newIndex > f.index ? "down" : "up"} to here, among the excerpts judged “${group}”: `, f.reason || "the list is sorted by judgement, and this one's judgement changed."),
-            f.undo ? h("button", { class: "link-btn", type: "button", onClick: f.undo }, "Undo") : null), el.firstChild);
+          el.insertBefore(notice({ kind: "info", icon: "arrow-right", role: "status", class: "ev-moved" },
+            h("p", {}, movedList ? (nowIn === "rest" ? "Moved here, to the excerpts that are not about this: " : "Moved here, into the evidence: ") : `Moved ${newIndex > f.index ? "down" : "up"} to here, among the excerpts judged “${group}”: `, f.reason || "the list is sorted by judgement, and this one's judgement changed.",
+              f.undo ? [" ", button({ kind: "quiet", sm: true, onClick: f.undo }, f.undoText)] : null)), el.firstChild);
         }
         // same place on the screen as before, when it was in view then; otherwise bring it into view. With an
         // anchor (the judgement row the person clicked), that row is what stays put, so no button moves under the pointer
@@ -394,11 +572,17 @@ export async function renderResult(view, [hypId], query) {
         }
         el.classList.add("ev-flash");
         setTimeout(() => el.classList.remove("ev-flash"), 1800);
+        // the button that was pressed was drawn again: the keyboard goes on from the card's way back (its note's
+        // Back to “…”, else the first button of its judging row), never from the top of the page
+        if (!document.activeElement || document.activeElement === document.body) {
+          const next = el.querySelector(".ev-moved .btn") || el.querySelector(".judge-row button");
+          if (next) next.focus({ preventScroll: true });
+        }
       }
     }
     if (returnTo) {
       const id = returnTo; returnTo = null;
-      const el = typeof id === "object" ? box.querySelector(`[data-claim="${CSS.escape(id.claim_id)}"] [data-passage="${CSS.escape(id.passage_id)}"]`) : box.querySelector(`[data-passage="${CSS.escape(id)}"]`);
+      const el = typeof id === "object" ? findCard(id.claim_id, id.passage_id) : findCard(null, id);
       if (el) {
         const fl = el.closest("details"); if (fl && !fl.open) { fl.open = true; openFolds.add(fl.dataset.fold); }
         requestAnimationFrame(() => { el.scrollIntoView({ block: "center" }); el.classList.add("ev-flash"); setTimeout(() => el.classList.remove("ev-flash"), 2200); });
@@ -416,7 +600,7 @@ export async function renderResult(view, [hypId], query) {
     const next = App.statusNext(st);
     const bal = r.balance || {};
     const judged = allPassages.filter(about).length;
-    const card = h("section", { class: `card card-verdict v-${st} answer`, "aria-label": "Answer" });
+    const card = cardBox({ class: "answer", "aria-label": "Answer" });
     let sentence = null;
     if (r.decomposed) {
       sentence = h("span", { title: "The hypothesis holds only if every part does: the part with the weakest evidence decides." }, partsLine(parts));
@@ -442,10 +626,12 @@ export async function renderResult(view, [hypId], query) {
     const order = unchecked ? "the ones that count first" : disagreeNew ? "where the second opinion differs first" : scopeNew ? "“about another group” first" : "";
     const allRead = parts.length && parts.every((p) => p.more_available === false);
     let advice = allRead && /more evidence|other words/i.test(next || "") ? "Every matching excerpt has been read; read the excerpts and judge them yourself." : next;
-    const nextBtn = relevantLeft ? h("button", { class: "btn btn-primary next-review", type: "button", onClick: nextToReview,
+    // the page's main action: each press steps to another excerpt still to judge, switching the evidence to cards and
+    // opening a fold when it must, so it is a button (docs/DESIGN.md, section 6); the second steps the same way
+    const nextBtn = relevantLeft ? button({ kind: "main", class: "next-review", onClick: nextToReview,
       title: [advice, order ? `It goes to the excerpts you have not reviewed, ${order}.` : "It goes to the excerpts you have not reviewed."].filter(Boolean).join(" ") },
       "Next to review", icon("arrow-right", { size: 14 })) : null;
-    const restBtn = !relevantLeft && restLeft ? h("button", { class: "link-btn", type: "button", onClick: () => nextToReview({ quiet: true }) }, `Review the ${restLeft} ${restLeft === 1 ? "excerpt" : "excerpts"} judged not about it`) : null;
+    const restBtn = !relevantLeft && restLeft ? button({ sm: true, onClick: () => nextToReview({ quiet: true }) }, `Review the ${restLeft} ${restLeft === 1 ? "excerpt" : "excerpts"} judged not about it`) : null;
     // who judged what the answer rests on: the AI (named), you for some, or you for all of it
     const basis = !reviewed.length ? (allPassages.some((p) => p.ai_verdict) ? "judged by the AI" : null) : relevantLeft === 0 ? "reviewed by you" : "partly reviewed by you";
     // at most one caution: what makes this answer fragile
@@ -464,8 +650,14 @@ export async function renderResult(view, [hypId], query) {
     card.appendChild(h("div", { class: "answer-status" },
       statusBadge(st, { size: "lg", text: r.status_text || App.statusText(st), title: App.statusHelp(st) || null }),
       strongerMark(r.status_before_stronger, r.stronger),
-      basis ? h("span", { class: "basis-text", title: `Who judged the excerpts this answer rests on${r.model ? `. The AI model: ${r.model} (more under Technical details)` : ""}` }, basis) : null));
+      // 0.17.0 (M5): reviewed by you as a small mark (the words its tooltip); "judged by the AI" stays words
+      reviewed.length ? reviewedMark(relevantLeft !== 0)
+        : basis ? h("span", { class: "basis-text", title: `Who judged the excerpts this answer rests on${r.model ? `. The AI model: ${r.model} (more under Technical details)` : ""}` }, basis) : null));
     if (sentence) card.appendChild(h("p", { class: "answer-sentence" }, sentence));
+    const said = assessmentBlock(r.assessment, r.status);
+    if (said) card.appendChild(said);
+    const nsSwitch = nonsciSwitch(r);   // 0.19.0 (K3)
+    if (nsSwitch) card.appendChild(nsSwitch);
     if (r.decomposed) {
       card.appendChild(h("ol", { class: "answer-part-list part-grid" }, parts.map((p) => h("li", {},
         h("a", { href: `#part-${p.part}`, class: "part-claim-link", onClick: jumpTo(`part-${p.part}`) }, `${p.part}. ${p.claim}`),
@@ -478,21 +670,100 @@ export async function renderResult(view, [hypId], query) {
     }
     const added = addedSince(r);
     if (added) card.appendChild(added);
-    for (const note of [whatsNew ? whatsNewText(whatsNew, single) : null, followNote].filter(Boolean)) {
-      card.appendChild(h("p", { class: "whats-new", role: "status" }, icon("sparkles", { size: 13 }), h("span", {}, "Just now: ", note)));
+    const justMoved = movedNote; movedNote = null;   // said once: the next card made does not repeat it
+    for (const note of [whatsNew ? whatsNewText(whatsNew, single) : null, followNote, justMoved].filter(Boolean)) {
+      card.appendChild(notice({ kind: "done", role: "status", class: "answer-note" }, h("p", {}, "Just now: ", note)));
     }
     if (lastRun) {
-      card.appendChild(h("p", { class: "run-summary" }, icon("circle-check", { size: 14 }), h("span", {}, `Done in ${fmt.secs(lastRun.seconds)}`, lastRun.summary ? h("span", { class: "muted" }, ` · ${lastRun.summary}`) : null)));
+      card.appendChild(notice({ kind: "done", role: "status", class: "answer-note" }, h("p", {}, `Done in ${fmt.secs(lastRun.seconds)}`, lastRun.summary ? h("span", { class: "muted" }, ` · ${lastRun.summary}`) : null)));
       lastRun = null;
     }
     const own = ownOnly && relevantLeft ? `The answer rests on your own judgements only${aiBelow ? " (the AI's were below your strictness)" : ""}.` : null;
     const text = caution && done ? `${caution} You have reviewed the evidence; download it for Excel, or add notes.` : caution || done || own || (!nextBtn ? advice : null);
     if (text || nextBtn || restBtn) {
       card.appendChild(h("div", { class: "answer-next" + (card.querySelector(".who, .answer-part-list") ? "" : " answer-next-plain") },
-        text ? h("p", { class: "answer-next-text" + (caution ? " answer-caution" : "") }, caution ? icon("alert-triangle", { size: 14 }) : null, text) : null,
+        // a caution is a notice: attention when it asks you to act (excerpts to review, a part that did not finish),
+        // info when it only says what the answer rests on (DESIGN 4.12)
+        text && caution ? notice({ kind: r.incomplete || unchecked || forYou ? "attention" : "info", class: "answer-caution" }, h("p", {}, text))
+          : text ? h("p", { class: "answer-next-text" }, text) : null,
         nextBtn || restBtn ? h("div", { class: "answer-next-actions" }, nextBtn, restBtn) : null));
     }
     return card;
+  }
+
+  // 0.18.1 (N4): the assessment in words, made by rules from the judgements (never by an AI). The verdict's own sentence
+  // is left out here (the badge and who says what say it; the exports keep it). A sentence that rests on excerpts takes
+  // you to the first of them.
+  function assessmentBlock(a, status) {
+    // what the card says already is not said twice here: the excerpts that wait for you (its caution), and those below
+    // your strictness when that is the whole answer ("too unsure to count")
+    const said = ((a && a.sentences) || []).filter((x) => x.rule !== "verdict" && x.rule !== "waiting-for-you"
+      && !(x.rule === "below-strictness" && status === "uncertain"));
+    if (!said.length) return null;
+    const goTo = (ref) => () => {
+      const [claimId, passageId] = ref.split("/");
+      const el = findCard(claimId, passageId);
+      if (!el) return;
+      const fl = el.closest("details"); if (fl && !fl.open) { fl.open = true; openFolds.add(fl.dataset.fold); }
+      el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("ev-flash"); setTimeout(() => el.classList.remove("ev-flash"), 1800);
+    };
+    return h("div", { class: "answer-assessment small", role: "group", "aria-label": "The assessment in words",
+      title: "Written by rules from the judgements, never by an AI. It changes no verdict." },
+      said.map((x) => h("p", { class: x.rule === "moved-by" ? "assessment-moved" : null, "data-rule": x.rule },
+        x.rule === "moved-by" ? icon("user", { size: 12 }) : null, x.rule === "moved-by" ? " " : null, x.text,
+        x.refs && x.refs.length ? " " : null,
+        x.refs && x.refs.length ? button({ kind: "quiet", sm: true, onClick: goTo(x.refs[0]),
+          "aria-label": `Show the excerpt this rests on${x.refs.length > 1 ? ` (the first of ${x.refs.length})` : ""}` }, "Show") : null)));
+  }
+
+  // 0.19.0 (roadmap K3): the exception. Where the check read documents marked Non-scientific (or counts them already),
+  // a switch counts them in this check alone, for when newspapers, blogs or brochures are the material the hypothesis
+  // is about. The answer changes at once; the research log keeps both answers; it travels with the check. Turning it on
+  // is one action; while it is on, an optional reason sits under it (changed, or emptied for the usual one, on Save).
+  const NONSCI_REASON = "they are the material this hypothesis is about";   // nonscientific.REASON
+  function nonsciSwitch(r) {
+    if (!r.nonscientific_read && !r.count_nonscientific) return null;
+    const help = r.count_nonscientific
+      ? `Counted here as any document: ${r.count_nonscientific_why || NONSCI_REASON}. In every other check they are read and judged, never counted.`
+      : "For when newspapers, blogs or brochures are the material this hypothesis is about, so they are its evidence. Off: their excerpts are read and judged here, never counted, as in every other check.";
+    const sw = switchControl("Count non-scientific documents in this check", !!r.count_nonscientific, { help });
+    sw.classList.add("answer-nonsci");
+    if (r.count_nonscientific) sw.appendChild(nonsciReason(r));
+    sw.input.addEventListener("change", async () => {
+      const on = sw.input.checked;
+      sw.input.disabled = true;
+      try {
+        const out = await api("PUT", `/api/projects/${P(project)}/hypotheses/${P(hypId)}/nonscientific`, { count: on });
+        toast(out.was_text !== out.now_text ? `The answer changed from ${out.was_text} to ${out.now_text}.` : `The answer stays ${out.now_text}.`, "ok", { small: out.was_text === out.now_text });
+        await load();
+      } catch (e) { sw.input.checked = !on; sw.input.disabled = false; showError(e); }
+    });
+    return sw;
+  }
+
+  // the reason under the switch while it is on: optional; saved on Save or Enter; an emptied one gives the usual reason
+  // back. Each change is one research-log entry (nonscientific.set_counting).
+  function nonsciReason(r) {
+    const was = r.count_nonscientific_why || "";
+    const why = fieldInput({ maxlength: 500, autocomplete: "off", value: was, placeholder: NONSCI_REASON });
+    const save = button({ kind: "quiet", disabled: true }, "Save reason");
+    const f = field("Why they count here (optional)", why, { class: "answer-nonsci-why",
+      help: "Shown on this page, in the assessment and in the Excel download, and kept in the research log. Left empty, the usual reason is given." });
+    const row = h("div", { class: "answer-nonsci-why-row" });
+    why.replaceWith(row);
+    append(row, [why, save]);
+    why.addEventListener("input", () => { save.disabled = why.value.trim() === was; });
+    why.addEventListener("keydown", (e) => { if (e.key === "Enter" && !save.disabled) { e.preventDefault(); save.click(); } });
+    save.addEventListener("click", async () => {
+      const now = why.value.trim();
+      save.disabled = true;
+      try {
+        await api("PUT", `/api/projects/${P(project)}/hypotheses/${P(hypId)}/nonscientific`, { count: true, why: now });
+        toast(now ? "Your reason is saved." : "Your reason is taken away: the usual one is given again.", "ok", { small: true });
+        await load();
+      } catch (e) { save.disabled = false; showError(e); }
+    });
+    return f;
   }
 
   // "2 documents for, 1 partly, 1 against"
@@ -536,16 +807,37 @@ export async function renderResult(view, [hypId], query) {
   // "Next to review": moves on from the card it went to last, in this order (0.12): the judgements that count in the
   // answer (those where the second opinion differs or the AI noted another group first), then the other flagged ones,
   // then the rest; cards with only a comment ("come back later") come last. It wraps around.
+  // 0.18.1 (H5): worked out from the data, not from the cards in the page, as a long list draws only its first cards:
+  // the same cards in the same order as the page shows them (partLists), each with the same marks the card carries.
   function reviewOrder() {
-    const all = [...box.querySelectorAll(".ev")].filter((e) => e.dataset.reviewed === "0");
-    const key = (e) => `${e.dataset.claim}|${e.dataset.passage}`;
-    const plain = all.filter((e) => e.dataset.comment === "0");
-    const flagged = (e) => e.dataset.disagree === "1" || e.dataset.scope === "1";
-    const groups = [plain.filter((e) => e.dataset.counted === "1" && flagged(e)), plain.filter((e) => e.dataset.counted === "1"),
-      plain.filter(flagged), plain, all.filter((e) => e.dataset.comment === "1")];
+    const all = [];
+    for (const part of (current && current.parts) || []) {
+      const L = partLists(part);
+      for (const p of [...L.shown, ...L.forYou, ...L.rest]) if (!p.reviewed) all.push({ part, p });
+    }
+    const key = (e) => `${e.part.claim_id}|${e.p.passage_id}`;
+    const noted = (e) => !e.p.reviewed && !!e.p.user_note;   // "come back later": after everything else
+    const plain = all.filter((e) => !noted(e));
+    const flagged = (e) => (e.p.second && !e.p.second.agrees) || !!e.p.scope_note;
+    const groups = [plain.filter((e) => e.p.counted && flagged(e)), plain.filter((e) => e.p.counted),
+      plain.filter(flagged), plain, all.filter(noted)];
     const seen = new Set(), out = [];
     for (const g of groups) for (const e of g) { if (!seen.has(key(e))) { seen.add(key(e)); out.push(e); } }
     return { list: out, key };
+  }
+  // The card of an excerpt: found in the page, or drawn first when it lies in a long list beyond the cards drawn so
+  // far. claimId may be null (the first card of that excerpt). null when no card holds it (the table view).
+  function findCard(claimId, passageId) {
+    const sel = `${claimId ? `[data-claim="${CSS.escape(claimId)}"] ` : ""}[data-passage="${CSS.escape(passageId)}"]`;
+    let el = box.querySelector(sel);
+    if (el) return el;
+    for (const l of lazies) {
+      if (claimId && l.claim_id !== claimId) continue;
+      if (!l.lazy.reveal((q) => q.passage_id === passageId)) continue;
+      el = box.querySelector(sel);
+      if (el) return el;
+    }
+    return null;
   }
   function goToCard(el) {
     const fl = el.closest("details");
@@ -561,6 +853,9 @@ export async function renderResult(view, [hypId], query) {
     let el = list.find((e) => !visitedNext.has(key(e)));
     if (!el) { visitedNext.clear(); el = list[0]; toast("Back to the first excerpt still to review: every one was shown once.", "info", { small: true, ttl: 3000 }); }
     visitedNext.add(key(el));
+    const entry = el;
+    el = findCard(entry.part.claim_id, entry.p.passage_id);   // draws it first when it lies beyond the cards drawn so far
+    if (!el) return;
     // 0.12: past the evidence, it says that it now goes to the excerpts the AI found not about the hypothesis
     if (!opts.quiet && el.closest(".also-read") && !el.closest(".also-read").open) toast("The evidence is reviewed: next, the excerpts the AI found not about the hypothesis.", "info", { small: true, ttl: 4000 });
     goToCard(el);
@@ -575,17 +870,104 @@ export async function renderResult(view, [hypId], query) {
     if (!added.length) return null;
     const n = added.length, m = added.filter((d) => d.matching).length;
     const busy = [...running.values()].filter((x) => x.kind === "read-new");
-    const btn = h("button", { class: "btn btn-sm", type: "button", disabled: busy.length > 0,
+    const btn = button({ sm: true, disabled: busy.length > 0,
       title: m ? `The AI reads only ${m === 1 ? "that document" : "those documents"}, as a further search for ${r.decomposed ? "every part" : "this hypothesis"}. The check is not run again, so your reviews are kept.${m === n ? "" : " The others are marked as looked at."}`
         : "Nothing in them shares a word with the hypothesis. Marking them as looked at stops this notice; the check is not run again." },
       icon(m ? "book-open" : "check", { size: 13 }), m ? (m === 1 ? "Read it" : "Read them") : "Mark as looked at");
     btn.addEventListener("click", () => runReadNew(btn));
-    const list = fold("added", { class: "fold added-list-fold" }, h("summary", {}, n === 1 ? "Which one" : "Which ones"),
+    const list = keptFold("added", { sm: true, class: "added-list-fold" }, n === 1 ? "Which one" : "Which ones",
       h("ul", { class: "added-list" }, added.map((d) => h("li", {}, h("a", { href: `#/doc/${encodeURIComponent(d.doc_id)}?from=${encodeURIComponent(hypId)}` }, d.title || "untitled"),
         h("span", { class: "muted" }, d.matching ? " · has matching excerpts" : " · nothing in it matches")))));
-    return h("div", { class: "answer-added", role: "status" }, icon("upload", { size: 14 }),
-      h("div", { class: "grow" }, h("p", {}, `${n} ${n === 1 ? "document was" : "documents were"} added since this check; ${m === 0 ? "none has" : m === 1 ? "1 has" : `${m} have`} matching excerpts.`), list, busy.map((x) => x.mini.el)),
-      btn);
+    // a notice with its one action; the AI line under the action (docs/DESIGN.md 4.4, 4.12)
+    return notice({ kind: "info", icon: "upload", role: "status", class: "answer-added" },
+      h("p", {}, `${n} ${n === 1 ? "document was" : "documents were"} added since this check; ${m === 0 ? "none has" : m === 1 ? "1 has" : `${m} have`} matching excerpts.`), list, busy.map((x) => x.mini.el),
+      h("div", { class: "btn-row" }, m ? withAI(btn) : btn),
+      m ? readsLine(m === 1 ? "only that document's excerpts" : "only those documents' excerpts") : null);
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Roadmap N5: the documents this check never read. Asked again of the keyword search with the check's own words
+  // (GET …/unread: nothing is read, no answer changes), after the page is drawn, and again only when the check read
+  // more or the documents changed. A neutral count, never a verdict on a document. Nothing when both groups are empty.
+  function refreshUnread(r) {
+    const key = JSON.stringify([(r.parts || []).map((p) => [p.claim_id, (p.rounds_info || []).length, (p.passages || []).length]),
+      (r.docs_added_since || []).length, r.documents_in_project]);
+    if (key === unreadKey) { fillUnread(); return; }
+    unreadKey = key;
+    api("GET", `/api/projects/${P(project)}/hypotheses/${P(hypId)}/unread`)
+      .then((u) => { if (unreadKey === key) { unread = u; fillUnread(); } })
+      .catch(() => { if (unreadKey === key) unreadKey = null; });   // quiet: the page works without it
+  }
+
+  function fillUnread() {
+    if (!unreadSlot || !unreadSlot.isConnected) return;
+    replace(unreadSlot, unread ? unreadCard(unread) : null);
+  }
+
+  function unreadCard(u) {
+    const m = u.matching_n || 0, z = u.no_word_n || 0, one = u.one_word_n || 0;
+    if (!u.checked || (!m && !z)) return null;
+    const docs = (n) => `${n} ${n === 1 ? "document" : "documents"}`;
+    const list = (key, items, n) => keptFold(`unread:${key}`, { sm: true, class: "unread-list-fold" }, n === 1 ? "Which one" : "Which ones",
+      h("ul", { class: "added-list unread-list" }, items.map((d) => h("li", {}, h("a", { href: `#/doc/${encodeURIComponent(d.doc_id)}?from=${encodeURIComponent(hypId)}` }, d.title || "untitled"))),
+        n > items.length ? h("li", { class: "muted" }, `and ${n - items.length} more`) : null));
+    const parts = [];
+    if (m) {
+      const busy = [...running.values()].filter((x) => x.kind === "read-unread");
+      const btn = button({ sm: true, disabled: busy.length > 0 || !!u.waits,
+        title: u.waits || `The AI reads the best excerpts of ${m === 1 ? "that document" : "those documents"} (up to one excerpt a document, at most 40 at a time), as a further search for ${current && current.decomposed ? "every part" : "this hypothesis"}. The check is not run again, so your reviews are kept.` },
+        icon("book-open", { size: 13 }), m === 1 ? "Read it" : "Read these");
+      btn.addEventListener("click", () => runReadUnread(btn));
+      parts.push(h("div", { class: "unread-group" },
+        h("p", {}, `${docs(m)} with the search words ${m === 1 ? "was" : "were"} never read in this check.`),
+        list("matching", u.matching || [], m), busy.map((x) => x.mini.el),
+        h("div", { class: "btn-row" }, withAI(btn)),
+        u.waits ? h("p", { class: "muted small" }, u.waits) : null,
+        readsLine(m === 1 ? "only that document's excerpts" : "only those documents' excerpts")));
+    }
+    if (z) {
+      const other = button({ kind: "quiet", sm: true, title: "Opens “Search with other words” below: type words your documents might use.", onClick: openOtherWords },
+        icon("search", { size: 13 }), "Search with other words");
+      parts.push(h("div", { class: "unread-group" },
+        h("p", {}, `${docs(z)} ${z === 1 ? "shares" : "share"} no word with this hypothesis or its search words: ${z === 1 ? "it may be" : "they may be"} off its topic, or say it in other words.`,
+          one ? h("span", { class: "muted" }, ` ${docs(one)} more ${one === 1 ? "shares" : "share"} a single word with it.`) : null),
+        list("none", u.no_word || [], z), h("div", { class: "btn-row" }, other)));
+    }
+    const help = helpMark("How is this counted?", "No excerpt of these documents was shown in this check. The keyword search is asked again with the check's own words (nothing is read): “with the search words” means an excerpt holds at least two different words of the hypothesis or its search words. Theory documents, documents added since the check, documents with no readable text and documents the check was limited away from are not counted. A document never read is not a weak one, and this changes no answer.", { size: 15 });
+    return cardBox({ sm: true, class: "unread-card", title: "Documents not read in this check", titleId: "unread-h", level: "h3", help }, parts);
+  }
+
+  // "Search with other words": opens the box of every part (the first one gets the focus)
+  function openOtherWords() {
+    for (const p of (current && current.parts) || []) termsOpen.add(p.claim_id);
+    draw(current);
+    const input = box.querySelector(".more-terms:not([hidden]) input");
+    if (input) { input.scrollIntoView({ behavior: "smooth", block: "center" }); input.focus({ preventScroll: true }); }
+  }
+
+  async function runReadUnread(btn) {
+    btn.disabled = true;
+    try {
+      const res = await api("POST", `/api/projects/${P(project)}/hypotheses/${P(hypId)}/read-unread`);
+      followJob(res.job.id, "read-unread", "Reading the documents not read yet", async (job, fresh) => {
+        const me = job.result || {};
+        let aboutN = 0;
+        for (const rd of me.rounds || []) {
+          const fp = (fresh.parts || []).find((x) => x.claim_id === rd.claim_id);
+          if (!fp || !rd.passages) continue;
+          newRound.set(rd.claim_id, rd.round);
+          const newOnes = (fp.passages || []).filter((x) => x.round === rd.round);
+          aboutN += newOnes.filter(about).length;
+          if (newOnes.length && !newOnes.some(about)) openFolds.add(`rest:${rd.claim_id}`);
+        }
+        const n = me.passages || 0, dr = me.documents_read || 0, left = me.left || 0;
+        const docsWord = (k) => `${k} ${k === 1 ? "document" : "documents"}`;
+        const leftLine = left ? ` ${docsWord(left)} with the search words ${left === 1 ? "is" : "are"} still unread: press again to read further.` : "";
+        followNote = n ? `${n} more ${n === 1 ? "excerpt" : "excerpts"} read from ${docsWord(dr || 1)} with the search words, ${aboutN} of them about ${fresh.decomposed ? "a part of this hypothesis" : "this hypothesis"} (marked new below). Your reviews are kept.${leftLine}`
+          : "No further excerpt of those documents could be read for this hypothesis.";
+        toast(n ? `${n} more ${n === 1 ? "excerpt" : "excerpts"} read.` : "Nothing more was read.", n ? "ok" : "info", { small: true, ttl: 4000 });
+      });
+    } catch (e) { showError(e); btn.disabled = false; }
   }
 
   // ------------------------------------------------------------------------------------------
@@ -604,13 +986,13 @@ export async function renderResult(view, [hypId], query) {
     const read = r.excerpts_read ?? allPassages.length;
     const disagree = r.disagreements || 0;
     const busy = [...running.values()];
-    const card = h("section", { class: "card ask-card", "aria-label": "Ask another AI model" });
+    // its head is made below, once the help is known
     // the model that gives second opinions, and where to change it: in the help, not in the flow
     const modelNote = secondUsable && !changingSecond ? h("span", { class: "ask-model" }, " Second opinions come from ", h("strong", { title: sizeHint(secondSet).trim() || null }, name || secondSet),
-      name ? [", set in ", h("a", { href: "#/settings/routing" }, "Settings"), "."] : [" (", h("button", { class: "link-btn", type: "button", onClick: () => { changingSecond = true; draw(current); } }, "change"), ")."]) : null;
-    const help = popNote(h("button", { class: "link-btn help-mark", type: "button", "aria-label": "What is the difference between the two?" }, icon("help", { size: 15 })),
-      h("span", {}, "A stronger model judges the excerpts again, and its judgements take the place of the first AI's, so the answer can change: a small mark beside the answer then says what it was at first, and each changed excerpt shows both readings. A second opinion is another model's own reading, shown beside the first AI's on each excerpt: it never changes the answer, and points you to excerpts worth reading yourself.", modelNote), { wide: true });
-    card.appendChild(h("div", { class: "card-head" }, h("h2", {}, "Ask another AI model", help)));
+      name ? [", set in ", h("a", { href: "#/settings/routing" }, "Settings"), "."] : [". ", button({ kind: "quiet", sm: true, onClick: () => { changingSecond = true; draw(current); } }, "change")]) : null;
+    const help = helpMark("What is the difference between the two?",
+      h("span", {}, "A stronger model judges the excerpts again, and its judgements take the place of the first AI's, so the answer can change: a small mark beside the answer then says what it was at first, and each changed excerpt shows both readings. A second opinion is another model's own reading, shown beside the first AI's on each excerpt: it never changes the answer, and points you to excerpts worth reading yourself.", modelNote), { size: 15 });
+    const card = cardBox({ class: "ask-card", title: "Ask another AI model", titleId: "ask-card-h", help });
     // 0.12: what has happened first, one line each; then the buttons side by side, what each does in its tooltip
     // (the help mark says it at length)
     const facts = [], buttons = [];
@@ -646,7 +1028,7 @@ export async function renderResult(view, [hypId], query) {
     } else if ((current.stronger_model && canStep) || stepped || stepping) {
       let strongBtn = null;
       if (current.stronger_model && canStep) {
-        strongBtn = h("button", { class: "btn btn-sm", type: "button", disabled: busy.some((x) => x.kind === "stronger") }, stepped ? `Ask it for the ${canStep === 1 ? "new search" : `${canStep} new searches`}` : "Ask a stronger model");
+        strongBtn = button({ sm: true, disabled: busy.some((x) => x.kind === "stronger") }, stepped ? `Ask it for the ${canStep === 1 ? "new search" : `${canStep} new searches`}` : "Ask a stronger model");
         strongBtn.title = `The stronger model: ${current.stronger_model}`;
         strongBtn.addEventListener("click", () => runStronger(strongBtn));
       }
@@ -661,17 +1043,20 @@ export async function renderResult(view, [hypId], query) {
     if (secondUsable && !changingSecond) {
       let secBtn = null;
       if (!allSecond) {
-        secBtn = h("button", { class: "btn btn-sm", type: "button", disabled: busy.some((x) => x.kind === "second-opinion"), title: auditor ? null : ONE_MODEL_NOTE }, secondRead ? "Second opinion on the rest" : "Get a second opinion");
+        secBtn = button({ sm: true, disabled: busy.some((x) => x.kind === "second-opinion"), title: auditor ? null : ONE_MODEL_NOTE }, secondRead ? "Second opinion on the rest" : "Get a second opinion");
         secBtn.addEventListener("click", () => runSecondOpinion(secBtn));
       }
       row(secBtn, secState);
     } else if (secondRead) row(null, secState);
     if (noStronger) facts.push(noStronger);
     if (facts.length) card.appendChild(h("div", { class: "ask-facts" }, facts));
-    if (buttons.length) card.appendChild(h("div", { class: "btn-row ask-buttons" }, buttons));
-    if (!auditor && !(secondUsable && !changingSecond)) card.appendChild(secondModelPicker(mainModel, secondUsable ? secondSet : "", busy.some((x) => x.kind === "second-opinion")));
-    const jobs = busy.filter((x) => !x.passage_id && x.kind !== "read-new" && x.kind !== "read-local").map((x) => x.mini.el);
+    // one AI mark for the row of buttons, and the card's AI line at its foot (docs/DESIGN.md 4.4)
+    if (buttons.length) card.appendChild(h("div", { class: "btn-row ask-buttons" }, withAI(buttons)));
+    const picker = !auditor && !(secondUsable && !changingSecond);
+    if (picker) card.appendChild(secondModelPicker(mainModel, secondUsable ? secondSet : "", busy.some((x) => x.kind === "second-opinion")));
+    const jobs = busy.filter((x) => !x.passage_id && x.kind !== "read-new" && x.kind !== "read-unread" && x.kind !== "read-local").map((x) => x.mini.el);
     if (jobs.length) card.appendChild(h("div", { class: "stack ask-jobs" }, jobs));
+    if (buttons.length || picker) card.appendChild(readsLine("the excerpts again", { class: "ask-reads", model: auditor ? null : secondSet || null }));
     return card;
   }
 
@@ -684,13 +1069,13 @@ export async function renderResult(view, [hypId], query) {
   // No second model yet: choose one right here, from the other chat models the server has, and ask it, in one step.
   // The choice is saved in Settings (second_model) when the button is pressed.
   function secondModelPicker(mainModel, currentChoice, busy) {
-    const sel = h("select", { class: "select input-sm", "aria-label": "Model for second opinions", disabled: true,
+    const sel = selectField({ sm: true, "aria-label": "Model for second opinions", disabled: true,
       title: "The number before “b” in a model's name is its size, in billions of parameters: a larger model is usually better, but slower." }, h("option", { value: "" }, "Looking for other models…"));
-    const ask = h("button", { class: "btn btn-sm", type: "button", disabled: true, title: ONE_MODEL_NOTE }, icon("cpu", { size: 13 }), "Get a second opinion");
+    const ask = button({ sm: true, disabled: true, title: ONE_MODEL_NOTE }, "Get a second opinion");
     const state = h("span", { class: "muted small", "aria-live": "polite" });
     const box = h("div", { class: "second-pick" },
       h("p", { class: "ask-state muted" }, h("span", {}, currentChoice ? "Choose another model on this computer " : "Choose a model on this computer ", "(", h("a", { href: "#/settings/second" }, "Settings"), "):")),
-      h("div", { class: "row", style: { gap: "6px 8px" } }, sel, ask, currentChoice ? h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => { changingSecond = false; draw(current); } }, "Keep it") : null, state));
+      h("div", { class: "row res-second-row" }, sel, withAI(ask), currentChoice ? button({ kind: "quiet", sm: true, onClick: () => { changingSecond = false; draw(current); } }, "Keep it") : null, state));
     (serversOnce = serversOnce || api("GET", "/api/servers")).then((r) => {
       const models = [...new Set((r.servers || []).flatMap((x) => x.chat_models || []))].filter((m) => m !== mainModel);
       replace(sel, models.length ? [h("option", { value: "" }, "Choose a model…"), models.map((m) => h("option", { value: m, selected: m === currentChoice }, m))] : h("option", { value: "" }, "No other model is installed"));
@@ -722,7 +1107,7 @@ export async function renderResult(view, [hypId], query) {
     w.promise.then(async (job) => {
       running.delete(jobId);
       let fresh = null;
-      try { fresh = await api("GET", `/api/projects/${P(project)}/hypotheses/${P(hypId)}?threshold=${threshold}`); }
+      try { fresh = await fetchResult(); }   // null: a newer request was made, and draws
       catch (e) { if (e.status === 404) { await load(); return; } showError(e); }   // deleted meanwhile: load() says so
       if (job.state === "done") { try { await onDone(job, fresh || current); } catch (e) { showError(e); } }
       else if (job.state === "error") (extra.onError ? extra.onError(job) : showError({ message: job.error, kind: job.error_kind }));
@@ -792,11 +1177,11 @@ export async function renderResult(view, [hypId], query) {
   async function adoptRunningJobs() {
     let jobs = [];
     try { jobs = (await api("GET", "/api/jobs")).jobs || []; } catch (_) { return; }
-    const titles = { reread: "Reading one excerpt again", "read-new": "Reading the new documents", "second-opinion": "A second opinion: another model reads the excerpts", stronger: "A stronger model reads the excerpts again", "read-local": READ_LOCAL_TITLE };
+    const titles = { reread: "Reading one excerpt again", "read-new": "Reading the new documents", "read-unread": "Reading the documents not read yet", "second-opinion": "A second opinion: another model reads the excerpts", stronger: "A stronger model reads the excerpts again", "read-local": READ_LOCAL_TITLE };
     for (const j of jobs) {
       if (j.project !== project || !titles[j.kind] || TERMINAL.has(j.state) || running.has(j.id)) continue;
-      if ((j.kind === "stronger" || j.kind === "read-local") && j.scope !== hypId) continue;   // work for another result
-      followJob(j.id, j.kind, titles[j.kind], async () => { followNote = { reread: "The AI has read an excerpt again.", "read-new": "The new documents were read.", "second-opinion": "The second opinion is in.", stronger: "A stronger model has read the excerpts again; its reading counts.", "read-local": "Your local model has read the excerpts from documents marked Only a local AI." }[j.kind]; }, j.kind === "read-local" ? { onError: memoryShort } : {});
+      if ((j.kind === "stronger" || j.kind === "read-local" || j.kind === "read-unread") && j.scope !== hypId) continue;   // work for another result
+      followJob(j.id, j.kind, titles[j.kind], async () => { followNote = { reread: "The AI has read an excerpt again.", "read-new": "The new documents were read.", "read-unread": "The documents with the search words were read.", "second-opinion": "The second opinion is in.", stronger: "A stronger model has read the excerpts again; its reading counts.", "read-local": "Your local model has read the excerpts from documents marked Only a local AI." }[j.kind]; }, j.kind === "read-local" ? { onError: memoryShort } : {});
     }
   }
 
@@ -818,7 +1203,7 @@ export async function renderResult(view, [hypId], query) {
       };
       let pinned = openFolds.has("unread");
       const show = (on) => { unreadLine.hidden = !on; docsEl.setAttribute("aria-expanded", on ? "true" : "false"); if (on) fill(); };
-      docsEl = h("button", { class: "link-btn defined", type: "button", "aria-expanded": pinned ? "true" : "false", "aria-label": `${docsRead} of ${total} documents; which were not read?`,
+      docsEl = h("button", { class: "defined", type: "button", "aria-expanded": pinned ? "true" : "false", "aria-label": `${docsRead} of ${total} documents; which were not read?`,
         onClick: () => { pinned = !pinned; if (pinned) openFolds.add("unread"); else openFolds.delete("unread"); show(pinned); },
         onMouseenter: () => show(true), onMouseleave: () => { if (!pinned) show(false); }, onFocus: () => show(true), onBlur: () => { if (!pinned) show(false); } }, `${docsRead} of ${total} documents`);
       if (pinned) fill();
@@ -879,36 +1264,66 @@ export async function renderResult(view, [hypId], query) {
   }
 
   // ------------------------------------------------------------------------------------------
-  function partView(part, r, single) {
+  // The excerpts of a part as its cards list them (0.18.1: one place, for the cards and for "Next to review"): `shown`
+  // the ones about it (those that count first), `forYou` the ones no model may read, `rest` the ones found not about it.
+  function partLists(part) {
     const passages = part.passages || [];
     const judged = passages.filter(about);
     // 0.11: excerpts no model read (documents marked No AI, or Only a local AI without a local model) wait for you
     const waitingYou = passages.filter((p) => !about(p) && (p.waiting_for_you || p.waiting_local));
     const rest = passages.filter((p) => !about(p) && !waitingYou.includes(p));
+    const byCount = [...judged.filter((x) => x.counted || x.user_verdict), ...judged.filter((x) => !(x.counted || x.user_verdict))];
+    return { judged, shown: byCount, forYou: waitingYou.filter((p) => p.waiting_for_you), rest };
+  }
+
+  // 0.18.1 (H5): a list of cards: all at once when short, else the first LIST_PAGE and the rest as the page scrolls
+  // (lazyList; its footer says how many are drawn). A card drawn later is made from the data as it is then, so a
+  // judgement saved meanwhile shows. [the list, its footer] to append.
+  function evList(items, part) {
+    const make = (q) => {
+      const livePart = ((current && current.parts) || []).find((x) => x.claim_id === part.claim_id) || part;
+      return evidenceCard((livePart.passages || []).find((x) => x.passage_id === q.passage_id) || q, livePart);
+    };
+    const el = h("div", { class: "ev-list" });
+    if (items.length <= LIST_PAGE) { el.append(...items.map((p) => evidenceCard(p, part))); return [el]; }
+    const lazy = lazyList({ items, render: make, pageSize: LIST_PAGE, list: el, noun: ["excerpt", "excerpts"] });
+    lazies.push({ claim_id: part.claim_id, lazy });
+    return [el, lazy.footer];
+  }
+
+  // the head of a split part: its claim, who says what, and its sentence. Marked, so a judgement's in-place update
+  // can make them again (patchInPlace).
+  function partHead(part, r) {
+    const nodes = [h("div", { class: "part-head" },
+      h("div", { class: "grow" }, h("p", { class: "part-claim" }, h("span", { class: "pn" }, `Part ${part.part}: `), part.claim),
+        part.target ? h("div", { class: "res-part-target" }, codeChip(part.framework, part.target, part.target_description, r.code_label)) : null))];
+    const who = whoSaysWhat(part);
+    if (who) { who.classList.add("who-inline"); nodes.push(who); }
+    else nodes.push(h("p", { class: "part-sentence" }, part.status === "uncertain" ? "Judged, but nothing was certain enough to count." : docsCountSentence(part.balance)));
+    for (const n of nodes) n.dataset.live = "head";
+    return nodes;
+  }
+
+  function partView(part, r, single) {
+    const passages = part.passages || [];
+    const { judged, forYou, rest, shown: byCount } = partLists(part);
     const counted = passages.filter((p) => p.counted).length;
-    const card = h("section", { class: "card part-card", "aria-label": single ? "Evidence" : `Part ${part.part}`, tabindex: "-1" });
+    // the evidence of one part lies on the page, not in a box: its excerpt cards are the cards (DESIGN.md 4.11, two levels)
+    const card = h("section", { class: "part-card", "aria-label": single ? "Evidence" : `Part ${part.part}`, tabindex: "-1" });
     card.id = `part-${part.part}`;
     card.dataset.claim = part.claim_id;
-    if (!single) {
-      card.appendChild(h("div", { class: "part-head" },
-        h("div", { class: "grow" }, h("p", { class: "part-claim" }, h("span", { class: "pn" }, `Part ${part.part}: `), part.claim),
-          part.target ? h("div", { style: { marginTop: "6px" } }, codeChip(part.framework, part.target, part.target_description, r.code_label)) : null)));
-      const who = whoSaysWhat(part);
-      if (who) { who.classList.add("who-inline"); card.appendChild(who); }
-
-      else card.appendChild(h("p", { class: "part-sentence" }, part.status === "uncertain" ? "Judged, but nothing was certain enough to count." : docsCountSentence(part.balance)));
-    }
+    if (!single) card.append(...partHead(part, r));
     if (part.status === "failed" && part.errors && part.errors.length) {
-      card.appendChild(h("div", { class: "notice notice-error" }, icon("alert-circle"), h("div", {}, h("p", {}, "The AI's answers could not be used, even after three tries."), h("details", { class: "fold" }, h("summary", {}, "Technical details"), h("ul", { class: "errors-list" }, part.errors.slice(0, 5).map((e) => h("li", {}, e)))))));
+      card.appendChild(notice({ kind: "error" }, h("p", {}, "The AI's answers could not be used, even after three tries."), foldBox({}, "Technical details", h("ul", { class: "errors-list" }, part.errors.slice(0, 5).map((e) => h("li", {}, e))))));
     }
     if (part.local_failed) {
       const n = part.local_failed.passages;
-      card.appendChild(h("div", { class: "notice notice-warn" }, icon("house"), h("div", { class: "grow" }, h("p", {}, `The local model's answers for ${n} ${n === 1 ? "excerpt" : "excerpts"} from documents marked Only a local AI could not be used, even after three tries; ${n === 1 ? "it is" : "they are"} shown without a judgement. Try again (perhaps with another local model, Settings → AI), or judge ${n === 1 ? "it" : "them"} yourself.`),
-        h("div", { class: "btn-row" }, readLocalButton("Read them again on this computer")),
-        part.local_failed.errors.length ? h("details", { class: "fold" }, h("summary", {}, "Technical details"), h("ul", { class: "errors-list" }, part.local_failed.errors.map((e) => h("li", {}, e)))) : null)));
+      card.appendChild(notice({ kind: "attention", icon: "house" }, h("p", {}, `The local model's answers for ${n} ${n === 1 ? "excerpt" : "excerpts"} from documents marked Only a local AI could not be used, even after three tries; ${n === 1 ? "it is" : "they are"} shown without a judgement. Try again (perhaps with another local model, Settings → AI), or judge ${n === 1 ? "it" : "them"} yourself.`),
+        h("div", { class: "btn-row" }, readLocalButton("Read them again on this computer")), aiWhere(localReads(), "local"),
+        part.local_failed.errors.length ? foldBox({}, "Technical details", h("ul", { class: "errors-list" }, part.local_failed.errors.map((e) => h("li", {}, e)))) : null));
     }
     if (part.status === "no_passages") {
-      card.appendChild(h("div", { class: "notice notice-warn" }, icon("search-x"), h("p", {}, "No part of your documents uses words close to this. Try other words below, rephrase the hypothesis, or add documents.")));
+      card.appendChild(notice({ kind: "attention", icon: "search-x" }, h("p", {}, "No part of your documents uses words close to this. Try other words below, rephrase the hypothesis, or add documents.")));
     }
     const what = single ? "this hypothesis" : "this part";
     // 0.12: a split hypothesis says per part what its evidence is; a single one says it once, above the cards
@@ -919,18 +1334,16 @@ export async function renderResult(view, [hypId], query) {
     if (evidenceView === "table") {
       card.appendChild(h("p", { class: "muted small table-note" }, icon("list-checks", { size: 13 }), ` The ${passages.length} ${passages.length === 1 ? "excerpt" : "excerpts"} read for ${what} ${passages.length === 1 ? "is" : "are"} in the table above; click a row to open it as a card.`));
     } else {
-      const byCount = [...judged.filter((x) => x.counted || x.user_verdict), ...judged.filter((x) => !(x.counted || x.user_verdict))];
-      if (judged.length) card.appendChild(h("div", { class: "ev-list" }, byCount.map((p) => evidenceCard(p, part))));
-      const forYou = waitingYou.filter((p) => p.waiting_for_you);
+      if (judged.length) card.append(...evList(byCount, part));
       if (forYou.length) {
         card.appendChild(h("div", { class: "evidence-head" }, h("h3", {}, `Waiting for your judgement: ${forYou.length} ${forYou.length === 1 ? "excerpt" : "excerpts"}`),
           h("span", { class: "muted small" }, "No AI may read these (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other.")));
-        card.appendChild(h("div", { class: "ev-list" }, forYou.map((p) => evidenceCard(p, part))));
+        card.append(...evList(forYou, part));
       }
       if (rest.length) {
-        card.appendChild(fold(`rest:${part.claim_id}`, { class: "fold also-read" }, h("summary", { title: "Listed so you can check the search; you can judge them yourself" }, `${rest.length} ${rest.length === 1 ? "excerpt" : "excerpts"} read that ${rest.length === 1 ? "is" : "are"} not about ${what}`),
+        card.appendChild(keptFold(`rest:${part.claim_id}`, { sm: true, class: "also-read", summaryTitle: "Listed so you can check the search; you can judge them yourself" }, `${rest.length} ${rest.length === 1 ? "excerpt" : "excerpts"} read that ${rest.length === 1 ? "is" : "are"} not about ${what}`,
 
-          h("div", { class: "ev-list" }, rest.map((p) => evidenceCard(p, part)))));
+          ...evList(rest, part)));
       }
     }
     card.appendChild(moreRow(part, r));
@@ -944,23 +1357,24 @@ export async function renderResult(view, [hypId], query) {
     const n = allPassages.length;
     const aboutN = allPassages.filter(about).length;
     const countedN = allPassages.filter((p) => p.counted).length;
-    const below = allPassages.filter((p) => p.verdict && !p.counted).length;
+    const below = allPassages.filter((p) => p.verdict && !p.counted && !p.nonscientific).length;   // 0.18.6: not those, they never count
     const set = (v) => { if (v === evidenceView) return; evidenceView = v; store("evidenceView", v); draw(current); };
-    const btn = (v, label) => h("button", { class: "btn btn-sm seg-btn" + (evidenceView === v ? " seg-on" : ""), type: "button", "aria-pressed": evidenceView === v ? "true" : "false", onClick: () => set(v),
-      title: v === "table" ? "One row per excerpt, with your decisions; click a row to open its card" : "The full text of each excerpt, with its quote, your judgement and the AI's" }, label);
+    const viewChoice = () => choice({ sm: true, class: "view-toggle", label: "How to show the excerpts", value: evidenceView, onPick: set, options: [
+      ["cards", "Cards", null, "The full text of each excerpt, with its quote, your judgement and the AI's"],
+      ["table", "Table", null, "One row per excerpt, with your decisions; click a row to open its card"]] });
     const temp = Math.abs(threshold - setting) > 1e-9;
-    const help = popNote(h("button", { class: "link-btn help-mark", type: "button", "aria-label": "About strictness" }, icon("help", { size: 13 })),
-      h("span", {}, `Your strictness decides which of the AI's judgements count in the answer: only those the AI was at least ${Math.round(threshold * 100)}% sure of${below ? ` (${below} ${below === 1 ? "was" : "were"} less sure here)` : ""}. Your own judgements always count. The AI's certainty is its own estimate, not a check of whether it is right. `,
-        h("button", { class: "link-btn", type: "button", onClick: openStrictness }, "Try another strictness on this page"), "."), { wide: true });
+    const help = helpMark("About strictness",
+      h("span", {}, `Your strictness decides which of the AI's judgements count in the answer: only those the AI was at least ${Math.round(threshold * 100)}% sure of${below ? ` (${below} ${below === 1 ? "was" : "were"} less sure here)` : ""}. Your own judgements always count. The AI's certainty is its own estimate, not a check of whether it is right.`,
+        " ", button({ kind: "quiet", sm: true, onClick: openStrictness }, "Try another strictness on this page")), { size: 13 });
     const strict = h("span", { class: "nowrap ev-strict", id: "strictness", tabindex: "-1" }, `at ${strictness(threshold)} strictness${temp ? " (this page only)" : ""}`, help);
     // 0.12: one line: what counts (said by the answer already when nothing does), and the two rules
     const count = single ? `${countedN} of ${aboutN} ${aboutN === 1 ? "excerpt counts" : countedN === 1 ? "excerpts counts" : "excerpts count"} `
       : `${countedN} of ${aboutN} ${countedN === 1 ? "judgements counts" : "judgements count"} across the parts `;
     return h("div", { class: "ev-section-head" },
       h("div", { class: "ev-title-row" }, h("h2", {}, "Evidence"),
-        n ? h("div", { class: "view-toggle", role: "group", "aria-label": "How to show the excerpts" }, btn("cards", "Cards"), btn("table", "Table")) : null),
+        n ? viewChoice() : null),
       n ? h("p", { class: "ev-section-sub" }, h("span", { class: "ev-count" }, count, strict,
-        temp ? [" ", h("button", { class: "link-btn", type: "button", onClick: () => setThreshold(setting) }, "Back to my strictness")] : null),
+        temp ? [" ", button({ kind: "quiet", sm: true, onClick: () => setThreshold(setting) }, "Back to my strictness")] : null),
         h("span", { class: "ev-rules" }, "Every quote is checked against its document; your judgement overrides the AI's.")) : null);
   }
 
@@ -988,21 +1402,25 @@ export async function renderResult(view, [hypId], query) {
       const you = p.user_verdict ? (p.user_verdict === "not_relevant" ? null : p.user_verdict) : undefined;
       const agreesYou = you === undefined ? null : (p.second.verdict || null) === you;
       const ok = agreesYou === null ? !!p.second.agrees : agreesYou;
-      return h("span", { class: `it ${ok ? "" : "tag-disagree"}` }, icon(ok ? "check" : "arrows-opposed", { size: 12 }), `${gradeWords(p.second.verdict, p.second.confidence)} · ${agreesYou === null ? (p.second.agrees ? "same as the AI" : "differs from the AI") : (agreesYou ? "same as you" : "differs from you")}`);
+      const words = `${gradeWords(p.second.verdict, p.second.confidence)} · ${agreesYou === null ? (p.second.agrees ? "same as the AI" : "differs from the AI") : (agreesYou ? "same as you" : "differs from you")}`;
+      return ok ? h("span", { class: "it" }, icon("check", { size: 12 }), words) : tag({ kind: "attention" }, words);
     };
-    const table = h("table", { class: "table table-responsive ex-table" },
-      h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "#"), split ? h("th", { scope: "col" }, "Part") : null, h("th", { scope: "col" }, "Document"), h("th", { scope: "col" }, "Where"), h("th", { scope: "col" }, "AI's judgement"), h("th", { scope: "col" }, "Your judgement"), h("th", { scope: "col" }, "Counts"), h("th", { scope: "col" }, "Second opinion"))),
-      h("tbody", {}, rows.map(([part, p], i) => h("tr", { class: `row-link ex-row ex-${p.verdict || "none"}${p.reviewed ? " ex-reviewed" : ""}`, tabindex: "0", onClick: () => open(part, p), onKeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(part, p); } } },
+    // one row (0.18.1: a function, so a judgement's in-place update can make the row again); `key` finds it
+    const exRow = (part, p, i) => h("tr", { "data-ex-key": `${part.claim_id}|${p.passage_id}`, class: `row-link ex-row ex-${p.verdict || "none"}${p.reviewed ? " ex-reviewed" : ""}`, tabindex: "0", onClick: () => open(part, p), onKeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(part, p); } } },
         h("td", { class: "num muted" }, String(i + 1)),
         split ? h("td", { "data-label": "Part" }, `Part ${part.part}`) : null,
-        h("td", { "data-label": "Document", class: "ex-doc" }, h("span", { class: "serif" }, p.title || "untitled"), p.scope_note ? h("div", { class: "small", style: { color: "var(--partly)" } }, `about another group: ${p.scope_note}`) : null),
+        h("td", { "data-label": "Document", class: "ex-doc" }, h("span", { class: "serif" }, p.title || "untitled"), retractedMark(p.doc_id), p.scope_note ? h("div", { class: "small" }, tag({ kind: "attention" }, `about another group: ${p.scope_note}`)) : null),
         h("td", { "data-label": "Where", class: "small muted" }, p.location || p.span || ""),
-        h("td", { "data-label": "AI's judgement" }, h("span", { class: "it" }, icon(p.ai_verdict ? { supports: "circle-check", partially_supports: "circle-half", refutes: "circle-x" }[p.ai_verdict] : "circle-dashed", { size: 12 }), gradeWords(p.ai_verdict, p.confidence)), p.reread ? h("div", { class: "small muted" }, "read again") : null),
+        h("td", { "data-label": "AI's judgement" }, h("span", { class: "it" }, judgementIcon(p.ai_verdict, 12), gradeWords(p.ai_verdict, p.confidence)), p.reread ? h("div", { class: "small muted" }, "read again") : null),
         h("td", { "data-label": "Your judgement" }, yours(p)),
-        h("td", { "data-label": "Counts" }, p.verdict ? (p.counted ? h("span", { class: "it", style: { color: "var(--ok)" } }, icon("check", { size: 12 }), "counts") : h("span", { class: "muted small" }, "too uncertain")) : h("span", { class: "muted small" }, "not about it")),
-        h("td", { "data-label": "Second opinion", class: "small" }, second(p))))));
-    return h("section", { class: "card ex-table-card", "aria-label": "All excerpts read" },
-      h("div", { class: "card-head" }, h("h2", {}, `All ${rows.length} excerpts read`), h("span", { class: "muted small" }, "in the same order as the cards; your judgements count whatever the AI's certainty")),
+        h("td", { "data-label": "Counts" }, p.verdict ? (p.counted ? h("span", { class: "it" }, icon("check", { size: 12 }), "counts") : h("span", { class: "muted small" }, p.nonscientific ? "non-scientific" : "too uncertain")) : h("span", { class: "muted small" }, "not about it")),
+        h("td", { "data-label": "Second opinion", class: "small" }, second(p)));
+    const table = h("table", { class: "table table-responsive ex-table" },
+      h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "#"), split ? h("th", { scope: "col" }, "Part") : null, h("th", { scope: "col" }, "Document"), h("th", { scope: "col" }, "Where"), h("th", { scope: "col" }, "AI's judgement"), h("th", { scope: "col" }, "Your judgement"), h("th", { scope: "col" }, "Counts"), h("th", { scope: "col" }, "Second opinion"))),
+      h("tbody", {}, rows.map(([part, p], i) => exRow(part, p, i))));
+    makeExRow = exRow;
+    return cardBox({ class: "ex-table-card", title: `All ${rows.length} excerpts read`, titleId: "ex-table-h" },
+      h("p", { class: "muted small ex-table-note" }, "In the same order as the cards; your judgements count whatever the AI's certainty."),
       h("div", { class: "table-wrap" }, table));
   }
 
@@ -1017,16 +1435,16 @@ export async function renderResult(view, [hypId], query) {
       const terms = (rd.terms || []).filter((t) => !own.has(String(t).toLowerCase()));
       const isNew = newRound.get(part.claim_id) === rd.round;
       const corrected = (part.passages || []).some((p) => p.round === rd.round && p.changed);
-      box.appendChild(h("div", { class: "round-row" + (isNew ? " round-new" : "") },
+      box.appendChild(h("div", { class: "round-row" },
         h("p", { class: "round-head" }, icon("search", { size: 13 }),
           h("span", {}, `${rounds.length > 1 ? `Search ${rd.round}` : "Searched"} for ${terms.length ? `the hypothesis's words and ${terms.join(", ")}` : "the hypothesis's words"} · ${rd.passages} ${rd.passages === 1 ? "excerpt" : "excerpts"} read`),
-          isNew ? h("span", { class: "badge new-badge" }, "new") : null),
-        (rd.parts || []).length > 1 ? h("p", { class: "round-readers" }, icon("shield", { size: 12 }), " ", rd.parts.map((x) => READ_BY_ROUND[x.read_by] ? READ_BY_ROUND[x.read_by](x.passages) : `${x.passages}`).join(" · ")) : null,
+          isNew ? tag({}, "new") : null),
+        (rd.parts || []).length > 1 ? h("p", { class: "round-readers" }, icon("house", { size: 12 }), " ", rd.parts.map((x) => READ_BY_ROUND[x.read_by] ? READ_BY_ROUND[x.read_by](x.passages) : `${x.passages}`).join(" · ")) : null,
         rd.ai_note ? h("p", { class: "ai-note" }, icon("quote", { size: 13 }), h("span", {}, corrected ? "The AI's note, before your corrections: " : "The AI's note: ", rd.ai_note)) : null,
         strongerLine(rd)));
     }
     const tried = triedTerms.get(part.claim_id) || [];
-    if (tried.length) box.appendChild(h("div", { class: "round-row round-tried" }, h("p", { class: "round-head" }, icon("search-x", { size: 13 }), h("span", {}, `You also tried ${tried.join(", ")}: nothing new was found.`))));
+    if (tried.length) box.appendChild(h("div", { class: "round-row" }, h("p", { class: "round-head" }, icon("search-x", { size: 13 }), h("span", {}, `You also tried ${tried.join(", ")}: nothing new was found.`))));
     return box;
   }
 
@@ -1036,13 +1454,16 @@ export async function renderResult(view, [hypId], query) {
     const job = [...running.values()].find((x) => x.kind === "read-local");
     if (job && !localJobShown) { localJobShown = true; return job.mini.el; }
     if (job) return h("span", { class: "muted small" }, "Your local model reads these too (see above).");
-    const btn = h("button", { class: "btn btn-sm btn-primary", type: "button" }, icon("house", { size: 13 }), label);
+    const btn = button({ kind: "main", sm: true }, label);
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       try { await startReadLocal(false); } catch (e) { showError(e); btn.disabled = false; }
     });
-    return btn;
+    return withAI(btn);
   }
+
+  // the house line's words under "Read them … on this computer": only a model on this computer reads these excerpts
+  const localReads = () => `Your local model (${App.settings().restricted_model || "chosen in Settings › AI"}) reads them on this computer: they never leave it.`;
 
   async function startReadLocal(force) {
     const r = await api("POST", `/api/projects/${P(project)}/hypotheses/${P(current.hyp_id)}/read-local`, force ? { force: true } : {});
@@ -1061,9 +1482,9 @@ export async function renderResult(view, [hypId], query) {
 
   function readLocalNotice(part) {
     const btn = readLocalButton("Read them now on this computer");
-    return h("div", { class: "notice notice-info wait-local" }, icon("house"), h("div", { class: "grow" },
+    return notice({ kind: "info", icon: "house", class: "wait-local" },
       h("p", {}, `${part.waiting_local} ${part.waiting_local === 1 ? "excerpt comes" : "excerpts come"} from documents marked Only a local AI and ${part.waiting_local === 1 ? "waits" : "wait"} for the local model.`),
-      h("div", { class: "btn-row" }, btn, h("span", { class: "muted small" }, "Without a local model (Settings → AI) they wait for your judgement."))));
+      h("div", { class: "btn-row" }, btn, h("span", { class: "muted small" }, "Without a local model (Settings → AI) they wait for your judgement.")), aiWhere(localReads(), "local"));
   }
 
   // What a stronger model did with one search (0.11.2: asking for one is in "Ask another AI model", for the whole result)
@@ -1078,8 +1499,9 @@ export async function renderResult(view, [hypId], query) {
   function secondQuote(p) {
     const q = p.second && p.second.verdict ? p.second.quote : null;
     if (!q) return null;
-    const i = String(p.text || "").indexOf(q);
-    return i >= 0 ? { start: i, end: i + q.length } : null;
+    const t = String(p.text || "");
+    const i = t.indexOf(q);   // a string index: the place is kept as the app counts, like the quote’s own
+    return i >= 0 ? { start: indexToCp(t, i), end: indexToCp(t, i + q.length) } : null;
   }
 
   // 0.11.2: when the second opinion quoted another sentence, a switch for which of the two quotes the passage
@@ -1090,9 +1512,18 @@ export async function renderResult(view, [hypId], query) {
     if (!sq || (sq.start === p.quote_start && sq.end === p.quote_end)) return null;
     const on = secondShown.has(key);
     const flip = (v) => () => { if (v === on) return; if (v) secondShown.add(key); else secondShown.delete(key); draw(current); };
-    const seg = (v, label) => h("button", { class: "link-btn so-seg" + (on === v ? " so-seg-on" : ""), type: "button", "aria-pressed": on === v ? "true" : "false", onClick: flip(v) }, label);
-    return h("span", { class: "so-flip", role: "group", "aria-label": "Which quote the excerpt highlights" },
-      "Highlight the quote of: ", seg(false, p.quote_by === "you" ? "yours" : "the AI"), " / ", seg(true, "the second opinion"));
+    return h("span", { class: "so-flip" },
+      "Highlight the quote of: ", choice({ sm: true, label: "Which quote the excerpt highlights", value: on ? "second" : "first", onPick: (v) => flip(v === "second")(),
+        options: [["first", p.quote_by === "you" ? "yours" : "the AI"], ["second", "the second opinion"]] }));
+  }
+
+  // 0.18.6: the badge of a judgement of a Non-scientific document's excerpt: drawn as one that does not count, with
+  // its own reason (not the strictness's)
+  function nonsciBadge(p) {
+    if (!p.nonscientific || !p.verdict) return null;
+    const b = gradeBadge(p.verdict, true);
+    b.title = "Not counted: its document is marked Non-scientific";
+    return b;
   }
 
   function evidenceCard(p, part) {
@@ -1118,32 +1549,37 @@ export async function renderResult(view, [hypId], query) {
     const pctN = p.confidence !== null && p.confidence !== undefined ? Math.round(p.confidence * 100) : null;
     const word = p.certainty || (pctN !== null ? `${pctN}%` : "");
     if (yours && p.changed) {
-      append(top, [gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact" }, icon("check", { size: 12 }), p.read_by === "you" ? "Your judgement" : `Your judgement (the AI said ${aiSaid})`)]);
+      append(top, [nonsciBadge(p) || gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact" }, icon("check", { size: 12 }), p.read_by === "you" ? "Your judgement" : `Your judgement (the AI said ${aiSaid})`)]);
     } else if (yours) {
-      append(top, [gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact" }, icon("check", { size: 12 }), "You agreed with the AI")]);
+      append(top, [nonsciBadge(p) || gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact" }, icon("check", { size: 12 }), "You agreed with the AI")]);
     } else if (p.waiting_for_you) {
       append(top, [fact("Waiting for your judgement", { class: "ev-fact ev-yours-fact" }),
-        fact(p.access === "none" ? "its document is marked No AI" : "its document is marked Only a local AI, and no local model is chosen")]);
+        fact(waitReason(p.access, current && current.words_access))]);
     } else {
-      append(top, [gradeBadge(p.verdict, false)]);
+      // a judgement that does not count: its badge without fill, a dashed edge (the one meaning of a dashed edge)
+      append(top, [nonsciBadge(p) || gradeBadge(p.verdict, !!p.verdict && !p.counted)]);
       // the reason it does not count: below the strictness, or (0.15: said, not left to contradict the certainty) its
       // round of reading did not finish
       const below = !(p.confidence !== null && p.confidence !== undefined && p.confidence >= (App.settings().threshold ?? 0.6));
-      if (p.verdict && !p.counted) append(top, [h("span", { class: "ev-fact ev-uncounted-fact", title: below ? [certaintyHelp(p), "It is below your strictness: it counts once you judge it yourself (agreeing or otherwise)."].filter(Boolean).join(" ")
+      if (p.verdict && !p.counted && !p.nonscientific) append(top, [h("span", { class: "ev-fact ev-uncounted-fact", title: below ? [certaintyHelp(p), "It is below your strictness: it counts once you judge it yourself (agreeing or otherwise)."].filter(Boolean).join(" ")
         : "The round of reading that gave this judgement did not finish, so the AI's judgements in it do not count. It counts once you judge it yourself (agreeing or otherwise)." }, "Not counted")]);
       if (p.verdict && word) append(top, [fact(`Certainty: ${word}`, { title: certaintyHelp(p) })]);
       else if (!p.verdict && p.waiting_local) append(top, [fact("Waiting for the local model")]);
       else if (p.user_note) append(top, [fact("Your comment", { title: "You wrote a comment on this excerpt but have not judged it: the AI's judgement still counts" })]);
     }
+    // 0.18.6: an excerpt of a document marked Non-scientific: judged and shown, never counted (yours neither)
+    if (p.nonscientific) append(top, [h("span", { class: "ev-fact ev-uncounted-fact", title: "Its document is marked Non-scientific: it reports no method or data of its own. Its judgement is shown, but never counts in the answer, whoever made it. Change the mark on the document's page." }, icon("newspaper", { size: 12 }), p.verdict ? "Not counted: non-scientific" : "Non-scientific")]);
+    // 0.19.0 (K3): marked Non-scientific, but this hypothesis counts them (its own setting, above the evidence)
+    else if (p.nonscientific_counted) append(top, [h("span", { class: "ev-fact", title: "Its document is marked Non-scientific. This hypothesis counts non-scientific documents (the switch under its answer), so its judgement counts here as any other; in other checks it does not." }, icon("newspaper", { size: 12 }), "Non-scientific, counted here")]);
     if (p.second && !p.second.agrees) append(top, [h("span", { class: "ev-fact ev-second", title: `Another model${p.second.model ? ` (${p.second.model})` : ""} read this excerpt on its own and judged it differently. It is shown for comparison only and never changes the answer.` }, h("span", { class: `who-dot who-${{ supports: "supports", partially_supports: "partly", refutes: "refutes" }[p.second.verdict] || "none"}`, "aria-hidden": "true" }), `Second opinion: ${p.second.verdict ? GRADE_TEXT[p.second.verdict].toLowerCase() : "not about this"}`)]);
-    if (isNew) append(top, [h("span", { class: "badge new-badge" }, "new")]);
+    if (isNew) append(top, [tag({}, "new")]);
     if (p.read_by && !p.waiting_for_you && !oneReader) append(top, [h("span", { class: "spacer" }), readByChip(p)]);
     card.appendChild(top);
     const hist = p.ai_history || [];
     if (p.reread && hist.length) {
       const first = hist[0];
       const info = p.reread_info || {};
-      card.appendChild(h("div", { class: "reread-line" }, icon("refresh", { size: 13 }),
+      card.appendChild(notice({ kind: "info", icon: "refresh", class: "reread-line" },
         h("div", {},
           h("div", {}, hist[hist.length - 1].why === "stepped up" ? `Read again by a stronger model (the first reading was by ${first.model || "the first model"}): ` : "Read again by the AI: ", `was ${gradeWords(first.verdict, first.confidence)}, now ${gradeWords(p.ai_verdict, p.confidence)}`, hist.length > 1 ? ` (read again ${hist.length} times; the list is under Technical details)` : "", ". ",
             p.user_verdict ? h("span", { class: "reread-yours" }, `Your own judgement (${p.user_verdict === "not_relevant" ? "Not about this" : GRADE_TEXT[p.user_verdict]}) still counts.`) : "The new judgement counts, unless you judge it yourself."),
@@ -1154,6 +1590,7 @@ export async function renderResult(view, [hypId], query) {
     const span = quoteSpan(p);
     card.appendChild(h("div", { class: "ev-src" },
       h("span", { class: "title" }, p.title || "untitled"),
+      retractedMark(p.doc_id),
       whereText(p),
       (() => {
         const o = (current && current.parts || []).map((x) => [x, (x.passages || []).find((y) => y.passage_id === p.passage_id && about(y))]).filter(([x, y]) => x.claim_id !== part.claim_id && y);
@@ -1163,8 +1600,8 @@ export async function renderResult(view, [hypId], query) {
       })(),
       // 0.15: an excerpt whose words have no place in its document's new reading (Read with the new reader) is kept as
       // it was shown; its document is still there
-      p.not_placed ? h("span", { class: "warn-chip", title: "The document was read again with the new reader, and these words have no place in its new text (the new reader may have set them aside, as it does with acknowledgements or author details). The excerpt is kept as it was shown." }, icon("alert-triangle", { size: 12 }), "no place in the new reading")
-        : !p.in_corpus ? h("span", { class: "warn-chip", title: "This document was removed from the project after the check" }, icon("alert-triangle", { size: 12 }), "document removed since") : null));
+      p.not_placed ? tag({ kind: "attention", title: "The document was read again with the new reader, and these words have no place in its new text (the new reader may have set them aside, as it does with acknowledgements or author details). The excerpt is kept as it was shown." }, "no place in the new reading")
+        : !p.in_corpus ? tag({ kind: "attention", title: "This document was removed from the project after the check" }, "document removed since") : null));
     // a sentence marked before a judgement was chosen is shown, but not saved until the judgement comes
     const sq = secondQuote(p);
     const showSecond = sq && secondShown.has(pendingKey(p, part));
@@ -1172,16 +1609,40 @@ export async function renderResult(view, [hypId], query) {
       : showSecond ? [sq.start, sq.end, "passage passage-second"] : [p.quote_start, p.quote_end, "passage"];
     const wkey = pendingKey(p, part);
     const whole = wholeShown.has(wkey);
-    const win = !whole && !p.waiting_for_you ? excerptWindow(p.text, hs, he, p.breaks, { after: matchMedia("(max-width: 600px)").matches ? 0 : 1 }) : null;
-    const passageEl = win ? windowNode(p.text, hs, he, hcls, p.breaks, win) : passageNode(p.text, hs, he, "p", hcls, p.breaks);
+    // the window is worked out on the text’s own indices: the app’s offsets are turned into them first
+    const [hsI, heI, brI] = [cpToIndex(p.text || "", hs), cpToIndex(p.text || "", he), breaksToIndex(p.text || "", p.breaks)];
+    const win = !whole && !p.waiting_for_you ? excerptWindow(p.text, hsI, heI, brI, { after: matchMedia("(max-width: 600px)").matches ? 0 : 1 }) : null;
+    const passageEl = win ? windowNode(p.text, hsI, heI, hcls, brI, win) : passageNode(p.text, hsI, heI, "p", hcls, brI);
     card.appendChild(passageEl);
-    // the ways into the document: with the whole excerpt (In context), not in every card's row
-    if (whole && p.in_corpus) card.appendChild(h("p", { class: "ev-doclink" }, h("a", { href: docHref(p, span) }, "Open the whole document at this place"), " · ",
-      originalLink(project, p.doc_id, p.page, null, { text: "the original file", quote: p.quote || null, pdfHint: !!p.quote, noIcon: true }),
-      p.verdict || p.user_verdict ? [" · ", h("button", { class: "link-btn", type: "button", title: "A copy of this document with the judgements of this hypothesis highlighted (green supports, amber partly, red contradicts), each with a note",
-        onClick: () => download(`/api/projects/${P(project)}/documents/${P(p.doc_id)}/annotated.pdf?hyp=${encodeURIComponent(hypId)}&threshold=${threshold}`).catch(showError) }, "a highlighted copy")] : null));
+    // 0.18.2: "more…" at the end of the excerpt is the one way to more of the text: the whole excerpt the AI read, with
+    // the ways on into the document under it; "less" at the end of the whole excerpt folds it again. It was the
+    // "In context" button in the row of actions. Not selectable, so a sentence selected to quote never takes it along.
+    if (p.in_corpus || win || whole) {
+      const moreLink = link({ kind: "jump", class: "more-link", "aria-expanded": whole ? "true" : "false",
+        "aria-label": whole ? "Less context" : "More context", onMousedown: (e) => e.preventDefault(),
+        title: whole ? "Back to the quote in its context" : "The whole excerpt the AI read, and the way into the whole document at this place",
+        onClick: () => {
+          if (whole) wholeShown.delete(wkey); else wholeShown.add(wkey);
+          const j = card.querySelector(".judge");
+          if (j && j.saveDraft && j.saveDraft()) return;
+          focusAfter = { passage_id: p.passage_id, claim_id: part.claim_id, ...placeOf(p.passage_id, part.claim_id), noNote: true };
+          redraw();
+          const again = findCard(part.claim_id, p.passage_id);
+          const el = again ? again.querySelector(".more-link") : null;
+          if (el) el.focus({ preventScroll: true });
+        } }, whole ? "less" : "more…");
+      const end = passageEl.classList.contains("passage-broken") ? passageEl.lastElementChild || passageEl : passageEl;
+      end.append("\u00a0", moreLink);
+    }
+    // the ways into the document: with the whole excerpt (more…), not in every card's row
+    // the links in one line, then the download (an action) after it, its words a verb (DESIGN.md 6)
+    if (whole && p.in_corpus) card.appendChild(h("div", { class: "ev-doclink" },
+      h("p", {}, h("a", { href: docHref(p, span) }, "Open the whole document at this place"), " · ",
+        originalLink(project, p.doc_id, p.page, null, { text: "the original file", quote: p.quote || null, pdfHint: !!p.quote, noIcon: true })),
+      p.verdict || p.user_verdict ? downloadButton({ title: "A copy of this document with the judgements of this hypothesis highlighted (green supports, amber partly, red contradicts), each with a note",
+        onClick: () => download(`/api/projects/${P(project)}/documents/${P(p.doc_id)}/annotated.pdf?hyp=${encodeURIComponent(hypId)}&threshold=${threshold}`).catch(showError) }, "Download a highlighted copy") : null));
     // 0.12: what to keep in mind about the quote, on one quiet line after it, each with its explanation behind a (?)
-    const why = (text) => popNote(h("button", { class: "link-btn help-mark", type: "button", "aria-label": "Why?" }, icon("help", { size: 13 })), text, { wide: true });
+    const why = (text) => helpMark("Why?", text, { size: 13 });
     const notes = [];
     if (p.scope_note) notes.push(h("span", { class: "has-tip", title: SCOPE_HELP }, `About another group: ${p.scope_note.replace(/^about\s+/i, "")}`));
     if (p.refers_to) {  // check-v4: what the quote's "it" or "the plant" is
@@ -1196,9 +1657,10 @@ export async function renderResult(view, [hypId], query) {
     if (flipQuote) notes.push(flipQuote);
     if (notes.length) card.appendChild(h("p", { class: "ev-notes" }, notes.flatMap((n, i) => (i ? [h("span", { class: "sep" }, " · "), n] : [n]))));
     if (pending) {
-      card.appendChild(h("div", { class: "pending-quote", role: "status" }, icon("highlighter", { size: 13 }),
-        h("span", {}, "Sentence marked", Number.isInteger(pending.start) ? "" : [": ", h("q", {}, pending.text)], ". Choose your judgement below to save it. "),
-        h("button", { class: "link-btn", type: "button", onClick: () => { pendingQuote.delete(pendingKey(p, part)); draw(current); } }, "Forget this sentence")));
+      // a message about what you just did: a notice (the sentence itself keeps the quote's look, dashed: DESIGN 4.23)
+      card.appendChild(notice({ kind: "info", icon: "highlighter", class: "pending-quote", live: "status" },
+        h("p", {}, "Sentence marked", Number.isInteger(pending.start) ? "" : [": ", h("q", {}, pending.text)], ". Choose your judgement below to save it. ",
+          button({ kind: "quiet", sm: true, onClick: () => { pendingQuote.delete(pendingKey(p, part)); draw(current); } }, "Forget this sentence"))));
     }
     const hasQuoteNow = Number.isInteger(p.quote_start) && Number.isInteger(p.quote_end) && p.quote_end > p.quote_start;
     if ((hasQuoteNow && p.quote_by === "you" || showSecond) && !pending) {
@@ -1207,35 +1669,22 @@ export async function renderResult(view, [hypId], query) {
         h("span", {}, showSecond ? `Sentence highlighted by the second opinion${p.second.model ? ` (${p.second.model})` : ""}` : "Sentence highlighted by you",
           aiDiffers ? [" · The AI pointed to: ", h("q", {}, p.ai_quote)] : null)));
     }
-    if (p.user_note) card.appendChild(h("div", { class: "user-note" }, h("span", {}, h("span", { class: "muted" }, "Your comment: "), p.user_note)));
+    if (p.user_note) card.appendChild(h("p", { class: "ev-comment small" }, h("span", { class: "muted" }, "Your comment: "), h("span", { class: "serif" }, p.user_note)));
     if (p.verdict && p.quote && !(Number.isInteger(p.quote_start) && Number.isInteger(p.quote_end))) {
       card.appendChild(h("div", { class: "ev-weak-note" }, icon("info", { size: 13 }), "Quote: ", h("q", {}, p.quote)));
     }
-    // 0.12: one row of actions on every card: the three judging buttons, then two quiet ones: "In context" (the whole
-    // excerpt, the document, the original file, a highlighted copy) and "Details" (how it was read, reading it again)
+    // 0.12: one row of actions on every card: the judging buttons, then a quiet "Details" (how it was read, reading it
+    // again); more of the text is "more…" at the end of the excerpt (0.18.2)
     const extras = { buttons: [], panels: [] };
-    if (p.in_corpus || win || whole) {
-      // 0.12: "In context" is the one way to see more of the text: the whole excerpt the AI read, with a way on into
-      // the whole document at this place
-      const ctxBtn = h("button", { class: "btn btn-sm btn-ghost ev-link ctx-toggle", type: "button", "aria-expanded": whole ? "true" : "false", onMousedown: (e) => e.preventDefault(),
-        title: "The whole excerpt the AI read, and the way into the whole document at this place", onClick: () => {
-          if (whole) wholeShown.delete(wkey); else wholeShown.add(wkey);
-          const j = card.querySelector(".judge");
-          if (j && j.saveDraft && j.saveDraft()) return;
-          focusAfter = { passage_id: p.passage_id, claim_id: part.claim_id, ...placeOf(p.passage_id, part.claim_id), noNote: true };
-          redraw();
-        } }, whole ? "Less context" : "In context");
-      extras.buttons.push(ctxBtn);
-    }
     let rereadBtn = null;
     if (p.read_by !== "you") {   // 0.11: no model may read it
       // 0.12: under Details, with the facts about how this excerpt was read
-      rereadBtn = h("button", { class: "btn btn-sm", type: "button", title: "The AI reads this excerpt again, on its own, with your comment as a hint", disabled: [...running.values()].some((x) => x.kind === "reread" && x.passage_id === p.passage_id) }, icon("refresh", { size: 13 }), "Ask the AI to read this again");
+      rereadBtn = button({ sm: true, title: "The AI reads this excerpt again, on its own, with your comment as a hint", disabled: [...running.values()].some((x) => x.kind === "reread" && x.passage_id === p.passage_id) }, icon("refresh", { size: 13 }), "Ask the AI to read this again");
       rereadBtn.addEventListener("click", () => rereadDialog(p, part, rereadBtn));
     }
     const sec = p.second;
     const morePanel = h("div", { class: "ev-more-panel" },
-      rereadBtn ? h("div", { class: "ev-more-actions" }, rereadBtn) : null,
+      rereadBtn ? h("div", { class: "ev-more-actions" }, withAI(rereadBtn), readsLine("this excerpt again, with your comment")) : null,
       h("dl", { class: "ev-tech-list" },
         p.confidence !== null && p.confidence !== undefined ? h("div", {}, h("dt", {}, "AI certainty"), h("dd", {}, `${Math.round(p.confidence * 100)}%; your strictness counts from ${Math.round(threshold * 100)}%`)) : null,
         h("div", {}, h("dt", {}, "Found"), h("dd", {}, { keywords: "same words", meaning: "search by meaning", both: "same words and search by meaning", note: "your note" }[p.found_by] || p.found_by || "")),
@@ -1251,7 +1700,7 @@ export async function renderResult(view, [hypId], query) {
       sec ? h("div", { class: "tech-block" }, h("div", { class: "muted small" }, `Second model: ${sec.model || ""} · ${gradeWords(sec.verdict, sec.confidence)} · ${sec.agrees ? "agrees" : "disagrees"} with the main model's own judgement (${gradeWords(p.ai_verdict, p.confidence)}) · ${fmt.date(sec.at)}`),
         sec.scope_note ? h("div", { class: "muted small" }, `Its scope note: ${sec.scope_note}`) : null,
         sec.quote ? h("div", { class: "muted small serif" }, `Its quote: “${sec.quote}”`) : null) : null);
-    const moreBtn = panelToggle(`tech:${p.passage_id}`, "Details", morePanel, false, false);
+    const moreBtn = panelToggle(`tech:${p.passage_id}`, "Details", morePanel, false);
     moreBtn.title = "How this excerpt was found and judged, and asking the AI to read it again";
     moreBtn.classList.add("more-toggle");
     extras.buttons.push(moreBtn);
@@ -1272,10 +1721,10 @@ export async function renderResult(view, [hypId], query) {
 
   // "Ask the AI to read this again": the AI reads this one excerpt alone, with the person's comment as a hint.
   async function rereadDialog(p, part, btn) {
-    const note = h("textarea", { class: "textarea", rows: 2, id: "reread-note", placeholder: "e.g. “the next sentence says the opposite” — or leave it empty for a plain re-read", maxlength: 500 });
+    const note = textarea({ rows: 2, id: "reread-note", placeholder: "e.g. “the next sentence says the opposite” — or leave it empty for a plain re-read", maxlength: 500 });
     note.value = p.user_note || "";
     const keep = h("input", { type: "checkbox", id: "reread-keep", checked: true });
-    const keepRow = h("label", { class: "it small", for: "reread-keep", style: { marginTop: "6px" } }, keep, " Also save this as my comment on the excerpt");
+    const keepRow = h("label", { class: "it small res-reread-keep", for: "reread-keep" }, keep, " Also save this as my comment on the excerpt");
     const syncKeep = () => { const has = !!note.value.trim(); keep.disabled = !has; keepRow.classList.toggle("muted", !has); };
     note.addEventListener("input", syncKeep);
     const ok = await dialog({
@@ -1306,7 +1755,7 @@ export async function renderResult(view, [hypId], query) {
         const place = placeOf(p.passage_id, part.claim_id);
         const inView = place.bottom > 0 && place.top < window.innerHeight;
         focusAfter = { passage_id: p.passage_id, claim_id: part.claim_id, ...place, noScroll: !inView, reason: "the AI's new judgement sorts it here." };
-        const showIt = () => { const el = box.querySelector(`[data-claim="${CSS.escape(part.claim_id)}"] [data-passage="${CSS.escape(p.passage_id)}"]`); if (!el) return; const fl = el.closest("details"); if (fl && !fl.open) { fl.open = true; openFolds.add(fl.dataset.fold); } el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("ev-flash"); setTimeout(() => el.classList.remove("ev-flash"), 1800); };
+        const showIt = () => { const el = findCard(part.claim_id, p.passage_id); if (!el) return; const fl = el.closest("details"); if (fl && !fl.open) { fl.open = true; openFolds.add(fl.dataset.fold); } el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("ev-flash"); setTimeout(() => el.classList.remove("ev-flash"), 1800); };
         toast(`The AI has read the excerpt again: now ${a ? gradeWords(a.verdict, a.confidence) : "not about this hypothesis"}.`, "ok", { small: true, ttl: 8000, button: inView ? undefined : { text: "Show the excerpt", onClick: showIt } });
       }, { passage_id: p.passage_id });
     } catch (e) { showError(e); btn.disabled = false; }
@@ -1329,7 +1778,7 @@ export async function renderResult(view, [hypId], query) {
   function quoteSpan(p) {
     const base = p.doc_start || 0;
     if (Number.isInteger(p.quote_start) && Number.isInteger(p.quote_end) && p.quote_end > p.quote_start) return { start: base + p.quote_start, end: base + p.quote_end };
-    return { start: base, end: base + (p.text || "").length, whole: true };
+    return { start: base, end: base + cpLength(p.text || ""), whole: true };
   }
   function docHref(p, span) {
     return `#/doc/${encodeURIComponent(p.doc_id)}?from=${encodeURIComponent(hypId)}&card=${encodeURIComponent(p.passage_id)}&q=${span.start}-${span.end}${span.whole ? "&whole=1" : ""}`;
@@ -1359,24 +1808,27 @@ export async function renderResult(view, [hypId], query) {
         reason: verdict ? `your judgement is now ${verdict === "not_relevant" ? "“Not about this”" : `“${GRADE_TEXT[verdict]}”`}.` : "the AI's judgement counts again." };
       const fa = focusAfter;
       const noteNow = note ?? (noteField ? noteField.value.trim() : prev.note);   // a comment typed before picking is saved with the judgement
-      const body = { verdict, note: noteNow };
+      const body = { verdict, note: noteNow, threshold };   // 0.18.1: the strictness shown, for what the judgement moved
       if (opts.quote !== undefined) body.quote = opts.quote;   // the sentence the person points to; left out = keep the earlier one
       const pend = pendingQuote.get(pendingKey(p, part));
       if (verdict && opts.quote === undefined && pend) { body.quote = pend.text; opts = { ...opts, quote: pend.text }; }   // a sentence marked before choosing: saved with the judgement
       if (verdict) pendingQuote.delete(pendingKey(p, part));
       try {
-        await api("PUT", `/api/projects/${P(project)}/claims/${P(part.claim_id)}/judgements/${P(p.passage_id)}`, body);
+        const saved = await api("PUT", `/api/projects/${P(project)}/claims/${P(part.claim_id)}/judgements/${P(p.passage_id)}`, body);
         draftNotes.delete(pendingKey(p, part));   // the comment went with it
         const undo = async () => {
           focusAfter = { passage_id: p.passage_id, claim_id: part.claim_id, ...placeOf(p.passage_id, part.claim_id), reason: "your last change was undone." };
-          const back = { verdict: prev.verdict, note: prev.note };
+          const back = { verdict: prev.verdict, note: prev.note, threshold };
           if (opts.quote !== undefined) back.quote = prev.quote === undefined ? "" : prev.quote;
-          try { await api("PUT", `/api/projects/${P(project)}/claims/${P(part.claim_id)}/judgements/${P(p.passage_id)}`, back); toast("Undone.", "ok", { ttl: 2500, small: true, group: "judge" }); await load(); }
+          try { const undone = await api("PUT", `/api/projects/${P(project)}/claims/${P(part.claim_id)}/judgements/${P(p.passage_id)}`, back); toast("Undone.", "ok", { ttl: 2500, small: true, group: "judge" }); await applyJudgement(undone); }
           catch (e) { showError(e); }
         };
-        fa.undo = undo;   // this save's own place note (a redraw meanwhile may have used and cleared focusAfter)
+        // this save's own place note (a redraw meanwhile may have used and cleared focusAfter): its way back, when the
+        // card's row does not already offer it (noteWayBack, DESIGN 4.26)
+        fa.undoText = noteWayBack(prev.verdict, verdict, p.read_by);
+        fa.undo = fa.undoText ? undo : null;
         const was = statusNow();
-        await load();
+        await applyJudgement(saved);
         const now = statusNow();
         const change = was && now && was !== now ? ` The answer is now ${(STATUS_SHORT[now] || now).toLowerCase()}.` : "";
         if (!opts.silent) toast(msg + change, "ok", { ttl: 8000, small: true, group: "judge", button: { text: "Undo", onClick: undo } });
@@ -1386,10 +1838,10 @@ export async function renderResult(view, [hypId], query) {
     const current = p.user_verdict || "";
     const row = h("div", { class: "judge-row" });
     if (p.read_by === "you" && p.user_verdict) {
-      row.appendChild(h("button", { class: "btn btn-sm agree-btn", type: "button", onMousedown: (e) => e.preventDefault(), onClick: () => put(null, p.user_note || "", "Your judgement was removed: the excerpt waits for it again.") }, "Take back"));
+      row.appendChild(button({ sm: true, class: "agree-btn", onMousedown: (e) => e.preventDefault(), onClick: () => put(null, p.user_note || "", "Your judgement was removed: the excerpt waits for it again.") }, "Take back"));
     } else if (p.changed) {
       // 0.12: the same as taking an agreement back: saved at once, with Undo (the comment is sent along, so it is kept)
-      row.appendChild(h("button", { class: "btn btn-sm agree-btn", type: "button", onMousedown: (e) => e.preventDefault(), title: "Your judgement is removed and the AI's counts again, at your strictness",
+      row.appendChild(button({ sm: true, class: "agree-btn", onMousedown: (e) => e.preventDefault(), title: "Your judgement is removed and the AI's counts again, at your strictness",
         onClick: () => put(null, p.user_note || "", "Back to the AI's judgement.") }, "Take back"));
     } else if (p.read_by === "you") {
       // 0.11: no AI read it, so there is nothing to agree with: the person's own judgement is open at once
@@ -1399,12 +1851,12 @@ export async function renderResult(view, [hypId], query) {
       // 0.12: the first slot of every card: agree (saying so when it makes an uncounted judgement count), or take the
       // agreement back; what agreeing does is in the button's title
       if (agreed) {
-        row.appendChild(h("button", { class: "btn btn-sm agree-btn", type: "button", onMousedown: (e) => e.preventDefault(), title: "Your agreement is removed and the AI's judgement counts as the AI's again, at your strictness",
+        row.appendChild(button({ sm: true, class: "agree-btn", onMousedown: (e) => e.preventDefault(), title: "Your agreement is removed and the AI's judgement counts as the AI's again, at your strictness",
           onClick: () => put(null, p.user_note || "", "Your agreement is taken back.") }, "Take back"));
       } else {
         const makesCount = p.ai_verdict && p.verdict && !p.counted;
         row.appendChild(h("div", { class: "agree-box" },
-          h("button", { class: "btn btn-sm agree-btn agree-main", type: "button", onMousedown: (e) => e.preventDefault(), onClick: () => put(aiVerdict, undefined, pendHere ? "Saved: you agree with the AI, with your sentence." : makesCount ? "Saved: you agree with the AI, so it now counts." : "Saved: you agree with the AI."),
+          button({ sm: true, class: "agree-btn agree-main", onMousedown: (e) => e.preventDefault(), onClick: () => put(aiVerdict, undefined, pendHere ? "Saved: you agree with the AI, with your sentence." : makesCount ? "Saved: you agree with the AI, so it now counts." : "Saved: you agree with the AI."),
             title: p.ai_verdict ? `Agree with the AI: it becomes your judgement and counts in the answer, whatever the AI's certainty${makesCount ? " (it does not count now)" : ""}.` : "Agree with the AI: you checked it, and it stays out of the answer." },
             "Agree"),
           pendHere ? h("span", { class: "muted small" }, "Agreeing saves your sentence with the AI's judgement as yours.") : null));
@@ -1415,37 +1867,38 @@ export async function renderResult(view, [hypId], query) {
     const canDismiss = p.read_by !== "you" && p.verdict && p.user_verdict !== "not_relevant";
     if (!canDismiss && !p.waiting_for_you) row.appendChild(h("span", { class: "slot-gap", "aria-hidden": "true" }));
     if (canDismiss) {
-      row.appendChild(h("button", { class: "btn btn-sm btn-ghost dismiss-btn", type: "button", onMousedown: (e) => e.preventDefault(),
+      row.appendChild(button({ kind: "quiet", sm: true, class: "dismiss-btn", onMousedown: (e) => e.preventDefault(),
         title: "Dismiss it: your judgement “Not about this” takes it out of the evidence and the answer. It stays listed at the bottom, and you can undo it.",
         onClick: () => put("not_relevant", undefined, `Saved: not about this. It moved to the excerpts read that are not about ${splitResult() ? "this part" : "the hypothesis"}, under the cards.`) }, "Not about this"));
     }
     const judgePanel = h("div", { class: "judge-body judge-panel" });
     const needed = !!(pendingQuote.get(pendingKey(p, part)) || (p.read_by === "you" && !p.user_verdict));   // the options are needed now
     // the buttons above do "Not about this" and the AI's own judgement (Agree): the radios offer the others
-    const opts = USER_VERDICTS.filter(([val]) => !(canDismiss && val === "not_relevant") && !(p.read_by !== "you" && !p.changed && val === (p.ai_verdict || "not_relevant"))).map(([val, label]) =>
-      h("button", { class: "btn btn-sm judge-opt", type: "button", "aria-pressed": current === val ? "true" : "false", onMousedown: (e) => e.preventDefault(),
-        onClick: () => { if (val !== current) put(val, undefined, `Saved: ${label}.`); } }, h("span", { class: `who-dot who-${{ supports: "supports", partially_supports: "partly", refutes: "refutes" }[val] || "none"}`, "aria-hidden": "true" }), label));
+    // the other judgements: a choice (the one in force shows as chosen); picking one saves it at once
+    const offered = USER_VERDICTS.filter(([val]) => !(canDismiss && val === "not_relevant") && !(p.read_by !== "you" && !p.changed && val === (p.ai_verdict || "not_relevant")));
+    const opts = choice({ filter: true, label: "Your judgement (saved when you pick one)", value: current, options: offered,
+      onPick: (val) => { if (val !== current) put(val, undefined, `Saved: ${(offered.find(([v]) => v === val) || [])[1]}.`); } });
     const pendNow = pendingQuote.get(pendingKey(p, part));
     const hasQuote = Number.isInteger(p.quote_start) && Number.isInteger(p.quote_end) && p.quote_end > p.quote_start;
-    const note = h("input", { class: "input input-sm", type: "text", placeholder: "Add a comment", value: draftNotes.has(pendingKey(p, part)) ? draftNotes.get(pendingKey(p, part)) : p.user_note || "", "aria-label": "Comment on this excerpt (saved on Enter, or when you leave the field)", title: "Saved on Enter, or when you leave the field" });
+    const note = fieldInput({ placeholder: "Add a comment", value: draftNotes.has(pendingKey(p, part)) ? draftNotes.get(pendingKey(p, part)) : p.user_note || "", "aria-label": "Comment on this excerpt (saved on Enter, or when you leave the field)", title: "Saved on Enter, or when you leave the field" });
     noteField = note;
     // a comment alone is not a judgement: it is sent with verdict null and the AI's judgement keeps counting
     // 0.12: a comment is saved with Enter or when the field is left (a judgement picked meanwhile takes it along)
-    // 0.14.3: sent with your own verdict (p.my_verdict), not the one in force, which may be a colleague's
+    // 0.14.3: sent with your own verdict (p.my_verdict), not the one in force
     const saveNote = () => { if (!saving && note.value.trim() !== (p.user_note || "").trim()) put(p.my_verdict || null, note.value.trim(), current ? "Comment saved." : "Comment saved. It is not a judgement: the AI's judgement still counts."); };
     note.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveNote(); } });
     note.addEventListener("blur", saveNote);
     note.addEventListener("input", () => draftNotes.set(pendingKey(p, part), note.value));
-    // "In context" re-draws the card: a comment typed and not saved yet is saved first (the save re-draws it)
+    // "more…" re-draws the card: a comment typed and not saved yet is saved first (the save re-draws it)
     wrap.saveDraft = () => { if (saving || note.value.trim() === (p.user_note || "").trim()) return false; saveNote(); return true; };
-    const judgeBtn = panelToggle(`judge:${part.claim_id}:${p.passage_id}`, p.read_by === "you" && !p.user_verdict ? "Judge this excerpt…" : p.user_verdict ? "Edit judgement…" : "Judge differently…", judgePanel, needed, false);
+    const judgeBtn = panelToggle(`judge:${part.claim_id}:${p.passage_id}`, p.read_by === "you" && !p.user_verdict ? "Judge this excerpt…" : p.user_verdict ? "Edit judgement…" : "Judge differently…", judgePanel, needed);
     judgeBtn.title = "A comment, another judgement, or another sentence as the quote";
     judgeBtn.classList.add("judge-toggle");
     append(judgePanel, [
       pendNow ? h("p", { class: "pending-hint" }, icon("arrow-right", { size: 13 }), " Now choose your judgement for this sentence:") : null,
       h("p", { class: "judge-caption" }, current ? `Your judgement: ${current === "not_relevant" ? "not about this" : GRADE_TEXT[current].toLowerCase()}. Change it to:` : p.read_by === "you" ? "Your judgement:" : "Instead of the AI's judgement:"),
-      h("div", { class: "judge-opts", role: "group", "aria-label": "Your judgement (saved when you pick one)" }, opts),
-      h("div", { class: "row", style: { marginTop: "8px" } }, note),
+      opts,
+      h("div", { class: "judge-note" }, note),
       markSentence()]);
     judgePanel.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); judgeBtn.click(); judgeBtn.focus(); } });
 
@@ -1460,29 +1913,29 @@ export async function renderResult(view, [hypId], query) {
         msg.textContent = "";
         if (current) { put(current, undefined, "Saved: your sentence is highlighted.", { quote: q, onError: (e) => { msg.textContent = e.message || "Could not save the sentence."; } }); return; }
         // no judgement yet: the sentence is kept on the card (not saved) until a judgement is chosen for it
-        const at = (p.text || "").indexOf(q);
-        pendingQuote.set(pendingKey(p, part), { text: q, start: at >= 0 ? at : null, end: at >= 0 ? at + q.length : null });
+        const at = (p.text || "").indexOf(q);   // a string index; kept as the app counts, like the quote’s own place
+        pendingQuote.set(pendingKey(p, part), { text: q, start: at >= 0 ? indexToCp(p.text, at) : null, end: at >= 0 ? indexToCp(p.text, at + q.length) : null });
         focusAfter = { passage_id: p.passage_id, claim_id: part.claim_id, ...placeOf(p.passage_id, part.claim_id), anchor: ".judge", anchorTop: wrap.getBoundingClientRect().top, noNote: true };
         redraw();
-        const el = box.querySelector(`[data-claim="${CSS.escape(part.claim_id)}"] [data-passage="${CSS.escape(p.passage_id)}"] .judge-opts button`);
+        const card = findCard(part.claim_id, p.passage_id);
+        const el = card ? card.querySelector('.judge-panel [role="group"] button') : null;
         if (el) el.focus({ preventScroll: true });
       };
-      const useSel = h("button", { class: "btn btn-sm", type: "button", onMousedown: (e) => e.preventDefault(), onClick: () => {
+      const useSel = button({ sm: true, class: "judge-tool", onMousedown: (e) => e.preventDefault(), onClick: () => {
         const sel = window.getSelection();
         const inside = sel && sel.rangeCount && !sel.isCollapsed && passageEl.contains(sel.anchorNode) && passageEl.contains(sel.focusNode);
         if (!inside) { msg.textContent = sel && !sel.isCollapsed ? "The selection must be inside this excerpt." : "Select a sentence in the excerpt first."; return; }
         saveQuote(sel.toString());
       } }, "Use it");
       const sentences = splitSentences(p.text).filter((x) => x.length > 12);
-      const pick = h("select", { class: "input input-sm", "aria-label": "Or choose a sentence from the excerpt" },
+      const pick = selectField({ sm: true, "aria-label": "Or choose a sentence from the excerpt" },
         h("option", { value: "" }, "…or choose a sentence from the list"), sentences.map((x, i) => h("option", { value: String(i) }, x.length > 90 ? x.slice(0, 88) + "…" : x)));
-      const usePick = h("button", { class: "btn btn-sm", type: "button", onClick: () => { if (pick.value === "") { msg.textContent = "Choose a sentence from the list first."; pick.focus(); return; } saveQuote(sentences[Number(pick.value)]); } }, "Use this sentence");
-      const remove = p.quote_by === "you" && current ? h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => put(current, undefined, "Your sentence was removed.", { quote: "" }) }, "Remove my sentence") : null;
+      const usePick = button({ sm: true, onClick: () => { if (pick.value === "") { msg.textContent = "Choose a sentence from the list first."; pick.focus(); return; } saveQuote(sentences[Number(pick.value)]); } }, "Use this sentence");
+      const remove = p.quote_by === "you" && current ? button({ kind: "quiet", sm: true, onClick: () => put(current, undefined, "Your sentence was removed.", { quote: "" }) }, "Remove my sentence") : null;
       // 0.12: one way at first (select, then the button); the list of sentences (for the keyboard) opens on demand
       const list = h("span", { class: "mark-list", hidden: true }, pick, usePick);
-      const listBtn = h("button", { class: "link-btn judge-list", type: "button", "aria-expanded": "false", onMousedown: (e) => e.preventDefault(), onClick: () => { list.hidden = !list.hidden; listBtn.setAttribute("aria-expanded", list.hidden ? "false" : "true"); if (!list.hidden) pick.focus(); } }, "or pick from a list");
+      const listBtn = button({ kind: "quiet", sm: true, toggle: true, class: "judge-list", "aria-expanded": "false", onMousedown: (e) => e.preventDefault(), onClick: () => { list.hidden = !list.hidden; listBtn.setAttribute("aria-expanded", list.hidden ? "false" : "true"); if (!list.hidden) pick.focus(); } }, "Pick from a list");
       useSel.title = `Another sentence than the one highlighted: select it in the excerpt, then press this.${current ? "" : " It is saved with the judgement you choose."}`;
-      useSel.className = "btn btn-sm judge-tool";
       return h("div", { class: "mark-sentence" },
         h("div", { class: "row" }, h("span", { class: "judge-caption" }, "Quote another sentence: select it in the excerpt, then"), useSel, listBtn, list, remove),
         msg);
@@ -1497,18 +1950,19 @@ export async function renderResult(view, [hypId], query) {
   function moreRow(part, r) {
     const k = (r.options && r.options.k) || App.settings().k || 8;
     const row = h("div", { class: "more-row" });
-    const status = h("div", { class: "grow", style: { flexBasis: "100%" } });
+    const status = h("div", { class: "grow more-status" });
     const none = part.more_available === false;
     const readN = (part.passages || []).length;
-    const moreBtn = h("button", { class: "btn btn-sm", type: "button", disabled: none }, "Read more excerpts");
+    const moreBtn = button({ sm: true, disabled: none }, "Read more excerpts");
     const open = termsOpen.has(part.claim_id);
-    const termsBtn = h("button", { class: "btn btn-sm", type: "button", "aria-expanded": open ? "true" : "false" }, "Search with other words");
-    const termsInput = h("input", { class: "input input-sm", type: "text", placeholder: "e.g. telework, home office, car use", "aria-label": "Words to search for, separated by commas", value: termsText.get(part.claim_id) || "" });
+    const termsBtn = button({ sm: true, toggle: true, "aria-expanded": open ? "true" : "false" }, "Search with other words");
+    const termsInput = fieldInput({ sm: true, placeholder: "e.g. telework, home office, car use", "aria-label": "Words to search for, separated by commas", value: termsText.get(part.claim_id) || "" });
     termsInput.addEventListener("input", () => termsText.set(part.claim_id, termsInput.value));
-    const termsGo = h("button", { class: "btn btn-sm", type: "button" }, "Search and read");
+    const termsGo = button({ sm: true }, "Search and read");
     const lastRes = termsResult.get(part.claim_id);
+    // its button opened it from the row marked Uses the AI: no second mark here
     const termsBox = h("div", { class: "more-terms", hidden: !open }, termsInput, termsGo, h("span", { class: "muted small" }, "Separate words with commas."),
-      lastRes ? h("p", { class: `terms-result ${lastRes.n ? "ok" : "none"}`, role: "status" }, icon(lastRes.n ? "circle-check" : "search-x", { size: 13 }), lastRes.text) : null);
+      lastRes ? h("p", { class: "terms-result", role: "status" }, icon(lastRes.n ? "check" : "search-x", { size: 13 }), lastRes.text) : null);
     termsBtn.addEventListener("click", () => { termsBox.hidden = !termsBox.hidden; termsBtn.setAttribute("aria-expanded", termsBox.hidden ? "false" : "true"); if (termsBox.hidden) termsOpen.delete(part.claim_id); else { termsOpen.add(part.claim_id); termsInput.focus(); } });
     const run = async (terms) => {
       moreBtn.disabled = termsGo.disabled = true;
@@ -1525,6 +1979,7 @@ export async function renderResult(view, [hypId], query) {
         if (job.state === "done") {
           const n = (job.result && job.result.passages) || 0;
           const y = window.scrollY;
+          const mine = newest();   // as fetchResult(): drawn only when no newer request was made meanwhile
           const fresh = await api("GET", `/api/projects/${P(project)}/hypotheses/${P(hypId)}?threshold=${threshold}`);
           const fp = (fresh.parts || []).find((x) => x.claim_id === part.claim_id) || {};
           const round = before + 1;
@@ -1537,8 +1992,7 @@ export async function renderResult(view, [hypId], query) {
             : `Nothing new was found for ${terms.join(", ")}: no unread excerpt contains these words. Try other words, or words that appear in your documents.` });
           if (n) termsOpen.delete(part.claim_id);
           toast(n ? `${n} more ${n === 1 ? "excerpt" : "excerpts"} read. See “Just now” in the answer box.` : "Nothing new was found for these words.", n ? "ok" : "warn", { small: true, ttl: 4000 });
-          current = fresh; draw(fresh);
-          window.scrollTo(0, y);
+          if (mine()) { current = fresh; draw(fresh); window.scrollTo(0, y); }
         } else if (job.state === "error") showError({ message: job.error, kind: job.error_kind });
         else replace(status);
       } catch (e) { showError(e); }
@@ -1552,25 +2006,27 @@ export async function renderResult(view, [hypId], query) {
     moreBtn.title = `The AI reads up to ${k} more excerpts that match the same words.`;   // 0.12: "Look for more evidence"
     termsBtn.title = "Type words your documents might use; the AI reads the excerpts that contain them.";
     // 0.16 (F2): a note of yours, made on a document, as an excerpt you judged
-    const noteBtn = h("button", { class: "btn btn-sm btn-ghost", type: "button", title: "One of your notes on a document's words becomes an excerpt you judged",
+    const noteBtn = button({ kind: "quiet", sm: true, title: "One of your notes on a document's words becomes an excerpt you judged",
       onClick: async () => {
         const res = await addNoteToPart(part.claim_id, r.decomposed ? part.claim : null);
         if (!res) return;
         toast(res.new ? "Your note is an excerpt of the check now, with your judgement." : "The check had that passage already: your judgement of it is set.", "ok", { small: true });
         const y = window.scrollY;
-        current = await api("GET", `/api/projects/${P(project)}/hypotheses/${P(hypId)}?threshold=${threshold}`);
-        draw(current);
+        await load();
         window.scrollTo(0, y);
       } }, icon("highlighter", { size: 13 }), "Add one of your notes");
     row.append(...[
       none ? h("p", { class: "more-line more-first" }, totalEx && readN >= totalEx ? "Every excerpt in your documents has been read." : "Every matching excerpt has been read.") : null,
-      h("div", { class: "more-btns" }, none ? null : moreBtn, termsBtn, noteBtn),
-      termsBox, status].filter(Boolean));   // Element.append(null) would write "null"
+      // the AI's two ways to read more, with their one mark after them; the AI line under them; your notes, which
+      // no AI reads, on a line of their own (DESIGN 4.4: one mark for a row of AI buttons, and only AI buttons in it)
+      h("div", { class: "more-btns" }, withAI(none ? null : moreBtn, termsBtn)),
+      termsBox, readsLine("the excerpts it finds"), status,
+      h("div", { class: "more-notes" }, noteBtn)].filter(Boolean));   // Element.append(null) would write "null"
     return row;
   }
 
   function noteCard(r) {
-    const ta = h("textarea", { class: "textarea", id: "note", placeholder: "What to check by hand, which document to trust…" });
+    const ta = textarea({ id: "note", placeholder: "What to check by hand, which document to trust…" });
     ta.value = r.note || "";
     const state = h("span", { class: "note-saved", "aria-live": "polite" }, r.note ? "Saved" : "");
     // 0.14.3: a note is saved at once when the box loses focus and when the page is closed, not only after the pause
@@ -1583,8 +2039,7 @@ export async function renderResult(view, [hypId], query) {
     ta.addEventListener("input", () => { noteDirty = true; state.textContent = "Saving…"; save(); });
     ta.addEventListener("blur", () => { if (noteDirty) { if (save.cancel) save.cancel(); saveNow(); } });
     noteBox = ta;
-    return h("section", { class: "card note-card", "aria-label": "Your notes" },
-      h("div", { class: "note-head" }, h("label", { for: "note" }, h("strong", {}, "Your notes")), state), ta);
+    return cardBox({ class: "result-notes", "aria-label": "Your notes", title: h("label", { for: "note" }, "Your notes"), action: state }, ta);
   }
 
   // ------------------------------------------------------------------------------------------
@@ -1605,14 +2060,14 @@ export async function renderResult(view, [hypId], query) {
         h("p", { class: "rounds-read" }, readSentence(ps, new Set(ps.map((x) => x.doc_id)).size, r.documents_in_project), oneReader && READ_BY[oneReader] ? `; ${READ_BY[oneReader][1].toLowerCase()}` : "", "."),
         roundsBlock(part, r));
     });
-    return fold("tech", { class: "fold tech-card" }, h("summary", {}, "Technical details"),
-      h("div", { class: "card card-plain details-body" },
+    return keptFold("tech", { sm: true, class: "tech-card" }, "Technical details",
+      h("div", { class: "details-body" },
         found.length ? h("div", { class: "found" }, h("h3", { class: "found-head" }, "How the excerpts were found"), found) : null,
         r.status === "waiting" ? null : h("div", { class: "threshold-ctl" },
           h("label", { for: "thr" }, "See this result at another strictness"), h("span", { class: "muted small" }, "relaxed"), input, h("span", { class: "muted small" }, "strict"), out,
           h("span", { class: "muted small", id: "thr-help" }, "Only this page changes. To change it for every result: ", h("a", { href: "#/settings/basics" }, "Settings"), ". A stricter setting counts fewer judgements, but can still count wrong ones.")),
-        r.status_any && r.status_any !== r.status ? h("p", { class: "small", style: { marginTop: "8px" } }, icon("info", { size: 13 }), " If every judgement counted, whatever the AI's certainty, the answer would be: ", statusBadge(r.status_any, { short: true })) : null,
-        h("dl", { class: "kv-grid", style: { marginTop: "14px" } },
+        r.status_any && r.status_any !== r.status ? h("p", { class: "small res-any-note" }, icon("info", { size: 13 }), " If every judgement counted, whatever the AI's certainty, the answer would be: ", statusBadge(r.status_any, { short: true })) : null,
+        h("dl", { class: "kv-grid res-tech-grid" },
           r.status === "waiting" && !(r.model || o.model) ? null : h("div", { class: "kv" }, h("dt", {}, "AI model"), h("dd", {}, `${r.model || o.model || "unknown"}${o.backend ? ` (${o.backend})` : ""}`)),
           h("div", { class: "kv" }, h("dt", {}, "Search"), h("dd", {}, o.search === "keywords+meaning" ? `same words + search by meaning (${o.embed_model || ""})` : "same words only")),
           h("div", { class: "kv" }, h("dt", {}, "Excerpts per claim"), h("dd", {}, `${o.k ?? "?"}, at most ${o.per_doc ?? "?"} per document`)),
@@ -1629,26 +2084,27 @@ export async function renderResult(view, [hypId], query) {
     const qs = `?threshold=${threshold}`;
     // 0.12: one row per download, the button first and one line on what it holds
     const row = (btn, what) => { if (!btn.title) btn.title = what; return h("div", { class: "dl-row" }, btn, h("span", { class: "dl-what" }, what)); };
-    return h("section", { class: "card downloads", "aria-label": "Downloads" },
-      h("div", { class: "card-head" }, h("h2", {}, "Download")),
+    return cardBox({ class: "downloads", "aria-label": "Downloads", title: "Download" },
       h("div", { class: "dl-rows" },
-        row(h("button", { class: "link-btn dl-link", type: "button", onClick: () => download(`/api/projects/${P(project)}/hypotheses/${P(hypId)}/export.xlsx${qs}`).catch(showError) }, "Excel (.xlsx)"),
+        row(downloadButton({ onClick: () => download(`/api/projects/${P(project)}/hypotheses/${P(hypId)}/export.xlsx${qs}`).catch(showError) }, "Excel (.xlsx)"),
           "The answer, every excerpt and judgement, your notes."),
-        row(h("button", { class: "link-btn dl-link", type: "button", title: "Readable in any PDF reader: green supports, amber partly, red contradicts, with a note on each",
+        row(downloadButton({ title: "Readable in any PDF reader: green supports, amber partly, red contradicts, with a note on each",
           onClick: () => download(`/api/projects/${P(project)}/hypotheses/${P(hypId)}/annotated.zip${qs}`).catch(showError) }, "Highlighted documents (.zip)"),
           "Each document, its quotes highlighted."),
-        row(projectZipLink(project, { text: "Whole project (.zip)", noIcon: true, cls: "link-btn dl-link" }),
-          "Everything, to share or move."),
-        h("div", { class: "dl-row" }, h("span", { class: "dl-what dl-wide" }, h("button", { class: "link-btn", type: "button", onClick: () => download(`/api/projects/${P(project)}/hypotheses/${P(hypId)}/export.csv${qs}`).catch(showError) }, "CSV"), " · ",
-          h("button", { class: "link-btn", type: "button", onClick: () => download(`/api/projects/${P(project)}/hypotheses/${P(hypId)}/export.json${qs}`).catch(showError) }, "JSON"), " (for programmers)"))));
+        row(projectZipLink(project, { text: "Whole project (.zip)" }), "Everything in the project, to keep or to move to another computer."),
+        // 0.18.7 (G5): the whole project for NVivo, ATLAS.ti and MAXQDA (REFI-QDA)
+        row(downloadButton({ onClick: () => download(`/api/projects/${P(project)}/export.qdpx${qs}`).catch(showError) }, "NVivo, ATLAS.ti, MAXQDA (.qdpx)"),
+          "Every hypothesis, code, label and note of the project, for another program of qualitative analysis."),
+        h("div", { class: "dl-row" }, h("span", { class: "dl-what dl-wide" }, downloadButton({ onClick: () => download(`/api/projects/${P(project)}/hypotheses/${P(hypId)}/export.csv${qs}`).catch(showError) }, "CSV"), " ",
+          downloadButton({ onClick: () => download(`/api/projects/${P(project)}/hypotheses/${P(hypId)}/export.json${qs}`).catch(showError) }, "JSON"), " (for programmers)"))));
   }
 
   async function deleteHyp(r) {
     // 0.16 (F4): why the claim was dropped goes into the research log
     const ok = await askWhy({ title: "Delete this result?", confirmText: "Delete", placeholder: "For example: the claim was reworded, outside the scope, a duplicate",
-      message: h("div", {}, h("p", {}, "The hypothesis, the judgements and your notes are removed from the results. The documents stay; the research log keeps a line about it."), h("p", { class: "serif" }, r.text)) });
+      message: h("div", {}, h("p", {}, "The hypothesis, the judgements and your notes are removed from the hypotheses of this project. The documents stay; the research log keeps a line about it."), h("p", { class: "serif" }, r.text)) });
     if (!ok) return;
-    try { await api("DELETE", `/api/projects/${P(project)}/hypotheses/${P(hypId)}${ok.why ? `?why=${encodeURIComponent(ok.why)}` : ""}`); toast("Result deleted.", "ok"); navigate("#/history"); }
+    try { await api("DELETE", `/api/projects/${P(project)}/hypotheses/${P(hypId)}${ok.why ? `?why=${encodeURIComponent(ok.why)}` : ""}`); toast("Result deleted.", "ok"); navigate(r.batch_id ? `#/hypotheses?batch=${encodeURIComponent(r.batch_id)}` : "#/hypotheses"); }
     catch (e) { showError(e); }
   }
 
@@ -1657,25 +2113,25 @@ export async function renderResult(view, [hypId], query) {
   return () => { clearTimeout(waitTimer); saveNoteOnLeave(); window.removeEventListener("pagehide", saveNoteOnLeave); watchers.forEach((w) => w.stop()); };
 }
 
-// "Download the whole project (.zip)": a plain link (the browser saves it), with a note that the download started.
+// "Download as a zip": a button that downloads with the token in a header (no token in the address), with a note that
+// the download started.
 export function projectZipLink(project, opts = {}) {
-  // 0.14.3: a button that downloads with the token in a header, like the other downloads: no token in the address
-  // (history, the download list, the file's "where from")
-  const a = h("button", { class: opts.cls || "btn btn-sm", type: "button", title: "One zip with the database, the settings, the codebooks and the original files of this project" },
-    opts.noIcon ? null : icon("download", { size: 13 }), opts.text || "Download the whole project (.zip)");
+  const a = downloadButton({ title: "One zip with the database, the settings, the codebooks and the original files of this project" }, opts.text || "Download the whole project (.zip)");
   a.addEventListener("click", () => { download(`/api/projects/${P(project)}/export.zip`).catch(showError); toast(`Your download starts: “Margin project - ${project} - ${new Date().toISOString().slice(0, 10)}.zip”. It holds the documents, results, judgements and notes of this project; a large project takes a moment.`, "ok", { ttl: 7000 }); });
   return a;
 }
 
 // A block (paragraph or page) of a document, with a global character span highlighted where it overlaps. The
-// block's heading lines (0.6: `headings`, offsets in its text) are shown bold.
+// block’s heading lines (0.6: `headings`, offsets in its text) are shown bold. All are the app’s offsets, turned
+// into indices of the block’s text for passageNode().
 export function blockNode(b, span, tag = "p", cls = "") {
   const text = b.text || "";
-  const breaks = (b.headings || []).map((x) => ({ at: x.at, end: x.end, kind: "heading" }));
+  const breaks = breaksToIndex(text, (b.headings || []).map((x) => ({ at: x.at, end: x.end, kind: "heading" })));
   if (!span) return passageNode(text, null, null, tag, cls, breaks);
-  const s = Math.max(0, span.start - b.start), e = Math.min(text.length, span.end - b.start);
-  if (e <= 0 || s >= text.length || e <= s) return passageNode(text, null, null, tag, cls, breaks);
-  return passageNode(text, s, e, tag, cls, breaks);
+  const n = cpLength(text);
+  const s = Math.max(0, span.start - b.start), e = Math.min(n, span.end - b.start);
+  if (e <= 0 || s >= n || e <= s) return passageNode(text, null, null, tag, cls, breaks);
+  return passageNode(text, cpToIndex(text, s), cpToIndex(text, e), tag, cls, breaks);
 }
 
 // What the blocks around one block are called: "paragraphs" (also within a page), "pages", or nothing to say.

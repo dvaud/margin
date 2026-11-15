@@ -29,18 +29,36 @@ file reads the same on every computer with the same reader and engine.
 Reader 3 (Margin 0.15.1) is this reader with the rules of `reader3.py` added: running heads, page numbers and paragraphs
 in text-only files, headings where a file marks none, the parts of books and theses from their table of contents, an
 index, and words run together. `read_blocks(raw, version=2)` still reads exactly as reader 2 did.
+
+Reader 4 (Margin 0.17.2) adds the rule of `reader4.py` (a text file with one paragraph per line) and reads Word files'
+content controls and nested tables (`ingest._read_docx`). `read_blocks(raw, version=3)` still reads as reader 3 did.
+
+Reader 5 (Margin 0.18.1) adds the rules of `reader5.py`: tables from their ruled lines (the lines and boxes pdfminer
+gives besides the text), a table that runs over a page joined into one, and figures and images as blocks of their own
+(a page, a box, their words and their caption; no picture is stored). A Word file or web page keeps an image's caption
+and alternative text. `read_blocks(raw, version=4)` still reads as reader 4 did.
+
+Reader 6 (Margin 0.19) adds the rules of `reader6.py`, for PDFs only: text a form crops away (a draft page shown
+through a window) is not read, a form that shows a diagram of words is one figure, publishing details printed after
+the text has begun (e-mails, the DOI, the dates in the first page's footer) are front matter, a journal's name in
+large type is not the title, and a running head with a page number on its row is found on every page. For any kind of
+file, in a document in two languages (`languages.py`) no block is carried on, and no passage put together, across the
+two. `read_blocks(raw, version=5)` still reads as reader 5 did.
 """
 from __future__ import annotations
 
 import re
 import statistics
 import unicodedata
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from dataclasses import dataclass, field
 
 from .textutil import split_sentences
 
-READER = 3   # 2: Margin 0.15.0; 3: Margin 0.15.1 (reader3.py)
+READER = 6   # 2: Margin 0.15.0; 3: Margin 0.15.1 (reader3.py); 4: Margin 0.17.2 (reader4.py);
+#              5: Margin 0.18.1 (reader5.py); 6: Margin 0.19 (reader6.py; languages.py: no passage holds both
+#              languages of a document in two)
 INCLUDED = ("body", "heading", "title", "abstract", "caption")
 KINDS = ("title", "heading", "abstract", "body", "caption", "table", "footnote", "front", "back", "references",
          "figure", "furniture", "contents", "index")
@@ -53,7 +71,7 @@ KIND_TEXT = {"title": "title", "heading": "heading", "abstract": "abstract", "bo
              "contents": "table of contents", "index": "index"}
 # the same, short, where a block left out is named beside it in the reading view
 KIND_LABEL = {"table": "Table", "footnote": "Footnote", "front": "Front matter", "back": "End notes",
-              "references": "Reference list", "figure": "Text in a figure", "furniture": "Running head",
+              "references": "Reference list", "figure": "Figure", "furniture": "Running head",
               "contents": "Contents", "index": "Index"}
 
 
@@ -98,11 +116,15 @@ class Block:
     end: int = 0
     continues: bool = False        # its sentence goes on in the next content block (a column or page turned)
     rows: list[list[str]] | None = None   # a table's rows of cells
-    caption: str | None = None     # a table's caption
+    caption: str | None = None     # a table's or a figure's caption
     n: int = 0
+    box: tuple[float, float, float, float] | None = None   # reader 5: a box set by what drew it (rules, a picture)
+    lang: str | None = None        # reader 6: its language, in a document in two languages (`languages.py`)
 
     @property
     def bbox(self) -> tuple[float, float, float, float] | None:
+        if self.box is not None:
+            return self.box
         xs = [ln for ln in self.lines if ln.x0 is not None and ln.top is not None]
         if not xs:
             return None
@@ -125,19 +147,29 @@ def pdfminer_available() -> bool:
     return True
 
 
-def _pdfminer_pages(path) -> tuple[list[list[Line]], list[tuple[float, float]]]:
-    """Every horizontal line of text of each page with its box, size and boldness (pdfminer)."""
+def _pdfminer_pages(path, shapes: list | None = None,
+                    version: int = 5) -> tuple[list[list[Line]], list[tuple[float, float]]]:
+    """Every horizontal line of text of each page with its box, size and boldness (pdfminer). Reader 5 gives `shapes`
+    (a list): each page's lines, boxes and pictures (`reader5.PageShapes`) are appended to it; readers 2 to 4 do not.
+    Reader 6 leaves out the text a form crops away (`reader6.extract_pages`)."""
     from pdfminer.high_level import extract_pages
     from pdfminer.layout import LAParams, LTChar, LTFigure, LTTextLineHorizontal
 
     params = LAParams(line_margin=0.3, char_margin=1.6, word_margin=0.12, all_texts=True, detect_vertical=False)
+    from . import reader5
+
     pages: list[list[Line]] = []
     dims: list[tuple[float, float]] = []
+    if version >= 6:
+        from .reader6 import extract_pages
     for pno, pg in enumerate(extract_pages(str(path), laparams=params)):
         height = float(pg.height)
         out: list[Line] = []
+        rec = reader5.PageShapes() if shapes is not None else None
 
         def walk(obj, in_fig: bool) -> None:
+            if rec is not None:
+                reader5.record(obj, rec, height, in_fig)
             if isinstance(obj, LTTextLineHorizontal):
                 text = obj.get_text().replace("\n", " ").rstrip()
                 if not text.strip():
@@ -169,6 +201,8 @@ def _pdfminer_pages(path) -> tuple[list[list[Line]], list[tuple[float, float]]]:
                 ln.figure = False
         pages.append(out)
         dims.append((float(pg.width), height))
+        if shapes is not None:
+            shapes.append(rec)
     return pages, dims
 
 
@@ -307,6 +341,19 @@ _TAIL = re.compile(r"([^\W\d_]+)[-‐]$")
 _HEAD = re.compile(r"^([^\W\d_]+)")
 
 
+def _tail_match(text: str):
+    """`_TAIL.search(text)`, found by looking only at the end of `text`: the match is the run of letters before a last
+    hyphen, so it can only start inside the last word. The look starts a few characters back and goes further back
+    only while the run of letters reaches its start (a block of 2,000 lines was searched whole for every line)."""
+    n = len(text)
+    back = 64
+    while True:
+        m = _TAIL.search(text, max(0, n - back))
+        if m is None or m.start() > n - back or back >= n:
+            return m
+        back *= 4
+
+
 def join_lines(texts: list[str], vocab: Counter, counts: Counter) -> str:
     """The lines of one block joined into one paragraph: a hyphen at a line end joins a word broken by typesetting
     ("exam-" + "ple") and stays in a compound ("long-" + "term", "COVID-" + "19"); other line ends become a space."""
@@ -322,7 +369,7 @@ def join_lines(texts: list[str], vocab: Counter, counts: Counter) -> str:
             out = out[:-1] + t
             counts["hyphens_joined"] += 1
             continue
-        m = _TAIL.search(out)
+        m = _tail_match(out) if out[-1] in "-‐" else None
         nxt = _HEAD.match(t)
         if m and out[-1] in "-‐" and nxt and t[0].islower():
             left, right = m.group(1), nxt.group(1)
@@ -350,7 +397,7 @@ def join_lines(texts: list[str], vocab: Counter, counts: Counter) -> str:
         if out[-1] in "-‐–/" and not out.endswith(" -") and not out.endswith(" –"):
             out = out + t  # "COVID-" + "19", "2010–" + "2020", "and/" + "or"
             continue
-        out = out + " " + t
+        out = out + (" " + t)  # (the brackets let Python grow `out` in place instead of copying it twice per line)
     return out.replace("­", "")
 
 
@@ -420,8 +467,10 @@ def join_section_numbers(lines: list[Line]) -> list[Line]:
     return out  # top to bottom; `reading_order` puts lines with boxes in reading order
 
 
-def mark_furniture(pages: list[list[Line]], dims: list[tuple[float, float]]) -> None:
-    """Running heads and footers, page numbers and line numbers (lines with boxes only)."""
+def mark_furniture(pages: list[list[Line]], dims: list[tuple[float, float]], version: int = 5) -> None:
+    """Running heads and footers, page numbers and line numbers (lines with boxes only). Reader 6: the line a running
+    head stands apart from is the nearest one towards the middle of the page that is not beside it on its row (a page
+    number or another running head at the other end of the row hid it on every other page)."""
     n = len(pages)
     edge: Counter = Counter()
     for pno, lines in enumerate(pages):
@@ -448,9 +497,21 @@ def mark_furniture(pages: list[list[Line]], dims: list[tuple[float, float]]) -> 
 
         def apart(ln: Line) -> bool:
             k = placed.index(ln)
-            other = placed[k + 1] if ln.top < 0.5 * h else placed[k - 1] if k else None
-            if other is None or (ln.top >= 0.5 * h and k == 0) or (ln.top < 0.5 * h and k + 1 >= len(placed)):
+            # nothing towards the middle (a page that holds only this line): apart. Tested before the neighbour is
+            # taken, which raised IndexError on such a page and stopped the whole add; every page that read before
+            # reads the same, so this needs no new reader number.
+            if (ln.top >= 0.5 * h and k == 0) or (ln.top < 0.5 * h and k + 1 >= len(placed)):
                 return True
+            other = placed[k + 1] if ln.top < 0.5 * h else placed[k - 1]
+            if version >= 6:
+                # (a page number or another running head on its row is not the text it stands apart from)
+                row = 0.5 * (ln.size or 8.0)
+                inward = [o for o in (placed[k + 1:] if ln.top < 0.5 * h else placed[k - 1::-1])
+                          if abs(o.top - ln.top) > row
+                          or not (_PAGE_NO.match(o.text.strip()) or edge[_key(o.text)] >= need)]
+                if not inward:
+                    return True
+                other = inward[0]
             gap = abs(other.top - ln.top)
             return gap > 1.4 * step or (ln.size and other.size and abs(ln.size - other.size) > 0.5)
         # line numbers: a column of short numbers at one x, as manuscripts under review have
@@ -891,6 +952,12 @@ def classify(blocks: list[Block], body_size: float | None, dims: list[tuple[floa
             # the title: the largest type on the first page, near its top
             if (pdf and not title_set and b.page == 0 and body_size and b.lines[0].size
                     and b.lines[0].size >= body_size + 2 and h and b.lines[0].top < 0.5 * h):
+                if version >= 6:
+                    from . import reader6
+
+                    if reader6.banner(bi, blocks, body_size, h):
+                        b.kind = "front"  # reader 6: the journal's name, as its running head begins
+                        continue
                 b.kind = "title"
                 title_set = True
                 continue
@@ -983,12 +1050,24 @@ class Reading:
     report: dict = field(default_factory=dict)
 
 
+def _lang_break(a: Block, b: Block) -> bool:
+    """Reader 6: whether two blocks are in the two different languages of a document in two (blocks of other
+    readings have no language, so nothing breaks)."""
+    return a.lang is not None and b.lang is not None and a.lang != b.lang
+
+
 def read_blocks(raw, version: int = READER) -> tuple[list[Block], dict]:
     """The blocks of a RawDoc in reading order, with their kinds and repaired text, and the reading report. `version`
-    2 reads as Margin 0.15.0 did; 3 adds the rules of `reader3.py`."""
-    from . import reader3
+    2 reads as Margin 0.15.0 did; 3 adds the rules of `reader3.py`; 4 those of `reader4.py`; 5 those of `reader5.py`;
+    6 keeps the two languages of a document in two apart (`languages.py`)."""
+    from . import reader3, reader4, reader5
+
+    raw = raw.as_read_by(version) if hasattr(raw, "as_read_by") else raw
 
     v3 = version >= 3
+    v5 = version >= 5
+    v6 = version >= 6
+    shapes: list | None = [] if v5 else None   # reader 5: each page's rules, boxes and pictures
     counts: Counter = Counter()
     pdf = raw.kind == "pdf"
     engine = "text"
@@ -999,9 +1078,11 @@ def read_blocks(raw, version: int = READER) -> tuple[list[Block], dict]:
         got = None
         if pdfminer_available():
             try:
-                got = _pdfminer_pages(raw.path)
+                got = _pdfminer_pages(raw.path, shapes, version)
             except Exception:  # noqa: BLE001 - a PDF pdfminer cannot read: pypdf's text
                 got = None
+                if shapes is not None:
+                    shapes.clear()
         if got is not None and len(got[0]) == len(raw.pages):
             engine = "pdfminer"
             pages, dims = got
@@ -1021,13 +1102,15 @@ def read_blocks(raw, version: int = READER) -> tuple[list[Block], dict]:
     else:
         pages = [_text_lines(t, i) for i, t in enumerate(raw.pages)]
     if pdf and dims:
-        mark_furniture(pages, dims)
+        mark_furniture(pages, dims, version)
     layout: dict = {}
     if v3:
         # lines without positions (text files, OCR, pypdf without them): text printed twice, running heads and page
         # numbers by repetition, and paragraphs in hard-wrapped text
         reader3.undouble_lines(pages, counts)
         layout = reader3.text_furniture(pages)
+        if version >= 4 and raw.kind == "text" and reader4.paragraph_lines(pages):
+            layout["paragraph_lines"] = True  # each line a paragraph (no blank lines between them)
         layout["wrapped"] = reader3.paragraph_breaks(pages) is not None
     all_lines = [ln for p in pages for ln in p]
     sizes = Counter()
@@ -1049,8 +1132,15 @@ def read_blocks(raw, version: int = READER) -> tuple[list[Block], dict]:
 
     blocks: list[Block] = []
     multi_col = 0
+    # reader 5: images and forms that repeat on several pages (a logo, a seal) are not figures
+    skip_figures = reader5.candidate_keys(shapes, dims) if shapes and engine == "pdfminer" else set()
     for pno, lines in enumerate(pages):
         width = dims[pno][0] if pno < len(dims) else 0.0
+        objs: list = []
+        if shapes and engine == "pdfminer" and pno < len(shapes):
+            # reader 5: tables from rules and figures first; their lines leave the flow of the text and the block
+            # is put back where the object stands (`reader5.place`)
+            objs, lines = reader5.page_objects(shapes[pno], lines, dims[pno], body_size, skip_figures, pno, forms=v6)
         if pdf and width:
             lines, ncol = reading_order(lines, width)
             multi_col += ncol > 1
@@ -1089,12 +1179,21 @@ def read_blocks(raw, version: int = READER) -> tuple[list[Block], dict]:
             tl, grid = tables[k]
             page_blocks.append(Block(pno, sorted(tl, key=lambda x: (x.top, x.x0)), kind="table", rows=grid))
         flush_rest()
+        if objs:
+            page_blocks = reader5.place(page_blocks, objs, pno)
         blocks.extend(Block(pno, [ln], kind="furniture") for ln in above)
         blocks.extend(page_blocks)
         blocks.extend(Block(pno, [ln], kind="furniture") for ln in below)
         if numbers:
             blocks.append(Block(pno, numbers, kind="furniture"))
+    tables_joined = reader5.join_tables(blocks, dims, body_size) if v5 and engine == "pdfminer" else 0
     classify(blocks, body_size, dims, pdf, raw.headings if not pdf else None, version)
+    if v6 and pdf:
+        from . import reader6
+
+        blocks = reader6.join_title(blocks)
+    if v5 and not pdf and getattr(raw, "figures", None):
+        reader5.mark_text_figures(blocks, raw.figures)   # a Word file's or web page's image alternative texts
     parts: dict = {}
     if v3:
         # books and theses: the contents, front and end matter, the index
@@ -1118,7 +1217,9 @@ def read_blocks(raw, version: int = READER) -> tuple[list[Block], dict]:
             b.text = split_run_together(b.text, vocab, bigrams, counts)
             if damaged:
                 b.text = reader3.split_runs(b.text, vocab, bigrams, _COMMON | _CLOSED, counts)
-    blocks = [b for b in blocks if b.text.strip()]
+    blocks = [b for b in blocks if b.text.strip() or (b.kind == "figure" and b.box is not None)]
+    if v6 and pdf:
+        counts["publishing_details"] = reader6.publishing_details(blocks, body_size, dims)
     # captions of tables: the caption block just before or after a table
     for i, b in enumerate(blocks):
         if b.kind == "table":
@@ -1126,19 +1227,29 @@ def read_blocks(raw, version: int = READER) -> tuple[list[Block], dict]:
                 if 0 <= j < len(blocks) and blocks[j].kind == "caption" and blocks[j].text.lower().startswith(("tab",)):
                     b.caption = blocks[j].text
                     break
+    if v5:
+        reader5.link_captions(blocks)
     # a paragraph that goes on in the next content block (a column or a page turned mid-sentence); a word
     # hyphenated across that turn is put together at the end of the first block ("complex-" + "ity. An" ->
     # "complexity." + "An")
+    if version >= 6:   # reader 6: each block's language, in a document in two (a side-by-side translation)
+        from . import languages
+
+        items = [(b.text, b.kind) for b in blocks]
+        two = languages.survey(items)["two"]
+        if two:
+            for b, c in zip(blocks, languages.block_languages(items, two)):
+                b.lang = c if c in two else None
     content = [b for b in blocks if b.kind in ("body", "abstract")]
     for a, c in zip(content, content[1:]):
-        if a.kind == c.kind and not _ENDS.search(a.text.rstrip()) and c.text[:1].islower():
+        if a.kind == c.kind and not _ENDS.search(a.text.rstrip()) and c.text[:1].islower() and not _lang_break(a, c):
             a.continues = True
-            if a.text.endswith(("-", "\u2010")) and _TAIL.search(a.text):
+            if a.text.endswith(("-", "\u2010")) and _tail_match(a.text):
                 head, _sp, rest = c.text.partition(" ")
                 joined = join_lines([a.text, head], vocab, counts)
                 a.text = joined
                 c.text = rest.lstrip()
-    blocks = [b for b in blocks if b.text.strip()]
+    blocks = [b for b in blocks if b.text.strip() or (b.kind == "figure" and b.box is not None)]
     report = {
         "reader": version, "engine": engine, "pages": len(raw.pages),
         "pages_with_text": sum(1 for p in pages if sum(len(ln.text.strip()) for ln in p) >= 30),
@@ -1149,6 +1260,9 @@ def read_blocks(raw, version: int = READER) -> tuple[list[Block], dict]:
                                            "accents")},
         "tables": sum(1 for b in blocks if b.kind == "table"),
     }
+    if v5:
+        report["figures"] = sum(1 for b in blocks if b.kind == "figure" and (b.box is not None or not pdf))
+        report["tables_joined"] = tables_joined
     if v3:
         report["repairs"]["doubled"] = counts["doubled"]
         report["text_layout"] = layout
@@ -1205,6 +1319,8 @@ def make_passages(text: str, blocks: list[Block], spans, max_chars: int, min_cha
                 or (g != "in" and prev.page == b.page and size < max_chars))
             if g == "in" and prev.kind in ("heading",) and b.kind in INCLUDED:
                 same = True
+            if same and _lang_break(prev, b):   # reader 6: never both languages of a document in one passage
+                same = False
             if same:
                 lbs.append(b)
                 continue
@@ -1259,9 +1375,10 @@ def make_passages(text: str, blocks: list[Block], spans, max_chars: int, min_cha
 
 
 def build_document(raw, max_chars: int = 1100, min_chars: int = 200, version: int = READER):
-    """A Document read by reader 2 or 3 (see `ingest.read_document`)."""
+    """A Document read by reader 2, 3 or 4 (see `ingest.read_document`)."""
     from .ingest import Document, Layout, guess_doi, guess_title
 
+    raw = raw.as_read_by(version) if hasattr(raw, "as_read_by") else raw
     blocks, report = read_blocks(raw, version)
     text, spans = assemble(blocks, max(1, len(raw.pages)))
     for n, b in enumerate(blocks, 1):
@@ -1271,7 +1388,9 @@ def build_document(raw, max_chars: int = 1100, min_chars: int = 200, version: in
     if t_block is not None and not raw.meta_title:
         title = t_block.text[:300]
     doc = Document("d" + raw.sha1[:10], raw, text, spans, title, guess_doi(raw, text, spans))
-    doc.passages = make_passages(text, blocks, spans, max_chars, min_chars)
+    # (a figure without words is a block of no text: it has a box and no passage)
+    doc.passages = make_passages(text, [b for b in blocks if b.end > b.start] if version >= 5 else blocks, spans,
+                                 max_chars, min_chars)
     lay = Layout()
     # Paragraphs, as quotes are cited ("page 2, paragraph 3"; "paragraph 7" in files without pages). In a file
     # without pages every block that counts is one, as reader 1 counted blocks between blank lines. In a PDF every
@@ -1294,6 +1413,13 @@ def build_document(raw, max_chars: int = 1100, min_chars: int = 200, version: in
         doc.paragraphs = [s0 for _pg, s0 in lay.paragraphs]
     doc.blocks = blocks
     doc.reading = finish_report(report, blocks, doc.passages, text, raw.kind)
+    # 0.19: the document's languages, and how many passages hold both of a document in two (0 from reader 6 on)
+    from . import languages
+
+    items = [(text[b.start:b.end], b.kind, b.start, b.end) for b in blocks]
+    langs = languages.survey([(t, k) for t, k, _a, _z in items])
+    langs["mixed_passages"] = languages.mixed_passages(items, [(p.start, p.end) for p in doc.passages], langs["two"])
+    doc.reading["languages"] = langs
     return doc
 
 
@@ -1369,6 +1495,16 @@ def block_fp(text: str) -> str:
     return hashlib.sha1(words.encode("utf-8")).hexdigest()[:16]
 
 
+def figure_key(page, box) -> str | None:
+    """2026-11-15: the choice that leaves a reader-5 figure (a picture with its box on its page) out of the reading:
+    an advert, a logo, a picture that is no part of the document. A figure is never read, so its `included` says
+    nothing; this mark only folds its picture away under "Left out of the text". Kept by its page and its box (a
+    picture often has no words to find it by), so it holds when the document is read again."""
+    if page is None or not box or any(v is None for v in box):
+        return None
+    return "fig:{}:{}".format(page, ":".join(str(round(float(v))) for v in box))
+
+
 BOUNDS = ("start", "end")   # 0.15.1: "Text starts here" and "Text ends here", kept in block_choices as "<side>:<fp>:<k>"
 
 
@@ -1396,15 +1532,24 @@ def bound_index(choices: dict, side: str, fps: list[str]) -> int | None:
 def choose_inclusion(items: list[tuple[str, str]], choices: dict) -> list[int]:
     """Whether each block counts (1) or is left out (0), for blocks given as (text, kind) in reading order: its kind;
     then the person's *Text starts here* and *Text ends here* (what comes before or after is left out); then the
-    person's *Restore* or *Leave out* of that block, which always wins."""
+    person's *Restore* or *Leave out* of that block, which always wins. 0.19: between the two, the language the
+    person keeps of a document in two languages (`languages.keep_mask`): a block of the other language is left out."""
     want = [1 if kind in INCLUDED else 0 for _t, kind in items]
     if not choices:
         return want
     fps = [block_fp(t) for t, _k in items]
     first = bound_index(choices, "start", fps)
     last = bound_index(choices, "end", fps)
+    keep = None
+    if any(isinstance(k, str) and k.startswith("lang:") for k in choices):   # only then is a language read
+        from . import languages
+
+        code = languages.kept_language(choices)
+        keep = languages.keep_mask(items, code) if code else None
     for i in range(len(items)):
         if (first is not None and i < first) or (last is not None and i > last):
+            want[i] = 0
+        if keep is not None and not keep[i]:
             want[i] = 0
         if fps[i] in choices:
             want[i] = int(choices[fps[i]])
@@ -1416,6 +1561,9 @@ def apply_choices(cx, doc_id: str) -> list[int]:
     person said the text starts and ends, then their choices by fingerprint (`choose_inclusion`), and every passage's
     section from its blocks. A passage that holds several blocks (a heading and its paragraph, short paragraphs put
     together) is read when any of them is. Returns the blocks whose inclusion changed."""
+    from .docrole import sync_role
+
+    sync_role(cx, doc_id)  # 0.18.1 (K2): a role (theory) is kept among the choices, documents.role reads it
     rows = cx.execute("SELECT n, start, end, kind, included FROM blocks WHERE doc_id=? ORDER BY n", (doc_id,)).fetchall()
     if not rows:
         return []
@@ -1432,9 +1580,17 @@ def apply_choices(cx, doc_id: str) -> list[int]:
         cx.executemany("UPDATE blocks SET included=? WHERE doc_id=? AND n=?", [(want[n], doc_id, n) for n in changed])
     spans = [(a, z, want[n], kind) for n, a, z, kind, _inc in rows]
     ups = []
+    starts = [b0 for b0, _b1, _inc, _k in spans]
+    ends = [b1 for _b0, b1, _inc, _k in spans]
+    # blocks lie in order, so those a passage touches are one run, found by bisection (every passage was compared
+    # with every block); blocks out of order take the plain scan
+    in_order = all(x <= y for x, y in zip(starts, starts[1:])) and all(x <= y for x, y in zip(ends, ends[1:]))
     for pid, a, z, section in cx.execute("SELECT passage_id, start, end, section FROM passages WHERE doc_id=?",
                                          (doc_id,)).fetchall():
-        mine = [(inc, kind) for b0, b1, inc, kind in spans if b0 < z and b1 > a]
+        if in_order:
+            mine = [(inc, kind) for _b0, _b1, inc, kind in spans[bisect_right(ends, a):bisect_left(starts, z)]]
+        else:
+            mine = [(inc, kind) for b0, b1, inc, kind in spans if b0 < z and b1 > a]
         if not mine:
             continue
         inc = any(i for i, _k in mine)

@@ -173,6 +173,13 @@ class DocumentsApi:
             raise ApiError(400, "block must be a block number or null.")
         return self.app.set_bound(name, doc_id, side, n)
 
+    def put_language(self, name, doc_id, q):
+        """0.19: {"keep": a language code | null}: keep one language of a document in two (null: both count)."""
+        keep = self._body().get("keep")
+        if keep is not None and not isinstance(keep, str):
+            raise ApiError(400, "keep must be a language code or null.")
+        return self.app.set_language(name, doc_id, keep)
+
     def get_reread(self, name, doc_id, q):
         """0.15 (A0): what *Read with the new reader* would do to this document, without doing it."""
         from .. import reread
@@ -184,7 +191,7 @@ class DocumentsApi:
 
     def post_reread_document(self, name, doc_id, q):
         """0.15 (A0): read the document with the new reader and move its results with it (all or nothing)."""
-        from .. import reread
+        from .. import reread, solo as people  # Margin: one person
 
         ws = self.app.ws(name)
         if not ws.scalar("SELECT 1 FROM documents WHERE doc_id=?", (doc_id,)):
@@ -192,19 +199,17 @@ class DocumentsApi:
         ok = reread.check(ws, doc_id)
         if not ok.get("ok"):
             raise ApiError(409, ok.get("reason") or "This document cannot be read again now.")
-        busy = [j for j in self.app.jobs.jobs.values() if j.project == name and j.state in ("queued", "running")]
-        if busy:
-            raise ApiError(409, f"Wait until “{busy[0].title}” has finished in this project, then read the document "
-                                "with the new reader.")
-        return {"job": self.app.start_new_reader(name, doc_id, None).view()}
+        # 0.18 (M6): while another job of the project runs, the move waits for its turn (`waiting_for`), cancellable
+        return {"job": self.app.start_new_reader(name, doc_id, people.me()).view()}
 
     def post_new_reader_many(self, name, q):
         """0.15.7: read several documents with the new reader at once (the Documents page): `doc_ids`, or every
         document an earlier reader read. Each moves only when all its results find their place."""
+        from .. import solo as people  # Margin: one person
+
         ws = self.app.ws(name)
         body = self._body()
-        older = [r["doc_id"] for r in ws.query("SELECT doc_id FROM documents WHERE COALESCE(reader, 1) < ? "
-                                               "ORDER BY title", (ingest.READER,))]
+        older = _older(ws)
         ids = body.get("doc_ids")
         if ids is not None:
             if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
@@ -214,11 +219,26 @@ class DocumentsApi:
             ids = older
         if not ids:
             raise ApiError(409, "Every document here was read by the current reader already: there is nothing to do.")
-        busy = [j for j in self.app.jobs.jobs.values() if j.project == name and j.state in ("queued", "running")]
-        if busy:
-            raise ApiError(409, f"Wait until “{busy[0].title}” has finished in this project, then read the documents "
-                                "with the new reader.")
-        return {"job": self.app.start_new_reader_many(name, ids, None).view()}
+        # 0.18 (M6): while another job of the project runs, the moves wait for their turn (`waiting_for`), cancellable
+        # 0.18 (M7): `keep_unplaced` is the person's *Move anyway* after the combined review
+        return {"job": self.app.start_new_reader_many(name, ids, people.me(), keep_unplaced=body.get("keep_unplaced") is True).view()}
+
+    def post_new_reader_preview(self, name, q):
+        """0.18 (M7): the dry run before moving several documents (same `doc_ids` as the move): how many move cleanly,
+        how many results would lose their place, and which. Nothing is stored or changed."""
+        ws = self.app.ws(name)
+        body = self._body()
+        older = _older(ws)
+        ids = body.get("doc_ids")
+        if ids is not None:
+            if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+                raise ApiError(400, "doc_ids must be a list of document ids.")
+            ids = [i for i in older if i in set(ids)]
+        else:
+            ids = older
+        if not ids:
+            raise ApiError(409, "Every document here was read by the current reader already: there is nothing to do.")
+        return {"job": self.app.start_new_reader_preview(name, ids).view()}
 
     def put_reading_checked(self, name, doc_id, q):
         """0.15.7: mark a document's reading as checked by the person (`checked`: true), or take that back."""
@@ -259,16 +279,18 @@ class DocumentsApi:
         from openpyxl import Workbook
         from openpyxl.styles import Font
 
+        from ..review import append_row  # a cell read from a PDF is written as text, never as a formula
+
         wb = Workbook()
         sh = wb.active
         sh.title = f"Table {n}"[:31]
-        sh.append([r["caption"] or f"Table {n}"])
+        append_row(sh, [r["caption"] or f"Table {n}"])
         sh["A1"].font = Font(bold=True)
-        sh.append([f"From: {r['title'] or ''}" + (f", page {r['page']}" if r["page"] else "")
-                   + ". Read by Margin from the PDF: check the numbers against the original."])
+        append_row(sh, [f"From: {r['title'] or ''}" + (f", page {r['page']}" if r["page"] else "")
+                        + ". Read by Margin from the PDF: check the numbers against the original."])
         sh.append([])
         for cells in json.loads(r["rows_json"] or "[]"):
-            sh.append([_cell(c) for c in cells])
+            append_row(sh, [_cell(c) for c in cells])
         buf = io.BytesIO()
         wb.save(buf)
         fname = _filename(f"{(r['title'] or 'Document')[:60]} - table {n}", "xlsx")
@@ -276,7 +298,7 @@ class DocumentsApi:
 
     def _body_size(self) -> int:
         """The size of a raw upload, refused above MAX_UPLOAD (the connection is closed: the body is not read)."""
-        n = int(self.headers.get("Content-Length") or 0)
+        n = self._length()
         if n > MAX_UPLOAD:
             self.close_connection = True
             raise ApiError(413, "Files larger than 2 GB are not accepted.")
@@ -321,3 +343,14 @@ class DocumentsApi:
     def get_passage(self, name, passage_id, q):
         around = max(0, min(int(_float(q, "around", 1)), 5))
         return claimcheck.neighbours(self.app.ws(name), passage_id, around, around)
+
+
+def _older(ws) -> list[str]:
+    """The documents the new reader would read otherwise (0.19: a document reader 5 read, or a text file reader 4
+    read, only when one of its passages holds both languages of a document in two), by title."""
+    from .. import languages
+
+    rows = ws.query("SELECT doc_id, kind, COALESCE(reader, 1) AS reader FROM documents WHERE COALESCE(reader, 1) < ? "
+                    "ORDER BY title", (ingest.READER,))
+    langs = languages.of_documents(ws) if any(r["reader"] >= 4 for r in rows) else {}
+    return [r["doc_id"] for r in rows if languages.new_reader_changes(r["reader"], langs.get(r["doc_id"]), r["kind"])]

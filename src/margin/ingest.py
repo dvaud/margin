@@ -36,8 +36,16 @@ SUPPORTED = {".pdf", ".html", ".htm", ".txt", ".md", ".docx"}
 # text or passages raises this number: documents already in a project keep the reading they have, so every result in
 # them stays where it is, until a person has one read with the new reader (planned with the next reader); only new
 # documents get the new reader.
-READER = 3  # 1: Margin 0.5 to 0.14 (pypdf's page text, cut by sentences); 2: Margin 0.15.0 (reader.py);
-            # 3: Margin 0.15.1 (reader.py with reader3.py: text-only files, books, words run together)
+READER = 6  # 1: Margin 0.5 to 0.14 (pypdf's page text, cut by sentences); 2: Margin 0.15.0 (reader.py);
+            # 3: Margin 0.15.1 (reader.py with reader3.py: text-only files, books, words run together);
+            # 4: Margin 0.17.2 (reader4.py: a text file's lines as paragraphs; Word's nested tables read once, and
+            #    its content controls read)
+            # 5: Margin 0.18.1 (reader5.py: tables from their ruled lines, a table over a page joined, figures and
+            #    images as blocks of their own; a Word file's or web page's image captions and alternative text)
+            # 6: Margin 0.19 (reader6.py, PDFs only: text a form crops away left out, a form of words one figure,
+            #    publishing details in the first page's footer set aside, a journal's name not the title; and, any
+            #    kind of file, languages.py: in a document in two languages, a side-by-side translation, no passage
+            #    holds both)
 REF_HEADING = re.compile(
     r"(?:^|\s)(References|REFERENCES|Bibliography|BIBLIOGRAPHY|Literature [Cc]ited|Works [Cc]ited|Reference [Ll]ist)"
     r"\s*:?\s+(?=\[?\(?\d|[A-Z][A-Za-z'\-]+,?\s+[A-Z]|[A-Z]{2,})"
@@ -56,6 +64,26 @@ class RawDoc:
     ocr_pages: int = 0       # PDF pages without a text layer whose text was recognised (OCR)
     scanned_pages: int = 0   # PDF pages without a text layer (recognised or not)
     line_pos: list | None = None  # PDFs: per page, the (x, y) where each line of its text starts (None: unknown)
+    # Word files whose text reader 4 reads otherwise (`_read_docx`): the pages, headings and pagination readers 1 to 3
+    # read, so that an older reader number still reads the file byte for byte as it did (`as_read_by`)
+    before_4: dict | None = None
+    # reader 5 (0.18.1) reads an image's alternative text in Word files and web pages: `figures` are those texts (as
+    # `" ".join(text.split())`), which sit in `pages` as paragraphs of their own; `before_5` is the pages, headings and
+    # pagination readers 2 to 4 read, when they differ (`as_read_by`)
+    before_5: dict | None = None
+    figures: set[str] | None = None
+
+    def as_read_by(self, reader: int) -> "RawDoc":
+        """The file as the given reader reads it: itself, or for readers before 5 the Word text and web page they
+        read (and for readers 1 to 3 the Word text of reader 3, as before)."""
+        raw = self
+        import dataclasses
+
+        if reader < 5 and raw.before_5:
+            raw = dataclasses.replace(raw, **raw.before_5, before_5=None)
+        if reader < 4 and raw.before_4:
+            raw = dataclasses.replace(raw, **raw.before_4, before_4=None)
+        return raw
     page_sizes: list | None = None  # PDFs (0.15): per page, (width, height) in points
 
 
@@ -95,6 +123,13 @@ class _TextOnly(HTMLParser):
         self._in_title = False
         self.headings: set[str] = set()
         self._heading: list[str] | None = None
+        # reader 5: the same text with each image's alternative text as a paragraph of its own
+        self.parts5: list[str] = []
+        self.alts: set[str] = set()
+
+    def _emit(self, s: str) -> None:
+        self.parts.append(s)
+        self.parts5.append(s)
 
     def handle_starttag(self, tag, attrs):
         if tag in ("script", "style", "nav", "footer", "noscript"):
@@ -102,7 +137,12 @@ class _TextOnly(HTMLParser):
         if tag == "title":
             self._in_title = True
         if tag in self.BLOCK:
-            self.parts.append("\n")
+            self._emit("\n")
+        if tag == "img" and not self.skip:
+            alt = " ".join((dict(attrs).get("alt") or "").split())
+            if alt:
+                self.parts5.append("\n\n" + alt + "\n\n")  # a paragraph of its own
+                self.alts.add(alt)
         if tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
             self._heading = []
 
@@ -117,13 +157,13 @@ class _TextOnly(HTMLParser):
                 self.headings.add(t)
             self._heading = None
         if tag in self.BLOCK:
-            self.parts.append("\n")
+            self._emit("\n")
 
     def handle_data(self, data):
         if self._in_title:
             self.title = (self.title or "") + data
         elif not self.skip:
-            self.parts.append(data)
+            self._emit(data)
             if self._heading is not None:
                 self._heading.append(data)
 
@@ -150,15 +190,18 @@ def read_file(path: Path, ocr: "OcrOptions | None" = None, should_stop=None) -> 
                       page_sizes=sizes or None)
     if ext == ".docx":
         sha1 = _sha1(path)
-        pages, title, heads = _read_docx(path)
-        return RawDoc(path, "docx", pages, title, sha1, paginated=len(pages) > 1, headings=heads)
+        pages, title, heads, before, before5, figs = _read_docx(path)
+        return RawDoc(path, "docx", pages, title, sha1, paginated=len(pages) > 1, headings=heads, before_4=before,
+                      before_5=before5, figures=figs or None)
     data = path.read_bytes()
     sha1 = hashlib.sha1(data).hexdigest()
     if ext in (".html", ".htm"):
         p = _TextOnly()
         p.feed(decode_text(data, html=True))
-        return RawDoc(path, "html", ["".join(p.parts)], (p.title or "").strip() or None, sha1, paginated=False,
-                      headings=p.headings)
+        text5, text = "".join(p.parts5), "".join(p.parts)
+        return RawDoc(path, "html", [text5], (p.title or "").strip() or None, sha1, paginated=False,
+                      headings=p.headings, before_5={"pages": [text]} if text5 != text else None,
+                      figures=p.alts or None)
     text = decode_text(data)
     heads = None
     if ext == ".md":
@@ -262,14 +305,25 @@ def decode_text(data: bytes, html: bool = False) -> str:
 
 
 _W ="{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_WP = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}"   # reader 5: an image's docPr
 DOCX_MAX = 200 * 1024 ** 2   # bytes of XML read from one Word file (a zip): a bound against zip bombs
+DOCX_CORE_MAX = 1024 ** 2    # bytes of a Word file's document properties (where its title is): the same, for them
 
 
-def _read_docx(path: Path) -> tuple[list[str], str | None, set[str]]:
+def _read_docx(path: Path) -> tuple[list[str], str | None, set[str], dict | None, dict | None, set[str]]:
     """A Word file (.docx: a zip of XML) with the standard library: its paragraphs (separated by a blank line, as in a
     text file), its headings (paragraph styles Title and Heading 1 to 9), its pages where Word marked them (a page
     break, or where Word last laid out a new page), and its title (document properties). Tables are read row by row;
-    footnotes, comments and text boxes are left out."""
+    footnotes, comments and text boxes are left out.
+
+    Reader 4 reads text inside content controls and custom XML around paragraphs and tables (readers 1 to 3 dropped
+    it), and a table inside a table's cell once, its rows after the row that holds it (readers 1 to 3 read it three
+    times). The fourth value is what readers 1 to 3 read ({"pages", "headings", "paginated"}, for `RawDoc.before_4`)
+    when that differs from reader 4's, else None.
+
+    Reader 5 also keeps an image's alternative text (the `descr` or `title` of its `wp:docPr`) as a paragraph of its own
+    after the paragraph that holds the image: the fifth value is what readers 2 to 4 read (for `RawDoc.before_5`) when
+    that differs, the sixth the alternative texts."""
     import xml.etree.ElementTree as ET
 
     try:
@@ -289,12 +343,59 @@ def _read_docx(path: Path) -> tuple[list[str], str | None, set[str]]:
             raise ValueError(f"the Word file's text could not be read ({e})") from e
         title = None
         try:
-            core = ET.fromstring(zf.read("docProps/core.xml"))
+            core_info = zf.getinfo("docProps/core.xml")
+            if core_info.file_size > DOCX_CORE_MAX:  # a title is a few words: anything this large is not one
+                raise KeyError("docProps/core.xml")
+            core = ET.fromstring(zf.read(core_info))
             t = core.find("{http://purl.org/dc/elements/1.1/}title")
             title = (t.text or "").strip() or None if t is not None else None
         except (KeyError, ET.ParseError, *ZIP_ERRORS):  # 0.14.3: damaged properties: the text is read all the same
             title = None
     body = root.find(f"{_W}body")
+    pages3, heads3 = _docx_text(body, 3)
+    pages4, heads4 = _docx_text(body, 4)
+    figs: set[str] = set()
+    pages, heads = _docx_text(body, 5, figs)
+    before = None
+    if pages3 != pages4 or heads3 != heads4:
+        before = {"pages": pages3, "headings": heads3, "paginated": len(pages3) > 1}
+    before5 = None
+    if pages4 != pages or heads4 != heads:
+        before5 = {"pages": pages4, "headings": heads4, "paginated": len(pages4) > 1}
+    return pages, title, heads, before, before5, figs
+
+
+# block-level elements that only wrap other block-level elements: a content control (its content) and custom XML
+_DOCX_WRAPPERS = {f"{_W}sdt", f"{_W}customXml"}
+
+
+def _docx_blocks(el):
+    """The paragraphs and tables directly in a body, a table cell or a content control's content, with those inside
+    content controls and custom XML taken out of them in their place (reader 4)."""
+    for child in el:
+        if child.tag in _DOCX_WRAPPERS:
+            inner = child.find(f"{_W}sdtContent") if child.tag == f"{_W}sdt" else child
+            if inner is not None:
+                yield from _docx_blocks(inner)
+        elif child.tag in (f"{_W}p", f"{_W}tbl"):
+            yield child
+
+
+def _docx_children(el, tag: str):
+    """The rows of a table or the cells of a row, also those inside content controls and custom XML (reader 4)."""
+    for child in el:
+        if child.tag in _DOCX_WRAPPERS:
+            inner = child.find(f"{_W}sdtContent") if child.tag == f"{_W}sdt" else child
+            if inner is not None:
+                yield from _docx_children(inner, tag)
+        elif child.tag == tag:
+            yield child
+
+
+def _docx_text(body, version: int, figs: set[str] | None = None) -> tuple[list[str], set[str]]:
+    """The pages and headings of a Word file's body, as reader `version` reads them (see `_read_docx`). From version 5
+    the alternative text of the images (added to `figs`) is a paragraph of its own after the paragraph that holds
+    them."""
     pages: list[list[str]] = [[]]
     heads: set[str] = set()
 
@@ -340,19 +441,52 @@ def _read_docx(path: Path) -> tuple[list[str], str | None, set[str]]:
                 if heading:
                     heads.add(" ".join(piece.split()))
 
-    for child in list(body) if body is not None else []:
-        if child.tag == f"{_W}p":
-            text, new_page = para_text(child)
-            st = style(child).lower().replace(" ", "")
-            add(text, new_page, st == "title" or bool(re.fullmatch(r"heading[1-9]", st)))
-        elif child.tag == f"{_W}tbl":
-            for row in child.iter(f"{_W}tr"):
-                cells = []
-                for cell in row.iter(f"{_W}tc"):
-                    cells.append(" ".join(para_text(p)[0].replace("\f", " ").strip() for p in cell.iter(f"{_W}p")).strip())
-                add(" | ".join(c for c in cells if c), False, False)
+    def paragraph(p) -> None:
+        text, new_page = para_text(p)
+        st = style(p).lower().replace(" ", "")
+        add(text, new_page, st == "title" or bool(re.fullmatch(r"heading[1-9]", st)))
+        if version >= 5 and figs is not None:
+            for d in p.iter(f"{_WP}docPr"):
+                alt = " ".join((d.get("descr") or d.get("title") or "").split())
+                if alt and alt != d.get("name") and alt not in figs:
+                    figs.add(alt)
+                    add(alt, False, False)
+
+    def table(tbl) -> None:
+        # reader 4: each row once, its cells' own paragraphs; a table in a cell comes after the row that holds it
+        for row in _docx_children(tbl, f"{_W}tr"):
+            cells, inner = [], []
+            for cell in _docx_children(row, f"{_W}tc"):
+                parts = []
+                for b in _docx_blocks(cell):
+                    if b.tag == f"{_W}tbl":
+                        inner.append(b)
+                    else:
+                        parts.append(para_text(b)[0].replace("\f", " ").strip())
+                cells.append(" ".join(parts).strip())
+            add(" | ".join(c for c in cells if c), False, False)
+            for t in inner:
+                table(t)
+
+    if version < 4:
+        for child in list(body) if body is not None else []:
+            if child.tag == f"{_W}p":
+                paragraph(child)
+            elif child.tag == f"{_W}tbl":
+                for row in child.iter(f"{_W}tr"):
+                    cells = []
+                    for cell in row.iter(f"{_W}tc"):
+                        cells.append(" ".join(para_text(p)[0].replace("\f", " ").strip()
+                                              for p in cell.iter(f"{_W}p")).strip())
+                    add(" | ".join(c for c in cells if c), False, False)
+    else:
+        for child in _docx_blocks(body) if body is not None else []:
+            if child.tag == f"{_W}p":
+                paragraph(child)
+            else:
+                table(child)
     out = ["\n\n".join(pg) for pg in pages if any(x.strip() for x in pg)]
-    return out or [""], title, heads
+    return out or [""], heads
 
 
 def _md_line(ln: str) -> str:
@@ -945,6 +1079,7 @@ def read_document(path: Path, reader: int | None = None, ocr: "OcrOptions | None
 
 
 def build_document(raw: RawDoc, max_chars: int = 1100, min_chars: int = 200, reader: int | None = None) -> Document:
+    raw = raw.as_read_by(reader or READER)
     if (reader or READER) >= 2:
         from . import reader as reader2
 
@@ -1188,7 +1323,12 @@ def _read_whole(f: Path, ocr: OcrOptions, max_chars: int, min_chars: int, should
     """A file read and made into a Document, as `ingest` does it: ("ok", raw, doc); ("failed", the problem in words);
     ("stopped",) for Stop during OCR; ("unbuilt", raw, the exception) when the Document could not be made, which
     `ingest` raises only for a file that is not a duplicate, as before. A file whose checksum is in `known` (a
-    duplicate) is read but not made into a Document: ("ok", raw, None), as `ingest` never made one of a duplicate."""
+    duplicate) is not read at all: ("ok", a RawDoc with its checksum and no text, None), as `ingest` only counts a
+    duplicate. What storing never reads (each line of the layout, the pages' raw text) is let go (`_lighten`)."""
+    if known:
+        cs = _checksum(f)
+        if cs is not None and cs in known:  # a file already stored: parsing it (or recognising its scans) is wasted
+            return ("ok", _duplicate(f, cs), None)
     try:
         raw = read_file(f, ocr, should_stop)
     except Stopped:
@@ -1196,9 +1336,9 @@ def _read_whole(f: Path, ocr: OcrOptions, max_chars: int, min_chars: int, should
     except Exception as e:  # noqa: BLE001 - one unreadable file should not stop the others
         return ("failed", _read_problem(e))
     if raw.sha1 in known:
-        return ("ok", raw, None)
+        return ("ok", _lighten_raw(raw), None)
     try:
-        return ("ok", raw, build_document(raw, max_chars, min_chars))
+        return ("ok", raw, _lighten(build_document(raw, max_chars, min_chars)))
     except Exception as e:  # noqa: BLE001 - raised by `ingest` once it knows the file is new
         return ("unbuilt", raw, e)
 
@@ -1213,6 +1353,46 @@ def _checksum(f: Path) -> str | None:
         return None
 
 
+def _duplicate(f: Path, sha1: str) -> RawDoc:
+    """What `ingest` needs of a file it already has: its checksum (the kind as `read_file` names it)."""
+    ext = f.suffix.lower()
+    kind = {".pdf": "pdf", ".docx": "docx", ".html": "html", ".htm": "html"}.get(ext, "text")
+    return RawDoc(f, kind, [], None, sha1)
+
+
+def _lighten_raw(raw: RawDoc) -> RawDoc:
+    raw.pages = []        # the text is the Document's now; storing reads the page spans, not this
+    raw.line_pos = None   # where each line starts: only the reader reads it
+    return raw
+
+
+def _lighten(doc: "Document") -> "Document":
+    """A Document as storing it needs it: each block's box kept (it is worked out from the block's lines, so one line
+    with that box stands for them), every other line, each block's own copy of its words (storing reads the
+    Document's text) and the raw page text let go. A reading process sends far less back, and a reading kept for
+    later holds less memory. What is stored does not change: a block whose box would come out otherwise keeps its
+    lines."""
+    for b in getattr(doc, "blocks", None) or []:
+        b.text = ""
+        lines = b.lines
+        if len(lines) <= 1:
+            continue
+        box = b.bbox
+        if box is None:
+            b.lines = []
+        else:
+            from .reader import Line
+
+            b.lines = [Line(lines[0].page, "", x0=box[0], top=box[1], x1=box[2], bottom=box[3])]
+        if b.bbox != box:  # a box of zero width or height at the page's edge reads otherwise from one line
+            b.lines = lines
+    _lighten_raw(doc.raw)
+    return doc
+
+
+# a file whose reading ended its reading process (`_Readings._away`): said under `failed`
+CRASHED = ("reading it stopped the reading program (the file may be damaged, or too large to read with the memory "
+           "this computer has free)")
 _LIVE: "weakref.WeakSet" = weakref.WeakSet()  # every reading process started and not yet ended
 _LIVE_LOCK = threading.Lock()
 _ENDING = False  # set by end_reading_processes: no reading process is started after it
@@ -1240,8 +1420,9 @@ atexit.register(end_reading_processes)
 class _Readings:
     """The readings of a batch of files, in their order. With `workers` above 1, files are read ahead in that many
     reading processes (`readworker.py`, each kept busy by a thread of its own); with 1, or for a file whose reading in
-    a process went wrong in any way (the process could not start, ended, or its answer could not come back), here,
-    the way `ingest` read every file before 0.16. The threads are daemon threads and the processes end when Margin
+    a process went wrong (the process could not start, or its answer could not come back), here, the way `ingest`
+    read every file before 0.16. A file that ends its reading process (a crash, the memory used up) is listed as one
+    that could not be read, and is not read here again. The threads are daemon threads and the processes end when Margin
     does (`end_reading_processes`), so neither Quit nor an update waits for a file being read; a reading process also
     ends by itself when the program that started it is gone."""
 
@@ -1328,24 +1509,50 @@ class _Readings:
         return p
 
     def _away(self, i: int) -> tuple:
-        """File i read by this thread's reading process (in a reading thread)."""
+        """File i read by this thread's reading process (in a reading thread). A file already stored is not sent: only
+        its checksum is needed. A process that ends while it reads the file (a crash, or the computer's memory used
+        up) leaves that file unread, listed as one that could not be read: read here, it could take the app with it.
+        The next file gets a new process."""
         from . import readworker
 
-        p = self._process()
-        cs = _checksum(self.files[i]) if self.known else None  # a new project has no duplicate to look for
-        known = frozenset([cs]) if cs is not None and cs in self.known else frozenset()  # a duplicate: not built
+        f = self.files[i]
+        cs = _checksum(f) if self.known else None  # a new project has no duplicate to look for
+        if cs is not None and cs in self.known:
+            return ("ok", _duplicate(f, cs), None)
+        for attempt in (0, 1):
+            p = self._process()
+            try:
+                readworker.send(p.stdin, (f, self.ocr, self.max_chars, self.min_chars, self.stop_file, frozenset()))
+            except Exception:  # noqa: BLE001 - it had ended before it got the file: a new process takes it
+                self._ended(p)
+                if attempt:
+                    raise ChildProcessError("the reading process ended") from None
+                continue
+            try:
+                got = readworker.receive(p.stdout)
+            except Exception:  # noqa: BLE001 - the pipe broke: as when the process ended
+                got = None
+            if got is not None:
+                return got
+            code = self._ended(p)
+            ours = self.closed or _ENDING  # ended on purpose (the batch is over, or Margin is ending)
+            if code not in (None, 0) and not ours:
+                return ("failed", CRASHED)
+            raise ChildProcessError("the reading process ended")
+        raise ChildProcessError("the reading process ended")
+
+    @staticmethod
+    def _ended(p) -> int | None:
+        """How a reading process that stopped answering ended: its exit code (a crash: not 0; ended by a signal: below
+        0 on POSIX), or None when it was still running and is ended here."""
         try:
-            readworker.send(p.stdin, (self.files[i], self.ocr, self.max_chars, self.min_chars, self.stop_file, known))
-            got = readworker.receive(p.stdout)
-        except Exception:  # noqa: BLE001 - the pipe broke: as when the process ended
-            got = None
-        if got is None:  # the process ended (or was ended): the next file gets a new one
+            return p.wait(timeout=2)
+        except Exception:  # noqa: BLE001 - still running (its answer was garbled): ended here
             try:
                 p.kill()
             except OSError:
                 pass
-            raise ChildProcessError("the reading process ended")
-        return got
+            return None
 
     def get(self, i: int) -> tuple:
         if self.workers > 1 and self.tasks is None:
@@ -1370,7 +1577,11 @@ class _Readings:
                     break
                 except FutureTimeout:
                     if self.should_stop and self.should_stop():
-                        self._stop()  # OCR in the reading process stops at its next page
+                        # Stop: this file is not added, as when Stop comes during the text recognition of a file read
+                        # here; the batch ends and `close` ends the process still reading it
+                        self._stop()
+                        self.futures[i] = fut  # still being read: `close` ends its process at once
+                        return ("stopped",)
         except Exception:  # noqa: BLE001 - this file's reading did not come back: read it here, the old way
             return self.here(i)
         if got[0] == "redo":

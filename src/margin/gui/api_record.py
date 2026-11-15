@@ -141,6 +141,53 @@ class RecordApi:
         merges = body.get("merges") if isinstance(body.get("merges"), list) else []
         return codebooks.save(self.app.ws(name), cb, state, merges, str(body.get("why") or "") or None)
 
+    # -- K1 (the optional AI part): a code's definition drafted from its examples ------------------------------------
+    def _define_body(self) -> tuple[str, str, list]:
+        """The code's name, its group's name and its examples: each a quote, or {"quote", "doc_id", "start",
+        "project"} with the place it was saved at (codedefine reads it there first)."""
+        body = self._body()
+        exs = body.get("examples") if isinstance(body.get("examples"), list) else []
+        out = []
+        for e in exs:
+            e = e if isinstance(e, dict) else {"quote": e}
+            if isinstance(e.get("quote"), str) and e["quote"].strip():
+                out.append({k: e[k] for k in ("quote", "doc_id", "start", "project") if k in e})
+        return str(body.get("code") or "").strip(), str(body.get("group") or "").strip(), out
+
+    def post_codebook_define_offer(self, name, cb, q):
+        """{"offered", "why", "reader", "passages", "left_line"}: whether the AI may draft this code's definition from
+        its examples (sent as {"examples": [quotes]}), and who would read their passages (codedefine.offer)."""
+        from .. import codedefine
+
+        _code, _group, quotes = self._define_body()
+        return codedefine.offer(self.app.ws(name), quotes, self.app.settings())
+
+    def post_codebook_define(self, name, cb, q):
+        """{"job"}: the AI drafts a code's definition, when to use it and when not from the passages that hold its
+        examples ({"code", "group", "examples"}), as a job that waits its turn like every AI job; its result holds
+        the draft, offered beside the fields (codedefine.draft)."""
+        from .. import codedefine
+
+        ws = self.app.ws(name)
+        try:  # a codebook that is not there: nothing is drafted and nothing written to the research log
+            title = codebooks.frameworks.get(cb, ws).title or cb
+        except ValueError as e:
+            raise ApiError(404, f"There is no codebook called {cb!r} in this project.") from e
+        code, group, quotes = self._define_body()
+        if not code:
+            raise ApiError(400, "Give the code a name first.")
+        settings = self.app.settings()
+        offer = codedefine.offer(ws, quotes, settings)
+        if not offer["offered"]:
+            raise ApiError(400, offer["why"])
+        job = self.app.start_queued_job(
+            "code-define", f"The AI drafts a definition of “{code[:40]}”", name,
+            lambda job, be, model, prog: codedefine.draft(ws, cb, code, group, quotes, be, model, prog,
+                                                          job.cancel.is_set, settings=settings, title=title),
+            withdraw=())   # several drafts may wait at once: Stop takes back only this job's task (codedefine.draft)
+        job.scope = f"{cb}/{code}"
+        return {"job": job.view()}
+
     def delete_codebook(self, name, cb, q):
         why = _str(q, "why") or self._body().get("why")
         codebooks.remove(self.app.ws(name), cb, str(why or "") or None)
@@ -179,6 +226,17 @@ class RecordApi:
     def get_codebook_csv(self, name, cb, q):
         fname, body = codebooks.csv_of(self.app.ws(name), cb)
         self._send(200, body, "text/csv; charset=utf-8", {"Content-Disposition": _disposition(fname)})
+
+
+    def get_codebook_qdc(self, name, cb, q):
+        """0.18.7 (G5): a codebook as a REFI-QDA codebook (.qdc) for NVivo, ATLAS.ti and MAXQDA (qdpx.py)."""
+        from .. import qdpx
+
+        try:
+            body = qdpx.codebook_xml(self.app.ws(name), cb)
+        except ValueError as e:
+            raise ApiError(404, str(e)) from e
+        self._send(200, body, "application/xml; charset=utf-8", {"Content-Disposition": _disposition(f"{cb}.qdc")})
 
 
 def _safe(s: str) -> str:

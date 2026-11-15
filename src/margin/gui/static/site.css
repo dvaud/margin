@@ -1,5 +1,5 @@
-/* site.css: Margin's look, in the local layer (ENLENS 0.13.5). ENLENS's releases never edit it.
+/* site.css: this installation's own look (0.13.5). Margin ships it empty and its releases never edit it.
 
-   It is linked after every stylesheet of ENLENS (index.html: under "release stylesheets end"), so what is here wins.
-   All of Margin's CSS is in margin.css (Margin 0.6: one stylesheet, never a new file per release). */
-@import url("/static/margin.css");
+   It is linked after every stylesheet of Margin (index.html: under "release stylesheets end"), so what is here wins.
+   An app built on Margin, or a fork, puts its look here: override the tokens of tokens.css for colours and faces,
+   and add rules for anything else. See docs/EXTENDING.md. */

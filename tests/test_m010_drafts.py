@@ -4,6 +4,7 @@ on every task that holds its text), what Claude read of it, the connector, and t
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -264,7 +265,10 @@ def test_the_api_of_drafts(api, corpus):  # noqa: F811
 
 def test_the_page_files(api):  # noqa: F811
     index = (STATIC / "index.html").read_text()
-    assert "/static/margin.css" in styles_text() and 'data-route="drafts"' in index
+    # in the sidebar through features.js (nav: true), under the group Write; not a row of index.html
+    assert "/static/margin.css" in styles_text() and 'data-route="drafts"' not in index
+    assert re.search(r'drafts: \{\s*section: "write", title: "Check a draft", icon: "file-pen", href: "#/drafts", ai: "uses", nav: true',
+                     (STATIC / "features.js").read_text())
     css = section("m010")  # its section of margin.css (m010.css until Margin 0.6)
     assert "#" not in css.split("*/", 1)[1]  # colour tokens only, no fixed colours
     js = (STATIC / "views" / "drafts.js").read_text()

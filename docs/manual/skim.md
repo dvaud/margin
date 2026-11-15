@@ -3,7 +3,7 @@
 # Skim one document
 
 > **In short**
-> - *Skim* (first under **Explore the documents**) is a one-page report on one document, for a publication you want to
+> - *Skim* (first under **Explore**) is a one-page report on one document, for a publication you want to
 >   skim before deciding to read it.
 > - It is made on your computer without AI, from rules, counts and the document's own words, and it needs no other
 >   document.
@@ -34,7 +34,7 @@ What compares documents elsewhere in Margin has a single-document version here.
 | **Sections** | The sections, with the number of words in each. |
 | **Key terms** | The terms that set the document apart. |
 | **The works it cites most** | The works its text cites most often, and the DOIs in its reference list. |
-| **Codes** | The codes of your codebook that it addresses, when you have chosen one ([Profile](explore.md#profile)). |
+| **Codes** | The codes of your codebook that it addresses, when you have chosen one ([Profile](explore.md#codes)). |
 
 Three things are worth knowing:
 

@@ -625,7 +625,7 @@ def test_the_page_files_wire_the_feature_in():
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     assert 'import { renderOutlines, renderOutline } from "./views/outline.js"' in app
     assert '[/^\\/outline$/, "outline", renderOutlines]' in app and '[/^\\/outline\\/([^/]+)$/, "outline", renderOutline]' in app
-    assert 'data-route="outline"' in (STATIC / "index.html").read_text(encoding="utf-8")
+    assert 'data-route="outline"' not in (STATIC / "index.html").read_text(encoding="utf-8")   # in the sidebar through features.js (nav: true)
     themes_js = (STATIC / "views" / "themes.js").read_text(encoding="utf-8")
     assert 'import { outlineButton } from "./outline.js"' in themes_js and "outlineButton(project, runId)" in themes_js
     view = (STATIC / "views" / "outline.js").read_text(encoding="utf-8")

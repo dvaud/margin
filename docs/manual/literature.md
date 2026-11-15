@@ -3,7 +3,7 @@
 # Find literature
 
 > **In short**
-> - *Find literature* (in the sidebar, under **Your writing**) looks up works to cite online: for a claim of your draft
+> - *Find literature* (in the sidebar, under **Write**) looks up works to cite online: for a claim of your draft
 >   that no document supports, for the works your documents cite, or on a search you save.
 > - It is not AI: it asks OpenAlex, a free index of scholarly works (or Crossref or Semantic Scholar), and the words it
 >   asks with are made on your computer. You see and change them before anything is sent.

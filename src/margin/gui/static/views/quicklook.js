@@ -1,6 +1,6 @@
 // Quick look (F8): drop one document and read it at once (search, key terms, codes), in a temporary project that is
 // moved to the trash after a week unless it is kept. Margin: it opens on Skim, the one-page report.
-import { App, api, h, icon, replace, toast, showError, dialog, confirmDialog, watchJob, P, navigate, fmt } from "../lib.js";
+import { App, api, h, icon, replace, toast, showError, dialog, confirmDialog, watchJob, P, navigate, fmt, button, notice } from "../lib.js";
 import { simpleProgress } from "./progress.js";
 
 const OK = /\.(pdf|docx|html?|txt|md)$/i;   // 0.14.3: Word too (the app reads it, and the file chooser offers it)
@@ -12,13 +12,13 @@ export function quickLookBanner(box) {
   const t = p && p.temporary;
   if (!t) { replace(box); return; }
   const until = new Date((t.expires_at || 0) * 1000);
-  const keep = h("button", { class: "btn btn-sm btn-primary", type: "button" }, icon("pin", { size: 13 }), "Keep as a project");
+  const keep = button({ kind: "main", sm: true }, icon("pin", { size: 13 }), "Keep as a project");
   keep.addEventListener("click", async () => {
     keep.disabled = true;
     try { await api("POST", `/api/projects/${P(p.name)}/keep`, {}); await App.refresh(); toast(`“${p.name}” is kept as a project.`, "ok"); replace(box); }
     catch (e) { showError(e); keep.disabled = false; }
   });
-  const discard = h("button", { class: "btn btn-sm btn-ghost", type: "button" }, icon("trash", { size: 13 }), "Discard now");
+  const discard = button({ kind: "quiet", sm: true }, icon("trash", { size: 13 }), "Discard now");
   discard.addEventListener("click", async () => {
     const ok = await confirmDialog({ title: "Discard this quick look?", message: `“${p.name}” is moved to the trash folder inside the data folder now, instead of on ${fmt.dateShort(until.toISOString())}.`, confirmText: "Discard" });
     if (!ok) return;
@@ -33,15 +33,15 @@ export function quickLookBanner(box) {
       navigate("#/");
     } catch (e) { showError(e); discard.disabled = false; }
   });
-  replace(box, h("div", { class: "ql-banner", role: "status" }, icon("eye", { size: 16 }),
-    h("span", { class: "grow" }, h("strong", {}, "A quick look"), ` at ${t.file || "one document"}, in a temporary project of its own. It is moved to the trash on ${fmt.dateShort(until.toISOString())} unless you keep it.`),
-    keep, discard));
+  replace(box, notice({ kind: "info", icon: "eye", class: "ql-banner", role: "status" },
+    h("p", {}, h("strong", {}, "A quick look"), ` at ${t.file || "one document"}, in a temporary project of its own. It is moved to the trash on ${fmt.dateShort(until.toISOString())} unless you keep it.`),
+    h("div", { class: "btn-row" }, keep, discard)));
 }
 
 // "Quick look at one document": choose a file, it is read into a temporary project and opened.
 export function quickLookButton(opts = {}) {
   const input = h("input", { type: "file", accept: ".pdf,.docx,.html,.htm,.txt,.md", class: "visually-hidden" });
-  const btn = h("button", { class: opts.class || "btn", type: "button", title: "Skim one document at once, without setting up a project: its aims, findings, key sentences and citations" },
+  const btn = button({ sm: !!opts.sm, kind: opts.kind, title: "Skim one document at once, without setting up a project: its aims, findings, key sentences and citations" },
     icon("eye", { size: 15 }), opts.text || "Quick look at one document");
   btn.addEventListener("click", () => input.click());
   input.addEventListener("change", () => { const f = input.files && input.files[0]; input.value = ""; if (f) startQuickLook(f); });
@@ -51,28 +51,43 @@ export function quickLookButton(opts = {}) {
 export async function startQuickLook(file) {
   if (!OK.test(file.name)) { toast("A quick look reads one PDF, Word (.docx), web page (HTML), text or Markdown file.", "warn"); return; }
   const pb = h("div", {}, h("p", { class: "muted" }, `Copying ${file.name} (${fmt.bytes(file.size)})…`));
-  let watcher = null, jobId = null;
+  const upload = new AbortController();
+  let watcher = null, jobId = null, stopped = false, finished = false, own = null;
+  // Stop, Escape and a click outside all end the work: the upload is cut off and the job, once it exists, is stopped
+  const stopWork = async () => {
+    stopped = true;
+    upload.abort();
+    if (jobId) await api("POST", `/api/jobs/${P(jobId)}/cancel`).catch(() => {});
+  };
   const done = dialog({
     title: "Quick look", body: h("div", { class: "stack" }, h("p", {}, "The document is read into a temporary project of its own, then skimmed: its aims and findings, key sentences, the claims it makes without a citation and the works it cites most. No AI."), pb),
-    actions: [{ text: "Stop", value: null, onClick: async () => { if (jobId) await api("POST", `/api/jobs/${P(jobId)}/cancel`).catch(() => {}); } }],
+    actions: [{ text: "Stop", value: null }],
+    onOpen: (dlg) => { own = dlg; },
   });
+  done.then(() => { if (!finished) stopWork(); });
+  // Closes this dialog and no other: by the time the job ends, a Find or a confirmation may be open on top of the page.
+  // The dialog helper closes on its own "cancel" event, so that is how it is asked to.
+  const closeOwn = () => {
+    finished = true;
+    if (own && own.isConnected) own.dispatchEvent(new Event("cancel", { cancelable: true }));
+  };
   try {
-    const r = await api("POST", `/api/quicklook?name=${encodeURIComponent(file.name)}`, file);
+    const r = await api("POST", `/api/quicklook?name=${encodeURIComponent(file.name)}`, file, { signal: upload.signal });
     jobId = r.job.id;
+    if (stopped) { await stopWork(); return done; }   // Stop came as the copy ended: the job is stopped as soon as it is known
     await App.refresh();
-    watcher = watchJob(jobId, (job) => replace(pb, simpleProgress(job, (p) => p.phase === "glossary" ? "Finding the document's key terms…" : p.phase === "codes" ? "Finding the codes it addresses…" : p.phase === "embedding" ? "Setting up search by meaning…" : "Reading the document…")));
+    watcher = watchJob(jobId, (job) => { if (!stopped) replace(pb, simpleProgress(job, (p) => p.phase === "glossary" ? "Finding the document's key terms…" : p.phase === "codes" ? "Finding the codes it addresses…" : p.phase === "embedding" ? "Setting up search by meaning…" : "Reading the document…")); });
     const job = await watcher.promise;
-    const dlg = document.querySelector("#dialogs dialog");
-    if (dlg) { dlg.close(); dlg.remove(); }
+    closeOwn();
+    if (stopped) return done;
     if (job.state === "done") {
       const added = (job.result && job.result.documents_added) || [];
       if (!added.length) { toast("The document could not be read: it has no text (a scan without text recognition?).", "warn", { ttl: 9000 }); navigate("#/sources"); return; }
       navigate(`#/skim/${encodeURIComponent(added[0].doc_id)}`);  // Margin: the one-page report first
     } else if (job.state === "error") showError({ message: job.error, kind: job.error_kind });
   } catch (e) {
-    const dlg = document.querySelector("#dialogs dialog");
-    if (dlg) { dlg.close(); dlg.remove(); }
-    showError(e);
+    closeOwn();
+    if (!stopped && e.name !== "AbortError") showError(e);
   }
   return done;
 }

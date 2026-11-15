@@ -19,7 +19,7 @@ from collections import defaultdict
 
 from . import citations, drafts, terms
 from .references import opens_with_pronoun
-from .store import Workspace
+from .store import Workspace, passage_range
 from .textutil import find_dois, split_sentences
 
 READ_WPM = 230          # words a minute, for the reading time
@@ -252,8 +252,9 @@ def _key_sentences(d: _Doc, sents: list[tuple[int, int]], kt: list[dict], ws: Wo
     q = ",".join("?" * len(weight))
     starts = [s for s, _e in sents]
     has: dict[int, set[str]] = defaultdict(set)
-    for r in ws.query(f"SELECT term_id, start FROM term_mentions WHERE doc_id=? AND term_id IN ({q})",
-                      (d.doc_id, *weight)):
+    # ENLENS 0.17.2: a document's places are a range of passage ids (term_mentions.doc_id stays empty)
+    for r in ws.query(f"SELECT term_id, start FROM term_mentions WHERE passage_id >= ? AND passage_id < ? "
+                      f"AND term_id IN ({q})", (*passage_range(d.doc_id), *weight)):
         i = bisect.bisect_right(starts, r["start"]) - 1
         if i >= 0 and r["start"] < sents[i][1]:
             has[i].add(r["term_id"])

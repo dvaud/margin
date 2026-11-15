@@ -9,7 +9,7 @@ seed, so two runs with the same seed and the same passages give the same themes.
   project.
 
 Steps of a run: the body passages, without exact repeats (the same normalised text: running headers and footers);
-k themes (default 20, from 5 to 60); every passage assigned to its nearest centre with its similarity. Each theme is
+k themes (default 20, from 2 to 60); every passage assigned to its nearest centre with its similarity. Each theme is
 named without a model by its key terms (class-based TF-IDF on the term index) and shown with the three passages
 nearest its centre, from different documents where possible. An optional model pass (`theme` tasks, prompt
 theme-v1) gives each theme a name of at most six words and a one-sentence description, each with a quote from the
@@ -69,18 +69,24 @@ def _stopped():
 
 
 def _passages(ws: Workspace) -> tuple[list[dict], int]:
-    """Body passages without exact repeats (the first of each repeated text is kept), and how many were dropped."""
-    rows = [dict(r) for r in ws.query("SELECT passage_id, doc_id, seq, text FROM passages WHERE section='body' "
-                                      "ORDER BY passage_id")]
-    seen: set[str] = set()
+    """Body passages without exact repeats (the first of each repeated text is kept), and how many were dropped.
+    Their text is read one row at a time and not kept (nothing after this reads it): a repeat is known by a 128-bit
+    digest of its normalised text, not by the text."""
+    seen: set[bytes] = set()
     out = []
-    for r in rows:
-        key = fast_normalise(r["text"])
+    n = 0
+    from .docrole import evidence_sql
+
+    # 0.18.1 (K2): theory documents are the lens, not the evidence: never in a theme
+    for pid, doc, seq, text in ws._conn().execute("SELECT passage_id, doc_id, seq, text FROM passages WHERE "
+                                                  f"section='body' AND {evidence_sql()} ORDER BY passage_id"):
+        n += 1
+        key = hashlib.blake2b(fast_normalise(text).encode("utf-8", "surrogatepass"), digest_size=16).digest()
         if key in seen:
             continue
         seen.add(key)
-        out.append(r)
-    return out, len(rows) - len(out)
+        out.append({"passage_id": pid, "doc_id": doc, "seq": seq})
+    return out, n - len(out)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -177,11 +183,11 @@ def _unit_sparse(v: dict) -> dict:
     return {t: w / n for t, w in v.items()}
 
 
-def kmeans_sparse(vecs: list[dict], k: int, seed: int = 0, should_stop: Callable | None = None):
-    """Spherical k-means on unit sparse vectors (dicts), pure Python. Returns (assignment, similarity, centres)."""
-    rng = random.Random(seed)
+def _init_sparse(vecs: list[dict], k: int, rng: random.Random) -> list[dict]:
+    """The k first centres (k-means++), pure Python: both paths of `kmeans_sparse` start here. It stays Python on
+    purpose: `sum` of Python 3.12 adds floats with a compensation numpy does not do, and the numpy path must give
+    the same centres to the last bit."""
     n = len(vecs)
-    k = min(k, n)
     first = rng.randrange(n)
     centres = [dict(vecs[first])]
     best = _sdot_one(vecs, centres[0])
@@ -200,13 +206,40 @@ def kmeans_sparse(vecs: list[dict], k: int, seed: int = 0, should_stop: Callable
         centres.append(dict(vecs[pick]))
         sims = _sdot_one(vecs, centres[-1])
         best = [max(a, b) for a, b in zip(best, sims)]
+    return centres
+
+
+def _top_centre(items) -> dict:
+    """A centre from summed terms: the CENTROID_TERMS largest (ties: the term, alphabetically), as a unit vector."""
+    top = sorted(items, key=lambda x: (-x[1], x[0]))[:CENTROID_TERMS]
+    return _unit_sparse(dict(top))
+
+
+def kmeans_sparse(vecs: list[dict], k: int, seed: int = 0, should_stop: Callable | None = None):
+    """Spherical k-means on unit sparse vectors (dicts). Returns (assignment, similarity, centres). With numpy
+    installed (the `fast` extra) it runs `_kmeans_sparse_np`, else `_kmeans_sparse_py`: they give the same
+    assignment, the same similarities and the same centres, to the last bit (a test and a 152-document corpus
+    check it), so a project's themes do not depend on whether numpy is there."""
+    try:
+        import numpy as np
+    except ImportError:
+        return _kmeans_sparse_py(vecs, k, seed, should_stop)
+    return _kmeans_sparse_np(np, vecs, k, seed, should_stop)
+
+
+def _kmeans_sparse_py(vecs: list[dict], k: int, seed: int = 0, should_stop: Callable | None = None):
+    """The pure-Python version, and the one that defines the result."""
+    rng = random.Random(seed)
+    n = len(vecs)
+    k = min(k, n)
+    centres = _init_sparse(vecs, k, rng)
     assign: list[int] | None = None
     for _it in range(MAX_ITER):
         if should_stop and should_stop():
             raise _stopped()
         new, sim = _assign(vecs, _inverted(centres), k)
-        if new == assign:
-            break
+        if new == assign:   # converged: this round's assignment is the one to the final centres
+            return new, sim, centres
         assign = new
         sums: list[dict] = [defaultdict(float) for _ in range(k)]
         for v, j in zip(vecs, assign):
@@ -218,10 +251,83 @@ def kmeans_sparse(vecs: list[dict], k: int, seed: int = 0, should_stop: Callable
                 far = min(range(n), key=lambda i: (sim[i], i))
                 sums[j] = defaultdict(float, vecs[far])
                 assign[far] = j
-            top = sorted(sums[j].items(), key=lambda x: (-x[1], x[0]))[:CENTROID_TERMS]
-            centres[j] = _unit_sparse(dict(top))
-    assign, sim = _assign(vecs, _inverted(centres), k)
+            centres[j] = _top_centre(sums[j].items())
+    assign, sim = _assign(vecs, _inverted(centres), k)   # the rounds ran out: assigned to the last centres
     return assign, sim, centres
+
+
+def _kmeans_sparse_np(np, vecs: list[dict], k: int, seed: int = 0, should_stop: Callable | None = None):
+    """`_kmeans_sparse_py` with the two heavy loops in numpy, doing the same float operations in the same order, so
+    that the result is the same to the last bit (a matrix product would add in another order, and its tiny
+    differences could move a passage to another theme):
+    - the similarity of a vector to each centre adds `w * centre_weight` term by term in the vector's own order:
+      here all vectors take their p-th term together (a numpy multiply and add are single, exact operations);
+    - a centre's sums add each vector's weights in vector order: `np.bincount` with weights is such a loop.
+    The first centres, the choice of the top terms and the unit length stay in Python (a few thousand floats)."""
+    rng = random.Random(seed)
+    n = len(vecs)
+    k = min(k, n)
+    centres = _init_sparse(vecs, k, rng)
+    vocab = sorted({t for v in vecs for t in v})    # ids in alphabetical order: a tie of two sums goes by the id
+    tid = {t: i for i, t in enumerate(vocab)}
+    T = len(vocab)
+    lens = np.fromiter((len(v) for v in vecs), np.int64, n)
+    nnz = int(lens.sum())
+    flat_t = np.fromiter((tid[t] for v in vecs for t in v), np.int64, nnz)
+    flat_w = np.fromiter((w for v in vecs for w in v.values()), np.float64, nnz)
+    starts = np.concatenate(([0], np.cumsum(lens)[:-1]))
+    row_of = np.repeat(np.arange(n), lens)
+    order = np.argsort(-lens, kind="stable")        # longest first: the vectors with a p-th term are a prefix
+    o_starts, o_neg = starts[order], -lens[order]
+    steps = []                                      # per position p: (rows, the weights, the term ids)
+    for p in range(int(lens.max()) if n else 0):
+        m = int(np.searchsorted(o_neg, -p, side="left"))   # how many vectors have more than p terms
+        idx = o_starts[:m] + p
+        steps.append((m, flat_w[idx][:, None], flat_t[idx]))
+
+    def dense(cs: list[dict]):
+        Cd = np.zeros((T, k))
+        for j, c in enumerate(cs):
+            if c:
+                Cd[np.fromiter((tid[t] for t in c), np.int64, len(c)), j] = np.fromiter(c.values(), np.float64, len(c))
+        return Cd
+
+    def assign_all(cs):
+        Cd = dense(cs)
+        acc = np.zeros((n, k))
+        for m, w, t in steps:
+            acc[:m] += w * Cd[t]
+        acc_o = np.empty_like(acc)
+        acc_o[order] = acc
+        top = acc_o.max(axis=1)
+        new = (acc_o == top[:, None]).argmax(axis=1)   # the first of the highest, as acc.index(max(acc))
+        return new, top
+
+    assign = None
+    for _it in range(MAX_ITER):
+        if should_stop and should_stop():
+            raise _stopped()
+        new_a, sim_a = assign_all(centres)
+        if assign is not None and np.array_equal(new_a, assign):
+            return [int(a) for a in new_a], [float(x) for x in sim_a], centres
+        assign = new_a
+        key = assign[row_of] * T + flat_t
+        sums = np.bincount(key, weights=flat_w, minlength=k * T)
+        seen = np.bincount(key, minlength=k * T)
+        far = None
+        for j in range(k):
+            ids = np.flatnonzero(seen[j * T:(j + 1) * T])
+            if len(ids) == 0:    # an empty theme takes the passage farthest from its own centre
+                if far is None:
+                    far = int(np.argmin(sim_a))     # the first of the smallest, as min(..., key=(sim, i))
+                centres[j] = _top_centre(vecs[far].items())
+                assign[far] = j
+                continue
+            vals = sums[j * T + ids]
+            top = np.lexsort((ids, -vals))[:CENTROID_TERMS]
+            centres[j] = _unit_sparse({vocab[int(ids[i])]: float(vals[i]) for i in top})
+    new_a, sim_a = assign_all(centres)    # the rounds ran out: assigned to the last centres
+    return [int(a) for a in new_a], [float(x) for x in sim_a], centres
 
 
 def _sdot_one(vecs: list[dict], c: dict) -> list[float]:
@@ -497,7 +603,7 @@ def runs(ws: Workspace) -> list[dict]:
         d["stale"] = d["corpus_version"] != ws.corpus_version()
         d["named_by_model"] = int(ws.scalar("SELECT COUNT(*) FROM themes WHERE run_id=? AND name_source='model'",
                                             (r["run_id"],)) or 0)
-        merges = _edits(ws, d["run_key"])["merges"]
+        merges = _edits(ws, d["run_key"], r["run_id"])["merges"]
         ids = [x[0] for x in ws.query("SELECT theme_id FROM themes WHERE run_id=? AND removed_at IS NULL",
                                       (r["run_id"],))]
         d["themes_now"] = sum(1 for t in ids if _final(merges, t) == t)   # after the person's merges and removals
@@ -525,7 +631,12 @@ def delete_run(ws: Workspace, run_id: str, why: str | None = None) -> None:
 # ---------------------------------------------------------------------------------------------
 # a person's edits (reviews under the run's key) and the view of a run with them applied
 # ---------------------------------------------------------------------------------------------
-def _edits(ws: Workspace, rkey: str) -> dict:
+def _edits(ws: Workspace, rkey: str, run_id: str | None = None) -> dict:
+    """A person's edits kept under a run's key: names, merges and moved passages. Runs with the same settings and
+    the same grouping share a key, so that edits hold when a set of themes is made again; but a theme found in place
+    of a removed one exists in one run only. With `run_id`, a merge or a move that names a theme this run does not
+    have is left out: followed, it took a theme of this run (and its passages) to a theme that is not there, and the
+    theme was gone from the page."""
     names, merges, moves = {}, {}, {}
     for r in ws.query("SELECT item_kind, item_id, field, corrected FROM reviews WHERE item_kind IN ('theme', "
                       "'theme_member') AND substr(item_id, 1, ?) = ? ORDER BY review_id", (len(rkey) + 1, rkey + ":")):
@@ -536,8 +647,13 @@ def _edits(ws: Workspace, rkey: str) -> dict:
             merges[int(tail)] = int(r["corrected"]) if r["corrected"] else None
         elif r["item_kind"] == "theme_member":
             moves[tail] = int(r["corrected"]) if r["corrected"] else None
-    return {"names": {k: v for k, v in names.items() if v}, "merges": {k: v for k, v in merges.items() if v},
-            "moves": {k: v for k, v in moves.items() if v}}
+    merges = {k: v for k, v in merges.items() if v}
+    moves = {k: v for k, v in moves.items() if v}
+    if run_id is not None:
+        ids = {x[0] for x in ws.query("SELECT theme_id FROM themes WHERE run_id=?", (run_id,))}
+        merges = {k: v for k, v in merges.items() if k in ids and v in ids}
+        moves = {k: v for k, v in moves.items() if v in ids}
+    return {"names": {k: v for k, v in names.items() if v}, "merges": merges, "moves": moves}
 
 
 def edit(ws: Workspace, run_id: str, what: str, theme_id: int | None = None, value=None,
@@ -552,7 +668,7 @@ def edit(ws: Workspace, run_id: str, what: str, theme_id: int | None = None, val
     ids = {x[0] for x in ws.query("SELECT theme_id FROM themes WHERE run_id=?", (run_id,))}
     removed = {x[0] for x in ws.query("SELECT theme_id FROM themes WHERE run_id=? AND removed_at IS NOT NULL",
                                       (run_id,))}
-    merges = _edits(ws, rkey)["merges"] if what == "remove" else {}
+    merges = _edits(ws, rkey, run_id)["merges"] if what == "remove" else {}
     gone = "That theme was removed: bring it back first."
     from . import history, researchlog
 
@@ -632,28 +748,86 @@ def _final(merges: dict[int, int], t: int) -> int:
     return t
 
 
-def view(ws: Workspace, run_id: str, framework: str | None = None) -> dict:
+def _members_of_one(ws: Workspace, run_id: str, themes: dict, ed: dict, only: int):
+    """For `view(only=...)`: the members of theme `only` (as `view` lists them, in the same order, with the person's
+    merges and moves applied) and the size of every theme, without reading every member: the sizes come from a count
+    per theme, corrected for the passages a person moved."""
+    merges, moves = ed["merges"], ed["moves"]
+    size: Counter = Counter()
+    for t, n in ws.query("SELECT theme_id, COUNT(*) FROM theme_members WHERE run_id=? GROUP BY theme_id", (run_id,)):
+        size[_final(merges, t)] += n
+    pids = list(moves)
+    moved_from: dict[str, int] = {}                      # a moved passage that is a member of the run: its own theme
+    for i in range(0, len(pids), 500):
+        chunk = pids[i:i + 500]
+        moved_from.update(ws.query(f"SELECT passage_id, theme_id FROM theme_members WHERE run_id=? AND passage_id IN "
+                                   f"({','.join('?' * len(chunk))})", [run_id, *chunk]))
+    for pid, raw in moved_from.items():
+        size[_final(merges, raw)] -= 1
+        size[_final(merges, moves[pid])] += 1
+    own = [t for t in themes if _final(merges, t) == only]
+    rows = []                                            # (the theme it was stored in, its row, the member)
+    mark = lambda xs: ",".join("?" * len(xs))  # noqa: E731
+    sql = ("SELECT m.rowid, m.passage_id, m.theme_id, m.similarity, m.found_in, p.doc_id FROM theme_members m "
+           "JOIN passages p ON p.passage_id=m.passage_id WHERE m.run_id=? AND ")
+    for m in ws.query(sql + f"m.theme_id IN ({mark(own)})", [run_id, *own]) if own else ():
+        if m["passage_id"] not in moves:
+            rows.append((m["theme_id"], m["rowid"], dict(m) | {"moved": False}))
+    into = [pid for pid in moved_from if _final(merges, moves[pid]) == only]
+    for i in range(0, len(into), 500):
+        chunk = into[i:i + 500]
+        for m in ws.query(sql + f"m.passage_id IN ({mark(chunk)})", [run_id, *chunk]):
+            rows.append((m["theme_id"], m["rowid"], dict(m) | {"moved": True}))
+    rows.sort(key=lambda x: x[:2])
+    out = []
+    for _t, _r, m in rows:
+        del m["rowid"]
+        m["theme_id"] = only
+        out.append(m)
+    return {only: out}, size
+
+
+def view(ws: Workspace, run_id: str, framework: str | None = None, only: int | None = None) -> dict:
     """A run with a person's edits applied: themes (name, description, key terms, size, documents, representative
-    passages), the theme × document grid, and with a codebook profile the theme × code grid."""
+    passages), the theme × document grid, and with a codebook profile the theme × code grid.
+
+    `only` (0.17.2, for the page of one theme, which needs that theme in full and, of the others, their number and
+    name): the theme with that id is built as in a whole view, byte for byte, and the others have no documents and no
+    representatives; the run, the grids, the document list and the key terms the glossary leaves out are not made. The
+    result holds just "themes" and "removed"."""
     from .claimcheck import locate
 
     r = ws.query("SELECT * FROM theme_runs WHERE run_id=?", (run_id,))
     if not r:
         raise KeyError(run_id)
     run_row = dict(r[0])
-    ed = _edits(ws, run_row["run_key"])
+    ed = _edits(ws, run_row["run_key"], run_id)
     themes = {t["theme_id"]: dict(t) for t in ws.query("SELECT * FROM themes WHERE run_id=? ORDER BY theme_id", (run_id,))}
-    members = [dict(m) for m in ws.query("SELECT m.passage_id, m.theme_id, m.similarity, m.found_in, p.doc_id FROM "
-                                         "theme_members m JOIN passages p ON p.passage_id=m.passage_id WHERE m.run_id=?",
-                                         (run_id,))]
-    for m in members:
-        moved = ed["moves"].get(m["passage_id"])
-        m["moved"] = bool(moved and moved in themes)
-        m["theme_id"] = _final(ed["merges"], moved if moved in themes else m["theme_id"])
-    by_theme: dict[int, list[dict]] = defaultdict(list)
-    for m in members:
-        by_theme[m["theme_id"]].append(m)
-    titles = {d["doc_id"]: d["title"] or "" for d in ws.query("SELECT doc_id, title FROM documents")}
+    if only is None:
+        # in the order of the index (theme, then the order they were stored in): the order of a theme's members decides
+        # which of two documents with as many passages comes first
+        members = [dict(m) for m in ws.query(
+            "SELECT m.passage_id, m.theme_id, m.similarity, m.found_in, p.doc_id FROM theme_members m "
+            "JOIN passages p ON p.passage_id=m.passage_id WHERE m.run_id=? ORDER BY m.theme_id, m.rowid", (run_id,))]
+        for m in members:
+            moved = ed["moves"].get(m["passage_id"])
+            m["moved"] = bool(moved and moved in themes)
+            m["theme_id"] = _final(ed["merges"], moved if moved in themes else m["theme_id"])
+        by_theme: dict[int, list[dict]] = defaultdict(list)
+        for m in members:
+            by_theme[m["theme_id"]].append(m)
+        size_of = {t: len(ms) for t, ms in by_theme.items()}
+    else:
+        by_theme, size_of = _members_of_one(ws, run_id, themes, ed, only)
+    if only is None:
+        titles = {d["doc_id"]: d["title"] or "" for d in ws.query("SELECT doc_id, title FROM documents")}
+    else:
+        titles = {}
+        want = sorted({m["doc_id"] for m in by_theme.get(only, [])})
+        for i in range(0, len(want), 500):
+            chunk = want[i:i + 500]
+            titles.update((d["doc_id"], d["title"] or "") for d in ws.query(
+                f"SELECT doc_id, title FROM documents WHERE doc_id IN ({','.join('?' * len(chunk))})", chunk))
     name_of = lambda x: ed["names"].get(x) or themes[x]["name"]  # noqa: E731
     out_themes, removed_themes = [], []
     rep_ids = []
@@ -662,8 +836,9 @@ def view(ws: Workspace, run_id: str, framework: str | None = None) -> dict:
             continue
         ms = by_theme.get(tid, [])
         merged_from = [x for x in themes if x != tid and _final(ed["merges"], x) == tid]
-        docs = Counter(m["doc_id"] for m in ms)
-        reps = json.loads(t["reps_json"] or "[]")
+        full = only is None or tid == only
+        docs = Counter(m["doc_id"] for m in ms) if full else Counter()
+        reps = json.loads(t["reps_json"] or "[]") if full else []
         terms_ = json.loads(t["terms_json"] or "[]")
         for x in merged_from:
             terms_ += [w for w in json.loads(themes[x]["terms_json"] or "[]") if w not in terms_]
@@ -674,7 +849,7 @@ def view(ws: Workspace, run_id: str, framework: str | None = None) -> dict:
             "theme_id": tid, "name": name_of(tid), "name_source":
             "person" if tid in ed["names"] else t["name_source"], "description": t["description"],
             "quotes": json.loads(t["quotes_json"] or "null"), "model": t["model"], "terms": terms_[:10],
-            "size": len(ms), "documents": [{"doc_id": d, "title": titles.get(d, ""), "passages": n}
+            "size": size_of.get(tid, 0), "documents": [{"doc_id": d, "title": titles.get(d, ""), "passages": n}
                                            for d, n in docs.most_common()],
             "representatives": reps, "merged_from": merged_from,
             "moved_in": sum(1 for m in ms if m["moved"]),
@@ -703,6 +878,8 @@ def view(ws: Workspace, run_id: str, framework: str | None = None) -> dict:
                                           "location": (where.get(p["passage_id"]) or {}).get("span") or ""}
     for t in out_themes + removed_themes:
         t["representatives"] = [reps_text[p] for p in t["representatives"] if p in reps_text]
+    if only is not None:
+        return {"themes": out_themes, "removed": removed_themes}
     shown = {t["theme_id"] for t in out_themes}   # the passages of a removed theme are left out of the grids
     doc_grid = {str(t["theme_id"]): {d["doc_id"]: d["passages"] for d in t["documents"]} for t in out_themes}
     code_grid = None
@@ -723,6 +900,7 @@ def view(ws: Workspace, run_id: str, framework: str | None = None) -> dict:
                      "codes": sorted({c for v in cg.values() for c in v}, key=lambda c: (order.get(c, 10 ** 6), c))}
     run_row["settings"] = json.loads(run_row.pop("settings_json") or "{}")
     run_row["stale"] = run_row["corpus_version"] != ws.corpus_version()
+    run_row["terms_left_out"] = _left_out(ws, [w for t in out_themes for w in t.get("terms") or []])
     return {"run": run_row, "themes": out_themes, "removed": removed_themes, "doc_grid": doc_grid,
             "code_grid": code_grid,
             "documents": [{"doc_id": d, "title": titles.get(d, "")} for d in
@@ -733,13 +911,50 @@ def view(ws: Workspace, run_id: str, framework: str | None = None) -> dict:
                       "added": sum(1 for t in themes.values() if t.get("replaces") is not None)}}
 
 
+def _left_out(ws: Workspace, labels: list[str]) -> list[str]:
+    """0.17: the key terms (of a set of themes) that the glossary now leaves out: no longer a term, because they start
+    or end with a common word (of English or of a language found in a share of the passages) or a word of the
+    project's own, or are one of its own phrases. A term that left for another reason (documents changed, the
+    glossary's limit) is not named. Finding the themes again gives key terms without them. Empty while the glossary is
+    out of date (it cannot tell yet)."""
+    from . import stopwords, terms
+    from .textutil import token_spans
+
+    st = terms.status(ws)
+    if not labels or not st["built"] or st["stale"]:
+        return []
+    rules = stopwords.rules(ws)
+    found = [f for f in stopwords.found(ws) if f["on"]]
+    total = sum(f["passages"] for f in found) or 1
+    common = set(rules.stops("en"))
+    for f in found:
+        if f["passages"] >= 0.01 * total:    # not a language read in a few tables or references
+            common |= rules.stops(f["code"])
+    keys = {lb: terms._key_of(lb, rules) for lb in dict.fromkeys(labels)}
+    ids = {lb: terms.term_id(k) for lb, k in keys.items() if k}
+    have: set[str] = set()
+    todo = sorted(set(ids.values()))
+    for i in range(0, len(todo), 500):
+        chunk = todo[i:i + 500]
+        have.update(r[0] for r in ws.query(f"SELECT term_id FROM terms WHERE term_id IN ({','.join('?' * len(chunk))})",
+                                           chunk))
+    out = []
+    for lb, k in keys.items():
+        if k and ids[lb] in have:
+            continue
+        words = [t[3] for t in token_spans(lb, keep_stop=True)]
+        if not k or k in rules.phrases or (words and (words[0] in common or words[-1] in common)):
+            out.append(lb)
+    return out
+
+
 def theme_passages(ws: Workspace, run_id: str, theme_id: int, offset: int = 0, limit: int = 50) -> dict:
     """The passages of one theme (edits applied), nearest the centre first."""
     from .claimcheck import locate
 
-    v = view(ws, run_id)
+    v = view(ws, run_id, only=theme_id)   # 0.17.2: this theme in full, the others as a name and a number
     r = ws.query("SELECT run_key FROM theme_runs WHERE run_id=?", (run_id,))[0]
-    ed = _edits(ws, r["run_key"])
+    ed = _edits(ws, r["run_key"], run_id)
     # only the rows that can belong to this theme (0.11.1: every member of the run was read, with its text, per
     # page of one theme): its own and the themes merged into it, plus the passages moved into it
     own = [t for (t,) in ws.query("SELECT theme_id FROM themes WHERE run_id=?", (run_id,))
@@ -833,7 +1048,7 @@ def new_theme(ws: Workspace, run_id: str, replaces: int, progress: Callable[[str
                                                       "WHERE run_id=?", (run_id,))}
     if replaces not in trows:
         raise KeyError(replaces)
-    ed = _edits(ws, run_row["run_key"])
+    ed = _edits(ws, run_row["run_key"], run_id)
     name_of = lambda x: ed["names"].get(x) or trows[x]["name"]  # noqa: E731
     if not trows[replaces]["removed_at"]:
         raise ValueError("A new theme is found in place of a removed one: remove this theme first.")
@@ -1045,11 +1260,17 @@ def name_with_model(ws: Workspace, run_id: str, backend, model: str, progress: C
                                            "AND status != 'done' ORDER BY task_id", (len(head), head))]
     rid = runs_mod.start(ws, "theme", run_id, backend, model, len(todo))
     done = failed = kept = 0
+    dflt = access.default(ws)
     for i, tid in enumerate(todo, 1):
         if should_stop and should_stop():
             break
         if progress:
             progress(i, len(todo))
+        # the setting worked out again as the text is about to leave (not the one stored when the tasks were made):
+        # a document's cap counts what the themes named before this one sent
+        with ws.connect() as cx:
+            if access.recheck(cx, tid, dflt) is None:
+                continue
         got = readers.for_task(ws, tid)
         if got is None:
             kept += 1  # keeps its key terms as its name

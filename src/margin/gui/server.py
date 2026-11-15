@@ -5,8 +5,10 @@
 
 Local first:
 - It listens on 127.0.0.1 only (another address only with --host, at your own risk).
-- Every API call needs the token embedded in the page it served, and a Host header naming this computer, so other
-  web sites open in the same browser cannot use it (no CORS, DNS rebinding blocked).
+- Every API call needs the access token and a Host header naming this computer, so other web sites open in the same
+  browser cannot use it (no CORS, DNS rebinding blocked). 0.17.2: the page does not carry the token, so another
+  account on the same computer cannot fetch it: the app opens its link with the token after `#` (never sent to a
+  server), and keeps it in a file only this account can read (launcher.token_path) for the icon and the command line.
 - The page loads nothing from the internet: no CDN, no fonts, no analytics.
 - Text goes only to the model service chosen in Settings: a local server by default; the Claude API only after
   cloud models are allowed.
@@ -16,7 +18,7 @@ runs as a job in a background thread; the page polls /api/jobs/<id> for its prog
 """
 from __future__ import annotations
 
-import csv
+import bisect
 import io
 import json
 import mimetypes
@@ -27,19 +29,16 @@ import sys
 import threading
 import time
 import traceback
-import uuid
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .. import __version__, access, addons, bibliography, citations, claimcheck, consistency, drafts, embed, frameworks, home, ingest, taskqueue
-from .. import runs as runs_mod
 from .. import tasks as tasks_mod
-from .. import llm, ollama_setup
+from .. import llm, modeladvice, ollama_setup
 from ..llm import BackendError, detect_local
-from ..claude_setup import setup_info as claude_setup_info
 from ..store import now as _now
 from ..sources import document_overview
 from .progress import Tracker
@@ -50,6 +49,9 @@ from .api_documents import DocumentsApi
 from .api_explore import ExploreApi
 from .api_record import RecordApi
 from .api_setup import SetupApi
+from . import api_checks_extra, api_corpus  # 0.18.1: part B's and part A's routes, built side by side
+from .api_checks_extra import ChecksExtraApi
+from .api_corpus import CorpusApi
 from .app_library import LibraryMixin
 from .app_queue import QueueMixin
 from .api_common import (  # noqa: F401 - the names are importable from here as before
@@ -86,6 +88,7 @@ from .api_common import (  # noqa: F401 - the names are importable from here as 
 
 STATIC = Path(__file__).with_name("static")
 DRAFT_MAX = 50 * 1024 ** 2   # bytes of a draft file (Margin 0.1): a long thesis as a PDF
+FOLLOW_POLL = 2.0  # seconds between two looks at checks that wait for Claude Code (`follow_queued`; tests shorten it)
 
 
 def _enlens_info() -> dict | None:
@@ -101,6 +104,9 @@ def _enlens_info() -> dict | None:
 class App(LibraryMixin, QueueMixin):
     def __init__(self, token: str | None = None):
         self.token = token or secrets.token_urlsafe(24)
+        # 0.17.2: which run of the app served a page (not a secret): the page that waits for a restart knows the new
+        # copy by it, now that the token no longer changes in the page (a restart keeps it: _restart)
+        self.run_id = secrets.token_hex(6)
         self.jobs = Jobs()
         self.session_key = ""      # a Claude API key given for this session only
         self.allowed_hosts: set[str] = set()
@@ -246,9 +252,18 @@ class App(LibraryMixin, QueueMixin):
                              "next": claimcheck.STATUS_NEXT.get(k, "")} for k, v in claimcheck.STATUS_TEXT.items()],
                "jobs": self.job_views(active_only=True),
                "queue": self._queue_summary(current),
-               "enlens": _enlens_info()}  # Margin 0.1: ENLENS's projects that could come over
+               "enlens": _enlens_info(),  # Margin 0.1: ENLENS's projects that could come over
+               "profile_framework": self._profile_framework(current, s)}
         out.update(addons.state(self, set(out)))  # 0.13.6: an add-on's keys, never in place of Margin's
         return out
+
+    def _profile_framework(self, name: str | None, s: dict) -> str:
+        """The codebook the pages use when none is named, in the current project: the setting when this project has
+        it (a codebook made in another project is not here), else "" (Margin has no default codebook)."""
+        try:
+            return frameworks.chosen(s.get("profile_framework"), home.open_project(name) if name else None)
+        except Exception:  # noqa: BLE001 - as when none is chosen
+            return ""
 
     def _queue_summary(self, name: str | None) -> dict | None:
         """What waits in the current project's queue, for the sidebar (0.8)."""
@@ -256,8 +271,7 @@ class App(LibraryMixin, QueueMixin):
             return None
         try:
             ws = home.open_project(name)
-            n = ws.scalar("SELECT COUNT(*) FROM tasks WHERE COALESCE(queued, 0)=1 AND COALESCE(access, 'cloud')='cloud' "
-                          "AND (status IN ('pending', 'retry') OR (status='done' AND again=1))") or 0
+            n = ws.scalar(f"SELECT COUNT(*) FROM tasks WHERE {taskqueue.WAITING}") or 0  # the partial index alone
         except Exception:  # noqa: BLE001
             return None
         return {"waiting": int(n)}
@@ -270,8 +284,14 @@ class App(LibraryMixin, QueueMixin):
             srv["embedding_models"] = [m for m in srv["models"] if re.search(r"embed|bge-|e5-|minilm", m, re.I)]
         # 0.13.7: the models the page offers to download into Ollama with one button; 0.15.6: whether Ollama is on
         # this computer (running or not), for the button that installs or starts it
-        return {"servers": found, "suggested": [dict(m) for m in llm.SUGGESTED_MODELS],
-                "ollama_app": ollama_setup.status()}
+        # 0.18.0rc2 (M8): the models suggested are those that fit THIS computer (modeladvice), with a smaller and a larger
+        # one beside them in `advice`; `suggested` keeps its old shape for the one-button download
+        try:
+            advice = modeladvice.advise(modeladvice.computer(str(home.home())))
+        except Exception:  # noqa: BLE001 - the advice is a convenience: the card works without it
+            advice = None
+        return {"servers": found, "suggested": modeladvice.suggested(advice) if advice else [dict(m) for m in llm.SUGGESTED_MODELS],
+                "advice": advice, "ollama_app": ollama_setup.status()}
 
     _OLLAMA_INSTALL = threading.Lock()   # two presses (two tabs) never start two downloads of 1.7 GB
 
@@ -429,14 +449,24 @@ class App(LibraryMixin, QueueMixin):
     def document(self, name: str, doc_id: str, offset: int, limit: int, view: str = "") -> dict:
         ws = self.ws(name)
         d = ws.query("SELECT doc_id, title, file_title, path, kind, n_pages, n_chars, doi, added_at, "
-                     "COALESCE(reader, 1) AS reader, reading_json FROM documents WHERE doc_id=?", (doc_id,))
+                     "COALESCE(reader, 1) AS reader, reading_json, own_title FROM documents WHERE doc_id=?", (doc_id,))
         if not d:
             raise ApiError(404, "No such document.")
         out = dict(d[0])
         # 0.15: how the document was read (the reading report, A5) and whether it has the new reader's blocks
         out["reading"] = reading_report(ws, doc_id, out.pop("reading_json"), out["reader"])
         out["new_reader"] = ingest.READER
+        # 0.19: its languages (a document in two: keep one), and whether the new reader would read it otherwise
+        from .. import languages
+
+        langs = languages.summary(ws, doc_id)   # (never waits for other work on the project)
+        kept = languages.kept_language({r[0]: 1 for r in ws.query(
+            "SELECT fp FROM block_choices WHERE doc_id=? AND fp LIKE 'lang:%'", (doc_id,))})
+        out["languages"] = dict(langs or {}, kept=kept,
+                                names={c: languages.name(c) for c in ((langs or {}).get("shares") or {})})
+        out["new_reader_changes"] = languages.new_reader_changes(out["reader"], langs, out["kind"])
         out["file_title"] = bibliography.file_title(d[0])  # 0.13.3: the title read from the file, if replaced
+        out["named"] = bool(out.pop("own_title"))  # 0.19.1: a title the person gave it
         out["file"] = re.sub(r".*[/\\]", "", out.pop("path") or "")
         out["total_passages"] = int(ws.scalar("SELECT COUNT(*) FROM passages WHERE doc_id=?", (doc_id,)) or 0)
         # the blocks view (the document viewer) reads by page or paragraph and never the passages (0.11.1)
@@ -547,6 +577,17 @@ class App(LibraryMixin, QueueMixin):
         choices = {r["fp"]: r["included"] for r in ws.query("SELECT fp, included FROM block_choices WHERE doc_id=?",
                                                              (doc_id,))}
         marks = {side: reader2.bound_index(choices, side, fps) for side in reader2.BOUNDS}
+        together = App.passage_runs(ws, doc_id, rows)
+        # 0.19: the language the person keeps of a document in two: which blocks that leaves out
+        from .. import languages
+
+        kept = languages.kept_language(choices)
+        lang_of: list = [None] * len(rows)
+        if kept:
+            items = [(text[r["start"]:r["end"]], r["kind"]) for r in rows]
+            two = languages.survey(items)["two"]
+            if two and kept in two:
+                lang_of = languages.block_languages(items, two)
         out = []
         for idx, r in chosen:
             kind, pg = r["kind"], r["page"]
@@ -561,21 +602,44 @@ class App(LibraryMixin, QueueMixin):
                 label = reader2.furniture_label(text[r["start"]:r["end"]])
             else:
                 label = reader2.KIND_LABEL.get(kind) or reader2.KIND_TEXT.get(kind, kind).capitalize()
+            hidden = kind == "figure" and reader2.figure_key(pg, (r["x0"], r["y0"], r["x1"], r["y1"])) in choices
             b = {"n": r["n"], "label": label, "page": pg, "paragraph": para, "kind": kind,
                  "kind_text": reader2.KIND_TEXT.get(kind, kind), "included": bool(r["included"]),
                  "start": r["start"], "end": r["end"], "text": text[r["start"]:r["end"]],
                  "headings": [{"at": 0, "end": r["end"] - r["start"], "text": text[r["start"]:r["end"]]}]
                  if kind in ("heading", "title") else [],
-                 "changed": bool(r["included"]) != (kind in reader2.INCLUDED) or fps[idx] in choices, "joined": joined,
+                 "changed": bool(r["included"]) != (kind in reader2.INCLUDED) or fps[idx] in choices or hidden,
+                 "hidden": hidden, "joined": joined,
                  "box": [r["x0"], r["y0"], r["x1"], r["y1"]] if r["x0"] is not None else None,
                  "alike": alike[shapes[idx]] - 1 if shapes[idx] else 0,
+                 "together": together[idx],
                  "share": round(idx / max(1, len(rows) - 1), 3),
                  "bound": next((side for side, at in marks.items() if at == idx), None)}
+            lg = lang_of[idx]
+            if lg is not None and lg not in (languages.MIXED, kept) and not r["included"] and fps[idx] not in choices:
+                b["lang_out"] = {"language": languages.name(lg), "kept": languages.name(kept)}
             t = tables.get(r["n"])
             if t is not None:
                 b["table"] = {"n": t["n"], "caption": t["caption"], "rows": json.loads(t["rows_json"] or "[]")}
             out.append(b)
         return out, len(rows)
+
+    @staticmethod
+    def passage_runs(ws, doc_id: str, rows) -> list[int]:
+        """How many other blocks *Leave out* or *Restore* on each block (`rows`, in order) takes with it: those that
+        share a passage with it, as `set_block` finds them (a heading with the text under it, short lines put
+        together). A web page's menu of short lines read as headings can share one passage with its first paragraph:
+        the button says so before it is pressed. Blocks out of order: 0 for each (not worth a slow count)."""
+        starts = [r["start"] for r in rows]
+        ends = [r["end"] for r in rows]
+        if not rows or any(x > y for x, y in zip(starts, starts[1:])) or any(x > y for x, y in zip(ends, ends[1:])):
+            return [0] * len(rows)
+        lo, hi = list(range(len(rows))), list(range(1, len(rows) + 1))
+        for p in ws.query("SELECT start, end FROM passages WHERE doc_id=?", (doc_id,)):
+            i, j = bisect.bisect_right(ends, p["start"]), bisect.bisect_left(starts, p["end"])
+            for k in range(i, j):   # the blocks this passage touches: one run
+                lo[k], hi[k] = min(lo[k], i), max(hi[k], j)
+        return [hi[k] - lo[k] - 1 for k in range(len(rows))]
 
     @staticmethod
     def block_shapes(text: str, rows) -> list[str | None]:
@@ -593,7 +657,7 @@ class App(LibraryMixin, QueueMixin):
         """0.15 (A4): *Restore* or *Leave out* a block. Blocks that share a passage (a heading and its paragraph,
         short paragraphs put together) go together; the choice is kept by the blocks' text, so it holds when the
         document is read again. 0.15.1: with `alike`, every block that looks the same (`block_shapes`) too."""
-        from .. import reader as reader2
+        from .. import reader as reader2, solo as people  # Margin: one person
 
         ws = self.ws(name)
         with ws.connect() as cx:
@@ -601,6 +665,21 @@ class App(LibraryMixin, QueueMixin):
             row = cx.execute("SELECT start, end FROM blocks WHERE doc_id=? AND n=?", (doc_id, n)).fetchone()
             if not text or not row:
                 raise ApiError(404, "No such block in this document.")
+            # 2026-11-15: a reader-5 figure is never read: Leave out folds its picture away (an advert, a logo),
+            # Restore shows it again; what searches, codes, themes and checks read does not change (no corpus bump)
+            fig = cx.execute("SELECT page, x0, y0, x1, y1 FROM blocks WHERE doc_id=? AND n=? AND kind='figure'",
+                             (doc_id, n)).fetchone()
+            key = reader2.figure_key(fig[0], fig[1:]) if fig else None
+            if key:
+                cx.execute("DELETE FROM block_choices WHERE doc_id=? AND fp=?", (doc_id, key))
+                if not included:
+                    cx.execute("INSERT INTO block_choices(doc_id, fp, included, kind, person_id, at) "
+                               "VALUES (?,?,0,'figure',?,?)", (doc_id, key, people.me(), _now()))
+        if key:
+            blocks, _total = App.reading_blocks(ws, doc_id, text[0], 0, 0, only={n})
+            return {"blocks": blocks, "group": [n], "together": 1, "alike": 1, "figure": True,
+                    "doc": App.reading_now(ws, doc_id)}
+        with ws.connect() as cx:
             text = text[0]
             targets = [tuple(row)]
             if alike:
@@ -625,8 +704,10 @@ class App(LibraryMixin, QueueMixin):
             # 0.15.1: what each block would be without a choice of its own: its kind, and where the person said the
             # text starts and ends (a paragraph restored after the end needs a choice of its own)
             all_rows = cx.execute("SELECT n, start, end, kind FROM blocks WHERE doc_id=? ORDER BY n", (doc_id,)).fetchall()
+            # (0.19: and the language the person keeps, so a block of the other language restored keeps its choice)
             marks = {r[0]: r[1] for r in cx.execute("SELECT fp, included FROM block_choices WHERE doc_id=? AND "
-                                                    "(fp LIKE 'start:%' OR fp LIKE 'end:%')", (doc_id,))}
+                                                    "(fp LIKE 'start:%' OR fp LIKE 'end:%' OR fp LIKE 'lang:%')",
+                                                    (doc_id,))}
             plain = dict(zip((r[0] for r in all_rows),
                              reader2.choose_inclusion([(text[r[1]:r[2]], r[3]) for r in all_rows], marks)))
             fps = set()
@@ -648,6 +729,50 @@ class App(LibraryMixin, QueueMixin):
         same = {r[0] for r in all_rows if reader2.block_fp(text[r[1]:r[2]]) in fps}
         blocks, _total = App.reading_blocks(ws, doc_id, text, 0, 0, only=mine | set(moved) | same)
         return {"blocks": blocks, "group": sorted(mine), "together": len(mine), "alike": len(targets),
+                "doc": App.reading_now(ws, doc_id)}
+
+    def set_language(self, name: str, doc_id: str, keep: str | None) -> dict:
+        """0.19: keep one language of a document in two (a side-by-side translation): the blocks of the other
+        language are left out of searches, codes, themes and checks (None: both count again). Kept as the block
+        choice `lang:<code>`, so it holds when the document is read again and travels as *Leave out* does; a block
+        the person restored or left out themselves keeps their choice."""
+        from .. import languages, researchlog, solo as people  # Margin: one person
+        from .. import reader as reader2
+
+        ws = self.ws(name)
+        with ws.connect() as cx:
+            row = cx.execute("SELECT title FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+            if row is None:
+                raise ApiError(404, "No such document.")
+            langs = languages.summary_for(cx, doc_id)
+            if langs is None:
+                raise ApiError(404, "This document has no blocks to mark (it was read before 0.15).")
+            two = langs.get("two") or []
+            if keep is not None and keep not in two:
+                raise ApiError(400, "This document is not in that language and another: there is nothing to keep."
+                               if not two else f"keep must be one of {', '.join(two)}, or null.")
+            was = languages.kept_language({r[0]: 1 for r in cx.execute(
+                "SELECT fp FROM block_choices WHERE doc_id=? AND fp LIKE 'lang:%'", (doc_id,))})
+            before = {r[0]: r[1] for r in cx.execute("SELECT n, included FROM blocks WHERE doc_id=?", (doc_id,))}
+            cx.execute("DELETE FROM block_choices WHERE doc_id=? AND fp LIKE 'lang:%'", (doc_id,))
+            if keep is not None:
+                cx.execute("INSERT INTO block_choices(doc_id, fp, included, kind, person_id, at) VALUES (?,?,1,'lang',?,?)",
+                           (doc_id, languages.key(keep), people.me(), _now()))
+            reader2.apply_choices(cx, doc_id)
+            after = {r[0]: r[1] for r in cx.execute("SELECT n, included FROM blocks WHERE doc_id=?", (doc_id,))}
+            changed = [k for k, v in after.items() if before.get(k) != v]
+            if keep != was:
+                ws.bump_corpus(cx)
+                other = next((c for c in two if c != keep), None)
+                text = (f"Kept only the {languages.name(keep)} of this document in two languages: its "
+                        f"{languages.name(other)} is left out of searches, codes, themes and checks."
+                        if keep else "Both languages of this document count again.")
+                researchlog.record(cx, "document-language", text, "document", doc_id, row[0],
+                                   data={"keep": keep, "was": was, "blocks": len(changed)})
+            text_all = cx.execute("SELECT text FROM documents WHERE doc_id=?", (doc_id,)).fetchone()[0] or ""
+        blocks, _total = App.reading_blocks(ws, doc_id, text_all, 0, 0, only=set(changed))
+        return {"keep": keep, "changed": len(changed), "left_out": sum(1 for k in changed if not after[k]),
+                "restored": sum(1 for k in changed if after[k]), "languages": langs, "blocks": blocks,
                 "doc": App.reading_now(ws, doc_id)}
 
     def set_bound(self, name: str, doc_id: str, side: str, n: int | None) -> dict:
@@ -731,6 +856,20 @@ class App(LibraryMixin, QueueMixin):
 
     _wire = wire  # the name before 0.13.6
 
+    @staticmethod
+    def _from_doc(ws, body: dict) -> dict:
+        """0.19.0 (N3): a check started from a document's text (a working document's *Check against the corpus*)
+        remembers the document (`from_doc`): its page lists the checks started from it, the result links back, and
+        the words keep the document's AI setting (docrole.origin_floor). {} without one."""
+        if body.get("from_doc") is None:
+            return {}
+        from_doc = str(body["from_doc"])
+        if not ws.scalar("SELECT 1 FROM documents WHERE doc_id=?", (from_doc,)):
+            raise ApiError(400, "from_doc is not a document of this project.")
+        from ..docrole import ORIGIN
+
+        return {"origin": ORIGIN, "origin_id": from_doc}
+
     def start_check(self, name: str, body: dict) -> Job:
         ws = self.ws(name)
         s = self.settings()
@@ -751,6 +890,7 @@ class App(LibraryMixin, QueueMixin):
             prepared["terms"] = body["terms"]
         if prepared:
             prepared["edited"] = body.get("edited") if isinstance(body.get("edited"), dict) else {}
+        prepared.update(self._from_doc(ws, body))
         be, model = self.backend(k=opts["k"])
         emb = home.make_embedder(s) if opts.pop("semantic", True) else None
         if self.queue_mode():
@@ -776,10 +916,11 @@ class App(LibraryMixin, QueueMixin):
 
         return self.jobs.start("check", text[:120], name, run, uses_model=True)
 
-    def follow_queued(self, job: Job, ws, hyp_ids: list[str], tracker: Tracker, poll: float = 2.0) -> None:
+    def follow_queued(self, job: Job, ws, hyp_ids: list[str], tracker: Tracker, poll: float | None = None) -> None:
         """Follow checks by queue until Claude Code has answered their steps; their steps are taken as the answers
         arrive (here, or in the connector). Stop withdraws the checks that are still waiting. (0.13.6: public;
-        `_follow_queued` before.)"""
+        `_follow_queued` before.) It looks every FOLLOW_POLL seconds (2026-11-12: tests shorten it)."""
+        poll = FOLLOW_POLL if poll is None else poll
         shown: dict[str, str] = {}
         t0 = time.time()
         # 0.11: the local model for restricted documents (Claude reads the rest). 0.13.11: it shows what it does and
@@ -799,28 +940,43 @@ class App(LibraryMixin, QueueMixin):
         if not waiting:
             return False
 
-        def started(model: str, n: int) -> None:
-            tracker.say(f"Your local model ({model}) is reading {n} {'excerpt' if n == 1 else 'excerpts'} from "
-                        "documents marked Only a local AI, on this computer")
+        # 0.18.1: besides the excerpts of documents marked Only a local AI, the AI mix's share of a check (I1, I2):
+        # search words, splitting, judging excerpts. Each is said apart, as each ends apart
+        n = sum(w["passages"] for w in waiting if not w.get("mix"))
+        n_mix = sum(1 for w in waiting if w.get("mix"))
+        what = " and ".join(x for x in (f"{n} {'excerpt' if n == 1 else 'excerpts'}" if n else "",
+                                         f"{n_mix} {'task' if n_mix == 1 else 'tasks'} of the AI mix" if n_mix else "")
+                            if x)
 
-        n = sum(w["passages"] for w in waiting)
-        before = readers.read
+        def started(model: str, _n: int) -> None:
+            tracker.say(f"Your local model ({model}) is reading {what} on this computer")
+
+        before, mix_before, claude_before = readers.read, readers.mix_read, readers.to_claude
         try:
             done = claimcheck.run_local_parts(ws, hyp_ids, readers, on_start=started)
         except BackendError:
             if readers.stopped():
                 return False  # Stop: the follower withdraws the checks
             raise
+        mixed, to_claude = readers.mix_read - mix_before, readers.to_claude - claude_before
         if readers.memory_short:
-            tracker.step("note", f"{readers.memory_short} {claimcheck._waiting_words(n)}", {"keep": True})
-        elif done and readers.read > before:
+            tracker.step("note", f"{readers.memory_short} {claimcheck._waiting_words(max(n, n_mix))}", {"keep": True})
+            return True
+        if done and readers.read > before:
             tracker.step("note", f"Your local model read {n} {'excerpt' if n == 1 else 'excerpts'} from documents "
                                  "marked Only a local AI, on this computer", {})
-        elif done:
+        elif done and n:
             tracker.step("note", (f"The local model could not be used ({readers.local_problem}); " if
                                   readers.local_problem else "No local model read them; ") +
                          f"the {n} {'excerpt' if n == 1 else 'excerpts'} from documents marked Only a local AI "
                          f"{'waits' if n == 1 else 'wait'} for your judgement", {})
+        if mixed:
+            tracker.step("note", f"Your local model answered {mixed} {'task' if mixed == 1 else 'tasks'} of the AI "
+                                 "mix on this computer", {})
+        if to_claude:
+            tracker.step("note", f"{to_claude} {'task' if to_claude == 1 else 'tasks'} of the AI mix went to Claude "
+                                 "Code" + (f" (the local model could not be used: {readers.local_problem})"
+                                           if readers.local_problem and not mixed else ""), {})
         return True
 
     def _follow_loop(self, job: Job, ws, hyp_ids: list[str], tracker: Tracker, readers, shown: dict, t0: float,
@@ -884,6 +1040,7 @@ class App(LibraryMixin, QueueMixin):
         frameworks.resolve(ws, fw, code)
         decompose = bool(body["decompose"]) if "decompose" in body else bool(s["decompose"])
         expand = bool(body["expand"]) if "expand" in body else bool(s["expand"])
+        origin = self._from_doc(ws, body)  # 0.19.0 (N3): words from a document keep its AI setting here too
         be, model = self.backend()
 
         def run(job: Job):
@@ -891,7 +1048,7 @@ class App(LibraryMixin, QueueMixin):
             job.tracker = tracker
             self._wire(job, be, tracker)
             return claimcheck.prepare_check(ws, text, be, model, decompose=decompose, expand=expand, framework=fw,
-                                            code=code, progress=tracker.step, should_stop=job.cancel.is_set)
+                                            code=code, progress=tracker.step, should_stop=job.cancel.is_set, **origin)
 
         return self._job("prepare", text[:120], name, run, withdraw=("decompose", "expand"), ws=ws)
 
@@ -916,6 +1073,13 @@ class App(LibraryMixin, QueueMixin):
                                 "judgement instead." if level == "none" else
                                 "This excerpt's document is marked Only a local AI, and no local model is chosen for "
                                 "such documents. Choose one in Settings → AI, or give your own judgement.")
+        # 0.19.0 (N3): and the setting of the document the hypothesis's words come from
+        own = claimcheck._own_level(ws, ws.scalar("SELECT hyp_id FROM user_claims WHERE claim_id=?", (claim_id,))
+                                    or claim_id)
+        if own == "none" or (own == "local" and not access.Readers(be, model).local_configured()):
+            from ..judgements import cannot_reread
+
+            raise ApiError(409, cannot_reread(level, own))
 
         def run(job: Job):
             tracker = Tracker(expand=False, steps=("grade",))
@@ -1116,6 +1280,27 @@ class App(LibraryMixin, QueueMixin):
 
         title = "Reading the new documents" + (f" for {len(hyp_ids)} hypotheses" if len(hyp_ids) > 1 else "")
         return self._job("read-new", title, name, run)
+
+    def start_read_unread(self, name: str, hyp_id: str) -> Job:
+        """Roadmap N5: read the documents with the check's search words that it never read, as a further round
+        limited to them (the check is not run again, so the reviews are kept)."""
+        ws = self.ws(name)
+        s = self.settings()
+        be, model = self.backend()
+        emb = home.make_embedder(s)
+
+        def run(job: Job):
+            tracker = Tracker(expand=False)
+            job.tracker = tracker
+            self._wire(job, be, tracker)
+            return claimcheck.read_unread_documents(ws, hyp_id, be, model, k=int(s["k"]),
+                                                    embedder=_usable_embedder(ws, emb),
+                                                    progress=lambda st, m, info=None: tracker.step(st, m, info or {}),
+                                                    should_stop=job.cancel.is_set)
+
+        job = self._job("read-unread", "Reading the documents not read yet", name, run)
+        job.scope = hyp_id  # the result page that started it follows it again after a reload
+        return job
 
     def start_second_opinion(self, name: str, body: dict) -> Job:
         """A second model grades the excerpts already read, keeping only one model in memory at a time."""
@@ -1326,7 +1511,7 @@ def _repair_plugin() -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# 0.15.1: the "what's new" note, shown once after an update
+# 0.15.1: the "what's new" note, shown once after an update. After 0.17.2: read only when asked (What's new)
 # ---------------------------------------------------------------------------------------------
 WHATS_NEW_FILE = Path(__file__).resolve().parent / "static" / "whats-new.md"
 _whats_new_lock = threading.Lock()
@@ -1383,26 +1568,41 @@ def update_note() -> dict | None:
             "points": UPDATE_PROBLEMS.get(str(res.get("hint") or ""), UPDATE_PROBLEM_OTHER)}
 
 
-def whats_new_note() -> dict | None:
-    """The note when it is for the running version and this person has not been shown it; it is marked as shown the
-    moment it is served. A new installation (no project yet, or no settings file) is only marked, never shown."""
+def whats_new_note() -> tuple[dict | None, bool]:
+    """The note when it is for the running version (else None), and whether it is unread: an update brought it and
+    this person has not opened it yet. After 0.17.2 nothing is shown by itself any more, so serving it marks nothing
+    (What's new marks it read when it is opened: mark_whats_new_read). A new installation (no project yet, or
+    no settings file) is marked read at once, so it never offers the note of a version it did not update to."""
     try:
         note = parse_whats_new(WHATS_NEW_FILE.read_text(encoding="utf-8"))
     except (OSError, UnicodeError):
-        return None
+        return None, False
     if not note or note["version"] != __version__:
-        return None
-    with _whats_new_lock:
+        return None, False
+    from ..installation import REPO
+
+    note["url"] = f"https://github.com/{REPO}/releases/tag/v{__version__}"  # every change, on the release page
+    with _whats_new_lock, home.LOCK:  # (home.LOCK: read and written back as one step, as every change of settings)
         try:
             settings = home.load_settings()
             if settings.get("whats_new_seen") == __version__:
-                return None
-            fresh = not home.list_projects() or not (home.home() / "settings.json").exists()
+                return note, False
+            if not home.list_projects() or not (home.home() / "settings.json").exists():
+                settings["whats_new_seen"] = __version__
+                home.save_settings(settings)
+                return note, False
+        except (OSError, ValueError):
+            return note, False
+    return note, True
+
+
+def mark_whats_new_read() -> None:
+    """The note of the running version has been opened: the sidebar no longer offers it."""
+    with _whats_new_lock, home.LOCK:
+        settings = home.load_settings()
+        if settings.get("whats_new_seen") != __version__:
             settings["whats_new_seen"] = __version__
             home.save_settings(settings)
-        except (OSError, ValueError):
-            return None
-    return None if fresh else note
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1418,6 +1618,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", r"/api/restart", "post_restart"),
     ("GET", r"/api/update", "get_update"),
     ("GET", r"/api/whats-new", "get_whats_new"),
+    ("POST", r"/api/whats-new/read", "post_whats_new_read"),
     ("POST", r"/api/update", "post_update"),
     ("GET", r"/api/technical-details", "get_technical_details"),
     ("GET", r"/api/servers", "get_servers"),
@@ -1431,6 +1632,8 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", r"/api/projects", "post_project"),
     ("POST", r"/api/projects/link", "post_link"),
     ("POST", r"/api/projects/import", "post_import"),
+    # the answer to a move zip's question (ENLENS roles-P3, without *Use both computers*)
+    ("POST", r"/api/move", "post_move"),
     ("GET", rf"/api/projects/{P}", "get_project"),
     ("DELETE", rf"/api/projects/{P}", "delete_project"),
     ("GET", rf"/api/projects/{P}/documents", "get_documents"),
@@ -1445,9 +1648,11 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", rf"/api/projects/{P}/documents/{P}/file", "get_document_file"),
     ("PUT", rf"/api/projects/{P}/documents/{P}/blocks/{P}", "put_block"),
     ("PUT", rf"/api/projects/{P}/documents/{P}/bounds", "put_bounds"),
+    ("PUT", rf"/api/projects/{P}/documents/{P}/language", "put_language"),
     ("GET", rf"/api/projects/{P}/documents/{P}/reread", "get_reread"),
     ("POST", rf"/api/projects/{P}/documents/{P}/reread", "post_reread_document"),
     ("POST", rf"/api/projects/{P}/new-reader", "post_new_reader_many"),
+    ("POST", rf"/api/projects/{P}/new-reader/preview", "post_new_reader_preview"),
     ("PUT", rf"/api/projects/{P}/documents/{P}/reading-checked", "put_reading_checked"),
     ("GET", rf"/api/projects/{P}/documents/{P}/pages/{P}\.png", "get_page_image"),
     ("GET", rf"/api/projects/{P}/documents/{P}/tables/{P}\.xlsx", "get_table_export"),
@@ -1464,6 +1669,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", rf"/api/projects/{P}/prepare", "post_prepare"),
     ("POST", rf"/api/projects/{P}/batches/preview", "post_batch_preview"),
     ("POST", rf"/api/projects/{P}/batches", "post_batch"),
+    ("POST", rf"/api/projects/{P}/hypotheses/similar", "post_similar"),  # 0.18: near-duplicate hypotheses (N1)
     ("GET", rf"/api/projects/{P}/hypotheses", "get_hypotheses"),
     ("GET", rf"/api/projects/{P}/hypotheses/{P}", "get_hypothesis"),
     ("DELETE", rf"/api/projects/{P}/hypotheses/{P}", "delete_hypothesis"),
@@ -1474,9 +1680,13 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", rf"/api/projects/{P}/claims/{P}/reread/{P}", "post_reread"),
     ("GET", rf"/api/projects/{P}/export\.(csv|xlsx)", "get_export"),
     ("GET", rf"/api/projects/{P}/export\.zip", "get_project_zip"),
+    ("GET", rf"/api/projects/{P}/export\.qdpx", "get_project_qdpx"),  # 0.18.7 (G5): for NVivo, ATLAS.ti, MAXQDA
     ("GET", rf"/api/projects/{P}/map", "get_map"),
+    ("GET", rf"/api/projects/{P}/map/documents", "get_map_documents"),   # roadmap N5: answers behind each document
     ("GET", rf"/api/projects/{P}/calibration", "get_calibration"),
     ("POST", rf"/api/projects/{P}/hypotheses/{P}/read-new", "post_read_new_one"),
+    ("GET", rf"/api/projects/{P}/hypotheses/{P}/unread", "get_unread"),  # roadmap N5: documents never read
+    ("POST", rf"/api/projects/{P}/hypotheses/{P}/read-unread", "post_read_unread"),
     ("POST", rf"/api/projects/{P}/read-new", "post_read_new"),
     ("POST", rf"/api/projects/{P}/second-opinion", "post_second_opinion"),
     ("GET", r"/api/jobs", "get_jobs"),
@@ -1502,6 +1712,8 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("PUT", rf"/api/projects/{P}/labels/{P}", "put_label"),
     ("GET", rf"/api/projects/{P}/terms", "get_terms"),
     ("POST", rf"/api/projects/{P}/terms/build", "post_terms_build"),
+    ("GET", rf"/api/projects/{P}/terms/words", "get_terms_words"),
+    ("PUT", rf"/api/projects/{P}/terms/words", "put_terms_words"),
     ("GET", rf"/api/projects/{P}/concepts", "get_concept_lookup"),
     ("PUT", rf"/api/projects/{P}/concepts/links", "put_concept_link"),
     ("POST", rf"/api/projects/{P}/concepts/judge", "post_concepts_judge"),
@@ -1541,6 +1753,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", rf"/api/projects/{P}/flexiconc\.sqlite", "get_flexiconc"),
     # 0.8: the task queue (Claude Code), model routing, the plugin's set-up
     ("GET", rf"/api/projects/{P}/queue", "get_queue"),
+    ("GET", rf"/api/projects/{P}/queue/preview", "get_queue_preview"),
     ("POST", rf"/api/projects/{P}/queue/order", "post_queue_order"),
     ("POST", rf"/api/projects/{P}/queue/withdraw", "post_queue_withdraw"),
     ("POST", rf"/api/projects/{P}/queue/run", "post_queue_run"),
@@ -1631,6 +1844,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", rf"/api/projects/{P}/codebooks/sources", "get_codebook_sources"),
     ("POST", rf"/api/projects/{P}/codebooks/example", "post_codebook_example"),
     ("GET", rf"/api/projects/{P}/codebooks/{P}\.csv", "get_codebook_csv"),
+    ("GET", rf"/api/projects/{P}/codebooks/{P}\.qdc", "get_codebook_qdc"),  # 0.18.7 (G5)
     ("GET", rf"/api/projects/{P}/codebooks/{P}", "get_codebook"),
     ("PUT", rf"/api/projects/{P}/codebooks/{P}", "put_codebook"),
     ("DELETE", rf"/api/projects/{P}/codebooks/{P}", "delete_codebook"),
@@ -1638,16 +1852,22 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", rf"/api/projects/{P}/codebooks/{P}/copy-here", "post_codebook_copy_here"),
     ("POST", rf"/api/projects/{P}/codebooks/{P}/try", "post_codebook_try"),
     ("POST", rf"/api/projects/{P}/codebooks/{P}/relabel", "post_codebook_relabel"),
-]]
+    # K1 (the optional AI part): a code's definition drafted from its examples (codedefine.py)
+    ("POST", rf"/api/projects/{P}/codebooks/{P}/define/offer", "post_codebook_define_offer"),
+    ("POST", rf"/api/projects/{P}/codebooks/{P}/define", "post_codebook_define"),
+] + api_corpus.ROUTES + api_checks_extra.ROUTES]
 DOWNLOADS = {"get_hypothesis_export", "get_export", "get_document_file", "get_project_zip", "get_annotated", "get_flexiconc",
              "get_page_image",  # 0.15: a picture of a page, in an <img>
              "get_annotated_zip", "get_search_export", "get_profile_export", "get_themes_export", "get_move_zip",
              "get_ai_sent_csv", "get_draft_export", "get_bibliography_export", "get_citation_export",
-             "get_outline_export", "get_log_export", "get_notes_export", "get_codebook_csv"}  # 0.16: the last three
+             "get_outline_export", "get_log_export", "get_notes_export", "get_codebook_csv",  # 0.16: the last three
+             "get_project_qdpx", "get_codebook_qdc"}  # 0.18.7 (G5)
+DOWNLOADS |= api_corpus.DOWNLOADS | api_checks_extra.DOWNLOADS
 # (these may take the token as ?token=, for plain links)
 
 
-class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreApi, ChecksApi, SetupApi, RecordApi):
+class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreApi, ChecksApi, SetupApi, RecordApi,
+              CorpusApi, ChecksExtraApi):
     app: App
     server_version = f"margin/{__version__}"
     protocol_version = "HTTP/1.1"
@@ -1658,13 +1878,13 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
     # -- plumbing --------------------------------------------------------------------------------
     def _send(self, status: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
         self.send_response(status)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("X-Frame-Options", "DENY")
-        for k, v in (extra or {}).items():
+        # one header of each name: an endpoint's own (`extra`) takes the place of the default. Sent after it, as a
+        # second header, `Cache-Control: private, max-age=3600` lost to `no-store`, so every picture of a page was
+        # drawn again each time it was shown
+        headers = {"Content-Type": ctype, "Content-Length": str(len(body)), "Cache-Control": "no-store",
+                   "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY"}
+        headers.update(extra or {})
+        for k, v in headers.items():
             self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
@@ -1674,12 +1894,10 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
         """Send a file in chunks (never held in memory as a whole)."""
         size = path.stat().st_size
         self.send_response(200)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(size))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")
-        for k, v in (extra or {}).items():
+        headers = {"Content-Type": ctype, "Content-Length": str(size), "Cache-Control": "no-store",
+                   "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
+        headers.update(extra or {})
+        for k, v in headers.items():
             self.send_header(k, v)
         self.end_headers()
         if self.command == "HEAD":
@@ -1714,9 +1932,18 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
                 return False  # a domain name could be a DNS-rebinding page
         return False
 
+    def _length(self) -> int:
+        """The request body's length as the client gave it; what is no whole number, or below 0, is no body (a
+        negative length read until the client hung up, and a word in its place stopped the request with an error
+        the terminal printed)."""
+        try:
+            return max(0, int(self.headers.get("Content-Length") or 0))
+        except ValueError:
+            return 0
+
     def _body(self) -> dict:
         self._consumed = True
-        n = int(self.headers.get("Content-Length") or 0)
+        n = self._length()
         if n > MAX_JSON:
             raise ApiError(413, "The request is too large.")
         raw = self.rfile.read(n) if n else b""
@@ -1750,7 +1977,7 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
         if getattr(self, "_consumed", True):
             return
         self._consumed = True
-        n = int(self.headers.get("Content-Length") or 0)
+        n = self._length()
         if n > MAX_JSON:
             self.close_connection = True
         elif n:
@@ -1788,7 +2015,7 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
                     hname = addons.handler_name(name)
                     token = self.headers.get("X-Margin-Token") or (_str(q, "token") if hname in downloads else None)
                     if not token or not secrets.compare_digest(token, self.app.token):
-                        raise ApiError(401, "Missing or wrong token. Reload the page.")
+                        raise ApiError(401, "Missing or wrong token. Open Margin from its icon (or run margin-gui).")
                     args = [unquote(g) for g in mt.groups()]
                     out = getattr(self, name)(*args, q=q) if isinstance(name, str) else name(self, *args, q=q)
                     if out is not None:
@@ -1805,9 +2032,9 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
             self._json(502, {"error": str(e), "kind": "backend"})
         except KeyError as e:
             self._json(404, {"error": f"Not found: {e.args[0] if e.args else e}", "kind": "request"})
-        except (ValueError, FileNotFoundError) as e:
-            self._json(400, {"error": str(e), "kind": "request"})
-        except PermissionError as e:  # 0.16: a colleague's note or log entry, which only they can change
+        except (ValueError, FileNotFoundError) as e:   # `extra`: what else a person may choose from (qdc_import.SeveralCodebooks)
+            self._json(400, {"error": str(e), "kind": "request", **(getattr(e, "extra", None) or {})})
+        except PermissionError as e:  # 0.16: something only its maker can change (ENLENS: a colleague's note)
             self._json(403, {"error": str(e), "kind": "request"})
         except (BrokenPipeError, ConnectionResetError):
             pass
@@ -1822,8 +2049,9 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
         if path in ("/", "/index.html") or not Path(path).suffix:
             frozen = self.app.frozen_static
             page = (frozen["index.html"] if frozen is not None else (STATIC / "index.html").read_bytes()).decode("utf-8")
-            # on the network the page does not carry the token: it comes in the link printed in the terminal (#token=)
-            page = page.replace("{{MARGIN_TOKEN}}", "" if self.app.any_host else self.app.token)
+            # 0.17.2: the page never carries the token (any local account can fetch it): it comes in the link the app
+            # opens, or that the terminal shows (#token=)
+            page = page.replace("{{MARGIN_RUN}}", self.app.run_id)
             page = page.replace("{{MARGIN_VERSION}}", __version__)
             csp = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
                    "connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
@@ -1865,10 +2093,18 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
         return {"restarting": True, "jobs_stopped": self._stop_jobs_then(self.app.restart)}
 
     def get_whats_new(self, q):
-        """0.15.1: `{"note": {version, title, subtitle, points}}` once, on the first start after an update, else
-        `{"note": null}` (also on a new installation, which is only marked as up to date). 0.15.4: first, once, an
-        update on Windows that did not finish (`"kind": "problem"`, update_note)."""
-        return {"note": update_note() or whats_new_note()}
+        """`{"note", "changes", "unread"}`. `note`: once, an update on Windows that did not finish (0.15.4,
+        `"kind": "problem"`, update_note), else null. `changes` (after 0.17.2; until then `note` was this, shown once
+        by itself): what is new in the running version, `{version, title, subtitle, points, url}`, or null; `unread`:
+        an update brought it and this person has not opened it (never on a new installation)."""
+        changes, unread = whats_new_note()
+        return {"note": update_note(), "changes": changes, "unread": unread}
+
+    def post_whats_new_read(self, q):
+        """What's new was opened (after 0.17.2): `{"unread": false}`."""
+        self._body()
+        mark_whats_new_read()
+        return {"unread": False}
 
     def get_update(self, q):
         """Margin 0.2.1: whether a newer Margin waits: the latest GitHub release (the one-line install), or new commits
@@ -1926,7 +2162,7 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
             else:
                 cmd = handover_command(self.app)
                 try:
-                    r = upd.update(**({"restart": cmd} if cmd else {}))
+                    r = upd.update(**({"restart": cmd, "token": self.app.token} if cmd else {}))
                 except upd.UpdateError as e:
                     raise ApiError(409, str(e)) from e
             if not r.get("updated"):
@@ -2201,7 +2437,8 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
         ws = self.app.ws(name)
         if not ws.scalar("SELECT 1 FROM documents WHERE doc_id=?", (doc_id,)):
             raise ApiError(404, "No such document.")
-        return skim.skim(ws, doc_id, _str(q, "framework") or self.app.settings().get("profile_framework") or None)
+        return skim.skim(ws, doc_id, _str(q, "framework") or frameworks.chosen(
+            self.app.settings().get("profile_framework"), ws) or None)
 
     def get_document_skim(self, name, doc_id, q):
         return self._skim(name, doc_id, q)
@@ -2361,6 +2598,22 @@ UPDATE_LOOK_EVERY = 100
 def _installed_version() -> str:
     """0.10.2: the version now on disk. It differs from the running __version__ when Margin was updated (git pull,
     the install line, margin update) while this copy kept running; the page then says to quit and reopen."""
+    try:  # 0.18.1 (J1.3): the version is in the package's metadata (made from the tag), read afresh each time
+        from importlib import metadata
+
+        return metadata.version("margin")
+    except Exception:  # noqa: BLE001 - not installed as a package: a copy run from its git sources
+        pass
+    root = Path(__file__).resolve().parent.parent.parent.parent
+    if (root / ".git").exists():
+        try:  # its newest release tag (or an older copy's __version__ in __init__.py), as `margin update` reads it
+            from ..update import version_in
+
+            found = version_in(root)
+            if found and found != "?":
+                return found
+        except Exception:  # noqa: BLE001 - no git: fall back to what __init__.py says, below
+            pass
     try:
         text = (Path(__file__).resolve().parent.parent / "__init__.py").read_text(encoding="utf-8")
     except OSError:
@@ -2380,11 +2633,24 @@ def _repair_icons() -> None:
         print(f"Could not repair the Margin icon: {e}", file=sys.stderr)
 
 
+class QuickServer(ThreadingHTTPServer):
+    """A ThreadingHTTPServer that starts without looking up this computer's full name. Python's own server_bind asks
+    for it (socket.getfqdn), which waits 35 s (70 s for 0.0.0.0) on a Mac whose name the network does not answer for
+    (GitHub's Mac runners, 2026-11-12), and Margin never uses that name."""
+
+    def server_bind(self) -> None:
+        import socketserver
+
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name, self.server_port = str(host), port
+
+
 def make_server(host: str = "127.0.0.1", port: int = 8766, app: App | None = None) -> tuple[ThreadingHTTPServer, App]:
     """The server (not started) and its app. Port 0 picks a free port."""
     app = app or App()
     handler = type("BoundHandler", (Handler,), {"app": app})
-    srv = ThreadingHTTPServer((host, port), handler)
+    srv = QuickServer((host, port), handler)
     srv.daemon_threads = True
     real = srv.server_address[1]
     app.port = real
@@ -2397,18 +2663,34 @@ def make_server(host: str = "127.0.0.1", port: int = 8766, app: App | None = Non
     return srv, app
 
 
+RESTART_TOKEN = "MARGIN_RESTART_TOKEN"  # 0.17.2: the token a restart carries over (_restart, handover.py)
+
+
+def carried_token() -> str | None:
+    """The token of the copy this one restarts (after an update), taken out of the environment so the programs this
+    copy starts do not inherit it. None on an ordinary start: every start has a new token."""
+    tok = os.environ.pop(RESTART_TOKEN, "")
+    return tok if re.fullmatch(r"[A-Za-z0-9_-]{32,}", tok) else None
+
+
 def serve(host: str = "127.0.0.1", port: int = 8766, open_browser: bool = True, launcher: bool = False) -> int:
     """Run the app until Ctrl+C or "Quit Margin" (`POST /api/quit`). `launcher`: started from the Margin icon
     (see launcher.py): the address is recorded so a second double-click opens this one."""
+    carried = carried_token()
+    app = App(token=carried)
     for attempt in range(10):
         try:
-            srv, app = make_server(host, port + attempt if port else 0)
+            srv, app = make_server(host, port + attempt if port else 0, app)
             break
         except OSError:
             continue
     else:
         print(f"Ports {port} to {port + 9} are all in use. Choose another with --port.", file=sys.stderr)
         return 1
+    if carried and port and app.port != port:
+        # the open tabs keep the token for the address they were on; whatever answers there now (another program
+        # took the port during the restart) must not find tabs that hold a token that works here
+        app.token = secrets.token_urlsafe(24)
     app.launcher = launcher
     app.host = host
     app.freeze_static()
@@ -2421,13 +2703,20 @@ def serve(host: str = "127.0.0.1", port: int = 8766, open_browser: bool = True, 
 
     app.restart = restart
     url = f"http://{'127.0.0.1' if host in ('127.0.0.1', '0.0.0.0', '::') else host}:{srv.server_address[1]}/"
-    if launcher and host == "127.0.0.1":
-        from . import launcher as _l
+    from . import launcher as _l
 
+    if launcher and host == "127.0.0.1":
         _l.write_info(url, srv.server_address[1])
-    if app.any_host:
-        url += f"#token={app.token}"  # the page does not hand out the token on the network: open this link
-    print(f"Margin hypothesis checker {__version__} at {url}  (data folder: {home.home()})")
+    # 0.17.2: the page does not hand out the token: the browser opens this link, and the icon and the command line
+    # find the token in a file only this account can read
+    link = _l.link(url, app.token)
+    try:
+        _l.write_token(url, srv.server_address[1], app.token)
+    except OSError as e:  # never in the way of starting: the link below still opens the app
+        print(f"Could not write the token file: {e}", file=sys.stderr)
+    # started from the icon, what is printed goes to a log file (launcher.log_to_file): the link with the token is
+    # not written there
+    print(f"Margin hypothesis checker {__version__} at {url if launcher else link}  (data folder: {home.home()})")
     if app.any_host:
         print("Warning: listening beyond this computer. Open the link above (it carries the access token); anyone "
               "with that link and access to this address can use the app and read your projects.", file=sys.stderr)
@@ -2436,9 +2725,7 @@ def serve(host: str = "127.0.0.1", port: int = 8766, open_browser: bool = True, 
     ollama_setup.clear_downloads()   # 0.15.6: what an install cut short by quitting left behind (no job runs yet)
     threading.Thread(target=_repair_icons, daemon=True, name="icon-repair").start()
     if open_browser:
-        import webbrowser
-
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.6, lambda: _l.browse(link)).start()
     try:
         srv.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
@@ -2446,11 +2733,10 @@ def serve(host: str = "127.0.0.1", port: int = 8766, open_browser: bool = True, 
     finally:
         srv.server_close()
         if launcher:
-            from . import launcher as _l
-
             _l.clear_info()
+        _l.clear_token(app.port)
     if again.is_set():
-        _restart(restart_command(host, app.port, launcher))
+        _restart(restart_command(host, app.port, launcher), app.token)
     print("Margin stopped.")
     return 0
 
@@ -2470,10 +2756,13 @@ def handover_command(app: App) -> list[str] | None:
     return restart_command(app.host, app.port, app.launcher) if os.name == "nt" else None
 
 
-def _restart(cmd: list[str]) -> None:
+def _restart(cmd: list[str], token: str | None = None) -> None:
     """Start the new version. On macOS and Linux this process becomes it (os.execv: same process, same terminal,
     same Ctrl+C); Windows has no real exec, so there the new one is started beside this one, which then ends. The
-    data folder and local-only setting carry over in the environment (MARGIN_HOME, MARGIN_LOCAL_ONLY)."""
+    data folder and local-only setting carry over in the environment (MARGIN_HOME, MARGIN_LOCAL_ONLY). 0.17.2: so does
+    the token (RESTART_TOKEN), so the open tabs, which keep it, reach the new copy."""
+    if token:
+        os.environ[RESTART_TOKEN] = token
     print("Restarting Margin with the version now installed…", flush=True)
     from .. import ingest
 

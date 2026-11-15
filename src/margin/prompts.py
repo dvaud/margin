@@ -229,6 +229,108 @@ Output format
 {{"name": "at most six words", "name_quote": {{"passage": 1, "quote": "exact words"}},
  "description": "one sentence", "description_quote": {{"passage": 2, "quote": "exact words"}}}}
 {_JSON_RULE}"""
+    if kind == "theory_codes":  # 0.18.4 (K2 part 2): drafts for the codebook editor, each definition quoted
+        # theory-codes-v2: the whole document is read, a part at a time (v1 read twelve passages of it)
+        return f"""You draft the concepts of a theory document: the ideas a researcher reads other documents through (for
+example stock, flow and reinforcing loop in a book on systems thinking, or practice and routine in one on practice
+theory). Each concept becomes a draft code a person checks and edits.
+
+You are given the document's title, candidate concepts found without AI (hints only), and one part of the document as
+numbered passages. A long document is read in several parts: each part is drafted by itself and the drafts are put
+together afterwards, so give only what this part says. Give the theory's own concepts that this part defines or
+explains, at most 12, the most central first:
+- name: the concept's short name as the document writes it, in the singular, at most six words (no quotation marks);
+- definition: one quote, copied exactly from one passage, at least three whole words, that says what the concept means
+  in this theory, with that passage's number. Prefer the sentence that defines it ("a stock is ...", an entry of the
+  document's glossary) over a sentence that only uses the word; one or two whole sentences, not a fragment;
+- reason: one line on why it is a concept of this theory and not a passing word.
+A concept is an idea of the theory that a researcher could look for in other material (interviews, reports,
+observations). Leave out the document's own examples and cases (a bathtub, a fishery, the hospital the author
+studied), people, places and organisations, the book's own parts and methods, and general words. A part with no
+concept of the theory (a preface, a table of contents, thanks, a case description, references) gets an empty list:
+that is a good answer. The candidates are hints: leave out those that are not concepts of the theory, and add a
+concept they miss when a passage defines it. Use only what the passages say, no outside knowledge. Give no examples:
+examples come from the researcher's own documents, never from the theory.
+
+Output format
+{{"concepts": [{{"name": "reinforcing loop", "definition": {{"passage": 2, "quote": "exact words"}},
+  "reason": "one line"}}], "note": null}}
+{_JSON_RULE}"""
+    if kind == "theory_frame":  # K2, the framework draft (theoryframe.py): the drafts of several theories joined
+        # theory-frame-v1, measured on five social-practice-theory texts (2026-11-15): 112 drafts gave 24 concepts in
+        # five groups. `when_to_use` and `not_when` are printed after "Use it when:" by the labeller and under *When to
+        # use it* in the editor, so both start with "When".
+        return f"""You build a coding framework from the concepts of the theory a researcher reads their own documents through. A person
+then decides which of your concepts become codes of their codebook, and edits them.
+
+You are given the theory documents, what the researcher's own documents are (their titles, and what the researcher
+wants to find out when they said so), and the concepts drafted from the theory, one document at a time. Each draft has
+a number, its document, its name and the sentence quoted from that document that says what it means. Because each
+document was read by itself, the same idea often comes several times (from two authors, in the singular and the
+plural, under a longer and a shorter name), and some drafts are no use as a code: the author's own case or method, a
+school of thought, a general word.
+
+Give the framework the theory amounts to, for this researcher. The documents may come from several authors: build one
+framework from all of them, and join what two authors both mean.
+- groups: 2 to 6, the way the theory itself is built (for example the parts a practice is made of, how practices
+  change, how practices connect). Each has a name of at most five words and one line on what its concepts share.
+- concepts: at most 24 in all, each in one group. A concept is an idea of the theory that a passage of the
+  researcher's documents can show. Join the drafts that are the same idea into one concept and give every draft you
+  joined in `from` (their numbers); a draft belongs to at most one concept. A finer kind of an idea (two kinds of
+  resources) is joined into the idea itself, unless the theory's argument rests on telling the kinds apart. Leave a
+  draft out by naming it in no concept.
+  Each concept has:
+  - name: as the theory names it, at most five words; one thing in the singular ("stock", not "stocks"), a phrase
+    as the theory writes it ("making and breaking links");
+  - from: the numbers of the drafts it is made of, at least one;
+  - meaning: one or two plain sentences on what the concept means in this theory, saying only what its drafts' quotes
+    say, in words a newcomer to the theory understands (no "refers to the notion of");
+  - when_to_use: one or two sentences that start with "When a passage" and say what an instance looks like in the
+    researcher's kind of documents: who does or says what. Use their subject (from the titles and the focus), not the
+    theory's own examples;
+  - not_when: one sentence that starts with "When" and says when a neighbouring concept of the framework fits instead,
+    naming it; null when no concept is close;
+  - words: 5 to 10 words or short phrases that the researcher's documents would use where they show this concept.
+    Not the theory's terms: a report on a repair event writes "learned how to", "skills", "know-how", never
+    "competence". Each is looked for exactly as you write it, so give words of one to three words that belong to
+    this concept, and none that nearly every page of their documents holds (in a study of repair events: "repair",
+    "volunteers") or that any text holds ("because", "always");
+  - core: true for the concepts the framework cannot do without (the ones a first codebook should start from, 6 to
+    12 of them), false for the rest.
+- note: one line on which drafts you left out and why, or null.
+Order the groups and the concepts within a group from the most central to the least. Say nothing the quotes do not
+say about the theory; you know nothing of the researcher's documents but their titles and focus, so `when_to_use` and
+`words` are your best guess at how the concept shows there, and the person corrects them.
+
+Output format
+{{"groups": [{{"name": "Elements of a practice", "about": "one line", "concepts": [{{"name": "competence",
+  "from": [3, 17], "meaning": "one or two sentences", "when_to_use": "When a passage ...",
+  "not_when": "When ..., use meaning instead.", "words": ["five", "to", "ten", "words", "or phrases"],
+  "core": true}}]}}], "note": null}}
+{_JSON_RULE}"""
+    if kind == "code_definition":  # K1 (the optional AI part): a draft to rewrite, from the code's examples only
+        return f"""You draft the definition of one code of a qualitative codebook from its example passages. A person
+chose these examples as instances of the code; your draft is offered to them to rewrite, and the definition is what an
+AI labeller later reads to decide which passages the code fits.
+
+You are given the code's name (and its group, when it has one) and the passages that hold its examples, each example
+marked. Write, from these passages only:
+- definition: one or two plain sentences on what the code is about, general enough to fit every example and no
+  broader than they show (not a summary of one passage, and not a repeat of the name);
+- definition_quote: one quote, copied exactly from one passage, at least three whole words, that shows the definition
+  best, with that passage's number;
+- when_to_use: one sentence on the signs in a passage that the code applies;
+- when_to_use_quote: one quote, as above, that shows those signs;
+- when_not_to_use: one sentence on what the examples are not, which a labeller could confuse with the code (a nearby
+  topic the passages mention but the examples do not stand for); an empty string when the passages give no ground.
+Use no outside knowledge and no knowledge of the field: only what the passages show. Say in note, in one line, when
+the examples seem to stand for more than one code.
+
+Output format
+{{"definition": "one or two sentences", "definition_quote": {{"passage": 1, "quote": "exact words"}},
+ "when_to_use": "one sentence", "when_to_use_quote": {{"passage": 2, "quote": "exact words"}},
+ "when_not_to_use": "one sentence or empty", "note": null}}
+{_JSON_RULE}"""
     if kind == "resolve":
         return f"""You find chains of references in consecutive passages of one document: the places that refer to the same
 thing (a plant, a policy, a country, a group of people, a technology).
@@ -278,7 +380,39 @@ Answer with one JSON object and nothing else: no prose, no code fences."""
     raise ValueError(f"unknown task kind {kind!r}")
 
 
-def user_prompt(kind: str, payload: dict) -> str:
+def _code_entry(c: dict, found: bool = True) -> str:
+    """A code as a label prompt gives it: its description, and (Margin) its own "use when", "not when" and source
+    on lines of their own, only when it has them. `found`: marks a code the search found (with the whole codebook)."""
+    line = f"{c['code']}: {c['description']}"
+    if found and c.get("found"):
+        line += " [found by the search]"
+    for k, word in (("include", "Use when"), ("exclude", "Not when"), ("source", "Source")):
+        if c.get(k):
+            line += f"\n    {word}: {c[k]}"
+    return line
+
+
+SHARED_CODEBOOK_MAX = 40  # 0.18.1 (H4): a batch whose label tasks name at most this many codes gets them once
+
+
+def shared_codebook(kind: str, payloads: list[dict]) -> dict | None:
+    """0.18.1 (H4): for a batch of label tasks of one codebook naming few codes in all, the codes' descriptions once
+    ("CODEBOOK OF THIS BATCH", added to the batch's instruction) and each task's prompt naming only its candidates'
+    codes. None when it does not apply (another kind, several codebooks, many codes, a single task)."""
+    if kind != "label" or len(payloads) < 2 or len({p.get("framework") for p in payloads}) != 1:
+        return None
+    codes: dict[str, dict] = {}
+    for p in payloads:
+        for c in p.get("candidates") or []:
+            codes.setdefault(c["code"], c)
+    if not codes or len(codes) > SHARED_CODEBOOK_MAX:
+        return None
+    lines = ["CODEBOOK OF THIS BATCH (the candidate codes of its passages; each passage names its own):"]
+    lines += [_code_entry(c, found=False) for c in codes.values()]
+    return {"codebook": "\n".join(lines), "prompts": [user_prompt(kind, p, codes_once=True) for p in payloads]}
+
+
+def user_prompt(kind: str, payload: dict, codes_once: bool = False) -> str:
     k = taskkinds.get(kind)
     if k is not None and k.user is not None:  # 0.13.6: an add-on's kind builds its own
         return k.user(payload)
@@ -352,20 +486,14 @@ def user_prompt(kind: str, payload: dict) -> str:
                          "is about and the element the code is about, each copied exactly from the passage (null "
                          "when it does not name one).")
         cands = payload.get("candidates") or []
-
-        def entry(c: dict) -> str:
-            line = f"{c['code']}: {c['description']}"
-            if c.get("found"):
-                line += " [found by the search]"
-            for k, word in (("include", "Use when"), ("exclude", "Not when"), ("source", "Source")):
-                if c.get(k):
-                    line += f"\n    {word}: {c[k]}"
-            return line
-
         head = "THE WHOLE CODEBOOK" if payload.get("whole_codebook") else "CANDIDATE CODES"
-        parts.append(f"{head}:\n" + ("\n".join(entry(c) for c in cands)
-                                      if cands else "(none found by the search: name codes only if the passage "
-                                                    "clearly addresses them)"))
+        if codes_once and cands:  # 0.18.1 (H4): their descriptions are in the batch's codebook
+            parts.append(f"{head} (described in the batch's codebook): " + ", ".join(
+                c["code"] + (" [found by the search]" if c.get("found") else "") for c in cands))
+        else:
+            parts.append(f"{head}:\n" + ("\n".join(_code_entry(c) for c in cands)
+                                          if cands else "(none found by the search: name codes only if the passage "
+                                                        "clearly addresses them)"))
         parts.append(f"DOCUMENT: {payload.get('title') or 'untitled'}" + (f", page {payload['page']}" if payload.get("page") else ""))
         if payload.get("context"):
             parts.append(f"CONTEXT (not to be labelled or quoted):\n…{payload['context']}")
@@ -390,6 +518,27 @@ def user_prompt(kind: str, payload: dict) -> str:
         for p in payload["passages"]:
             src = (p.get("title") or "untitled") + (f", page {p['page']}" if p.get("page") else "")
             parts.append(f"P{p['n']} | {src}\n{p['text']}")
+        return "\n\n".join(parts)
+    if kind == "theory_codes":
+        of = f" (part {payload['part']} of {payload['parts']})" if (payload.get("parts") or 1) > 1 else ""
+        parts = [f"THEORY DOCUMENT: {payload.get('title') or 'untitled'}{of}",
+                 "CANDIDATE CONCEPTS (found without AI): " + (", ".join(payload.get("candidates") or []) or "none")]
+        for p in payload["passages"]:
+            parts.append(f"P{p['n']}" + (f" (page {p['page']})" if p.get("page") else "") + f"\n{p['text']}")
+        return "\n\n".join(parts)
+    if kind == "theory_frame":
+        parts = ["THEORY DOCUMENTS:\n" + "\n".join(f"- {d.get('title') or 'untitled'}" for d in payload["documents"]),
+                 "THE RESEARCHER'S OWN DOCUMENTS (titles):\n" + ("\n".join(f"- {t}" for t in payload.get(
+                     "evidence_titles") or []) or "- none named"),
+                 "WHAT THE RESEARCHER WANTS TO FIND OUT: " + (payload.get("focus") or "not said"),
+                 "DRAFTED CONCEPTS:\n" + "\n".join(f"{d['n']}. {d['name']} | {(d.get('title') or 'untitled')[:50]} | "
+                                                    f"\u201c{d['quote']}\u201d" for d in payload["drafts"])]
+        return "\n\n".join(parts)
+    if kind == "code_definition":
+        parts = [f"CODE: {payload.get('code') or 'unnamed'}" + (f" (group: {payload['group']})" if payload.get("group") else "")]
+        for p in payload["passages"]:
+            ex = "\n".join(f"EXAMPLE: \u201c{e}\u201d" for e in p.get("examples") or [])
+            parts.append(f"P{p['n']}" + (f" (page {p['page']})" if p.get("page") else "") + f"\n{ex}\n{p['text']}")
         return "\n\n".join(parts)
     if kind == "resolve":
         parts = [f"DOCUMENT: {payload.get('title') or 'untitled'}"]

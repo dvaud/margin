@@ -3,8 +3,8 @@
 # Notes, the research log and earlier versions
 
 > **In short**
-> - Highlight and note the exact words of a document; a note can become evidence in a check. *Notes* lists them all.
-> - Margin writes a dated *Research log* by itself, and you add entries of your own: what was decided, and why.
+> - Highlight and note the exact words of a document; a note can become evidence in a check. *Documents* › *Notes* lists them all.
+> - Margin writes a dated *Research log* by itself, and you add entries of your own, from any page: what was decided, and why.
 > - *History* keeps what you changed (themes, your judgements, codebooks) so you can compare it with now and go back.
 
 ## Highlights and notes
@@ -13,13 +13,13 @@ In a document, select words in its text. The bar that appears offers *Highlight*
 your words and choose one of four colours. Click a highlight to see its note: *Edit* (or *Add a note*),
 *Use as evidence* and *Remove*. The document's *Notes* panel lists the notes of that document; click one to find it in the text.
 
-The *Notes* page, under *Your notes and decisions* in the sidebar, lists every note of the project by document. Search
+The *Notes* view of *Documents* (a tab under the page title) lists every note of the project by document. Search
 the words of the notes and of the passages they mark, filter by document and by colour, and download them as Markdown
 (.md) or Excel (.xlsx).
 
 - **The words are checked.** A note holds words that are really in the document, as every quote is. A selection cut
   inside a word is widened to the whole word.
-- **A document read again.** When a document is read with the new reader ([How documents are read](reading.md)), each
+- **A document read again.** When a document is read with the new reader ([Read with the new reader](reading.md#read-with-the-new-reader)), each
   note follows its words. One whose words are no longer in the text says so, and is kept.
 - **A removed document.** Its notes are kept, marked *removed from the project*.
 
@@ -35,8 +35,9 @@ it is set instead.
 
 ## The research log
 
-*Research log*, under *Your notes and decisions*, is a dated record of what was decided in the project. Margin writes
-an entry by itself when you:
+The *Research log* is a dated record of what was decided in the project. It is a view of *Overview*, and a
+*Research log* button at the top right of every page opens it as a panel on the right. It always opens the
+*Research log*. Margin writes an entry by itself when you:
 
 | Group | What is written down |
 | --- | --- |
@@ -46,7 +47,9 @@ an entry by itself when you:
 | *Codebooks* | A codebook made, changed, moved, copied or removed |
 | *Restored versions* | An earlier version put back |
 
-*New entry* with *Add to the log* writes an entry of your own (a decision, a reason, a field note). *Edit* and *Remove*
+*New entry* with *Add to the log* writes an entry of your own (a decision, a reason, a field note). In the panel you
+write the entry in the box at the top: it is kept with the page you are on, and the panel lists that page's entries
+(*This page*) or all of them (*All*). *Edit* and *Remove*
 are for your own entries only: the entries Margin wrote are the record of what happened and cannot be removed or
 reworded. Beside an entry that Margin wrote for something you did, *Say why* (later *Change why*) adds your reason.
 Removing a document, a check, a set of themes or a theme, and saving a codebook, ask *Why? (optional, kept in the
@@ -57,7 +60,7 @@ Excel (.xlsx): for an appendix or an audit. An entry about a change has *Compare
 from before the change ([below](#earlier-versions)).
 
 The log is part of the project: it goes with it to another computer
-([Moving to another computer](projects.md#moving-to-another-computer)).
+([Moving to another computer](projects.md#moving-to-another-computer)). An entry you removed does not come back.
 
 ## Earlier versions
 
@@ -65,7 +68,7 @@ Margin keeps what you made before you change it:
 
 | Where | The button | What is kept |
 | --- | --- | --- |
-| *Themes* page, on a set of themes | *History* | Theme names, merges, moves of passages and removed themes |
+| *Themes*, on a set of themes | *History* | Theme names, merges, moves of passages and removed themes |
 | The foot of a result | *History of your judgements* | Your judgements, comments, the sentences you point to and the check's note |
 | A codebook | *History* | The codebook as it was before each saved change |
 

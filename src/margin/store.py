@@ -3,12 +3,20 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 import sqlite3
 import threading
 import weakref
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
+
+# 0.17.2: the glossary's places. A passage id names its document (`passage_range`), so a document's places are a range
+# of passage ids and `doc_id` stays empty. It is kept, with the table's name and the order of its columns, for an
+# Margin before 0.17.2 that opens this file: it makes its indexes on `doc_id` (store.INDEXES of then) and writes its
+# glossary here, and it never sends this table to a colleague nor reads it as the project's rows (its sync.LOCAL_ONLY).
+PLACES_TABLE = ("CREATE TABLE IF NOT EXISTS term_mentions(term_id TEXT NOT NULL, passage_id TEXT NOT NULL, doc_id TEXT, "
+                "start INT NOT NULL, end INT NOT NULL, PRIMARY KEY(term_id, passage_id, start, end)) WITHOUT ROWID;")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
@@ -93,7 +101,10 @@ CREATE TABLE IF NOT EXISTS code_vectors(model TEXT, framework TEXT, code TEXT, t
 -- 0.7: the term index (F3, F6): a glossary of the corpus, rebuilt when the documents change
 CREATE TABLE IF NOT EXISTS terms(term_id TEXT PRIMARY KEY, label TEXT, stems TEXT, n_words INT, df INT, tf INT,
   passages INT, cvalue REAL);
-CREATE TABLE IF NOT EXISTS term_mentions(term_id TEXT, passage_id TEXT, doc_id TEXT, start INT, end INT);
+-- every place a term occurs: its passage and the document offsets of its words. 0.17.2: WITHOUT ROWID (the rows are
+-- their own key, kept once) with one index in passage order, where the table had a rowid, the document of each place
+-- and three indexes (70 % of a project's file); see PLACES_TABLE.
+{PLACES_TABLE}
 -- concepts: terms joined by 'same' links (a person, the model, the abbreviation rule); links may name terms that
 -- are not in the index any more (they come back when the term does)
 CREATE TABLE IF NOT EXISTS concepts(concept_id TEXT PRIMARY KEY, label TEXT);
@@ -205,12 +216,37 @@ CREATE INDEX IF NOT EXISTS ix_notes_doc ON notes(doc_id, start);
 CREATE TABLE IF NOT EXISTS versions(version_id TEXT PRIMARY KEY, kind TEXT, key TEXT, at TEXT, person_id TEXT,
   label TEXT, data_json TEXT);
 CREATE INDEX IF NOT EXISTS ix_versions_key ON versions(kind, key, at);
+-- (ENLENS 0.18 adds here the tables of shared projects: shares, sync_*, ownership, roles, proposals, decisions,
+-- canon, canon_seen, owner_pins, removed_docs. Margin, for one person, leaves them out; a project made by ENLENS
+-- keeps them in its file, unread.)
+-- 0.18.1 part A (documents, theory, concepts, team copies): new tables below this line
+-- D2 (textrelations.py): the sentences a link found from the text was proposed from (source 'pattern'), each with its
+-- document, page and document offsets; made again with the glossary
+CREATE TABLE IF NOT EXISTS concept_link_sentences(a TEXT, b TEXT, passage_id TEXT, doc_id TEXT, page INT, start INT,
+  end INT, quote TEXT, PRIMARY KEY(a, b, doc_id, start));
+-- end of 0.18.1 part A
+-- 0.18.1 part B (AI mix, checks, retractions): new tables below this line
+-- H4 (tasks.py): an accepted answer kept by the question asked (the kind, its prompt version, the model and the prompt's
+-- text, hashed in `key`), so the same text is not asked again under another task id; `hits` counts the tasks it
+-- answered instead of a model
+CREATE TABLE IF NOT EXISTS ai_cache(key TEXT PRIMARY KEY, kind TEXT, prompt_version TEXT, model TEXT, raw_json TEXT,
+  at TEXT, hits INT DEFAULT 0);
+-- B5 (retractions.py): what Crossref said about each DOI asked, and when; notices_json is a list of {type, doi, date,
+-- source}, empty when nothing updates the work
+CREATE TABLE IF NOT EXISTS retractions(doi TEXT PRIMARY KEY, checked_at TEXT, notices_json TEXT);
+-- end of 0.18.1 part B
 """
+SCHEMA = SCHEMA.replace("{PLACES_TABLE}", PLACES_TABLE)
 
 # Indexes on columns that older workspaces gain only through MIGRATIONS, so they are created afterwards.
 # 0.11.1: the label lookups per passage (`WHERE framework=? AND passage_id=?`) and per task were planned over the
 # framework index alone (a project has no statistics), hundreds of times slower on a large project; the index on
 # (passage_id, framework) answers them directly, and the old single-column one is dropped.
+# The task queue asks every few seconds what waits and what a claim holds: ix_tasks_waiting holds only the tasks that
+# wait (its WHERE is taskqueue.WAITING word for word: SQLite uses a partial index only for a query that repeats its
+# condition), ix_tasks_claimed only the tasks a claim holds. Both stay small however many tasks were answered.
+# ix_results_route: taskqueue._last_answer (every queue status poll) asks for the newest answer of a route, which
+# otherwise reads the text of every answer ever given (about 0.1 s for 200,000 answers).
 INDEXES = """
 CREATE INDEX IF NOT EXISTS ix_ver_subject ON verifications(subject_kind, subject_id);
 CREATE INDEX IF NOT EXISTS ix_ver_passage ON verifications(passage_id);
@@ -227,14 +263,23 @@ CREATE INDEX IF NOT EXISTS ix_labels_passage_fw ON labels(passage_id, framework)
 CREATE INDEX IF NOT EXISTS ix_labels_task ON labels(task_id);
 CREATE INDEX IF NOT EXISTS ix_labels_doc ON labels(framework, doc_id);
 CREATE INDEX IF NOT EXISTS ix_labels_code ON labels(framework, code);
-CREATE INDEX IF NOT EXISTS ix_term_mentions_term ON term_mentions(term_id);
-CREATE INDEX IF NOT EXISTS ix_term_mentions_passage ON term_mentions(passage_id);
-CREATE INDEX IF NOT EXISTS ix_term_mentions_doc ON term_mentions(doc_id, term_id);
+DROP INDEX IF EXISTS ix_term_mentions_term;
+DROP INDEX IF EXISTS ix_term_mentions_passage;
+DROP INDEX IF EXISTS ix_term_mentions_doc;
+CREATE INDEX IF NOT EXISTS ix_term_mentions_at ON term_mentions(passage_id, start, end, term_id);
 CREATE INDEX IF NOT EXISTS ix_concept_terms_term ON concept_terms(term_id);
 CREATE INDEX IF NOT EXISTS ix_theme_members_theme ON theme_members(run_id, theme_id);
 CREATE INDEX IF NOT EXISTS ix_mentions_chain ON mentions(doc_id, chain_id);
 CREATE INDEX IF NOT EXISTS ix_reviews_item ON reviews(item_kind, item_id);
 CREATE INDEX IF NOT EXISTS ix_tasks_queued ON tasks(queued, kind, status);
+CREATE INDEX IF NOT EXISTS ix_tasks_waiting ON tasks(kind, queued_at) WHERE COALESCE(queued, 0)=1 AND
+  COALESCE(access, 'cloud')='cloud' AND (status IN ('pending', 'retry') OR (status='done' AND again=1));
+CREATE INDEX IF NOT EXISTS ix_tasks_claimed ON tasks(claimed_by) WHERE claimed_by IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_results_route ON results(route, received_at);
+-- 0.18.1 part A: new indexes below this line
+-- end of 0.18.1 part A
+-- 0.18.1 part B: new indexes below this line
+-- end of 0.18.1 part B
 """
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -310,6 +355,9 @@ MIGRATIONS = [("documents", "declared_ref", "TEXT"), ("vca_refs", "alias_of", "T
               # 0.13.3: the title read from the file, kept while the title of the work it is linked to in the
               # bibliography replaces it (NULL: the document has its own title; see bibliography._sync_titles)
               ("documents", "file_title", "TEXT"),
+              # 0.19.1: the title a person gave the document (NULL: none). It wins over the bibliography's and the
+              # file's, which stay as they were (file_title keeps the file's); see bibliography.set_title
+              ("documents", "own_title", "TEXT"),
               # 0.13.6: where a hypothesis comes from: "batch" (Check several) or an add-on's own kind, and the id of
               # what it comes from there (NULL: typed by a person, or made before 0.13.6)
               ("hypotheses", "origin", "TEXT"), ("hypotheses", "origin_id", "TEXT"),
@@ -343,15 +391,29 @@ MIGRATIONS = [("documents", "declared_ref", "TEXT"), ("vca_refs", "alias_of", "T
               ("documents", "old_fps", "TEXT"), ("documents", "sent_share", "REAL"),
               # 0.16 (K1, codebooks.py): the code a label had before its code was merged into another, so restoring
               # the codebook from before the merge gives it back (NULL: never merged)
-              ("labels", "merged_from", "TEXT")]
+              ("labels", "merged_from", "TEXT"),
+              # 0.18.1 part A (documents, theory, concepts, team copies): new columns below this line
+              # K2: a document's role (docrole.py): NULL evidence, 'theory' (the lens the research is read through)
+              ("documents", "role", "TEXT"),
+              # end of 0.18.1 part A
+              # 0.18.1 part B (AI mix, checks, retractions): new columns below this line
+              # end of 0.18.1 part B
+              # 0.18.6: a document marked Non-scientific (docrole.py): 1, or NULL. Its excerpts are read and judged,
+              # and no judgement of them counts in an answer
+              ("documents", "nonscientific", "INT"),
+              ]
 
 
 def _add_columns(cx: sqlite3.Connection, migrations) -> None:
-    """Add the columns (table, column, type) a table does not have yet; each only once."""
+    """Add the columns (table, column, type) a table does not have yet; each only once. Each table's columns are read
+    once (2026-11-13: once per column was most of the time a new project took)."""
+    known: dict[str, set] = {}
     for table, col, typ in migrations:
-        cols = {r[1] for r in cx.execute(f"PRAGMA table_info({table})")}
-        if col not in cols:
+        if table not in known:
+            known[table] = {r[1] for r in cx.execute(f"PRAGMA table_info({table})")}
+        if col not in known[table]:
             cx.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+            known[table].add(col)
 
 
 def _migrate(cx: sqlite3.Connection) -> None:
@@ -368,6 +430,83 @@ def _migrate(cx: sqlite3.Connection) -> None:
                "framework=CASE WHEN COALESCE(target, '') != '' THEN 'sdg' END WHERE hyp_id IS NULL")
 
 
+# 0.17.2: the glossary's state as a build notes it. The corpus version it was made from has a new name: a Margin before
+# 0.17.2 reads `terms_corpus_version`, finds none and says its glossary is not made, rather than showing one whose places
+# it cannot read (it reads them by `doc_id`); and when it makes its own, its note tells this version so
+GLOSSARY_META = ("glossary_corpus_version", "terms_corpus_version", "terms_built_at", "terms_build_id")
+
+
+# ENLENS roles (§3.4): rows `Workspace._document_rows` names that are made again (ENLENS's archive of a removal a
+# colleague caused leaves them out)
+REMADE = ("embeddings", "term_mentions",
+          "concept_link_sentences")  # 0.18.1 (D2): made again with the glossary
+
+
+def passage_range(doc_id: str) -> tuple[str, str]:
+    """The ids of a document's passages, as a range [low, high) to compare passage ids with. A passage id is
+    f"{doc_id}:{seq:04d}" and a document id has no colon (ingest: "d" and hex digits; a colleague's: sync.common.DOC_ID;
+    the ids of answers kept from an earlier reading, "<doc>:r1-0005", never name a passage row), so exactly the
+    passages of this document have ids that start with its id and a colon; ';' is the character after ':'."""
+    return f"{doc_id}:", f"{doc_id};"
+
+
+# a passage id's document, in SQL (see `passage_range`): the part before the colon
+DOC_OF = "substr({0}, 1, instr({0}, ':') - 1)"
+
+
+def _drop_old_places(cx: sqlite3.Connection) -> bool:
+    """0.17.2: the glossary's places in their new shape (PLACES_TABLE). A table of the old shape (with a rowid) is
+    derived, so it is dropped rather than copied, and the glossary is made again, as for a project whose glossary was
+    never made ("No glossary yet", Make the glossary). A glossary a Margin before 0.17.2 made in this file (its note
+    `terms_corpus_version`: the project of an earlier version, or such a Margin that opened the file since) is
+    dropped too: its terms are not this version's places. Indexes such a Margin made go in store.INDEXES. Returns
+    whether anything was dropped."""
+    row = cx.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='term_mentions'").fetchone()
+    old_shape = row is not None and "WITHOUT ROWID" not in (row[0] or "").upper()
+    if old_shape:
+        cx.execute("DROP TABLE term_mentions")  # its indexes go with it
+        cx.execute(PLACES_TABLE)
+    old_build = cx.execute("SELECT 1 FROM meta WHERE key='terms_corpus_version'").fetchone() is not None
+    if old_build:
+        cx.execute("DELETE FROM term_mentions")
+        cx.execute("DELETE FROM terms")
+        cx.execute(f"DELETE FROM meta WHERE key IN ({','.join('?' * len(GLOSSARY_META))})", GLOSSARY_META)
+    return old_shape or old_build
+
+
+# 0.17.2: the file is made smaller (VACUUM) after the old places were dropped only when that frees at least this much and
+# this share of it; less is left as free pages, which SQLite fills before the file grows
+VACUUM_MIN_FREE = 32 * 1024 * 1024
+VACUUM_MIN_SHARE = 0.25
+VACUUM_WAIT_MS = 2000   # how long it waits for another connection to let go of the file before it leaves it as it is
+
+
+def _vacuum_after_drop(cx: sqlite3.Connection, folder: Path) -> bool:
+    """Once, right after the old places were dropped: then the copy VACUUM makes holds only what is left (here 94 MB of a
+    460 MB file, under a second), where later it would hold the glossary again too. It needs free disk space for that
+    copy and for the write-ahead log, which holds it once more, so it is done only when twice that is free; and only
+    when no other program is writing to the file (it waits VACUUM_WAIT_MS for one; readers do not stop it). Otherwise
+    the freed pages stay in the file and the next glossary is written into them. Returns whether it ran."""
+    import shutil
+
+    size = cx.execute("PRAGMA page_size").fetchone()[0]
+    pages, free = cx.execute("PRAGMA page_count").fetchone()[0], cx.execute("PRAGMA freelist_count").fetchone()[0]
+    if free * size < VACUUM_MIN_FREE or free < VACUUM_MIN_SHARE * pages:
+        return False
+    try:
+        if shutil.disk_usage(folder).free < 2 * (pages - free) * size + VACUUM_MIN_FREE:
+            return False
+    except OSError:
+        return False
+    cx.execute(f"PRAGMA busy_timeout={int(VACUUM_WAIT_MS)}")
+    try:
+        cx.execute("VACUUM")
+        cx.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # the log held the whole new copy: give the space back
+    except sqlite3.OperationalError:   # another connection reads or writes the file: left as it is
+        return False
+    return True
+
+
 def _setup_addons(cx: sqlite3.Connection) -> None:
     """0.13.6: each add-on's tables, columns and indexes, after Margin's own and in the add-ons' order, the same
     idempotent way (docs/EXTENDING.md)."""
@@ -379,6 +518,136 @@ def _setup_addons(cx: sqlite3.Connection) -> None:
         _add_columns(cx, db["migrations"])
         if db["indexes"]:
             cx.executescript(db["indexes"])
+
+
+def fast_tests() -> bool:
+    """2026-11-12: set by the test suite (tests/conftest.py `_fast_sqlite`) for every test not marked `durable`."""
+    return os.environ.get("MARGIN_TEST_FAST_SQLITE") == "1"
+
+
+# 2026-11-12: the write-ahead log is cut back to this size when it starts again from its beginning. Without a limit it
+# keeps the size of the largest transaction it ever held (adding many documents, a new glossary: hundreds of MB) for as
+# long as the app has the project open. Twice the size at which SQLite copies the log into the file by itself (1000
+# pages of 4 KB), so everyday writing never cuts and regrows it; only the log of a big write is trimmed.
+JOURNAL_SIZE_LIMIT = 8 * 1024 * 1024
+
+
+def tune(cx: sqlite3.Connection) -> sqlite3.Connection:
+    """2026-11-12: the settings of every connection that writes to a project database. NORMAL is safe with WAL and
+    saves a flush per commit. In tests (`fast_tests`) nothing is flushed (synchronous=OFF: a test's files are thrown
+    away, and a test process that ends abruptly still leaves what it wrote with the system) and temporary tables and
+    sorts stay in memory. The journal stays WAL in tests too: measured on four of the 0.18 test files, a rollback
+    journal in memory wrote 5% less but four tests failed and the files took four times as long (readers and writers
+    wait for each other there)."""
+    if fast_tests():
+        cx.execute("PRAGMA synchronous=OFF")
+        cx.execute("PRAGMA temp_store=MEMORY")
+    else:
+        cx.execute("PRAGMA synchronous=NORMAL")
+    cx.execute(f"PRAGMA journal_size_limit={JOURNAL_SIZE_LIMIT}")
+    return cx
+
+
+def trim_log(cx: sqlite3.Connection, db_path: Path) -> bool:
+    """2026-11-12: after a write, a log grown past JOURNAL_SIZE_LIMIT is copied into the database and emptied at once,
+    not at the next write (which may be hours away while the app idles). Only when nothing else reads an older state
+    of the project right now: it never waits (busy_timeout 0) and, if something does, is left for SQLite's own
+    checkpoints. One look at the log's size per transaction otherwise. Returns whether it emptied the log."""
+    try:
+        if os.stat(f"{db_path}-wal").st_size <= JOURNAL_SIZE_LIMIT:
+            return False
+    except OSError:
+        return False
+    wait = cx.execute("PRAGMA busy_timeout").fetchone()[0]
+    try:
+        cx.execute("PRAGMA busy_timeout=0")
+        busy = cx.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        return bool(busy) and busy[0] == 0
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        cx.execute(f"PRAGMA busy_timeout={int(wait)}")
+
+
+def scratch(cx: sqlite3.Connection) -> sqlite3.Connection:
+    """2026-11-12: the settings of a connection to a database that is thrown away when the work ends (a bundle being
+    put together, the copy a zip is made from): no flushes, and temporary tables, sorts and VACUUM's copy in memory.
+    A computer that stops in the middle loses only the scratch file, which is made again."""
+    cx.execute("PRAGMA synchronous=OFF")
+    cx.execute("PRAGMA temp_store=MEMORY")
+    return cx
+
+_ONE_TRANSACTION = True  # a new database is set up in one transaction (False: a statement at a time, as before)
+_EMPTY: dict[tuple[str, int | None], bytes] = {}
+_EMPTY_LOCK = threading.Lock()
+# 2026-11-12: a scratch project's pages are 1 KB, not SQLite's 4 KB: an empty project is one page per table and index
+# (164 of them), so its empty database is 181 KB instead of 672 KB, and a round makes one per colleague whose work it
+# reads and one for the bundle it writes. Its rows are few in nearly every round; a large first bundle is read a little
+# more slowly. A bundle's database keeps the size (VACUUM does), which a colleague's Margin reads as any other.
+SCRATCH_PAGE_SIZE = 1024
+
+
+def _copy_empty_database(dest: Path, page_size: int | None = None) -> None:
+    """2026-11-13: a new project's database is a copy of an empty one that this process made once, the usual way
+    (`Workspace._setup`), and keeps in memory as the file's bytes. Setting one up takes about 17 ms on a Mac and many
+    times that on Windows, most of it the columns added after a table was made (each makes SQLite read the whole
+    layout again). A shared-folder round makes one to three scratch projects, so this was much of the time a round
+    takes. The bytes are written as they are, not through SQLite's own copy, which forces every page to disk (34 ms a
+    project on GitHub's Windows machines): the file is new and nothing uses it until `_setup` has opened it. It is the
+    file the setup makes, byte for byte (in WAL mode, with nothing left in a log). Nothing is kept on disk: the key holds
+    everything the setup is built from (Margin's tables, columns and indexes, and the add-ons'), so a changed layout,
+    here or in a later version, makes a new empty database. An empty one holds no rows of a project's own (its id is made
+    when first asked for).
+
+    The copy is written beside `dest` and put in place only if there is no database there yet, so two creations of the
+    same new project at once never copy an empty database over what the other already wrote (after review).
+
+    `page_size`: of the empty database (None: SQLite's own, 4 KB), for scratch projects (SCRATCH_PAGE_SIZE)."""
+    import os
+
+    from .addons import database
+
+    layout = repr((SCHEMA, INDEXES, MIGRATIONS, database()))
+    key = (layout, page_size)
+    with _EMPTY_LOCK:
+        empty = _EMPTY.get(key)
+        if empty is None:
+            import shutil
+            import tempfile
+
+            tmp = Path(tempfile.mkdtemp(prefix="margin-empty-"))
+            try:
+                made = Workspace(tmp)
+                if page_size:
+                    cx = sqlite3.connect(made.db_path)
+                    try:
+                        cx.execute(f"PRAGMA page_size={int(page_size)}")
+                        cx.execute("PRAGMA journal_mode=WAL")  # the file is made, with that page size
+                    finally:
+                        cx.close()
+                made._setup()  # closes its connection: the log is written into the file and removed
+                left = [f.name for f in tmp.iterdir() if f.name != made.db_path.name]
+                if left:
+                    raise OSError(f"the empty database left {left}")  # not the whole file: set up the usual way
+                empty = made.db_path.read_bytes()
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+            for k in [k for k in _EMPTY if k[0] != layout]:
+                del _EMPTY[k]  # only the latest layout is wanted
+            _EMPTY[key] = empty
+    part = dest.with_name(f"{dest.name}.{os.getpid()}-{threading.get_ident()}.new")
+    part.write_bytes(empty)
+    try:
+        if os.name == "nt":
+            os.rename(part, dest)  # refuses when dest is there
+        else:
+            os.link(part, dest)  # the same; os.rename would replace it
+    except FileExistsError:
+        pass  # made at the same moment by another: theirs stands, and `_setup` runs on it as on any project
+    except OSError:
+        pass  # a drive without links: `_setup` makes the database the usual way
+    finally:
+        part.unlink(missing_ok=True)
 
 
 def now() -> str:
@@ -395,8 +664,12 @@ class Workspace:
     Nested `connect()` blocks become savepoints, so an inner block that fails undoes only its own writes.
     """
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, scratch: bool = False):
         self.root = Path(root)
+        # 2026-11-12: a scratch project (the copy a round of the shared folder puts a colleague's bundles together in),
+        # used by one thread and thrown away when the work ends: its connections write each change once (a rollback
+        # journal in memory, where WAL writes it to the log and again into the file) and never flush (`scratch`)
+        self.scratch = scratch
         self.db_path = self.root / "enlens.sqlite"
         self.config_path = self.root / "config.json"
         self._local = threading.local()
@@ -411,14 +684,22 @@ class Workspace:
 
     # ---- lifecycle -------------------------------------------------------------------------
     @classmethod
-    def create(cls, root: str | Path) -> "Workspace":
-        ws = cls(root)
+    def create(cls, root: str | Path, scratch: bool = False) -> "Workspace":
+        ws = cls(root, scratch=scratch)
         ws.root.mkdir(parents=True, exist_ok=True)
         for sub in ("tasks", "results", "exports", "report"):
             (ws.root / sub).mkdir(exist_ok=True)
         if not ws.config_path.exists():
             ws.config_path.write_text(json.dumps(DEFAULT_CONFIG, indent=2))
-        ws._setup()
+        if not ws.db_path.exists():
+            try:
+                if scratch:
+                    _copy_empty_database(ws.db_path, SCRATCH_PAGE_SIZE)
+                else:
+                    _copy_empty_database(ws.db_path)
+            except (OSError, sqlite3.Error):
+                pass  # (no temporary folder, say) `_setup` makes it the usual way
+        ws._setup()  # as for any project: whatever the copy lacks is added here
         return ws
 
     @classmethod
@@ -433,13 +714,26 @@ class Workspace:
         cx = sqlite3.connect(self.db_path, timeout=60)
         try:
             cx.execute("PRAGMA journal_mode=WAL")  # readers do not block on a long write; persistent per file
+            # each statement of the schema below is a transaction of its own: with the default FULL each one is
+            # flushed to disk (about a second per new project on Windows, and a round of the shared folder makes
+            # one to three scratch projects); NORMAL, as every connection of `_conn`, is safe with WAL
+            tune(cx)
             doc_cols = {r[1] for r in cx.execute("PRAGMA table_info(documents)")}
             before_011 = bool(doc_cols) and "ai_access" not in doc_cols  # a project made before 0.11, opened now
-            cx.executescript(SCHEMA)
+            # 2026-11-13: a new database (a new project, or one of the scratch projects of every shared-folder round) is
+            # set up in one transaction, saved once instead of once per table, column and index; nothing else has it
+            # open yet. A project already there is set up as before, a statement at a time, so opening it never holds
+            # the database while a job of it writes.
+            new = _ONE_TRANSACTION and not cx.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+            begin = "BEGIN IMMEDIATE;\n" if new else ""
+            cx.executescript(begin + SCHEMA)
             _migrate(cx)
-            cx.executescript(INDEXES)
+            dropped = _drop_old_places(cx)
+            cx.executescript(begin + INDEXES)  # (executescript saves what came before it)
             _setup_addons(cx)
             cx.commit()
+            if dropped:
+                _vacuum_after_drop(cx, self.root)
         finally:
             cx.close()
         if before_011:
@@ -456,7 +750,14 @@ class Workspace:
             # thread: each connection is still used by the thread that opened it alone
             cx = sqlite3.connect(self.db_path, timeout=60, isolation_level=None, factory=_Cx, check_same_thread=False)
             cx.row_factory = sqlite3.Row
-            cx.execute("PRAGMA synchronous=NORMAL")  # safe with WAL; much faster commits
+            if self.scratch:
+                scratch(cx)
+                cx.execute("PRAGMA journal_mode=MEMORY")
+            else:
+                tune(cx)  # synchronous=NORMAL: safe with WAL; much faster commits
+            # a project may have come from someone else: nothing its database's own definitions name (in a default, an
+            # index, a check) may call functions that reach outside the database
+            cx.execute("PRAGMA trusted_schema=OFF")
             self._local.cx, self._local.depth, self._local.gen = cx, 0, self._gen
             with self._all_lock:
                 self._all.add(cx)
@@ -521,6 +822,8 @@ class Workspace:
             raise
         self._local.depth = depth
         cx.execute("COMMIT" if depth == 0 else f"RELEASE sp{depth}")
+        if depth == 0 and not self.scratch:
+            trim_log(cx, self.db_path)
 
     # ---- small helpers ---------------------------------------------------------------------
     def query(self, sql: str, args: tuple | list = ()) -> list[sqlite3.Row]:
@@ -560,10 +863,11 @@ class Workspace:
             for t in ("documents", "pages", "paragraphs", "headings", "passages", "embeddings", "doc_refs", "claims",
                       "claim_targets", "evidence", "interactions", "verifications", "labels", "label_parts", "terms",
                       "term_mentions", "concepts", "concept_terms", "theme_runs", "themes", "theme_members", "mentions", "bib_links",
-                      "blocks", "doc_tables", "block_choices"):
+                      "blocks", "doc_tables", "block_choices", "concept_link_sentences",
+                      "ai_cache"):  # 0.18.1: the AI's answers kept so as not to ask again, with their quotes
                 out[t] = cx.execute(f"DELETE FROM {t}").rowcount
             kinds = ("('extract','verify','verify_set','expand','check','decompose','reread','second','label','link',"
-                     "'theme','resolve')")
+                     "'theme','resolve','theory_codes','theory_frame','code_definition')")
             out["results"] = cx.execute(f"DELETE FROM results WHERE kind IN {kinds}").rowcount
             out["tasks"] = cx.execute(f"DELETE FROM tasks WHERE kind IN {kinds}").rowcount
             out["user_claims"] = cx.execute("DELETE FROM user_claims").rowcount
@@ -586,8 +890,62 @@ class Workspace:
             self.set_meta("project_uid", uid, cx)
         return uid
 
+    def _document_rows(self, doc_id: str, cx: sqlite3.Connection | None = None) -> list[tuple[str, str, tuple]]:
+        """The rows `remove_document` deletes, as (table, where, args), in the order they are deleted (what is found
+        through a document's passages or claims comes before those). ENLENS roles (§3.4): one list, which ENLENS's
+        archive of a removal also reads. `REMADE` names the tables whose rows are made again rather than kept."""
+        cx = cx or self._conn()
+        own = "(SELECT passage_id FROM passages WHERE doc_id=?)"
+        claims = "claim_id IN (SELECT claim_id FROM claims WHERE doc_id=?)"
+        out: list[tuple[str, str, tuple]] = [
+            ("claim_targets", claims, (doc_id,)),
+            ("evidence", claims, (doc_id,)),
+            ("claims", "doc_id=?", (doc_id,)),
+            ("interactions", "doc_id=? AND kind='stated'", (doc_id,)),
+            ("verifications", "doc_id=? AND subject_kind != 'user_claim'", (doc_id,)),
+            # one statement per table rather than four per passage (0.11.1: a document of a few hundred passages in a
+            # project with many tasks held the database for seconds)
+            ("embeddings", f"passage_id IN {own}", (doc_id,)),
+            ("theme_members", f"passage_id IN {own}", (doc_id,)),
+        ]
+        lengths = sorted(r[0] for r in cx.execute("SELECT DISTINCT length(passage_id) FROM passages WHERE doc_id=?",
+                                                  (doc_id,)))
+        for tbl in ("results", "tasks"):
+            out.append((tbl, "task_id IN (SELECT 'extract:' || passage_id FROM passages WHERE doc_id=?)", (doc_id,)))
+            # model labels of its passages: their tasks are 'label:<framework>:<passage_id>'; the passage ids of one
+            # document share a length (seq is padded), so the tail of the task id is compared exactly
+            for n in lengths:
+                out.append((tbl, f"kind='label' AND substr(task_id, -?) IN {own}", (n, doc_id)))
+        # 0.7: what was derived from the document (the term index is rebuilt when the corpus version changes)
+        out += [("labels", "doc_id=?", (doc_id,)), ("label_parts", "doc_id=?", (doc_id,)), ("mentions", "doc_id=?", (doc_id,)),
+                ("term_mentions", "passage_id >= ? AND passage_id < ?", passage_range(doc_id))]
+        out += [(tbl, "doc_id=?", (doc_id,)) for tbl in ("blocks", "doc_tables", "block_choices",
+                                                          "concept_link_sentences")]  # 0.15; 0.18.1 (D2)
+        # 0.15: answers kept as records when the document moved to the new reader name passages that no longer exist
+        # ("<doc>:r1-0005", reread.tombstone); they go with the document
+        for tbl in ("results", "tasks"):
+            out.append((tbl, "instr(task_id, ?) > 0 AND task_id GLOB ?", (f"{doc_id}:r", f"*{doc_id}:r[0-9]*-[0-9]*")))
+        head = f"resolve:{doc_id}:"
+        for tbl in ("results", "tasks"):
+            out.append((tbl, "kind='resolve' AND substr(task_id, 1, ?) = ?", (len(head), head)))
+        head = f"theory_codes:{doc_id}:"  # 0.18.4: the AI's drafts of its concepts hold its text
+        for tbl in ("results", "tasks"):
+            out.append((tbl, "kind='theory_codes' AND substr(task_id, 1, ?) = ?", (len(head), head)))
+        # K2 (the framework draft): a framework holds quotes of several theory documents; it goes with any of them
+        for tbl in ("results", "tasks"):
+            out.append((tbl, "kind='theory_frame' AND task_id IN (SELECT task_id FROM tasks WHERE "
+                        "kind='theory_frame' AND instr(payload_json, ?) > 0)", (json.dumps(doc_id),)))
+        # K1 (the optional AI part): a code's definition drafted from passages of several documents (`docs` names them)
+        for tbl in ("results", "tasks"):
+            out.append((tbl, "kind='code_definition' AND task_id IN (SELECT task_id FROM tasks WHERE "
+                        "kind='code_definition' AND instr(payload_json, ?) > 0)", (json.dumps(doc_id),)))
+        out += [(tbl, "doc_id=?", (doc_id,)) for tbl in ("passages", "pages", "paragraphs", "headings", "doc_refs",
+                                                          "bib_links",  # 0.13: its work goes back to "to find"
+                                                          "documents")]
+        return out
+
     def remove_document(self, doc_id: str, why: str | None = None) -> dict[str, int]:
-        """Remove one document and what the pipeline derived from it.
+        """Remove one document and what the pipeline derived from it (the rows `_document_rows` names).
 
         Hypothesis checks keep their grades: they are a record of what was read (each check stores the passage
         text and title it showed), so a past verdict does not change when a source is removed later. 0.16: the
@@ -598,6 +956,7 @@ class Workspace:
             from .citations import remove_document as remove_texts
 
             remove_texts(self, doc_id)  # 0.13.7: its citations, read as a text whose citations are checked
+        counted = ("claims", "interactions", "verifications", "labels", "mentions", "passages", "documents")
         with self.connect() as cx:
             row = cx.execute("SELECT title FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
             if not row:
@@ -606,49 +965,10 @@ class Workspace:
 
             researchlog.record(cx, "document-removed", f"Removed the document {researchlog.quoted(row[0])}.",
                                "document", doc_id, row[0], why=why)
-            pids = [r[0] for r in cx.execute("SELECT passage_id FROM passages WHERE doc_id=?", (doc_id,))]
-            claim_ids = [r[0] for r in cx.execute("SELECT claim_id FROM claims WHERE doc_id=?", (doc_id,))]
-            for cid in claim_ids:
-                cx.execute("DELETE FROM claim_targets WHERE claim_id=?", (cid,))
-                cx.execute("DELETE FROM evidence WHERE claim_id=?", (cid,))
-            out["claims"] = cx.execute("DELETE FROM claims WHERE doc_id=?", (doc_id,)).rowcount
-            out["interactions"] = cx.execute("DELETE FROM interactions WHERE doc_id=? AND kind='stated'", (doc_id,)).rowcount
-            out["verifications"] = cx.execute("DELETE FROM verifications WHERE doc_id=? AND subject_kind != 'user_claim'",
-                                              (doc_id,)).rowcount
-            # one statement per table rather than four per passage (0.11.1: a document of a few hundred passages in a
-            # project with many tasks held the database for seconds)
-            own = "(SELECT passage_id FROM passages WHERE doc_id=?)"
-            cx.execute(f"DELETE FROM embeddings WHERE passage_id IN {own}", (doc_id,))
-            cx.execute(f"DELETE FROM theme_members WHERE passage_id IN {own}", (doc_id,))
-            for tbl in ("results", "tasks"):
-                cx.execute(f"DELETE FROM {tbl} WHERE task_id IN (SELECT 'extract:' || passage_id FROM passages "
-                           "WHERE doc_id=?)", (doc_id,))
-                # model labels of its passages: their tasks are 'label:<framework>:<passage_id>'; the passage ids of
-                # one document share a length (seq is padded), so the tail of the task id is compared exactly
-                for n in sorted({len(pid) for pid in pids}):
-                    cx.execute(f"DELETE FROM {tbl} WHERE kind='label' AND substr(task_id, -?) IN {own}", (n, doc_id))
-            # 0.7: what was derived from the document (the term index is rebuilt when the corpus version changes)
-            out["labels"] = cx.execute("DELETE FROM labels WHERE doc_id=?", (doc_id,)).rowcount
-            cx.execute("DELETE FROM label_parts WHERE doc_id=?", (doc_id,))
-            out["mentions"] = cx.execute("DELETE FROM mentions WHERE doc_id=?", (doc_id,)).rowcount
-            cx.execute("DELETE FROM term_mentions WHERE doc_id=?", (doc_id,))
-            for tbl in ("blocks", "doc_tables", "block_choices"):  # 0.15
-                cx.execute(f"DELETE FROM {tbl} WHERE doc_id=?", (doc_id,))
-            # 0.15: answers kept as records when the document moved to the new reader name passages that no longer
-            # exist ("<doc>:r1-0005", reread.tombstone); they go with the document
-            for tbl in ("results", "tasks"):
-                cx.execute(f"DELETE FROM {tbl} WHERE instr(task_id, ?) > 0 AND task_id GLOB ?",
-                           (f"{doc_id}:r", f"*{doc_id}:r[0-9]*-[0-9]*"))
-            head = f"resolve:{doc_id}:"
-            for tbl in ("results", "tasks"):
-                cx.execute(f"DELETE FROM {tbl} WHERE kind='resolve' AND substr(task_id, 1, ?) = ?", (len(head), head))
-            out["passages"] = cx.execute("DELETE FROM passages WHERE doc_id=?", (doc_id,)).rowcount
-            cx.execute("DELETE FROM pages WHERE doc_id=?", (doc_id,))
-            cx.execute("DELETE FROM paragraphs WHERE doc_id=?", (doc_id,))
-            cx.execute("DELETE FROM headings WHERE doc_id=?", (doc_id,))
-            cx.execute("DELETE FROM doc_refs WHERE doc_id=?", (doc_id,))
-            cx.execute("DELETE FROM bib_links WHERE doc_id=?", (doc_id,))  # 0.13: its work goes back to "to find"
-            out["documents"] = cx.execute("DELETE FROM documents WHERE doc_id=?", (doc_id,)).rowcount
+            for tbl, where, args in self._document_rows(doc_id, cx):
+                n = cx.execute(f"DELETE FROM {tbl} WHERE {where}", args).rowcount
+                if tbl in counted:
+                    out[tbl] = out.get(tbl, 0) + n
             # 0.11.1: tasks not answered yet that still hold its passages (a check, a theme name, a concept link) are
             # relabelled now, so none of them is handed to Claude Code after the document is gone
             from .access import relabel

@@ -442,7 +442,9 @@ def run_args(project: str, claude: str = "", plan: dict | None = None, options: 
 def _log_path(project: str) -> Path:
     d = core.home() / "claude-runs"
     d.mkdir(parents=True, exist_ok=True)
-    return d / ((re.sub(r"[^A-Za-z0-9_-]+", "_", project).strip("_") or "project") + ".log")
+    # named as the run's record and its work folder are (`_run_key`): two projects whose names differ only in
+    # accented letters or punctuation ("Előadás", "El ad s") shared one log, and one run's start emptied the other's
+    return d / f"{_run_key(project)}.log"
 
 
 # 0.14.3: every run's process id is written under the data folder (claude-runs/<project>.run.json), because _RUNS
@@ -525,6 +527,11 @@ def _end_process(pid: int, proc=None, wait: float = 10.0) -> None:
             subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=30, **no_window())
         except (OSError, subprocess.SubprocessError):
             pass
+        # 2026-11-12: taskkill returns before the process has ended; on a busy computer Stop then still reported the
+        # run as working. Wait for it, as below on macOS and Linux.
+        t0 = time.time()
+        while time.time() - t0 < wait and not gone():
+            time.sleep(0.1)
         return
     import signal
 

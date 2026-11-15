@@ -18,11 +18,13 @@ def test_a_long_word_cannot_widen_the_claims():
 
 def test_the_card_foot():
     js = (STATIC / "views" / "drafts.js").read_text(encoding="utf-8")
-    assert 'class: "dc-foot"' in js and 'class: "dc-seg"' in js and "Your verdict" in js
+    # the verdict is the Choice component (lib.js choice(), imported as pickOne), in the card's foot
+    assert 'class: "dc-foot"' in js and "pickOne({ filter: true, sm: true" in js and "Your verdict" in js
     assert "btn btn-sm dc-decide-btn" not in js            # the verdict is one switch, not three loose buttons
     assert 'class: "btn btn-sm dc-lit"' not in js           # Find literature and Open the result are links
     assert 'class: "dc-actions-end"' in js                  # Fold and Remove sit apart, at the far end
     assert "function foot(" not in js                       # one place builds the card's ways on
+    assert "dc-seg" not in js and "dc-link" not in js       # the Choice and the Links components carry their own look
     css = section("m030")
-    assert ".dc-seg" in css and "a.dc-link:hover" in css and "@media (max-width: 640px)" in css
+    assert ".dc-foot" in section("m010") + css and "@media (max-width: 640px)" in css
     assert "#" not in css.split("*/", 1)[1]                 # colour tokens only

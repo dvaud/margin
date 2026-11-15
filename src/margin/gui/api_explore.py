@@ -100,12 +100,12 @@ class ExploreApi:
                                       order=order, **self._search_args(q))
 
     def _fw(self, ws, q) -> str:
-        fw = _codebook(_str(q, "framework"), self.app.settings())
+        fw = _codebook(_str(q, "framework"), self.app.settings(), ws)
         frameworks.get(fw, ws)
         return fw
 
     def get_profile(self, name, q):
-        from .. import profile
+        from .. import profile, runs
 
         from .. import codebooks
 
@@ -119,7 +119,9 @@ class ExploreApi:
                                                                                       frameworks.available(ws).values()],
                # 0.16: codes taken out whose labels wait, and codes the AI labelled with an earlier wording
                "removed_codes": [{"code": r["code"], "labels": r["labels"]} for r in codebooks.removed_codes(ws, fw)],
-               "stale_codes": codebooks.stale(ws, fw)}
+               "stale_codes": codebooks.stale(ws, fw),
+               # 0.18.1 (J4.2): the versions behind this codebook's AI labels, for the page to name older ones
+               "made_with": runs.labels_made_with(ws, fw)}
         if out["pass1"]["done"]:
             docs = _list(q, "docs")
             # 0.16: the labels that count are worked out once for the grid and the counts when both are of every
@@ -178,7 +180,7 @@ class ExploreApi:
 
         body = self._body()
         ws = self.app.ws(name)
-        lid = profile.add_label(ws, _codebook(body.get("framework"), self.app.settings()), str(body.get("passage_id") or ""),
+        lid = profile.add_label(ws, _codebook(body.get("framework"), self.app.settings(), ws), str(body.get("passage_id") or ""),
                                 str(body.get("code") or ""), body.get("quote") or None,
                                 str(body.get("relevance") or "main"), str(body.get("direction") or "not_stated"),
                                 body.get("note"), body.get("practice") or None, body.get("element") or None)
@@ -202,6 +204,32 @@ class ExploreApi:
     def post_terms_build(self, name, q):
         self._body()
         return {"job": self.app.start_terms(name).view()}
+
+    def get_terms_words(self, name, q):
+        """0.17: what the glossary and key terms leave out: the languages found (each can be switched off) and the
+        project's own words."""
+        from .. import stopwords, terms
+
+        ws = self.app.ws(name)
+        s = stopwords.settings(ws)
+        return {"languages": stopwords.found(ws), "off": s["off"], "own": s["own"], "status": terms.status(ws),
+                "max_own": stopwords.MAX_OWN}
+
+    def put_terms_words(self, name, q):
+        from .. import stopwords
+
+        body = self._body()
+        off, own = body.get("off"), body.get("own")
+        if off is not None and not (isinstance(off, list) and all(isinstance(c, str) for c in off)):
+            raise ApiError(400, "off must be a list of language codes.")
+        if own is not None and not (isinstance(own, str) or (isinstance(own, list) and
+                                                             all(isinstance(e, str) for e in own))):
+            raise ApiError(400, "own must be a list of words (or one per line).")
+        try:
+            stopwords.save(self.app.ws(name), off, own)
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return self.get_terms_words(name, q)
 
     def get_concept_lookup(self, name, q):
         from .. import terms
@@ -277,7 +305,13 @@ class ExploreApi:
         fw = _str(q, "framework")
         if fw:
             frameworks.get(fw, ws)
-        return themes.view(ws, run_id, fw)
+        out = themes.view(ws, run_id, fw)
+        from .. import runs  # 0.18.1 (J4.2): the version that made this run, on its own page
+
+        if isinstance(out, dict) and "made_with" not in out:
+            out["made_with"] = runs.made_with_one(ws.scalar("SELECT app_version FROM theme_runs WHERE run_id=?",
+                                                            (run_id,)))
+        return out
 
     def delete_theme_run(self, name, run_id, q):
         from .. import themes
@@ -353,7 +387,7 @@ class ExploreApi:
         ws = self.app.ws(name)
         hyp = _list(q, "hyp")
         r = annotate.annotate_document(ws, doc_id, hyp, self._layers(q), _str(q, "framework") or
-                                       self.app.settings().get("profile_framework") or "", _str(q, "concept"),
+                                       frameworks.chosen(self.app.settings().get("profile_framework"), ws), _str(q, "concept"),
                                        threshold=_float(q, "threshold", self.app.settings()["threshold"]))
         disp = _disposition(r["name"])
         extra = {"Content-Disposition": disp, "X-Margin-Placed": f"{r['placed']}/{r['marks']}"}
@@ -371,8 +405,8 @@ class ExploreApi:
         with tempfile.TemporaryDirectory(prefix="margin-fc-") as tmp:
             out = Path(tmp) / "flexiconc.sqlite"
             emb = self.app.settings().get("embed_model") if self.app.settings().get("embed_backend") != "off" else None
-            flexiconc_export.export(ws, out, framework=_str(q, "framework") or self.app.settings().get("profile_framework")
-                                    or "sdg", embed_model=emb or None, embeddings=bool(emb))
+            flexiconc_export.export(ws, out, framework=_str(q, "framework") or frameworks.chosen(
+                                        self.app.settings().get("profile_framework"), ws), embed_model=emb or None, embeddings=bool(emb))
             # streamed from the file (0.11.1): with embeddings the export of a large project is hundreds of MB
             self._stream(out, "application/vnd.sqlite3",
                          {"Content-Disposition": _disposition(_filename(f"{name} - FlexiConc", "sqlite"))})

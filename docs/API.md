@@ -6,16 +6,28 @@ the model service chosen in Settings.
 
 ## Rules
 
-- **Token.** `GET /` returns `index.html` with `{{MARGIN_TOKEN}}` replaced by a random token for this run (and
-  `{{MARGIN_VERSION}}` by the version). Every API call sends it as the header `X-Margin-Token`. The endpoints a
-  plain link opens (the exports `…/export.csv|json|xlsx|zip`, the original file `…/documents/<id>/file`, and the
-  0.7 downloads: search, profile and themes exports, highlighted copies, the FlexiConc file) also accept `?token=`.
+- **Token.** Every API call sends the run's token as the header `X-Margin-Token`; without it, or with an old one,
+  401. The endpoints a plain link opens (the exports `…/export.csv|json|xlsx|zip`, the original file
+  `…/documents/<id>/file`, the page pictures `…/pages/<n>.png`, and the 0.7 downloads: search, profile and themes
+  exports, highlighted copies, the FlexiConc file) also accept `?token=`: the page uses it for an `<img>` and for
+  "open the PDF at this page", which `fetch` cannot do.
+- **How a client gets the token** (0.17.2). `GET /` never carries it, whatever the `Host` (any account on the computer
+  could fetch it); `index.html` has `{{MARGIN_VERSION}}` and `{{MARGIN_RUN}}` (a random id of this run, not a
+  secret) filled in. The app opens `http://127.0.0.1:<port>/#token=<token>` in the browser (and prints it, unless
+  started from the icon, whose output goes to a log). The page reads it from `location.hash`, keeps it in
+  `sessionStorage` and takes it out of the address bar; a tab without it asks the app's other tabs in the same browser
+  (a `BroadcastChannel` named `margin-token`) and keeps the first answer the API accepts. A program on this computer
+  reads it from `app-token-<port>.json` in the data folder: `{"url", "port", "pid", "token"}`, written whole when
+  the app starts (mode 0600 on macOS and Linux; on Windows the user's profile folder protects it, and with a data
+  folder outside the profile the file is in `%LOCALAPPDATA%\Margin`) and removed when it stops (`gui/launcher.py`
+  `token_path`, `read_token`, `open_link`). On Linux the browser is given a file `open-<port>.html` beside it (also
+  0600) that sends it on to the link, so the token is on no program's command line (`launcher.browse`). Every start has a new token, except a restart after an update
+  (below).
 - **Host.** Requests must name `127.0.0.1:<port>`, `localhost:<port>` or `[::1]:<port>` in `Host`; requests carrying an
   `Origin` other than their own `Host` are refused (403).
 - **Network mode** (`margin-gui --host 0.0.0.0`): `Host` may also be an IP address of the computer (never a domain
-  name: that could be DNS rebinding). The page is served without the token (`{{MARGIN_TOKEN}}` becomes empty); the
-  token comes in the link printed in the terminal, `http://<address>:<port>/#token=<token>`, which the page reads
-  from `location.hash` and keeps in `sessionStorage`.
+  name: that could be DNS rebinding). As on `127.0.0.1`, the token comes in the link printed in the terminal,
+  `http://<address>:<port>/#token=<token>`.
 - **Content Security Policy** on the page: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
   img-src 'self' data:; font-src 'self' data:; connect-src 'self'`. No inline `<script>`, no external resources.
 - **Static files**: `GET /static/<file>` serves files from the `static/` folder (also `/<file>` with an extension).
@@ -25,9 +37,12 @@ the model service chosen in Settings.
 - **JSON in, JSON out.** Request bodies are JSON objects (`Content-Type: application/json`), except uploads (raw bytes).
 - **Errors**: status 4xx/5xx with `{"error": "plain-language message", "kind": "request" | "backend" | "internal"}`.
   `kind: "backend"` (HTTP 502) means the model service is the problem (not running, model missing, key wrong): offer
-  a link to Settings. 401 means the token is wrong: ask to reload.
+  a link to Settings. 401 means the token is missing or from an earlier run: open Margin from its icon (or run
+  `margin-gui`).
 - **Jobs.** Long work returns `{"job": Job}` at once; poll `GET /api/jobs/<id>` (about every 500 ms while
   `state` is `queued` or `running`). Jobs that use the chat model run one at a time; others wait in `queued`.
+  0.17.0: jobs of one project that change the same things wait their turn in `queued` too, with `waiting_for` saying
+  for which job (see Jobs below).
 - Times: hypotheses and documents carry ISO 8601 UTC strings (`created_at`); jobs carry Unix seconds.
 - Ids are opaque strings. URL-encode project names (they may contain spaces).
 
@@ -190,6 +205,14 @@ and since ENLENS 0.13.6 only when there is an update).
   running, "title": "The update to X did not finish", "subtitle", "points": [what happened, what to do]}}`, from the
   result `handover.py` left in `updates/result.json` of the data folder (removed when read; a result that says the
   update worked is only removed).
+  After 0.17.2 what is new is read only when asked, so the answer is `{"note", "changes", "unread"}`: `note` is only
+  the Windows problem above (once) or `null`; `changes` is the running version's note, `{"version", "title",
+  "subtitle", "points", "url"}` (`url`: the version's release page on GitHub), or `null`, served every time and marking
+  nothing; `unread` is true when an update brought it and this person has not opened it (`whats_new_seen` is not the
+  running version; never on a new installation, which is still marked silently). While `unread` the page shows a small note in the
+  corner (after 0.18.0rc1: the title and *Read what's new*; in 0.18.0rc1 a sidebar button); Settings has it always.
+- `POST /api/whats-new/read` `{}` (after 0.17.2) → `{"unread": false}`: the note was read or closed; `whats_new_seen`
+  becomes the running version.
 
 - `POST /api/update` `{}` → `{"updated": true, "restarting": true, "handover": false, "from", "version",
   "jobs_stopped": n}`: installs it as `margin update` does, then restarts on the same address and port (running jobs
@@ -211,8 +234,11 @@ and since ENLENS 0.13.6 only when there is an update).
 - `POST /api/restart` `{}` → `{"restarting": true, "jobs_stopped": n}`: restarts into the version on disk (*Restart
   now* on the banner *Margin X is installed, but Y is still running*); 409 when this copy cannot restart itself.
 
-The restarted copy has a new access token: the page waits until `/` answers with a new `margin-token` (or answers
-again after not answering) and reloads. On macOS and Linux the same process becomes the new version (`os.execv`),
+0.17.2: the restarted copy keeps the access token (it is handed over in the environment, `MARGIN_RESTART_TOKEN`,
+which the new copy takes out at once; on Windows the update starts handover.py with it in that program's environment
+only, and handover.py gives it to the copy it starts and to nothing else), so the open
+tabs, which keep it, reach the new copy. A restart that cannot have its old port back takes a new token. The page
+waits until `/` answers with a new `margin-run` (or answers again after not answering) and reloads. On macOS and Linux the same process becomes the new version (`os.execv`),
 in the same terminal; on Windows a new one is started and the old one ends. Started from the icon, it is restarted
 as the icon starts it (`--launcher`, output to `logs/margin.log`), without opening a new browser tab.
 
@@ -249,10 +275,21 @@ minute). An Ollama already on the computer is only started (`"already": true`). 
 plain words (not enough disk space, offline, a file that is not Ollama's: nothing is installed from it). Linux:
 `{"terminal": {"opened", "window", "command"}}`: a terminal window runs Ollama's own line, which asks for the password
 (it installs for everyone and sets up a service); `command` is the line to type when no window could be opened.
-Nothing of the person's is sent, so it is allowed with `--local-only` too.
+Nothing of the person's is sent, so it is allowed with `--local-only` too. 0.18.0rc2: `suggested` is what fits THIS
+computer (`modeladvice.suggested`), and `advice` says more: `{"computer": {"memory", "disk_free", "gpu", "system",
+"unified", "words"}, "chat": {"pick", "smaller", "larger", "options", "reason"}, "embed": {…}, "what_is_a_model"}`;
+a model is `{"name", "use", "role": "recommended"|"smaller"|"larger", "size", "bytes", "speed": "quick"|"fair"|"slow",
+"speed_text", "good_for", "tight", "note"}`. Only models that fit the memory (the size and the memory its context takes,
+at most 50 % of the memory for the recommended one, 65 % for a larger one; a graphics card's own memory where
+`nvidia-smi` reports one) and the disk (the download and 2 GB to spare) are listed; when none fits, `pick` is null and
+`reason` says why. `advice` is null when the computer cannot be read, and `suggested` then keeps the old
+`qwen3:8b` and `nomic-embed-text`.
 
 `POST /api/ollama/start` (0.15.6) → starts the Ollama that is on this computer but not running, hidden: `{"started",
-"path"}`; 409 when Ollama is not on this computer. The page notices it within a few seconds.
+"path"}`; 409 when Ollama is not on this computer. The page notices it within a few seconds. 0.18.0rc2: it starts nothing
+when Ollama answers already (`{"started": false, "running": true}`) or was started by Margin in the last 45 seconds
+(`{"started": false, "starting": true}`): the card calls it by itself whenever Ollama is on the computer and does not
+answer.
 
 `POST /api/servers/pull` (0.13.7) → downloads models into the Ollama running on this computer, so a local model needs
 no terminal. Body `{"models": ["qwen3:8b", "nomic-embed-text"]}` (one to four names as Ollama's library writes them;
@@ -285,12 +322,14 @@ is not one, 409 when no Ollama answers on this computer (or at the address in Se
 `POST /api/projects/link` `{"path": "/path/to/workspace", "name": "Pilot"}` → links an existing workspace folder
 (not copied). `DELETE /api/projects/<p>` `{"confirm": "<p>"}` → `{"result": "unlinked" | "moved to …/trash/…"}`.
 
-`GET /api/projects/<p>/export.zip` → the whole project as one zip, to give to a colleague or move to another
+`GET /api/projects/<p>/export.zip` → the whole project as one zip, to keep or to move to another
 computer: a consistent copy of the database, `config.json`, the project's codebooks, and the original file of every
 document the project has (at its place in `uploads/` or `inputs/`, or as `originals/<doc_id>/<name>` when it was read
 from outside the project folder). 0.14.3: nothing else of `uploads/` (before, the whole folder, so the file of a
 removed document went along).
 Built in a temporary file and sent in chunks; the file name is readable ("Margin project - Demo - 2026-10-28.zip").
+
+`GET /api/projects/<p>/export.qdpx` → 0.18.7 (G5): the project for NVivo, ATLAS.ti and MAXQDA, as a REFI-QDA project (`urn:QDA-XML:project:1.0`: `project.qde` and `sources/<guid>.txt`): every document as its passages joined, the codebooks with labels and the project's own as codes, the hypotheses as codes with *Supports*, *Partly supports* and *Contradicts*, the labels and judgements that count as codings on their quotes (coded by you or by "Margin AI (<model>)"), notes and highlights as memos on their words, and the research log as one memo (`qdpx.export_project`; its docstring has every rule). `?framework=<name>` keeps one codebook (400 for an unknown one); `?threshold=` the strictness a judgement counts at (else Settings'). Built in a temporary file and sent in chunks ("Margin for NVivo - Demo - 2026-11-14.qdpx"). GUIDs are uuid5 of Margin's ids: two exports give the same.
 `POST /api/projects/import?name=<name>` with the zip as the raw body → `{"project": summary}` (it becomes the
 current project). Without `name` the project keeps the name it had, with " (2)" added when that is taken; a `name`
 that is taken → 409. 400 for a file that is not a zip, or a zip without a project (`enlens.sqlite`). Paths in the zip
@@ -384,6 +423,11 @@ reader), `"new_reader"` (the reader new documents get), `"reading"` (the reading
 "warnings": [sentence], "quality": "good"|"fair"|"poor"}`; for a document read before 0.15 `{"reader": 1, "older":
 true, "pages", "ocr_pages", "scanned_pages", "passages", "body_passages", "unreadable_passages", "warnings": [],
 "quality": null}`), `"page_images"` (a picture of each page can be had), `"tables"` and `"paragraphs"` (counts).
+0.19: `"languages"`: `{"shares": {code: share of the characters whose language is known}, "blocks": {code: n},
+"two": [first, second] | null (a document in two languages), "mixed_passages" (passages that hold both: a reading
+before reader 6), "kept": code | null (the language the person keeps), "names": {code: name}, "v"}` (also kept in the
+reading report as `languages`, without `kept` and `names`), and `"new_reader_changes"`: whether the new reader would
+read it otherwise (a document reader 5 read only when one of its passages holds both of its languages).
 With `&view=blocks`, a document read by the new reader comes block by block in reading order (`limit` up to 1000):
 each block adds `"kind"` (`title`, `heading`, `abstract`, `body`, `caption`, `table`, `footnote`, `front`, `back`,
 `references`, `figure`, `furniture`), `"kind_text"` (in words), `"included"` (searches, codes, themes and checks read
@@ -417,6 +461,15 @@ In `?view=blocks` (0.15.1), each block also has `alike` (how many other blocks l
 stands in the document, 0 to 1) and `bound` (`"start"`, `"end"` or null); `changed` is also true for a block with a
 choice of its own.
 
+`PUT /api/projects/<p>/documents/<doc_id>/language` (0.19) `{"keep": "<language code>"|null}` → keep one language of
+a document in two (a side-by-side translation): the blocks of its other language are left out of searches, codes,
+themes and checks (`null`: both count again). Blocks in both languages (a title printed twice) and blocks whose
+language cannot be told still count; a block the person restored or left out themselves keeps their choice. Kept in
+`block_choices` as `lang:<code>`, so it holds when the document is read again (one language at a time). Logged as `document-language`. `{"keep", "changed", "left_out", "restored",
+"languages", "blocks", "doc"}` (`blocks` and `doc` as for `…/bounds`). 400 when `keep` is not a string or null, or
+not one of the document's two languages; 404 for no such document, or one without blocks (read before 0.15). In
+`?view=blocks`, a block left out by that choice has `lang_out: {"language", "kept"}` (language names).
+
 `GET /api/projects/<p>/documents/<doc_id>/pages/<n>.png?scale=1.5` (also `?token=`, for an `<img>`) → page `n` of the
 original PDF as a PNG (`scale` 0.5 to 3 times 72 dots per inch), drawn with pypdfium2 (the OCR extra); 404 with the
 reason when the original is missing or not a PDF, the extra is not installed, or there is no such page. A block's
@@ -438,7 +491,9 @@ out; page in the new reading), `"remade"`, `"tasks": {"asked_again", "moved", "k
 report), `"warnings": [sentence]}` (`reread.py`). `POST …/reread` → `{"job"}` (kind `reread`): the move in one
 transaction (all or nothing), then the document's search by meaning, the glossary and the keyword pass, as after adding
 a document; the job's result is `{"report": {… "moved": true}, "glossary", "codes", …}`. 409 with the reason when it
-cannot be done, or while another job of the project runs.
+cannot be done. 0.17.0: while another job of the project runs, the move waits its turn (`waiting_for`) instead of a 409;
+the same document asked for again returns the job already there. A move that finds, once its turn comes, that it can no
+longer be done ends with `error_kind: "request"` and the reason; nothing changed.
 
 `POST /api/projects/<p>/new-reader` `{"doc_ids"?: [doc_id]}` (0.15.7) → `{"job"}` (kind `new_reader`): the documents an
 earlier reader read (only those of `doc_ids`, when given; others are ignored) moved one after the other, each as `POST
@@ -446,9 +501,24 @@ earlier reader read (only those of `doc_ids`, when given; others are ignored) mo
 meaning, the glossary and the keyword pass. The job's result is `{"moved": [{"doc_id", "title", "results",
 "left_out"}], "kept": [{"doc_id", "title", "reason", "not_placed"?}], "stopped", "glossary", "codes", …}`: `kept` are
 left as they were, `not_placed` (how many results would have had no place) when that is the reason. Stopping it keeps
-the documents moved so far. 400 for `doc_ids` that is not a list; 409 when none is left to move, or while another job
-of the project runs. The list of documents (`GET …/documents`) gives `new_reader` (`ingest.READER`) beside each
-document's `reader`.
+the documents moved so far. 400 for `doc_ids` that is not a list; 409 when none is left to move. 0.17.0: while another
+job of the project runs, it waits its turn (`waiting_for`) instead of a 409. 0.18.0rc2: `{"keep_unplaced": true}` (the person's *Move anyway*) moves a document even when some results find no
+place: those are kept as records that point nowhere, as a move from the document's own page does
+(`reread.move(keep_all=False)`). `moved` entries also give `no_place`, `kept` entries `cannot: true` when the document
+cannot be read again now, and the result has `summary`: `{"moved", "left_as_they_were", "results_moved",
+"results_without_place", "moved_anyway"}`. The list of documents (`GET …/documents`) gives `new_reader`
+(`ingest.READER`) beside each document's `reader`, and (0.19) `new_reader_changes`. 0.19: a document reader 5
+read is one of "the documents an earlier reader read" only when reader 6 would read it otherwise (a PDF, or a
+document one of whose passages holds both languages of a document in two); `POST …/reread` of any other answers 409
+with the reason.
+
+`POST /api/projects/<p>/new-reader/preview` `{"doc_ids"?: [doc_id]}` (0.18.0rc2) → `{"job"}` (kind
+`new_reader_preview`): the dry run before moving several documents; same `doc_ids` rules, errors and 409 as the move.
+Each document is read again by the current reader (`reread.preview`; nothing is stored or changed). The job's result is
+`{"documents": [{"doc_id", "title", "ok", "reason", "results", "no_place", "left_out", "not_placed": [{"kind_text",
+"what", "quote", "page", "where", "left_out_kind", "why"}]}], "stopped", "summary": {"documents", "clean",
+"would_lose", "cannot", "results_without_place"}}`: `clean` documents move with every result in place, `would_lose`
+documents have `no_place` results that would find none, `cannot` documents cannot be read again now (`reason`).
 
 `PUT /api/projects/<p>/documents/<doc_id>/reading-checked` `{"checked": bool}` (0.15.7) → `{"checked": {"by", "name",
 "at"} | null}`: the person marks the reading as checked (or takes it back). It is kept in the reading report, so a new
@@ -535,11 +605,20 @@ that could not be used, with the reason. A CSV may be separated by commas, semic
  "second_pass": false,                        // default from settings (see below)
  "parts": ["…", {"text": "…", "role": "outcome"}],   // optional, from "Look before checking": the parts to check
  "terms": [["aquifer", "desalination"], []],  // optional: the extra search words, one list per part
- "edited": {"parts": false, "terms": true}}   // optional: whether the person changed what the AI proposed
+ "edited": {"parts": false, "terms": true},  // optional: whether the person changed what the AI proposed
+ "from_doc": "d…"}                            // optional (0.19.0): started from this document's text
 ```
 → `{"job": Job}` (kind `check`). 400 for a text under 10 characters or an unknown code (or a part under 10
 characters: "Part 2 is too short…"); 502 when no model service is usable. The job's `result` is
-`{"hyp_id": "h…", "status": "contested"}`.
+`{"hyp_id": "h…", "status": "contested"}`. 0.19.0 (N3): with `from_doc` (a working document's *Check against the
+corpus*) the hypothesis records `origin` `"document"` and `origin_id` the document's id, and its result gains
+`origin_title` (the document's title, or its file's name; left out once the document is gone). 400 when `from_doc`
+is not a document of the project. The words keep that document's AI setting (`docrole.origin_floor`, as an add-on's
+draft does, see EXTENDING.md): from a document marked *Only a local AI* only a local model splits them, proposes
+their search words and judges their excerpts (by queue, Claude Code splits nothing and proposes no words: they are
+searched as written); from one marked *No AI* no model reads them, they are searched as written and every excerpt
+waits for the person's judgement. The result then gains `words_access` (`"local"` or `"none"`), and the connector
+does not list or open the check.
 
 With `parts`, the hypothesis is not split by the model: one part = checked as written (1–6 parts). With `terms`, the
 model writes no extra search words: each part is searched with its own words plus that list (`[]`: its own words
@@ -554,8 +633,8 @@ slightly fewer excerpts from the cited sources into the top 8 (147 against 154),
 
 #### Look before checking
 
-`POST /api/projects/<p>/prepare` `{"text": "…", "decompose": true, "expand": true, "framework", "code"}` → job
-(kind `prepare`, uses the model, progress like a check). `result`:
+`POST /api/projects/<p>/prepare` `{"text": "…", "decompose": true, "expand": true, "framework", "code", "from_doc"}`
+→ job (kind `prepare`, uses the model, progress like a check). `result`:
 ```json
 {"parts": [{"text": "Hybrid work improves wellbeing.", "role": "outcome"}, {"text": "…", "role": "outcome"}],
  "terms": [["well-being", "life satisfaction"], ["isolation", "younger workers"]],
@@ -563,7 +642,8 @@ slightly fewer excerpts from the cited sources into the top 8 (147 against 154),
 ```
 `terms` are the AI's extra search words for each part (the part's own words are always searched, so they are left
 out). Nothing is kept in the project. Show the parts as editable lines and the words as removable chips, then send
-the check with `parts`, `terms` and `edited`.
+the check with `parts`, `terms` and `edited`. 0.19.0 (N3): `from_doc` as for a check: words from a document no model
+you have may read come back unsplit and with no extra words.
 
 Check job `progress` (poll it to draw the live panel):
 ```json
@@ -603,6 +683,17 @@ Batch job `progress` is the check progress of the current hypothesis plus
 `"batch": {"index": 3, "total": 12, "text": "…"}`. `result`:
 `{"batch_id": "b…", "checked": ["h…", …], "errors": [{"index", "text", "error"}], "stopped": null | "message", "total": 12}`.
 `GET …/hypotheses?batch=<batch_id>` lists that batch, in the order the hypotheses were given.
+
+Near-duplicates (0.18, roadmap N1; `nearduplicates.py`, by key words, no AI):
+`POST /api/projects/<p>/hypotheses/similar` `{"lines": ["…", "…"]}` (at most 500) →
+```json
+{"pairs": [{"a": 0, "b": 1, "score": 0.75, "differ": []},
+           {"a": 1, "b": 2, "score": 1.0, "differ": ["indicate", "predicted"]}],
+ "before": [[{"hyp_id": "h…", "text": "…", "created_at": "2026-11-03T10:12:00+00:00", "score": 0.8, "differ": []}], []]}
+```
+`pairs`: lines of the list (0-based) that say nearly the same; `differ` names the words that make them claim different
+things (strength, direction, a negation), and then the page offers no merge. `before`: per line, the hypotheses checked
+before in the project that say nearly the same and claim the same (the closest first, at most 3).
 
 ### Results
 
@@ -732,6 +823,19 @@ since), `{"hyp_ids": […]}` or `{"batch": "b…"}` → one job that does this f
 none has new documents). `result`: `{"hypotheses": [{"hyp_id", "documents", "matching", "passages", "rounds"}],
 "passages"}`.
 
+`GET /api/projects/<p>/hypotheses/<hyp_id>/unread` (roadmap N5, 0.18.7) → the documents this check never showed an
+excerpt of, asked again of the keyword search with each part's claim and search words (no model reads anything):
+`{"hyp_id", "checked": false before the check read anything, "considered": documents it could have read,
+"matching": [{"doc_id", "title"}] (an excerpt holds at least two different words of a part and its search words),
+"matching_n", "one_word_n" (single words in common only), "no_word": [{"doc_id", "title"}], "no_word_n"}`; each list
+sorted by title and cut at 200 (the counts are whole). Theory documents, documents added after the check (its
+documents added since), documents with no readable text and those a limited check was limited away from are left
+out. A neutral count: it changes no result. `POST /api/projects/<p>/hypotheses/<hyp_id>/read-unread` → job (kind
+`read-unread`): reads the `matching` group for every part (each part the documents that hold its own words, within
+its limit) as a further round limited to them, as `read-new` does; the check is not run again, so reviews are kept.
+400 when there are none. `result`: `{"hyp_id", "documents", "passages", "rounds": [{"claim_id", "round", "passages",
+"ok"}]}`.
+
 `POST /api/projects/<p>/second-opinion` `{"hyp_ids": […]}` or `{"batch": "b…"}` → job (kind `second-opinion`): the
 second model of Settings (`second_model`) grades every excerpt these checks already read, with the same prompt. Its
 judgements are kept apart (`second` on each excerpt) and never change an answer. Only one model is in memory at a
@@ -760,6 +864,8 @@ document has counted excerpts for and against. `single_document`: the answer res
 `decides` an answer when leaving out its excerpts would change that answer; `key` = it decides at least two answers
 and at least a fifth of them. `documents` lists only documents with counted excerpts (most answers first);
 `documents_without_evidence` counts the others. Draw a grid with symbols as well as colours (+, (+), −, ±).
+`GET /api/projects/<p>/map/documents?threshold=` → how many answers each document is behind (the map's counts,
+without its leave-one-out), for *Documents* grouped by *Answers behind them*.
 
 #### Calibration
 
@@ -797,7 +903,11 @@ readable ("Margin results - <project> - <date>.xlsx"). From 0.6 the *Excerpts* s
 (AI's note)" and "AI's earlier judgement (before reading it again)", and, when a second model read any of the
 excerpts, "Second model", "Second model's judgement", "Second model's certainty", "The two models agree". The
 *Summary* sheet has "Excerpts where the second opinion differs" (0.11.2; before: "…a second model disagrees"),
-"Answer before a stronger model read it again" (0.11.2) and "Documents added since the check".
+"Answer before a stronger model read it again" (0.11.2), "Documents added since the check", (0.18.7, roadmap N5)
+"Documents with the search words never read" and (0.19.0, roadmap K3) "Answer counting non-scientific documents"
+(the answer counting the documents marked Non-scientific, `status_all_sources`; filled only where it differs from
+"Answer") and "Non-scientific documents counted here" ("yes: " and the reason, for a check set to count them; else
+empty).
 
 ### Exploring the documents (0.7)
 
@@ -861,6 +971,12 @@ every answer they store records the model, its digest, the prompt version, the s
 
 - `GET /api/projects/<p>/terms?q=&sort=&offset=&limit=` → the glossary (`status`, `terms`, `concepts`).
   `POST /api/projects/<p>/terms/build` → job: rebuild it (seconds; also run after documents are added).
+  The answer's `stale` is `documents_changed` or `words_changed` (0.17: what it leaves out changed).
+- `GET /api/projects/<p>/terms/words` → what the glossary and key terms leave out (0.17): `languages`
+  (`code`, `name`, `passages`, `on`) found by the last build, `off` (codes switched off), `own` (the
+  project's own words and phrases), `status`, `max_own`. `PUT` with `off` (a list of codes; not `en`) and/or
+  `own` (a list, or one per line) saves them (400 on an unknown code or a word over 80 characters); the
+  glossary is then out of date: `POST .../terms/build` makes it again.
 - `GET /api/projects/<p>/concepts?name=…` → the concept a wording belongs to. `GET /api/projects/<p>/concepts/<term_id>?refs=1&offset=&limit=`
   → the card: `wordings` (with `joined_by` and `joins`), `documents` (with `first`, `first_end`,
   `first_location`), `lines`, `related`, `suggested_wordings`, and (0.9) `in_labels`: the codebook labels whose
@@ -891,14 +1007,15 @@ every answer they store records the model, its digest, the prompt version, the s
 - `GET /api/projects/<p>/themes` → `{runs, auto_mode, auto_why, k}`; each run has `themes_now` (after merges and
   removals).
 - `POST /api/projects/<p>/themes {k?, seed?, mode?: auto|meaning|words}` → job: a new set of themes (spherical
-  k-means; the same documents and settings give the same themes). A small project gets fewer themes than `k`
+  k-means, in numpy when it is installed and otherwise in plain Python, with the same result; the same documents and
+  settings give the same themes). A small project gets fewer themes than `k`
   (about three passages a theme); fewer than 5 passages is an error.
 - `GET /api/projects/<p>/themes/<run>?framework=` → the themes (names, key terms, size, documents,
   representative passages), `removed` (the themes a person removed, without a `number`), `doc_grid` and
   `code_grid` (without the removed themes' passages). Each theme has `removed`, `removed_at`, `replaces` (`{theme_id,
   name}` of the removed theme a new theme was found in place of, or null), `replaced_by` and `drawn_from` (`[{theme_id,
   name, passages}]`: the themes a new theme took its passages from); `edits` also counts `removed` and `added`.
-  `GET …/themes/<run>/<theme_id>?offset=&limit=` → one theme (a removed one too) and its passages. `DELETE
+  `GET …/themes/<run>/<theme_id>?offset=&limit=` → one theme (a removed one too) and its passages (built from that theme alone: `themes.view(only=)`). `DELETE
   …/themes/<run>[?why=<reason>]` (0.16: `why` as for a document).
 - `PUT /api/projects/<p>/themes/<run>/edit {what: rename|merge|move|remove, theme_id?, value?, passage_id?, why?}`
   (0.16: `why`, an optional reason, goes into the research log; each edit also keeps the state before it as a version):
@@ -909,8 +1026,9 @@ every answer they store records the model, its digest, the prompt version, the s
 - `POST /api/projects/<p>/themes/<run>/new {replaces: <theme_id>}` → job (`theme-new`, scope: the run): a new theme
   in place of a removed one, on this computer and without AI (one more k-means step with the other centres fixed;
   it takes only passages closer to it than to their own theme and to every removed theme). Its result is
-  `{theme_id, replaces}`. A theme that is not removed, or already has a new theme in its place, is a 400; while
-  another new theme is being found for the same set, a 409.
+  `{theme_id, replaces}`. A theme that is not removed, or already has a new theme in its place, is a 400. 0.17.0: while
+  another new theme is being found for the same set, it waits its turn (`waiting_for`) instead of a 409; the same
+  removed theme asked for again returns the job already there.
 - `POST /api/projects/<p>/themes/<run>/name` → job: the AI names the themes (task `theme`, quotes checked).
 - `GET /api/projects/<p>/themes/<run>/export.xlsx`.
 
@@ -1036,6 +1154,11 @@ that no session has taken yet out of the queue; a check by queue is removed whol
   "run_done"}], "groups": [{"kind", "model", "helper", "waiting"}], "order": [...], "held": [...], "waiting",
   "being_answered", "paused", "paused_text"?, "last_answer_at", "privacy", "command", "claim_minutes", "route",
   "setup": {...as GET /api/claude-setup}}`. Reading it also takes the next steps of checks by queue.
+- `GET /api/projects/<p>/queue/preview?kind=&start=` → `{"kind", "title", "model", "helper", "system", "tasks":
+  [{"task_id", "prompt", "documents": [{"doc_id", "title", "pages"}]}], "raw", "waiting", "being_answered", "start",
+  "more"}`, or `{"kind", "note"}` when nothing waits: the next batch of `kind` (the first kind that waits when none)
+  word for word as `next_tasks` would hand it to Claude Code, `raw` the connector's whole reply. Read only: nothing is
+  claimed or written to the ledger. `start` skips that many tasks (the batch after). 400 for an unknown kind.
 - `POST /api/projects/<p>/queue/order` `{"kind", "action": "first" | "hold" | "go" | "reset"}` → `{"order", "held"}`.
 - `POST /api/projects/<p>/queue/withdraw` `{"kind"}` → `{"withdrawn", "checks_removed"}`.
 - `POST /api/projects/<p>/queue/run` `{"kinds"?: [...]}` → job (kind `queue-run`): the AI model of Settings answers
@@ -1122,10 +1245,15 @@ that no session has taken yet out of the queue; a check by queue is removed whol
   zip of `GET /api/projects/<p>/export.zip`, under `projects/NNN.zip`) and `enlens-move.json`: `{"format":
   "enlens-move", "version", "made", "projects": [{"name", "file", "documents", "linked", "missing"}], "current",
   "settings"}`. Quick looks not kept are left out, and so is a saved Claude API key.
-- `POST /api/projects/import` also takes that zip → `{"moved": {"projects": [{"from", "name", "documents"}],
-  "settings": bool, "current", "made", "version"}, "project": summary of the current one}`. A project whose name is
-  taken comes in as `name (2)`. The settings come along only when this computer has no project yet; with
-  `--local-only`, never the choice of a cloud AI.
+- `POST /api/projects/import` with that zip asks first, in two steps. Step one imports nothing: it answers `{"move":
+  peek, "token"}`, where `peek` is `{"made", "version", "projects": [{"name", "documents"}], "settings": {key: value
+  shown}, "servers": [{"key", "url", "here": bool}] (addresses of servers; `here`: on this computer), "fresh": bool
+  (this computer has no project)}`; the upload waits under `token`. Step two, `POST /api/move {"token", "settings":
+  bool, "servers": [keys]}` → `{"moved": {"projects": [{"from", "name", "documents"}], "settings": bool, "current",
+  "made", "version"}, "project": summary of the current one}`. `settings` takes the other computer's settings, only when
+  this computer has no project yet; an address that is not on this computer is taken only when its key is in `servers`,
+  else that back end goes back to its default; the installation id never comes. A project whose name is taken comes in
+  as `name (2)`. With `--local-only`, never the choice of a cloud AI. An unknown or used `token` → 410.
 - `GET /api/state` adds `"installation": {"kind": "git" | "script" | "package" | "pip", "system": "mac" | "windows"
   | "linux", "line", "releases"}`, and `ocr` adds `"install"` when Tesseract is missing: `{"text", "command", "link",
   "link_text"}` for this system.
@@ -1454,8 +1582,7 @@ wait), `refused` (502), `failed` (502), `no_email` (409, for Unpaywall); `bad_re
 ### Your record: research log, notes, earlier versions, codebooks (0.16)
 
 Everything here runs on this computer, without AI. Errors are the usual `{"error"}`: 400 for a value that cannot be
-used, 404 for something that is not there, 403 (`PermissionError`) for a colleague's note or log entry, which only
-they can change. The downloads (`…/log.md|xlsx`, `…/notes.md|xlsx`, `…/codebooks/<name>.csv`) also accept `?token=`.
+used, 404 for something that is not there, 403 (`PermissionError`) for a note or entry that is not yours to change. The downloads (`…/log.md|xlsx`, `…/notes.md|xlsx`, `…/codebooks/<name>.csv`) also accept `?token=`.
 
 #### The research log
 
@@ -1463,8 +1590,8 @@ An entry: `{"entry_id", "at", "person_id", "who", "mine", "kind", "group", "text
 "subject_id", "why", "edited_at", "version_id", "has_version", "can_edit", "can_why", "data", "app_version"}`.
 `kind` `entry` is a person's own; every other kind is written by the app (documents added or removed, `ai-access`,
 `reread`, checks added or removed, `evidence-added`, themes found, removed, renamed, merged or restored, codebooks
-made, changed, moved, copied or removed, `restored`, `sync`). `group` is one of `entries`, `documents`, `checks`,
-`themes`, `codebooks`, `history`, `together`. `has_version` says an earlier version from before the change exists
+made, changed, moved, copied or removed, `restored`). `group` is one of `entries`, `documents`, `checks`,
+`themes`, `codebooks`, `history`. `has_version` says an earlier version from before the change exists
 (`version_id`, see *Earlier versions*).
 
 - `GET /api/projects/<p>/log?group=&q=&subject_kind=&subject_id=&offset=&limit=` → `{"entries": [entry], "total",
@@ -1475,7 +1602,7 @@ made, changed, moved, copied or removed, `restored`, `sync`). `group` is one of 
 - `PUT /api/projects/<p>/log/<entry_id> {"text"?, "why"?}` → `{"entry"}`. `why` (at most 2,000 characters; `""`
   takes it away) can be set on any entry of yours; `text` only on an entry of your own (`kind` `entry`).
 - `DELETE /api/projects/<p>/log/<entry_id>` → `{"deleted"}`: only your own entries (400 for the app's); it does not come
-  back when a colleague's copy is brought in.
+  back.
 - `GET /api/projects/<p>/log.md` and `…/log.xlsx`: the whole log, oldest first. Markdown has a heading per day; the
   sheet *Research log* has *When (UTC)*, *Who*, *What*, *Entry*, *About*, *Why* and *Margin version*, with the usual
   *How these results were made* sheet.
@@ -1496,7 +1623,7 @@ found again and `start`, `end` and `page` follow them; `lost` is true when they 
 - `POST /api/projects/<p>/notes {"doc_id", "start", "end", "quote"?, "text"?, "colour"?}` → `{"note"}`. Without
   `colour`, yellow. A selection of more than 4,000 characters, or words that are not in the text, is a 400.
 - `PUT /api/projects/<p>/notes/<note_id> {"text"?, "colour"?}` → `{"note"}`; `DELETE …/notes/<note_id>` →
-  `{"deleted"}`. Only your own notes (403 for a colleague's).
+  `{"deleted"}`. Only your own notes.
 - `POST /api/projects/<p>/notes/<note_id>/evidence {"claim_id", "verdict", "comment"?}` → `{"hyp_id", "claim_id",
   "passage_id", "new"}`: the passage holding the note's words becomes an excerpt of that part of a check, judged by
   you (`verdict`: `supports`, `partially_supports`, `refutes` or `not_relevant`), with the note's words as the sentence
@@ -1510,9 +1637,8 @@ found again and `start`, `end` and `page` follow them; `lost` is true when they 
 `kind` is `themes` (key: the run id), `check` (key: the hypothesis id) or `codebook` (key: its name). A version is
 kept before each change a person makes: theme names, merges, moves and removals; your own judgements, comments,
 sentences and the check's note; a codebook. Not the themes found, nor the AI's answers. The latest 200 of each are
-kept. Versions of themes and checks are in the project's database (the `versions` table); bringing in a colleague's
-work does not take over theirs, nor give them yours. (A project zip is a copy of the whole database, so it carries them
-too: a move to another computer keeps them.) A codebook's are beside its file.
+kept. Versions of themes and checks are in the project's database (the `versions` table). (A project zip is a copy of
+the whole database, so it carries them: a move to another computer keeps them.) A codebook's are beside its file.
 
 - `GET /api/projects/<p>/history/<kind>/<key>` → `{"kind", "key", "title", "versions": [{"version_id", "at", "label",
   "person_id", "who", "mine"}]}`, newest first.
@@ -1534,13 +1660,22 @@ codes, where each example was found, the groups and their order. The old routes 
   "group_name"}], "codes": [{"code", "uid", "description", "group", "include", "exclude", "keywords", "examples":
   [{"quote", "doc_id", "title", "page"}]}], "where", "editable", "shadows_home", "in_home", "used": {"labels",
   "by_code", "checks"}, "removed": [{"code", "uid", "labels", …}], "stale": {code: {"since", "passages"}},
-  "versions", "profile_default"}}`. `include` is *When to use it*, `exclude` *When not to use it*, `keywords` *Words it
-  is matched by*. A code's `uid` is empty for a code not saved yet.
+  "versions", "profile_default"}}`. `include` is *When to use it*, `exclude` *When not to use it*, `keywords`
+  *Words it is matched by*. A code's `uid` is empty for a code not saved yet.
 - `POST /api/projects/<p>/codebooks {"name", "title"?, "where"?: "project" | "home", "start"?: "fresh" | "themes" |
-  "copy" | "csv", "source"?, "label"?}` → `{"codebook"}`. `source`: `{"codes": [...]}` (drafts from
-  `GET …/codebooks/sources`, the ones kept), `{"of": "<codebook name>"}` or `{"csv": "<text>"}`. The columns of a CSV
+  "theory" | "copy" | "csv" | "qdc", "source"?, "label"?}` → `{"codebook"}`. `source`: `{"codes": [...]}` (drafts from
+  `GET …/codebooks/sources`, the ones kept), `{"of": "<codebook name>"}`, `{"csv": "<text>"}`, or for `"qdc"` (a
+  codebook from NVivo, ATLAS.ti or MAXQDA, `qdc_import.py`) `{"file": "<base64 of a .qdc or .qdpx>", "filename"}` or
+  `{"qdc": "<the XML as text>"}`, each with `"codebook"?: "<title>"`: in a project file Margin wrote with several
+  codebooks, the one to bring in. Without it such a file answers 400 with `"codebooks": [titles]` beside `"error"`, to
+  choose from. A path on disk is never read from here. For `"qdc"` the answer's `codebook` also holds `"imported"`: what
+  was brought in (`codes`, `groups`, `folded`, `parents_as_codes`, `headings`, `not_codable`, `no_description`, `cut`,
+  `long`, `group_descriptions`, `sets`, `sets_as_groups`, `colours`, `renamed`: [{"from", "to"}],
+  `hypotheses_left_out`, `origin`) and `"notes"`, the same in sentences. The columns of a CSV
   are `code`, `description`, `group`, `group_name`, `when_to_use`, `when_not_to_use`, `keywords` (separated by `;`) and
-  `examples` (one per line); `code` and `description` are required. A name that is taken gets a number.
+  `examples` (one per line); `code` and `description` are required. A cell that starts with an apostrophe before text a
+  spreadsheet would run as a formula (`'=1+1`, `'@x`, `'-x`) loses that one apostrophe: it is what the CSV download
+  adds (below). Any other cell is read as written. A name that is taken gets a number.
 - `GET /api/projects/<p>/codebooks/sources?all=1` → `{"runs": [{"run_id", "project", "here", "created_at", "themes":
   [{"name", "size", "code": {"code", "description", "described", "keywords", "examples"}}]}]}`: the sets of themes a
   codebook can start from (removed themes left out); `all` adds those of every project.
@@ -1553,27 +1688,304 @@ codes, where each example was found, the groups and their order. The old routes 
   one. `POST …/codebooks/<name>/copy-here {}` → `{"codebook"}`: this project's own copy of one kept with all projects.
 - `POST …/codebooks/example {"quote", "doc_id"?}` → `{"example": {"doc_id", "title", "page", "start", "end", …}}`: where
   words are in the documents (400 when they are not).
+- `POST …/codebooks/<name>/define/offer {"examples": [quotes]}` → `{"offered", "why", "reader", "passages",
+  "left_line"}`: whether the AI may draft a code's definition from its examples, and who would read their passages
+  (by each document's AI setting). `POST …/codebooks/<name>/define {"code", "group"?, "examples": [quotes]}` → `{"job"}`
+  (kind `code-define`, waits its turn like every AI job): the AI drafts the definition, *when to use it* and *when not*
+  from the passages that hold the examples; its result is the draft, shown beside the fields and never saved by
+  itself. 400 without a code name or when no one may read the examples, 404 for an unknown codebook.
 - `POST …/codebooks/<name>/try {"codebook"?}` → job (`codebook-try`, no model): for each code of the saved codebook,
   or of the state sent, `{"passages", "documents", "codes": {code: {"passages", "documents", "examples", "share",
   "note"}}}`; `note` says a code matches nothing, or more than a quarter of the passages.
 - `POST …/codebooks/<name>/relabel {"code"}` → `{"passages", "job"}`: the AI labels again the passages it labelled with
   that code before its wording changed (a label job with `passage_ids`); 409 when there are none.
-- `GET /api/projects/<p>/codebooks/<name>.csv` → the codebook as a CSV file (the columns above).
+- `GET /api/projects/<p>/codebooks/<name>.csv` → the codebook as a CSV file (the columns above). As in every CSV
+  Margin writes, a cell that starts with `=`, `@`, a tab or a carriage return, or with `+` or `-` unless it is a number
+  (or `- ` and a space), gets a leading apostrophe, so a spreadsheet shows it and does not run it; reading a codebook
+  takes that apostrophe off (`review.csv_cell` and `review.csv_uncell`, exact inverses). Codebook files written before
+  0.17.2 have none; the download adds them.
+
+### Theory documents, a codebook from theory, concepts and reader 5 (0.18.1)
+
+**A document's role** (roadmap K2 part 1, `docrole.py`). A document marked as theory is the lens the research is read
+through: still read, searched and noted, but left out of themes, codebook labels, the excerpts a check reads and key
+terms.
+
+- `GET /api/projects/<p>/codebooks/<name>.qdc` → 0.18.7 (G5): the codebook as a REFI-QDA codebook (`urn:QDA-XML:codebook:1.0`) for NVivo, ATLAS.ti and MAXQDA: its groups as parent codes, each code's definition, when to use it and when not, keywords and examples as its description (`qdpx.codebook_xml`). 404 for an unknown codebook.
+- `GET /api/projects/{p}/document-roles` → `{"roles": {doc id: "theory"}, "nonscientific": [doc ids]}` (only the
+  documents with a role; 0.18.6: and those marked Non-scientific).
+- `GET /api/projects/{p}/documents/{d}/role` → `{"doc_id", "role": "theory" | "working" | null, "impact":
+  {"themes": [{"run_id", "created_at", "passages"}], "labels": [{"framework", "name", "passages"}], "checks":
+  [{"hyp_id", "text", "excerpts"}]}}`: what was made with the document in.
+- `PUT /api/projects/{p}/documents/{d}/role` `{"role": "theory" | "working" | null, "why"?}` → `{"doc_id", "role", "changed",
+  "impact"}`. 400 for any other role, 404 for no such document.
+- 0.18.6: `GET …/documents/{d}/role` also gives `"nonscientific": bool` and, when it is, `"answers": [{"hyp_id",
+  "text", "status", "status_text", "all", "all_text"}]` (each check that read it, its answer now and counting the
+  non-scientific documents). `PUT /api/projects/{p}/documents/{d}/nonscientific` `{"nonscientific": true | false,
+  "why"?}` → `{"doc_id", "nonscientific", "changed", "checks", "answers": [{"hyp_id", "text", "was", "was_text",
+  "now", "now_text"}]}` (the answers the mark changed). 400 for a value that is not a boolean, 404 for no such
+  document. A check's result gains `status_all_sources`, and each excerpt `nonscientific`; a part or a check that only
+  non-scientific documents speak to has the status text *No scientific evidence found*.
+- 0.19.1: `PUT /api/projects/{p}/documents/{d}/title` `{"title": text}` → `{"doc_id", "title", "named", "changed"}`:
+  a title of the person's own (spaces tidied, at most 300 characters; `bibliography.set_title`), kept when the
+  bibliography or a new reading would give another; `""` or `null` gives back the work's title, else the file's. One
+  research-log entry (`document-title`) per change. 400 for a title that is not text, 404 for no such document.
+  `GET …/documents` and `GET …/documents/{d}` give `"named": bool`.
+- 0.19.0 (K3, `nonscientific.py`): `PUT /api/projects/{p}/hypotheses/{h}/nonscientific` `{"count": true | false,
+  "why"?: text}` → `{"hyp_id", "count_nonscientific", "changed", "why_changed", "was", "was_text", "now",
+  "now_text"}`: count the non-scientific documents in this check alone (stored in the hypothesis's options); a `why` while it is on replaces the reason, and an empty `why` takes it away (the usual
+  reason is given again); each change is one research-log entry. 400 for a `count` that is not a boolean or
+  a `why` that is not text, 404 for no such check. A result gains `count_nonscientific`, `count_nonscientific_why`,
+  `nonscientific_read` (excerpts of such documents read), `status_without_nonscientific` (the answer without them,
+  where they count), each part `count_nonscientific`, each excerpt `nonscientific_counted`. The document's `answers` (its role
+  route) gain `count_nonscientific`.
+  `GET /api/projects/{p}/nonscientific-suggestions` → `{"suggested": {doc id: "a newspaper article"}}` (from the
+  bibliography's item type; never marked by itself); `GET …/documents/{d}/nonscientific-suggestion` →
+  `{"doc_id", "suggestion": {"item_type", "words", "text"} | null, "answered_no": bool}`; `POST …/documents/{d}/nonscientific-suggestion` `{"answer": "no", "why"?}` → `{"doc_id", "declined":
+  true}` (kept in the research log), or
+  `{"answer": "again"}` → `{"doc_id", "suggestion"}` (*Suggest again*: takes your No back); 409 when there is nothing to answer or take back. The evidence map's cells gain `nonscientific` and
+  `counted` (false: read, not counted), its documents `nonscientific`, its hypotheses `count_nonscientific`, and it has
+  `nonscientific_shown` and `nonscientific_shown_in_project` (columns of documents behind no answer, which
+  `documents_without_evidence` still counts). The connector's check summary marks evidence `counted_by_exception` and
+  gives `status_without_non_scientific` where a hypothesis counts them.
+- 0.19.0 (N3): `GET …/documents/{d}/role` also gives `"started": [{"hyp_id", "text", "status", "status_text"}]`, the
+  checks started from the document's text (`from_doc`), newest first, as the checks list has them (a check by queue
+  that waits for its parts is `"waiting"`; one interrupted before it had parts is left out).
+
+**A codebook from a theory document** (roadmap K2 part 2, `theorycodes.py`, no AI).
+
+- `GET /api/projects/{p}/codebook-theory` → `{"documents": [{"doc_id", "title", "theory"}]}`, theory documents first.
+- `GET /api/projects/{p}/codebook-theory/{d}` → `{"doc_id", "title", "role", "concepts": [{"term", "how": "glossary" |
+  "defined" | "heading" (with the framework draft no longer "frequent": a term needs a sentence that defines it, and a
+  heading's single word one that says outright what it is), "ticked" (offered ticked: its glossary's entries, or the terms it defines when
+  it has no glossary), "count" (the sentences that use it), "definition": {"quote", "start", "end", "page"} | null,
+  "code": {a draft code}, "suggested": [examples from the evidence documents: {"quote", "doc_id", "title", "page",
+  "start", "end", "project"}]}]}`.
+- `GET /api/projects/{p}/codebook-theory/{d}/ai` → `{"offered", "why", "reader", "level", "parts"}` (`parts`, when
+  offered: the parts the AI reads the document in). `POST` the same path starts a `theory-codes` job whose result is
+  `{"ok", "parts", "parts_read", "task_ids", "concepts": [the drafts: "how": "ai", "parts": [the parts that drafted
+  it], …], "problems", "reused", "model", "stopped", "withdrawn"?}`: one `theory_codes` task for each part of the
+  document (prompt `theory-codes-v2`); `ok` when a part at least was read.
+- Then `POST /api/projects/{p}/codebooks` with `"start": "theory"` and `"source": {"codes": [the drafts kept, with the
+  examples ticked], "doc_ids": [the documents they come from]}` (`"doc_id"` for one still works); an example from a
+  theory document, or from any of `doc_ids`, is dropped. 0.19: with codes from more than one document, each
+  document's codes become a group named after it (a draft code's `source_doc` says which; it is not stored). With
+  `"groups": [{"group", "group_name"}]` in `source` (the framework draft below) those groups are used, each code
+  keeps its own `group`, a code's `source_docs` (a list) names its documents, and the research log adds "in G groups".
+
+**A codebook from theory documents: the framework draft** (roadmap K2, `theoryframe.py`). One draft per project, kept
+in the project folder (`drafts/codebook-from-theory.json`). A draft is
+
+```
+{"version": 1, "id", "title", "name", "where": "project" | "home", "doc_ids": [...], "focus": "", "created_at",
+ "updated_at",
+ "reading": {"state": "none" | "running" | "read" | "failed", "job": id | null, "model": str | null, "at": iso | null,
+             "parts", "parts_read", "drafted", "problems": [one line each], "frame_task": id | null,
+             "input": hash of (doc_ids, focus) the reading answered | null,
+             "before"? (the state before a reading started), "stale" (GET and PUT only: the focus changed since)},
+ "groups": [{"key": "g1", "name", "about"}],
+ "concepts": [{"key": "c" + 10 hex, "group": a group's key | "", "name", "meaning", "when_to_use", "when_not",
+               "words": [...], "core": bool, "how": "ai" | "glossary" | "defined" | "heading" | "own", "keep": bool,
+               "touched": bool (the person changed it, or added it: a reading leaves it as it is),
+               "checked": bool (the person has looked it over; a reading leaves it as it is too),
+               "sources": [{"doc_id", "title", "quote", "start", "end", "page"}],
+               "examples": [{"quote", "doc_id", "title", "page", "start", "end", "project"}],
+               "ai": {"model", "meaning", "when_to_use", "when_not"} | null (the AI's words, to tell what was rewritten)}],
+ "left_out": [{"name", "doc_id", "title", "quote", "start", "end", "page"}],   (drafted, not in the framework: a name
+                                                    once, none the framework has, none whose quote is a scrap)
+ "rev": n}   (raised at every write)
+```
+
+- `GET /api/projects/{p}/codebook-theory/draft` → `{"draft": draft | null, "offer": offer | null, "documents":
+  [{"doc_id", "title", "theory"}]}`. `offer` = `{"offered" (the AI may read one document at least), "why" (one line
+  when not), "reader": "claude" | "local" | "main" | null, "parts" (in all), "documents": [{"doc_id", "title", "level",
+  "parts", "offered", "why"}]}` (a document marked No AI: `offered` false, and its `why` says only the terms it
+  defines itself are used). A reading whose job is gone (the app restarted, or it was stopped) is shown as `"read"`
+  when the draft had been read before, else `"failed"` (with a line in `problems`) or `"none"` (stopped), never as
+  `"running"` for ever.
+- `POST …/codebook-theory/draft` `{"title", "name", "where": "project" | "home", "doc_ids": [...], "focus"?}` →
+  `{"draft", "offer"}`: a new draft (it replaces the one there) from what the documents define outright (glossary
+  entries, defined terms, heading phrases), joined across documents by name, ungrouped; glossary entries start kept.
+  400 when the name is taken or not a codebook name, no document is given, or `where` is neither; 404 for a document
+  not in the project.
+- `PUT …/codebook-theory/draft` `{"title"?, "name"?, "where"?, "focus"?, "groups"?, "concepts"?, "rev"?}` (each
+  whole: the list sent replaces the list) → `{"draft"}`. `name` must be free for a codebook (400 when not). With `rev` (the draft's `rev` as the page loaded it), a draft that changed since
+  (a reading ended, another tab saved) answers 409 and nothing is written: load it again. Concepts are matched to the stored ones by `key` (a missing or unknown key makes a new
+  concept, `how: "own"`); `ai` is the app's and cannot be sent; a source must be a span of one of the draft's
+  documents (`quote` equal to the text from `start` to `end`, as `lookup` gives them), else it is dropped; an example
+  must be a span of an evidence document too (`quote` equal to its text from `start` to `end`, as `evidence` gives
+  them; its title and page are the document's), so one from a theory or working document, or from one of `doc_ids`,
+  or with words the document does not hold, is dropped; a `group` not among the groups becomes
+  "". At most 60 concepts, 12 groups and 8 examples a concept; 400 for a concept without a name or too many concepts;
+  404 without a draft.
+- `DELETE …/codebook-theory/draft` → `{"ok": true}`: the draft is discarded (a reading that runs is stopped).
+- `POST …/codebook-theory/draft/read` → `{"job"}`: a `theory-frame` job (`job.scope` = `"theory-draft"`; a reading
+  that runs already is the one answered). Every part of every document the AI may read is drafted (`theory_codes`,
+  one task a part, all queued at once for Claude Code), then one `theory_frame` task (prompt `theory-frame-v1`, Opus)
+  joins the drafts into groups and concepts; core concepts start kept; what the person touched stays as it is. When
+  the frame is refused three times, the concepts are the drafts, ungrouped, and `reading.problems` says so. The job's
+  result: `{"ok" (a framework was put together), "stopped", "withdrawn", "state", "model", "parts", "parts_read",
+  "drafted", "groups", "concepts", "problems", "reused", "frame_task", "discarded"}`. Stop takes the waiting
+  `theory_codes` and `theory_frame` tasks out of the queue. 400 (`offer.why`) when no AI may read any of the
+  documents; 404 without a draft.
+- `POST …/codebook-theory/draft/evidence` `{"concept": {"name", "meaning"?, "when_to_use"?, "words"?}, "skip"?:
+  [passage ids], "k"?: 1 to 8 (4)}` → `{"passages": [{"quote", "doc_id", "title", "page", "start", "end", "project",
+  "passage_id", "matched", "marks", "found_by"}]}`: passages of the evidence documents only (never a theory or working
+  document, nor the draft's own), found by the concept's `words` (without any, its name): a word counts as the field
+  writes it (a phrase as a phrase: "repair knowledge" never finds "repair" alone), and `matched` lists the words
+  found in the quote, `marks` where they stand in it (`[start, end]` pairs in characters). Of each passage the sentence (or two that follow each other) that holds the most of them
+  (`start`/`end` in the document's text); the passages with the most words first, one per document before a second
+  of any. A sentence that could be no example is passed over: a question (an interview guide), a run of references,
+  a table's cells, a line of figures. Where the words find fewer than `k` and the project has vectors of the chosen
+  embedding model, passages found by meaning (`found_by: "meaning"`, `matched` empty) fill the rest. No AI.
+- `GET …/codebook-theory/draft/counts` → `{"documents": n, "counts": {concept key: n}}`: in how many of the evidence
+  documents each concept's words are found in a sentence that could be an example (as `evidence` finds them; no AI),
+  for the draft as it is kept. 404 without a draft.
+- `GET …/codebook-theory/draft/lookup?term=…` → `{"term", "sources": [{"doc_id", "title", "uses" (sentences that use
+  it), "options": [{"quote", "start", "end", "page", "score"}]}], "passages": [the evidence for the term, as above]}`:
+  of each of the draft's documents, the three sentences that best say what the term means (its glossary entry first;
+  `options` empty when the document does not use it). 400 without a term; 404 without a draft.
+- `POST …/codebook-theory/draft/make` → `{"codebook"}` (as `GET …/codebooks/{name}`): the kept concepts become codes
+  (`code`: the name with a capital first letter, at most 40 characters; `description`: the meaning, then `In the
+  theory: “quote” (title, p. N).` and `Also defined in title (p. N) and title (p. N).` for the other sources; with
+  no meaning the quoted line alone; `include`: when to use it; `exclude`: when not; `keywords`: the words; the kept
+  examples; the framework's groups) through `POST …/codebooks`' `"start": "theory"`, with the *AI draft* mark
+  (`ai_draft`, `"from": "theory"`) on the fields that still hold the AI's words. The draft is then gone. 409 while
+  its reading runs. 400 when no
+  concept is kept or two kept concepts share a name; 404 without a draft.
+
+**Concepts: paths, time and groups** (roadmap D3, D4, `conceptpaths.py`).
+
+- `GET /api/projects/{p}/concept-paths?from={term id}&to={term id}[&k=3]` → `{"from", "to", "paths": [{"cost", "steps":
+  [{"from": {"node", "label"}, "to", "kind": "link" | "together", "relation", "pmi", "bridges": [{"passage_id",
+  "doc_id", "title", "page", "location", "text", "start"}], "sentences"?}]}]}`. 400 without both terms, 404 for a term
+  the glossary does not know.
+- `GET /api/projects/{p}/concept-time/{term id}` → `{"node", "label", "with_year", "years": [{"year",
+  "documents_in_group", "documents", "passages", "mentions", "wordings": [{"label", "mentions"}], "neighbours":
+  [{"node", "label", "together", "pmi"}]}], "no_year": {the same} | null}`; years from the bibliography.
+- `POST /api/projects/{p}/concept-groups/{term id}` `{"groups": {name: [doc ids]}}` (two to six sets, not stored) →
+  `{"node", "label", "groups": [{"name", "documents_in_group", "theory_left_out", …the same profile}]}`.
+
+**The concept map** (roadmap D1, `conceptmap.py`). Every route takes the same filters, each optional:
+`doc={id}[,{id}…]`, `theme={run id}:{theme id}`, `framework={codebook}&code={code}`, `year_from={yyyy}`,
+`year_to={yyyy}`.
+
+- `GET /api/projects/{p}/concept-map[?n=60&…filters]` → `{"built", "filters", "n", "passages" (in scope),
+  "concepts_in_scope", "nodes": [{"id" (a term id), "label", "passages", "group" (1… or null), "x", "y" (0 to 1, for a
+  map 1.6 times as wide as high)}], "edges": [{"a", "b", "together", "pmi"}], "links": [{"a", "b", "relation",
+  "source", "types": [{"relation" (seen from a), "source"}]}] (one per pair; "relation" and "source" are its first
+  type), "groups": [{"group", "size", "names"}], "links_off_map" (links with exactly one end on the map)}`. `n` is 10
+  to 150. 400 for a malformed filter or an unknown codebook, 404 for a set of themes that is gone.
+- `GET /api/projects/{p}/concept-map/options` → `{"documents": [{"doc_id", "title"}], "themes": {"run_id", "themes":
+  [{"theme_id", "name"}]}, "codebooks": [{"name", "title", "codes": [{"code", "description"}]}], "years": [yyyy]}`:
+  what the filters can choose from (evidence documents only).
+- `GET /api/projects/{p}/concept-map/edge?a={term id}&b={term id}[&…filters]` → `{"a", "b" ({"node", "label"}),
+  "together", "pmi", "links": [{"relation" (seen from a), "source", "sentences"}], "link" (the first of "links") |
+  null, "passages": [{"passage_id",
+  "doc_id", "title", "page", "location", "text", "start"}]}` (the first 5, by document). 400 without both, 404 for a
+  term the glossary does not know.
+
+Links found from the text (roadmap D2, `textrelations.py`) need no route of their own: they are rows of the concept
+page's `related.links` with `"source": "pattern"` and their `"sentences"` (`[{"doc_id", "title", "page", "start",
+"end", "quote"}]`); relations gain `effect`, `effect_of`, `replaces` and `replaced_by`.
+
+**Reader 5: figures and tables from their rules** (roadmap A6, `reader5.py`).
+
+- `GET /api/projects/{p}/documents/{d}/figures/{n}.png[?scale=0.5–3]` (also `&token=…`, for an `<img>`, as the page
+  pictures take it) → the picture of block `n`: the crop of the original PDF's page at the block's box (`x0..y1`,
+  points from the top left of the page, with a small margin), as a PNG; `scale` times 72 dots per inch, default 2. It
+  is drawn from the original each time it is asked for, as the *Page* panel's picture is: nothing of it is stored or
+  sent to an AI. It serves a block of kind `figure`, and also a `table` found from its rules. 404 with the reason when
+  there is no such block, the block is of another kind or has no box (a figure from a Word file or web page has only
+  its alternative text), the original is missing or not a PDF, or the OCR extra (pypdfium2) is not installed.
+- A document's blocks (`GET …/documents/{d}?view=blocks`) may hold `kind: "figure"`: `included: false` (never read
+  by searches, codes, themes or checks), its `page` and `box`, the words inside it as its `text`, and `label` *Figure*
+  (before 0.18.1: *Text in a figure*). A picture without words has `start == end` (and no passage). Its caption is the `caption` block just
+  after it (or, failing that, just before).
+- The reading report (`reading`, `documents.reading_json`) gains `figures` (how many were found) and
+  `tables_joined` (tables that ran over a page and were joined into one).
+
+### The assessment in words, retractions, agreement between routes, answers a page at a time (0.18.1)
+
+**The assessment in words (N4).** `GET …/hypotheses/<id>` carries `assessment`: `{"sentences": [{"text", "rule",
+"refs"}], "moved_by": {"text", "rule", "refs", "from", "to"} | null}`. Each sentence comes from one rule (`verdict`,
+`against`, `for`, `concentration`, `part`, `below-strictness`, `waiting-for-you`, `waiting-local`, `moved-by`);
+`refs` are `"<claim_id>/<passage_id>"` of the excerpts it rests on. Made by rules, never by an AI; excerpts of
+documents not readable by Claude are counted, never quoted. `PUT …/judgements/<claim_id>/<passage_id>` now also
+answers `{"status_before", "status", "moved"}` (`moved`: the sentence naming this judgement when it changed the
+answer, also written into the research log as kind `verdict-moved`, else null).
+
+#### Retractions and corrections
+
+Looks the DOIs of the bibliography's works and of the documents up in Crossref, which carries Retraction Watch's
+retractions and the publishers' corrections and expressions of concern. Only when asked. Off under local-only (400,
+nothing sent). Only DOIs are sent, with a plain `User-Agent: Margin/<version>`. A work whose document is marked
+No AI is not looked up. The Crossref address can be set with `MARGIN_CROSSREF_URL` (tests use a stand-in).
+
+| Route | Answer |
+| --- | --- |
+| `GET /api/projects/<name>/retractions` | What the last lookups found: `{"local_only", "checked_at" (the latest lookup or null), "checked", "affected", "by_doi": {doi: {"checked_at", "notices"}}, "by_item": {item_key: [notice]}, "by_doc": {doc_id: [notice]}, "plan": {"ask", "no_ai"}}`. A notice is `{"type": "retraction", "correction", "expression_of_concern", …, "doi": the notice's DOI, "date", "source", "work_doi", "checked_at"}`. Only works with a notice are listed. |
+| `POST /api/projects/<name>/retractions/check` | Starts the lookup as a job (`{"job"}`; `progress` has `done` and `total` DOIs; one at a time per project). Its result: `{"looked_up", "no_ai", "notices", "capped", "checked_at"}`. 400 under local-only or when there is no DOI to ask about. |
+
+`GET …/bibliography` gives each work a `notices` list, and `retractions: {checked_at, affected, local_only}` beside `counts`.
+
+#### Agreement between routes (I5)
+
+The local model and Claude answer the same sample of an answered kind of task, and
+Cohen's kappa compares their decisions (the grade of each excerpt for `check`, `reread` and `second`; whether each
+candidate code applies for `label`; the relation of each pair of terms for `link`). Only tasks whose documents Claude
+may read are used. An answer a task already has from a route is reused; only what is missing is asked. Nothing is stored
+in the project (the passages sent to Claude are noted in the ledger). Kappa from 0.8 is good, from 0.6 fair, below
+that poor.
+
+| Route | Answer |
+| --- | --- |
+| `GET /api/projects/<name>/agreement/plan` | `{"kinds": [{"kind", "answered", "name", "noun"}], "problem": a sentence when it cannot start (Claude not the main AI, no local model, local-only) or null, "claude": the main backend, "plan": null}`. With `?kind=label&n=30` (n 10 to 100), `plan` is `{"kind", "n" (tasks compared), "ask_local", "ask_claude" (tasks each route would be asked), "left_out" (answered tasks Claude may not read)}`. 400 for a kind without a decision. |
+| `POST /api/projects/<name>/agreement` | Body `{"kind", "n"}`. Starts a job (`{"job"}`, kind `agreement`; `progress` has `done` and `total` tasks). Its result: `{"kind", "n", "compared", "failed", "kappa" (null when undefined), "agree" (share of identical decisions), "decisions", "verdict" (a plain sentence), "left_out", "asked": {"local", "claude"}, "items": [{"task_id", "decisions", "same", "local", "claude" ("stored" or "asked")} or {"task_id", "error"}], "thresholds": {"good": 0.8, "fair": 0.6}}`. 400 when it cannot start. |
+
+**The answers a page at a time (H5).** `GET …/hypotheses?offset=<n>&limit=<n>` (with the same `q`, `status`, `batch`
+and `threshold`) answers one page of the list: `hypotheses` holds at most `limit` rows (100 when not given, at most
+1,000) from row `offset`, in the same order as the whole list, and `total` (the rows after the filters), `offset` and
+`limit` are added. `counts` still cover every hypothesis. Without `offset` the answer is what it always was.
 
 ### Jobs
 
 `GET /api/jobs` → `{"jobs": [Job summary]}` newest first. `GET /api/jobs/<id>` → full Job:
 ```json
-{"id": "fdd6a426a6f0", "kind": "check" | "prepare" | "batch" | "more" | "reread" | "read-new" | "second-opinion" |
-         "ingest" | "index" | "benchmark" | "label" | "link" | "theme-names" | "theme-new" | "resolve" | "stronger" | "queue-run" |
-         "claude-install" | "draft-find" | "draft-check" | "bibliography" | "citations" | …,
+{"id": "fdd6a426a6f0", "kind": "check" | "prepare" | "batch" | "more" | "reread" | "read-new" | "read-unread" |
+         "second-opinion" | "ingest" | "index" | "benchmark" | "label" | "link" | "theme-names" | "theme-new" | "resolve" | "stronger" |
+         "queue-run" | "claude-install" | "draft-find" | "draft-check" | "bibliography" | "citations" | "new_reader" | …,
  "title": "…", "queue": false,
  "project": "Demo" | null, "state": "queued" | "running" | "done" | "error" | "cancelled",
  "created_at": 1793136448.87, "started_at": … | null, "finished_at": … | null, "seconds": 19.9,
  "error": null | "message", "error_kind": null | "backend" | "memory" | "request" | "internal",
+ "waiting_for": null | {"id", "kind", "title", "message": "Queued: starts when “…” has finished"},
+ "background": false,
  "progress": {…kind-specific…}, "result": {…} | null}
 ```
-Summaries (in lists) omit `progress` and `result`. Jobs live until the app is closed.
+Summaries (in lists) omit `progress` and `result`. Jobs live until the app is closed. `background`: started by the app
+itself, not by the person.
+
+**Jobs wait their turn (0.17.0, roadmap M6: `api_common.Jobs`, `LANES`).** Jobs of one project that change the same
+things never run at the same time: the later one stays `queued`, with `waiting_for` naming the job it waits for (the
+one just ahead of it in the project's queue, else the one running), and starts when its turn comes, first come first
+served. It can be cancelled while it waits (`POST /api/jobs/<id>/cancel`: it leaves at once, `cancelled`, and the ones
+behind it move up). Which jobs wait for which:
+- *the new reader* (`new_reader`, and `reread` of one document, not of an excerpt) runs alone in its project: it waits
+  until no other job of the project runs, and while it runs every other job waits for it (a job holding passage ids
+  from before the move would put its results on passages that are gone). While it still waits, it (and search by
+  meaning or another move waiting behind it) holds back only search by meaning and other moves, so a move waiting
+  behind a check that waits for Claude Code never stalls the rest of the project;
+- *adding documents* (`ingest`) and *search by meaning* (`index`): adding waits for search by meaning and it for
+  adding; two of the same kind never run together;
+- *new themes for one set of themes* (`theme-new`) run one after the other (two would take the same passages);
+- everything else (checks, labels, themes, the glossary, codebooks tried out, the bibliography …) runs beside the
+  others, except the new reader, as before; jobs that use the chat model still take turns for it, and a job waiting
+  for its project's turn does not hold the model.
+When both are asked for, the new reader goes first: search by meaning that still waits moves behind it (the other
+waiting jobs keep their places), so no passage is prepared twice; search by meaning asked for while the new reader
+waits or runs waits for it. `waiting_for` is null once the job has its
+turn (a job that then waits only for the chat model is `queued` with `waiting_for` null, as before).
 
 ### Testing a model
 

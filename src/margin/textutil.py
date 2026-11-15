@@ -201,10 +201,18 @@ def find_quote(haystack: str, quote: str, whole_words: bool = True) -> tuple[int
             return hstart[pos], hend[end - 1], "exact"
         pos = nh.find(nq, pos + 1)
     # the spacing pass: every space is left out, and it is noted where the text had one before each character
+    for a, b in spacing_matches(haystack, pack_text(nh, hstart, hend), nq, whole_words=whole_words):
+        return a, b, "spacing"
+    return None
+
+
+def pack_text(nh: str, hstart: list[int], hend: list[int], drop: str = " ") -> tuple:
+    """Normalised text (`_normalise_spans`) with the characters of `drop` left out, for `spacing_matches`: (the
+    packed text, each character's start and end offset, and whether a dropped character stood before it)."""
     chars, starts, ends, gap = [], [], [], []
     prev = False
     for c, a, b in zip(nh, hstart, hend):
-        if c == " ":
+        if c in drop:
             prev = True
             continue
         chars.append(c)
@@ -212,22 +220,32 @@ def find_quote(haystack: str, quote: str, whole_words: bool = True) -> tuple[int
         ends.append(b)
         gap.append(prev)
         prev = False
-    sh = "".join(chars)
+    return "".join(chars), starts, ends, gap
+
+
+def spacing_matches(text: str, packed: tuple, nq: str, drop: str = " ", whole_words: bool = True, min_len: int = 1):
+    """Every place `nq` (a normalised quote) is in `text` once the characters of `drop` are ignored where the text
+    has more of them than the quote, as (start, end) offsets in `text`. `packed`: `pack_text` of the text with the
+    same `drop`. The one spacing pass for `find_quote` (spaces: PDF text splits words, "wi ll") and for reread's
+    finder (also hyphens and table cell bars, which other readers wrote or left out). With `whole_words`, a place
+    must begin and end at a word edge, and a space the quote puts between two words must be an edge in the text too.
+    A quote shorter than `min_len` once packed has no places. (0.17.2: written three times before.)"""
+    sh, starts, ends, gap = packed
     qc, qgap = [], []
     prev = False
     for c in nq:
-        if c == " ":
+        if c in drop:
             prev = True
             continue
         qc.append(c)
         qgap.append(prev)
         prev = False
     sq = "".join(qc)
-    if not sq:
-        return None
+    if not sq or len(sq) < min_len:
+        return
 
     def edge(i: int, start: bool = False) -> bool:
-        return i <= 0 or i >= len(sh) or gap[i] or _word_edge(haystack, sh, starts, i, start)
+        return i <= 0 or i >= len(sh) or gap[i] or _word_edge(text, sh, starts, i, start)
 
     pos = sh.find(sq)
     while pos >= 0:
@@ -235,9 +253,8 @@ def find_quote(haystack: str, quote: str, whole_words: bool = True) -> tuple[int
         # a space the quote puts between two words must be in the text too (or the text must have an edge there)
         if not whole_words or (edge(pos, True) and edge(end)
                                and all(edge(pos + k) for k in range(1, len(sq)) if qgap[k])):
-            return starts[pos], ends[end - 1], "spacing"
+            yield starts[pos], ends[end - 1]
         pos = sh.find(sq, pos + 1)
-    return None
 
 
 def find_selection(haystack: str, quote: str) -> tuple[int, int, str] | None:
@@ -279,6 +296,24 @@ def grade_quote_problem(quote: str | None) -> str | None:
             f"{MIN_GRADE_CHARS} characters), copied exactly")
 
 
+# 0.17.2 (H11): the most a quote stored with a model's answer may hold, counted as a person reads it (a run of
+# whitespace is one character). The instructions ask for the shortest span that shows the point, which is a few
+# words to a sentence; a hypothesis written by a colleague could steer a local model into quoting pages of a
+# document this copy keeps from the cloud, and a long quote travels with a shared check. 600 characters is
+# about a long sentence, above any quote a model gave in the test suite.
+MAX_QUOTE_CHARS = 600
+
+
+def long_quote_problem(quote: str) -> str | None:
+    """What is wrong with a quote that is longer than `MAX_QUOTE_CHARS`, or None. It is worded like a quote that was
+    not found, so the helper that wrote it is asked to give a shorter one."""
+    n = len(" ".join((quote or "").split()))
+    if n <= MAX_QUOTE_CHARS:
+        return None
+    return (f"quote too long: {n} characters, the most is {MAX_QUOTE_CHARS} ({' '.join(quote.split())[:80]!r}…). "
+            "Quote the shortest contiguous span that shows the point, not the whole passage.")
+
+
 def partial_word_hint(haystack: str, quote: str) -> str:
     """When a quote is in the text only as part of a word (see `find_quote`), the words to say so; otherwise ""."""
     if find_quote(haystack, quote, whole_words=False):
@@ -295,17 +330,24 @@ _ABBREV = re.compile(
 _SENT_END = re.compile(r"[.!?](?:[\"'”’)\]]+)?(\s+)(?=[\"'“‘(\[]?[A-Z0-9])")
 
 
+_LIST_NUMBER = re.compile(r"\s*\d+\.")
+# The longest ending `_ABBREV` takes is "approx." (7 characters); with the character before it, which `\b` looks at, a
+# look at the last ten characters of a sentence finds exactly what a look at all of it finds.
+_ABBREV_LOOK = 10
+
+
 def split_sentences(text: str, offset: int = 0) -> list[tuple[int, int]]:
     """Split into sentences; returns (start, end) spans (shifted by offset). Rule-based, abbreviation aware."""
     spans: list[tuple[int, int]] = []
     start = 0
     for m in _SENT_END.finditer(text):
         end = m.start(1)  # just after the punctuation and any closing quote or bracket
+        # only the end of the sentence is looked at: a long stretch of abbreviation stops was read again at every one
+        if _ABBREV.search(text[max(start, end - _ABBREV_LOOK):end]):
+            continue
+        if _LIST_NUMBER.fullmatch(text, start, end):  # list numbering such as "3."
+            continue
         head = text[start:end]
-        if _ABBREV.search(head):
-            continue
-        if re.fullmatch(r"\s*\d+\.", head):  # list numbering such as "3."
-            continue
         if head.strip():
             s = start + (len(head) - len(head.lstrip()))
             spans.append((offset + s, offset + end))
@@ -376,30 +418,33 @@ def token_spans(text: str, keep_stop: bool = False) -> list[tuple[int, int, str,
     return out
 
 
-_ONE: dict[str, str | None] = {}
+# What each character becomes under `_one_to_one`, as a table for `str.translate`. ASCII is worked out here with the
+# same two rules the loop used (lower case, any white space a plain space); another character is added the first
+# time it is seen, as a finished entry, so a thread that reads the table meanwhile sees only right answers.
+_ONE_TABLE: dict[int, str] = {i: " " if chr(i).isspace() else chr(i).lower() for i in range(128)}
+_NOT_ONE: set[str] = set()  # characters that do not become exactly one character (never put into the table)
 
 
 def _one_to_one(text: str) -> str | None:
     """`text` normalised character by character when every character becomes exactly one (most PDF text: accents,
     typographic quotes and dashes); None when one does not (ligatures, soft hyphens, combining marks), which then
     takes the exact but slower way."""
-    out = []
-    for ch in text:
-        if ch < "\x80":
-            out.append(ch.lower() if not ch.isspace() else " ")
+    table = _ONE_TABLE
+    for ch in set(text):  # each kind of character once: the work per character of the text is done by translate
+        if ord(ch) in table:
             continue
-        rep = _ONE.get(ch, "")
-        if rep == "":
-            if unicodedata.combining(ch):
-                rep = None
-            else:
-                r = _norm_cluster(ch)
-                rep = r if len(r) == 1 else None
-            _ONE[ch] = rep
-        if rep is None:
+        if ch in _NOT_ONE:
             return None
-        out.append(rep)
-    return "".join(out)
+        if unicodedata.combining(ch):
+            rep = None
+        else:
+            r = _norm_cluster(ch)
+            rep = r if len(r) == 1 else None
+        if rep is None:
+            _NOT_ONE.add(ch)
+            return None
+        table[ord(ch)] = rep
+    return text.translate(table)
 
 
 def surface_words(text: str) -> dict[str, str]:

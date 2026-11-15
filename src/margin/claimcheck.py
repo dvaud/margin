@@ -27,61 +27,21 @@ import uuid
 from typing import Any, Callable
 
 from . import __version__, access, frameworks, routing, schema, tasks
-from .reread import is_tombstone
+from .reread import is_tombstone  # noqa: F401  (still importable from here)
 from .search import neighbours, passage_index, rank_passages  # noqa: F401  (re-exported for callers)
 from .store import Workspace, now
-from .textutil import find_quote, find_selection
+from .textutil import find_quote, find_selection  # noqa: F401  (still importable from here)
+
+# the statuses live in verdicts.py (pure, imports nothing from here); every name stays importable from here
+from .verdicts import (  # noqa: F401
+    PERSON, STATUS_TEXT, WAITING_LOCAL, WAITING_YOU, STATUS_HELP, STATUS_NEXT, GRADES, USER_VERDICTS,
+    SET_ASIDE, UNSUPPORTED_NONSCI, set_aside, nonsci_text,
+    effective, changed_by_person, first_reading, stronger_eligible, _before_stronger, _graded,
+    _waits_for_person, claim_status, balance, who_says_what, aggregate, _queued_open, _status_of_rounds,
+)
 
 Progress = Callable[..., None]  # progress(step, message) or progress(step, message, info)
 
-STATUS_TEXT = {
-    "supported": "Supported by your documents",
-    "partially_supported": "Partly supported",
-    "contested": "Mixed evidence",
-    "contradicted": "Contradicted by your documents",
-    "unsupported": "No evidence found",
-    "uncertain": "Only uncertain evidence",
-    "not_checked": "Not finished yet",
-    "no_passages": "Nothing in your documents matched",
-    "failed": "The check did not work",
-    "waiting": "Waiting for Claude Code",
-}
-WAITING_LOCAL = "Waiting for your local model"  # 0.13.11: only the excerpts of documents marked Only a local AI wait
-# 0.14.3: no excerpt is judged yet, and the ones read wait for the person (documents no AI may read): the status is
-# "not_checked", shown in these words where the app shows a status text
-WAITING_YOU = "Waiting for your judgement"
-STATUS_HELP = {
-    "supported": "At least one excerpt says what the hypothesis says, and none says the opposite.",
-    "partially_supported": "No excerpt says it all, but at least one says an important part of it. Read the excerpts to "
-                           "judge whether the rest follows.",
-    "contested": "Some excerpts support the hypothesis and others say the opposite. Read both sides before drawing a "
-                 "conclusion.",
-    "contradicted": "At least one excerpt says the opposite, and none supports it.",
-    "unsupported": "None of the excerpts read was about this hypothesis. That does not prove your documents never say "
-                   "it: they may use other words, or the evidence may be in parts not read yet.",
-    "uncertain": "The AI found excerpts that may be about this hypothesis, but it was not sure enough about any of "
-                 "them for your strictness setting, so none is counted.",
-    "not_checked": "No excerpt has been judged yet: they wait for the AI, or for your own judgement where their "
-                   "documents may not be read by any AI.",
-    "no_passages": "No part of your documents uses words close to this hypothesis. Try other wording, or add documents.",
-    "failed": "The AI's answers could not be used, even after three tries. Try again, or choose another AI model in "
-              "Settings.",
-    "waiting": "The check is prepared and waits in the queue for Claude Code, which reads the excerpts on your own "
-               "Claude plan. The answer appears here as soon as Claude Code has read them.",
-}
-STATUS_NEXT = {  # what a reader can usefully do next
-    "supported": "Read the supporting excerpts to see whether they say exactly what you mean.",
-    "partially_supported": "Read the excerpts, or look for more evidence in your documents.",
-    "contested": "Compare the excerpts on both sides: do they concern the same place, group or period?",
-    "contradicted": "Read the contradicting excerpt: it may concern a different situation than yours.",
-    "unsupported": "Look for more evidence, or search again with other words your documents might use.",
-    "uncertain": "Read the excerpts and judge them yourself, or make the strictness setting more lenient.",
-    "no_passages": "Rephrase the hypothesis with words your documents use, or add documents.",
-    "failed": "Check again, or choose another AI model in Settings.",
-    "not_checked": "",
-    "waiting": "Type /margin-run and the project's name in Claude Code (the queue panel has the command to copy).",
-}
-GRADES = ("supports", "partially_supports", "refutes")
 CHAT_MODEL = "claude (chat)"
 
 
@@ -106,215 +66,6 @@ def _adapt(progress: Progress | None) -> Callable[[str, str, dict], None]:
             pass
 
     return call
-
-
-# ---------------------------------------------------------------------------------------------
-# statuses
-# ---------------------------------------------------------------------------------------------
-USER_VERDICTS = ("supports", "partially_supports", "refutes", "not_relevant")
-
-
-def effective(v) -> dict:
-    """A verification row with a person's judgement applied: theirs replaces the AI's and always counts."""
-    d = dict(v)
-    uv = d.get("user_verdict")
-    if uv in ("supports", "partially_supports", "refutes"):
-        d.update(verdict=uv, confidence=1.0)
-    elif uv == "not_relevant":
-        d.update(verdict="not_enough_info", confidence=None)
-    return d
-
-
-def changed_by_person(v) -> bool:
-    """Whether a person's judgement differs from the AI's (agreeing with the AI is a review, not a change). An
-    excerpt no model read (0.11, waiting for the person) has no AI judgement to change."""
-    v = dict(v)
-    uv = v.get("user_verdict")
-    if not uv or v.get("model") == PERSON:
-        return False
-    ai = v.get("verdict") if v.get("verdict") in ("supports", "partially_supports", "refutes") else "not_relevant"
-    return uv != ai
-
-
-def first_reading(v) -> dict | None:
-    """A verification row as the first model judged it, before a stronger model read it again (0.11.2), or None
-    when no stronger model did. A person's own judgement is kept (it counts either way)."""
-    d = dict(v)
-    hist = json.loads(d.get("ai_history_json") or "[]")
-    before = next((x for x in hist if x.get("why") == "stepped up"), None)
-    if before is None:
-        return None
-    ok = before.get("verdict") in ("supports", "partially_supports", "refutes")
-    d.update(verdict=before.get("verdict") if ok else "not_enough_info",
-             confidence=before.get("confidence") if ok else None, model=before.get("model") or d.get("model"))
-    return d
-
-
-def stronger_eligible(rd: dict) -> bool:
-    """Whether a stronger model can still read a search of a result again (`rounds_info[]` of `result`): a model
-    answered it, and no stronger model read it or was asked to (0.11.2)."""
-    main = next((x for x in rd.get("parts") or [] if x["task_id"] == rd.get("task_id")), None)
-    return (rd.get("status") == "done" and not rd.get("stepped_up") and not rd.get("stronger_waiting")
-            and not rd.get("waiting") and (main is None or main.get("read_by") not in ("you", "waiting")))
-
-
-def _before_stronger(raw_vs: list) -> tuple[list | None, dict]:
-    """The excerpts' effective judgements as they were before a stronger model read them again, and what it changed:
-    (None, {}) when no stronger model read any of them."""
-    firsts = [(v, first_reading(v)) for v in raw_vs]
-    stepped = [(v, f) for v, f in firsts if f is not None]
-    if not stepped:
-        return None, {}
-    grade = lambda x: x["verdict"] if x["verdict"] in GRADES else None  # noqa: E731
-    info = {"excerpts": len(stepped), "changed": sum(1 for v, f in stepped if grade(v) != grade(f)),
-            "first_models": sorted({f["model"] for _v, f in stepped if f.get("model")}),
-            "models": sorted({v["model"] for v, _f in stepped if v.get("model")})}
-    return [effective(f if f is not None else v) for v, f in firsts], info
-
-
-def _graded(vs, thr: float) -> tuple[list, list, list]:
-    strong = [v for v in vs if v["confidence"] is not None and v["confidence"] >= thr]
-    return ([v for v in strong if v["verdict"] == "supports"], [v for v in strong if v["verdict"] == "partially_supports"],
-            [v for v in strong if v["verdict"] == "refutes"])
-
-
-def _waits_for_person(v) -> bool:
-    """An excerpt no model read (its document may not be read by any AI) that the person has not judged yet."""
-    try:
-        return v["model"] == PERSON and not v["user_verdict"]
-    except (KeyError, IndexError):
-        return False
-
-
-def claim_status(vs, thr: float) -> str:
-    """A claim's status from its grades at or above the threshold. Support and contradiction together: contested.
-
-    Grades that exist but all fall below the threshold give "uncertain" (not "nothing found": something was found).
-    Rows carrying a person's judgement must be passed through `effective` first.
-
-    0.14.3: excerpts that wait for the person's own judgement (no AI may read them) are left out until the person
-    judges them: nobody has read them, so they are not "not about the hypothesis". When nothing else is judged, the
-    status is "not_checked" (shown as WAITING_YOU).
-    """
-    vs = [v for v in vs if not _waits_for_person(v)]
-    if not vs:
-        return "not_checked"
-    sup, part, ref = _graded(vs, thr)
-    if (sup or part) and ref:
-        return "contested"
-    if sup or part or ref:
-        return "supported" if sup else "partially_supported" if part else "contradicted"
-    if any(v["verdict"] in GRADES for v in vs):
-        return "uncertain"
-    return "unsupported"
-
-
-def balance(vs, thr: float) -> dict:
-    """Documents on each side, and a lean from -1 (only contradicted) to +1 (only supported).
-
-    Each document counts once per side, with its strongest grade's confidence; a partial grade counts half. A document
-    with excerpts on both sides is counted on both (`docs_both`); `docs_counted` counts each document once.
-    """
-    sup: dict[str, float] = {}
-    part: dict[str, float] = {}
-    ref: dict[str, float] = {}
-    uncounted = 0
-    for v in vs:
-        c = v["confidence"]
-        if v["verdict"] in GRADES and (c is None or c < thr):
-            uncounted += 1
-        if c is None or c < thr:
-            continue
-        side = {"supports": sup, "partially_supports": part, "refutes": ref}.get(v["verdict"])
-        if side is not None:
-            side[v["doc_id"]] = max(side.get(v["doc_id"], 0.0), float(c))
-    pos = sum(sup.values()) + 0.5 * sum(c for d, c in part.items() if d not in sup)
-    neg = sum(ref.values())
-    lean = round((pos - neg) / (pos + neg), 2) if pos + neg else None
-    positive = set(sup) | set(part)
-    return {"docs_supporting": len(sup), "docs_partly": len(set(part) - set(sup)), "docs_refuting": len(ref),
-            "docs_both": len(positive & set(ref)), "docs_counted": len(positive | set(ref)),
-            "excerpts_uncounted": uncounted, "lean": lean}
-
-
-def who_says_what(items: list[dict]) -> list[dict]:
-    """The documents behind an answer, by side, by the rule of `balance`: a document is listed as supporting if an
-    excerpt that counts supports, as partly supporting only if none supports, and as contradicting if one contradicts
-    (so a document can be on both sides). Each entry lists the locations of its excerpts that count on that side."""
-    docs: dict[str, dict] = {}
-    for x in items:
-        if not x.get("counted") or x.get("verdict") not in GRADES:
-            continue
-        d = docs.setdefault(x["doc_id"], {"doc_id": x["doc_id"], "title": x["title"], "supports": [],
-                                          "partially_supports": [], "refutes": []})
-        d[x["verdict"]].append(x.get("location") or "")
-    out = []
-    for d in docs.values():
-        sides = [("supports", d["supports"])] if d["supports"] else (
-            [("partly", d["partially_supports"])] if d["partially_supports"] else [])
-        if d["refutes"]:
-            sides.append(("refutes", d["refutes"]))
-        for side, locs in sides:
-            out.append({"doc_id": d["doc_id"], "title": d["title"], "side": side, "excerpts": len(locs),
-                        "locations": list(dict.fromkeys(l for l in locs if l)), "both_sides": len(sides) > 1 and
-                        any(sd == "refutes" for sd, _ in sides)})
-    order = {"supports": 0, "partly": 1, "refutes": 2}
-    return sorted(out, key=lambda e: (order[e["side"]], -e["excerpts"], e["title"]))
-
-
-def aggregate(statuses: list[str]) -> str:
-    """The status of a hypothesis from the statuses of its parts (which must all hold for it to hold).
-
-    - a part contradicted: contradicted (a hypothesis whose necessary part is contradicted does not hold, even if
-      other parts are supported; "contested" is kept for sources that disagree about the same claim)
-    - otherwise a part contested: contested
-    - every part supported: supported
-    - some parts (partly) supported: partially_supported
-    - only uncertain grades: uncertain
-    - nothing found for any part: unsupported (or no_passages when no part matched any passage)
-    Parts not graded yet (or waiting for the person's own judgement), or whose grading failed, give no evidence
-    either way, but the hypothesis is then at most partially_supported: it holds only if every part does, and one
-    is not known (0.14.3: the manual said such parts were simply left out). When no part is left, the hypothesis
-    takes their status.
-    """
-    if "waiting" in statuses:
-        return "waiting"  # a check by queue not finished yet (0.8)
-    decided = [s for s in statuses if s not in ("failed", "not_checked")]
-    if not decided:
-        return "failed" if "failed" in statuses else "not_checked"
-    if "contradicted" in decided:
-        return "contradicted"
-    if "contested" in decided:
-        return "contested"
-    if all(s == "supported" for s in decided) and len(decided) == len(statuses):
-        return "supported"
-    positive = any(s in ("supported", "partially_supported") for s in decided)
-    if positive:
-        return "partially_supported"
-    if "uncertain" in decided:
-        return "uncertain"
-    if all(s == "no_passages" for s in decided):
-        return "no_passages"
-    return "unsupported"
-
-
-def _queued_open(r) -> bool:
-    """A round waiting in the queue for Claude Code (0.8)."""
-    try:
-        return bool(r["queued"]) and r["status"] in ("pending", "retry")
-    except (IndexError, KeyError):
-        return False
-
-
-def _status_of_rounds(round_statuses: list[str], vs, thr: float, stage: str | None = None,
-                      waiting: bool = False) -> str:
-    if stage in ("terms", "rank", "judge") or waiting:
-        return "waiting"
-    if not round_statuses:
-        return "no_passages"
-    if "done" in round_statuses:
-        return claim_status(vs, thr)
-    return "failed" if round_statuses[-1] in ("failed", "retry") else "not_checked"
 
 
 # ---------------------------------------------------------------------------------------------
@@ -390,7 +141,6 @@ def _add_task(ws: Workspace, task_id: str, kind: str, model: str, payload: dict)
 # judgement. The round is still shown as one; each excerpt says who read it.
 # ---------------------------------------------------------------------------------------------
 PART_SUFFIXES = tasks.PART_SUFFIXES
-PERSON = "person"
 round_base = tasks.round_base
 ROUTE_NAMES = routing.ROUTE_NAMES
 
@@ -450,11 +200,59 @@ def _counting(groups: list[list], statuses: list[str] | None = None) -> tuple[Ca
     for g, st in zip(groups, sts):
         if st == "failed":
             for t in g:
-                failed.update(p["passage_id"] for p in json.loads(t["payload_json"])["passages"])
+                failed.update(x[0] for x in _excerpts(t))
     if not failed:
         return (lambda v: True), failed
     people_count = "done" in sts
     return (lambda v: v["passage_id"] not in failed or (people_count and bool(v["user_verdict"]))), failed
+
+
+def _excerpts(t) -> list[tuple]:
+    """(passage id, document id, …) of each excerpt a check task shows: from a light row (`_light_checks`), else from
+    its payload."""
+    if isinstance(t, dict) and "excerpts" in t:
+        return t["excerpts"]
+    return [(p["passage_id"], p["doc_id"]) for p in json.loads(t["payload_json"])["passages"]]
+
+
+def _light_checks(ws: Workspace, claim_ids: list[str] | None = None, titles: bool = False) -> dict[str, list[dict]]:
+    """The check tasks of these claims (of every claim, with None) by claim, each in the order they were made, as
+    light rows: task_id, status, queued, model, `excerpts`, the (passage id, document id[, title]) of each excerpt,
+    and `n`, its place among them all.
+    SQLite reads the payloads (json_each) and hands over only those ids: a list of every check held each check's
+    whole text in memory to count its excerpts."""
+    cols = "json_extract(j.value, '$.passage_id'), json_extract(j.value, '$.doc_id')" + (
+        ", json_extract(j.value, '$.title')" if titles else "")
+    sql = (f"SELECT t.task_id, t.status, t.queued, t.model, CASE WHEN json_valid(t.payload_json) THEN (SELECT "
+           f"json_group_array(json_array({cols})) FROM json_each(t.payload_json, '$.passages') j) END AS ex "
+           "FROM tasks t WHERE ")
+    if claim_ids is None:
+        rows = ws.query(sql + "t.kind='check' ORDER BY t.created_at, t.rowid")
+    else:
+        rows = []
+        for cid in claim_ids:
+            cond, args = tasks.check_task_ids_sql(cid)
+            rows += ws.query(sql + f"+t.kind='check' AND {cond.replace('task_id', 't.task_id')} "
+                             "ORDER BY t.created_at, t.rowid", args)
+    out: dict[str, list[dict]] = {}
+    for n, r in enumerate(rows):
+        if r["ex"] is None:  # a payload SQLite cannot read: read (and fail) as before
+            ex = [tuple(x) for x in _excerpts(ws.query("SELECT payload_json FROM tasks WHERE task_id=?",
+                                                       (r["task_id"],))[0])]
+        else:
+            ex = [tuple(x) for x in json.loads(r["ex"])]
+        out.setdefault(r["task_id"].split(":")[1], []).append(
+            {"task_id": r["task_id"], "status": r["status"], "queued": r["queued"], "model": r["model"], "excerpts": ex,
+             "n": n})
+    return out
+
+
+def _only_local(claims: list, rounds_of: Callable[[str], list]) -> bool:
+    """`only_local_waits` from a hypothesis's claims ({claim_id, stage}) and their check tasks (`rounds_of`)."""
+    if not claims or any(c["stage"] not in ("judge", "done", None) for c in claims):
+        return False
+    open_ = [t for c in claims for t in rounds_of(c["claim_id"]) if t["status"] in ("pending", "retry")]
+    return bool(open_) and all(t["task_id"].endswith(":local") for t in open_)
 
 
 def _is_person(t) -> bool:
@@ -593,17 +391,38 @@ def local_waiting(ws: Workspace, hyp_ids: list[str] | None = None, retry_failed:
     """The local parts of rounds that wait for the local model ({"task_id", "status", "passages"}): made by a check
     by queue or in a Claude chat, or left waiting when the computer had no room for the model (0.13.11). With
     `retry_failed`, also those whose answers could not be used."""
-    rows = ws.query("SELECT task_id, payload_json, status FROM tasks WHERE kind='check' AND status IN "
-                    f"('pending', 'retry'{', ' + repr('failed') if retry_failed else ''}) AND substr(task_id, -6) = ':local'")
-    out = []
-    for r in rows:
-        payload = json.loads(r["payload_json"])
-        if hyp_ids is not None:
-            hid = ws.scalar("SELECT hyp_id FROM user_claims WHERE claim_id=?", (payload.get("subject_id"),))
-            if hid not in hyp_ids:
-                continue
-        out.append({"task_id": r["task_id"], "status": r["status"], "passages": len(payload.get("passages") or [])})
-    return out
+    # the open check tasks (the index on kind and status finds them), each with its hypothesis in the same query and
+    # its excerpts counted by SQLite, not one parse and one query per part
+    sts = "'pending', 'retry'" + (", 'failed'" if retry_failed else "")
+    rows = ws.query("SELECT t.task_id, t.status, json_array_length(t.payload_json, '$.passages') AS n, u.hyp_id "
+                    "FROM tasks t LEFT JOIN user_claims u ON u.claim_id=json_extract(t.payload_json, '$.subject_id') "
+                    f"WHERE t.kind='check' AND t.status IN ({sts}) AND substr(t.task_id, -6) = ':local'")
+    out = [{"task_id": r["task_id"], "status": r["status"], "passages": int(r["n"] or 0)} for r in rows
+           if hyp_ids is None or r["hyp_id"] in hyp_ids]
+    return out + _mix_waiting(ws, hyp_ids)
+
+
+def _mix_waiting(ws: Workspace, hyp_ids: list[str] | None = None) -> list[dict]:
+    """0.18.1 (I1): the tasks of these checks the AI mix gives the local model first (search words, splitting, or
+    judging excerpts under Mostly local) and that wait for it, as `local_waiting` rows ("mix": True)."""
+    from .home import load_settings
+
+    kinds = sorted(routing.mix_kinds(load_settings()) & {"decompose", "expand", "check"})
+    if not kinds:
+        return []
+    rows = ws.query(f"SELECT t.task_id, t.status, t.kind, json_array_length(t.payload_json, '$.passages') AS n, "
+                    "COALESCE(u.hyp_id, h.hyp_id) AS hyp_id FROM tasks t "
+                    "LEFT JOIN user_claims u ON u.claim_id=json_extract(t.payload_json, '$.subject_id') "
+                    "LEFT JOIN hypotheses h ON t.task_id='decompose:' || h.hyp_id "
+                    f"WHERE t.kind IN ({','.join('?' * len(kinds))}) AND t.status IN ('pending', 'retry') "
+                    "AND COALESCE(t.step, 0)=0 AND t.forced_model IS NULL AND COALESCE(t.access, 'cloud')='cloud' "
+                    "AND (t.claimed_by IS NULL OR t.claimed_by='') AND substr(t.task_id, -6) NOT IN (':local', 'person')",
+                    kinds)
+    if hyp_ids is not None:
+        wanted = set(hyp_ids)
+        rows = [r for r in rows if r["hyp_id"] in wanted]
+    return [{"task_id": r["task_id"], "status": r["status"], "passages": max(1, int(r["n"] or 0)), "mix": True}
+            for r in rows]
 
 
 def run_local_parts(ws: Workspace, hyp_ids: list[str] | None = None, readers=None, retry_failed: bool = False,
@@ -635,10 +454,31 @@ def run_local_parts(ws: Workspace, hyp_ids: list[str] | None = None, readers=Non
             on_start(got[1], sum(r["passages"] for r in rows))
     n = 0
     for r in rows:
-        if r["status"] == "failed":
-            with ws.connect() as cx:
+        if r.get("mix"):  # 0.18.1 (I1, I2): the local model first; Claude when it is unsure, or when there is none
+            if got is None:
+                with ws.connect() as cx:
+                    cx.execute("UPDATE tasks SET step=1 WHERE task_id=? AND COALESCE(step, 0)=0", (r["task_id"],))
+                    tasks.mark_queued(cx, [r["task_id"]])
+                readers.to_claude += 1
+            else:
+                try:
+                    how = tasks.answer_locally_first(ws, r["task_id"], got[0], got[1])
+                    if how == "retry":  # no answer of the local model passed: Claude Code answers it
+                        readers.to_claude += 1
+                    else:  # it stands, or counts until Claude has read it again
+                        readers.mix_read += 1
+                except MemoryShort as e:
+                    readers.memory_short = e
+                    return n
+            n += 1
+            continue
+        with ws.connect() as cx:
+            if r["status"] == "failed":
                 cx.execute("UPDATE tasks SET status='pending', attempts=0 WHERE task_id=?", (r["task_id"],))
-        if got is None:
+            # the setting of its documents now: one marked No AI since it was made goes to the person, not the model
+            access.relabel(cx, [r["task_id"]])
+            lv = cx.execute("SELECT access FROM tasks WHERE task_id=?", (r["task_id"],)).fetchone()
+        if got is None or (lv and lv[0] == "none"):
             _to_person(ws, r["task_id"])
         else:
             try:
@@ -647,6 +487,8 @@ def run_local_parts(ws: Workspace, hyp_ids: list[str] | None = None, readers=Non
             except MemoryShort as e:
                 readers.memory_short = e
                 return n
+            except access.AccessError:  # the guard stopped this part: no model may read it; the others go on
+                _to_person(ws, r["task_id"])
             except BackendError as e:
                 if readers.stopped():
                     raise  # 0.13.11: stopped, the part keeps waiting for the local model
@@ -660,14 +502,34 @@ def only_local_waits(ws: Workspace, hyp_id: str) -> bool:
     """0.13.11: whether all a check still waits for is the local model (the excerpts of documents marked Only a local
     AI): Claude (Code) has done its part. A check by queue counts once its parts are past choosing excerpts."""
     claims = ws.query("SELECT claim_id, stage FROM user_claims WHERE hyp_id=?", (hyp_id,))
-    if not claims or any(c["stage"] not in ("judge", "done", None) for c in claims):
-        return False
-    open_ = [t for c in claims for t in _check_tasks(ws, c["claim_id"]) if t["status"] in ("pending", "retry")]
-    return bool(open_) and all(t["task_id"].endswith(":local") for t in open_)
+    return _only_local(claims, lambda cid: _check_tasks(ws, cid))
 
 
 def _readers(backend, model: str, readers=None):
     return readers if readers is not None else access.Readers(backend, model)
+
+
+_MAIN = object()  # _run_check: the hypothesis's own words go to the main model
+
+
+def _own_level(ws: Workspace, hyp_id: str) -> str:
+    """0.19.0 (N3): how far the hypothesis's own words may go, by the floors for its text (`access.floor`): a check
+    started from a document's text keeps that document's AI setting, an add-on's draft its own; `cloud` otherwise."""
+    return access.floor(ws._conn(), {"hyp_id": hyp_id})
+
+
+def _own_reader(ws: Workspace, hyp_id: str, readers):
+    """0.19.0 (N3): (backend, model) that may read the hypothesis's own words to split it or to propose search words:
+    the main model, the local model for restricted documents, or None (no model may: it is checked as written, with
+    its own words)."""
+    lv = _own_level(ws, hyp_id)
+    if lv in readers.main_levels:
+        return readers.backend, readers.model
+    return readers.for_level(lv)
+
+
+NO_MODEL_SPLIT = "Checked as written: no model you have may read words from its document"
+NO_MODEL_TERMS = "Searching with the words of the hypothesis only: no model you have may read words from its document"
 
 
 def _used(backend, model: str) -> str:
@@ -760,6 +622,7 @@ def check_hypothesis(ws: Workspace, text: str, backend, model: str, framework: s
     own = readers is None  # ENLENS 0.13.11: a batch shares one, so the local model is loaded once for all its checks
     readers = access.Readers(backend, model) if own else readers
     try:
+        words_by = _own_reader(ws, hid, readers)  # 0.19.0 (N3): who may read the hypothesis's own words
         plan = [{"text": text, "role": None, "part": 0}]
         if given is not None:
             plan = given
@@ -769,10 +632,12 @@ def check_hypothesis(ws: Workspace, text: str, backend, model: str, framework: s
                                (json.dumps([{"text": p["text"], "role": p["role"]} for p in plan], ensure_ascii=False), hid))
             say("decompose_done", f"Checked in the {len(plan)} parts you chose" if len(plan) > 1
                 else "Checked as written, as you chose", {"parts": [p["text"] for p in plan]})
+        elif decompose and words_by is None:
+            say("decompose_done", NO_MODEL_SPLIT, {"parts": [text]})
         elif decompose:
             stop()
             say("decompose", "Splitting your hypothesis into parts that can be checked one by one", {})
-            got = _decompose(ws, hid, text, backend, model, used)
+            got = _decompose(ws, hid, text, words_by[0], words_by[1], _used(*words_by))
             if len(got) > 1:
                 plan = [{"text": p["text"], "role": p.get("role"), "part": i} for i, p in enumerate(got, 1)]
                 say("decompose_done", f"Split into {len(plan)} parts", {"parts": [p["text"] for p in plan]})
@@ -787,7 +652,7 @@ def check_hypothesis(ws: Workspace, text: str, backend, model: str, framework: s
             _run_check(ws, cid, backend, model, used, k, per_doc, expand, doc_ids,
                        lambda s, m, extra=None, _i=info: say(s, m, {**_i, **(extra or {})}), embedder,
                        context=text if p["part"] else None, stop=stop, given_terms=mine, second_pass=second_pass,
-                       readers=readers)
+                       readers=readers, own=words_by)
         stop()
         with ws.connect() as cx:
             cx.execute("UPDATE hypotheses SET model=? WHERE hyp_id=?", (used, hid))
@@ -838,10 +703,12 @@ def _expand(ws: Workspace, cid: str, claim: str, backend, model: str, used: str,
 
 def prepare_check(ws: Workspace, text: str, backend, model: str, decompose: bool = False, expand: bool = True,
                   framework: str | None = None, code: str | None = None, progress: Progress | None = None,
-                  should_stop: Callable[[], bool] | None = None) -> dict:
+                  should_stop: Callable[[], bool] | None = None, origin: str | None = None,
+                  origin_id: str | None = None) -> dict:
     """What a check would do before it reads anything ("Look before checking"): the parts the model splits the
     hypothesis into and the extra search words it proposes for each, for a person to edit and pass to
-    `check_hypothesis` as `parts` and `terms`. Nothing is kept in the project.
+    `check_hypothesis` as `parts` and `terms`. Nothing is kept in the project. 0.19.0 (N3): `origin`, `origin_id` as
+    for `check_hypothesis`: words from a document's text are read only by a model that document's AI setting allows.
 
     Returns {"parts": [{"text", "role"}], "terms": [[...] per part], "split": bool}.
     """
@@ -853,11 +720,18 @@ def prepare_check(ws: Workspace, text: str, backend, model: str, decompose: bool
     for (old,) in ws.query("SELECT hyp_id FROM hypotheses WHERE hyp_id LIKE 'prep%'"):
         delete_hypothesis(ws, old, unmade=True)  # left by an earlier one that was interrupted
     hid = _new_id("prep")
-    new_hypothesis(ws, text, None, None, {"prepare": True}, None, hyp_id=hid)
+    new_hypothesis(ws, text, None, None, {"prepare": True}, None, hyp_id=hid, origin=origin, origin_id=origin_id)
+    readers = access.Readers(backend, model)
     try:
+        words_by = _own_reader(ws, hid, readers)  # 0.19.0 (N3): who may read these words
+        if words_by is not None:
+            backend, model = words_by
+            used = _used(backend, model)
         parts = [{"text": text, "role": None}]
         split = False
-        if decompose:
+        if decompose and words_by is None:
+            say("decompose_done", NO_MODEL_SPLIT, {"parts": [text]})
+        elif decompose:
             stop()
             say("decompose", "Splitting your hypothesis into parts that can be checked one by one", {})
             got = _decompose(ws, hid, text, backend, model, used)
@@ -867,8 +741,10 @@ def prepare_check(ws: Workspace, text: str, backend, model: str, decompose: bool
                 {"parts": [p["text"] for p in parts]})
         terms: list[list[str]] = []
         for i, p in enumerate(parts, 1):
-            if not expand:
+            if not expand or words_by is None:
                 terms.append([])
+                if expand:
+                    say("terms_done", NO_MODEL_TERMS, {"terms": [], "new_terms": []})
                 continue
             stop()
             info = {"part": i, "parts": len(parts), "claim": p["text"]} if split else {}
@@ -882,6 +758,7 @@ def prepare_check(ws: Workspace, text: str, backend, model: str, decompose: bool
         return {"parts": parts, "terms": terms, "split": split}
     finally:
         delete_hypothesis(ws, hid, unmade=True)
+        _let_go(readers)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -922,6 +799,14 @@ def queue_check(ws: Workspace, text: str, router, framework: str | None = None, 
     hid = _new_id("h")
     create_hypothesis(ws, text, fw, code, options, batch_id, hyp_id=hid, origin=origin, origin_id=origin_id,
                       draft_id=draft_id)
+    # 0.19.0 (N3): Claude Code may not read words a floor keeps on this computer (a check started from a document
+    # marked Only a local AI or No AI): the hypothesis is checked as written, with its own words, and its excerpts are
+    # judged by the local model or by the person (_add_round)
+    if _own_level(ws, hid) != "cloud":
+        options.update(expand=options["expand"] and given_terms is not None, decompose=bool(given and len(given) > 1))
+        decompose = False
+        with ws.connect() as cx:
+            cx.execute("UPDATE hypotheses SET options_json=? WHERE hyp_id=?", (json.dumps(options), hid))
     with ws.connect() as cx:
         cx.execute("UPDATE hypotheses SET queue='waiting', model=? WHERE hyp_id=?", (model, hid))
         if given is not None:  # also one part, which a person may have reworded (0.11.1: that edit was lost)
@@ -1106,7 +991,9 @@ def check_claim(ws: Workspace, text: str, backend, model: str, target: str | Non
 
 def _run_check(ws, cid, backend, model, used, k, per_doc, expand, doc_ids, say, embedder=None, context=None,
                stop=lambda: None, given_terms: list[str] | None = None, second_pass: bool = False,
-               readers=None) -> None:
+               readers=None, own=_MAIN) -> None:
+    """One part of a check. `own` (0.19.0, N3): (backend, model) that may read the part's own words for its search
+    words, or None (no model may: it is searched with its own words); the main model by default."""
     uc = ws.query("SELECT text, target, framework FROM user_claims WHERE claim_id=?", (cid,))[0]
     claim = uc["text"]
     terms: list[str] = []
@@ -1117,10 +1004,13 @@ def _run_check(ws, cid, backend, model, used, k, per_doc, expand, doc_ids, say, 
         new = [t for t in terms if t.lower() not in claim.lower()]
         say("terms_done", f"Also searching for the words you chose: {', '.join(new[:8])}{'…' if len(new) > 8 else ''}"
             if new else "Searching with the words of the hypothesis only, as you chose", {"terms": terms, "new_terms": new})
+    elif expand and own is None:
+        say("terms_done", NO_MODEL_TERMS, {"terms": [], "new_terms": []})
     elif expand:
         stop()
         say("terms", "Thinking of other words your documents might use")
-        terms = _expand(ws, cid, claim, backend, model, used, context)
+        eb, em, eu = (backend, model, used) if own is _MAIN else (own[0], own[1], _used(*own))
+        terms = _expand(ws, cid, claim, eb, em, eu, context)
         new = [t for t in terms if t.lower() not in claim.lower()]  # the hypothesis's own words are searched anyway
         say("terms_done", f"Also searching for: {', '.join(new[:8])}{'…' if len(new) > 8 else ''}" if new
             else "Searching with the words of the hypothesis only", {"terms": terms, "new_terms": new})
@@ -1229,8 +1119,8 @@ def chat_rules() -> str:
 
 
 def _check_tasks(ws: Workspace, cid: str) -> list:
-    return ws.query("SELECT * FROM tasks WHERE kind='check' AND (task_id=? OR task_id LIKE ?) ORDER BY created_at, rowid",
-                    (f"check:{cid}", f"check:{cid}:%"))
+    cond, args = tasks.check_task_ids_sql(cid)  # on the key: called per part on every look at the queue
+    return ws.query(f"SELECT * FROM tasks WHERE +kind='check' AND {cond} ORDER BY created_at, rowid", args)
 
 
 def _shown(payload: dict) -> list[dict]:
@@ -1320,6 +1210,11 @@ def more_passages(ws: Workspace, cid: str, k: int = 8, model: str = CHAT_MODEL, 
     return {"check_id": cid, "round": n, "passages": _shown(payload), "parts": parts}
 
 
+_HELPER_HOLDS = ("This round waits in Margin's queue for a helper of Claude Code (/margin-run), or a helper is "
+                 "grading it now: its grades will be stored from there, so they are not taken from this chat. Read "
+                 "the result later with get_check.")
+
+
 def submit_grades(ws: Workspace, cid: str, grades: list[dict], summary: str | None = None,
                   model: str = CHAT_MODEL) -> dict:
     """Validate and store the grades for the open round. Problems come back so they can be fixed and resent."""
@@ -1336,635 +1231,16 @@ def submit_grades(ws: Workspace, cid: str, grades: list[dict], summary: str | No
         raise ValueError("These passages are already graded. Ask for more_passages to read further.")
     if t["status"] == "failed":
         raise ValueError("This round failed three times. Start a new check.")
-    ok, errors = tasks.ingest_result(ws, t["task_id"], {"evidence": grades, "rationale": summary}, model=model)
+    try:  # whether a helper holds the round is checked where the grades are written, so none takes it in between
+        ok, errors = tasks.ingest_result(ws, t["task_id"], {"evidence": grades, "rationale": summary}, model=model,
+                                         free=True)
+    except tasks.NotHeld as e:
+        raise ValueError(_HELPER_HOLDS if e.reason == "queued" else
+                         "These passages are already graded. Ask for more_passages to read further.") from None
     if not ok:
         left = tasks.MAX_ATTEMPTS - int(ws.scalar("SELECT attempts FROM tasks WHERE task_id=?", (t["task_id"],)) or 0)
         return {"accepted": False, "problems": errors, "attempts_left": max(0, left)}
     return {"accepted": True}
-
-
-# ---------------------------------------------------------------------------------------------
-# reading results
-# ---------------------------------------------------------------------------------------------
-def _threshold(ws: Workspace, threshold: float | None) -> float:
-    return float(ws.config["thresholds"]["support_confidence"]) if threshold is None else float(threshold)
-
-
-def certainty_word(conf: float | None) -> str:
-    """The AI's certainty in words, as the app shows it."""
-    if conf is None:
-        return ""
-    return "high" if conf >= 0.8 else "medium" if conf >= 0.6 else "low"
-
-
-def _locations(ws: Workspace, ids: list[str], at: dict[str, int] | None = None) -> dict[str, dict]:
-    """Where each passage is, as a reader cites it (see `locate`), keyed by passage id."""
-    return locate(ws, [(pid, pid, (at or {}).get(pid)) for pid in dict.fromkeys(ids)])
-
-
-def locate(ws: Workspace, items: list[tuple]) -> dict:
-    """Where each of several places is, as a reader cites it: `items` are (key, passage_id, offset or None), the
-    offset in document characters (a quote, a concordance hit); the result is keyed by `key`, so one passage can be
-    located at several offsets in one call.
-
-    - PDFs (and other paged documents) stored from 0.6 on: the page and the paragraph on that page, of the quote
-      when `at` gives its offset ("page 2, paragraph 3"); stored earlier: the page;
-    - documents without pages: the paragraph ("paragraph 6 of 8"), or for documents stored before paragraphs were
-      kept, how far into the document it starts.
-    `span` says what the whole excerpt covers ("page 2, paragraphs 3–4", "pages 2–3", "paragraphs 1–6 of 8").
-    """
-    out: dict = {}
-    if not items:
-        return out
-    ids = list(dict.fromkeys(pid for _k, pid, _o in items))
-    by_id = {}
-    for i in range(0, len(ids), 900):  # SQLite's limit on bound parameters
-        chunk = ids[i:i + 900]
-        for r in ws.query("SELECT p.passage_id, p.doc_id, p.start, p.end, p.page, d.n_chars FROM passages p JOIN "
-                          f"documents d ON d.doc_id=p.doc_id WHERE p.passage_id IN ({','.join('?' * len(chunk))})", chunk):
-            by_id[r["passage_id"]] = r
-    rows = list(by_id.values())
-    doc_ids = sorted({r["doc_id"] for r in rows})
-    paras: dict[str, list[int]] = {}                          # documents without pages: paragraph starts
-    on_page: dict[tuple[str, int], list[int]] = {}            # paged documents: paragraph starts per page
-    if doc_ids:
-        for r in ws.query(f"SELECT doc_id, start, page FROM paragraphs WHERE doc_id IN ({','.join('?' * len(doc_ids))}) "
-                          "ORDER BY doc_id, n", doc_ids):
-            if r["page"] is None:
-                paras.setdefault(r["doc_id"], []).append(r["start"])
-            else:
-                on_page.setdefault((r["doc_id"], r["page"]), []).append(r["start"])
-    heads: dict[str, list[tuple[int, int]]] = {}
-    if doc_ids:
-        for r in ws.query(f"SELECT doc_id, start, end FROM headings WHERE doc_id IN ({','.join('?' * len(doc_ids))}) "
-                          "ORDER BY doc_id, start", doc_ids):
-            heads.setdefault(r["doc_id"], []).append((r["start"], r["end"]))
-
-    def past_heading(doc: str, offset: int) -> int:
-        """A quote that starts with a heading is cited at the paragraph the heading introduces."""
-        for h0, h1 in heads.get(doc, ()):
-            if h0 <= offset < h1:
-                return h1 + 1
-        return offset
-
-    page_ends: dict[str, list[int]] = {}
-    paged = sorted({r["doc_id"] for r in rows if r["page"]})
-    if paged:
-        for r in ws.query(f"SELECT doc_id, end FROM pages WHERE doc_id IN ({','.join('?' * len(paged))}) "
-                          "ORDER BY doc_id, page", paged):
-            page_ends.setdefault(r["doc_id"], []).append(r["end"] + 2)
-
-    def page_at(doc: str, offset: int, default: int) -> int:
-        ends = page_ends.get(doc)
-        return min(len(ends), bisect.bisect_right(ends, offset) + 1) if ends else default
-
-    def para_on(doc: str, page: int, offset: int) -> int | None:
-        starts = on_page.get((doc, page))
-        return max(1, bisect.bisect_right(starts, offset)) if starts else None
-
-    for key, pid, quote_at in items:
-        r = by_id.get(pid)
-        if r is None:
-            continue
-        pct = round(100 * (r["start"] or 0) / max(1, r["n_chars"] or 1))
-        starts = paras.get(r["doc_id"])
-        a0, b0 = r["start"] or 0, max((r["end"] or 1) - 1, r["start"] or 0)
-        span = None  # what the whole excerpt covers (the location says where its quote is)
-        if r["page"]:
-            first, last = page_at(r["doc_id"], a0, r["page"]), page_at(r["doc_id"], b0, r["page"])
-            pa, pb = para_on(r["doc_id"], first, a0), para_on(r["doc_id"], first, b0) if last == first else None
-            if last > first:
-                span = f"pages {first}–{last}"
-            elif pa is not None and pb is not None:
-                span = f"page {first}, paragraph {pa}" if pa == pb else f"page {first}, paragraphs {pa}–{pb}"
-            else:
-                span = f"page {first}"
-        elif starts:
-            a = max(1, bisect.bisect_right(starts, a0))
-            b = max(a, bisect.bisect_right(starts, b0))
-            span = f"paragraph {a} of {len(starts)}" if a == b else f"paragraphs {a}–{b} of {len(starts)}"
-        if quote_at is not None:
-            quote_at = past_heading(r["doc_id"], quote_at)
-        if r["page"]:
-            off = quote_at if quote_at is not None else a0
-            pg = page_at(r["doc_id"], off, r["page"])
-            n = para_on(r["doc_id"], pg, off)
-            where = (f"page {pg}, paragraph {n}" if n is not None and quote_at is not None
-                     else span if quote_at is None else f"page {pg}")
-        elif starts and quote_at is not None:  # the paragraph of the quote
-            where = f"paragraph {max(1, bisect.bisect_right(starts, quote_at))} of {len(starts)}"
-        elif starts:  # no quote: the paragraphs the excerpt spans
-            where = span
-        else:
-            where = "at the start of the document" if pct < 5 else f"about {pct}% into the document"
-        out[key] = {"start": r["start"], "end": r["end"], "doc_id": r["doc_id"], "position_pct": pct,
-                    "location": where, "span": span or where}
-    return out
-
-
-def _breaks(ws: Workspace, items: list[tuple[str, str, int, int]]) -> dict[str, list[dict]]:
-    """Where new paragraphs and headings begin inside each excerpt (offsets local to the excerpt), from the layout
-    found when its document was added: {passage_id: [{"at", "kind": "paragraph" | "heading", "end"?}]}.
-    `items` are (passage_id, doc_id, start, end) in document offsets. Documents added before 0.6 have no layout."""
-    out: dict[str, list[dict]] = {}
-    docs = sorted({d for _p, d, _a, _b in items})
-    if not docs:
-        return out
-    q = ",".join("?" * len(docs))
-    paras: dict[str, list[int]] = {}
-    for r in ws.query(f"SELECT doc_id, start FROM paragraphs WHERE doc_id IN ({q}) ORDER BY doc_id, start", docs):
-        paras.setdefault(r["doc_id"], []).append(r["start"])
-    heads: dict[str, list[tuple[int, int]]] = {}
-    for r in ws.query(f"SELECT doc_id, start, end FROM headings WHERE doc_id IN ({q}) ORDER BY doc_id, start", docs):
-        heads.setdefault(r["doc_id"], []).append((r["start"], r["end"]))
-    for pid, doc, a, b in items:
-        if a is None or b is None:
-            continue
-        got: list[dict] = []
-        hs = heads.get(doc, [])
-        for h0, h1 in hs[bisect.bisect_left(hs, (a, -1)):]:
-            if h0 >= b:
-                break
-            got.append({"at": h0 - a, "kind": "heading", "end": min(h1, b) - a})
-        starts = paras.get(doc, [])
-        taken = {g["at"] for g in got}
-        for p0 in starts[bisect.bisect_right(starts, a):]:
-            if p0 >= b:
-                break
-            if p0 - a not in taken:
-                got.append({"at": p0 - a, "kind": "paragraph"})
-        if got:
-            out[pid] = sorted(got, key=lambda g: (g["at"], g["kind"] != "heading"))
-    return out
-
-
-def _round_notes(ws: Workspace, rounds: list) -> list[str | None]:
-    """The AI's own short note on each round of excerpts (from its accepted answer)."""
-    notes = []
-    for r in rounds:
-        raw = ws.scalar("SELECT raw_json FROM results WHERE task_id=? AND valid=1 ORDER BY attempt DESC LIMIT 1",
-                        (r["task_id"],))
-        try:
-            notes.append((tasks.parse_json(raw).get("rationale") or None) if raw else None)
-        except ValueError:
-            notes.append(None)
-    return notes
-
-
-def _readers_of(ws: Workspace, parts: list) -> dict[str, str]:
-    """Who read each part of a round (0.11): "claude", "local" (a model on this computer), "ai" (another model
-    server), "you" (no model may read it), or "waiting" (not answered yet)."""
-    out = {}
-    for t in parts:
-        if _is_person(t):
-            out[t["task_id"]] = "you"
-            continue
-        local_part = t["task_id"].endswith(":local")  # read by the local model, whatever came of it (0.11.1)
-        r = ws.query("SELECT route, model FROM results WHERE task_id=? AND valid=1 ORDER BY attempt DESC LIMIT 1",
-                     (t["task_id"],))
-        if not r:
-            out[t["task_id"]] = "waiting" if t["status"] in ("pending", "retry") else ("local" if local_part else "ai")
-            continue
-        route, model = r[0]["route"] or "", r[0]["model"] or ""
-        if local_part or route in (ROUTE_NAMES["local"], ROUTE_NAMES["baseline"]):
-            out[t["task_id"]] = "local"
-        elif route in (ROUTE_NAMES["claude_code"], ROUTE_NAMES["anthropic"]) or model == CHAT_MODEL or model.startswith("claude"):
-            out[t["task_id"]] = "claude"
-        else:
-            out[t["task_id"]] = "ai"
-    return out
-
-
-def _opens_with_pronoun(q: str | None) -> bool:
-    from .references import opens_with_pronoun
-
-    return opens_with_pronoun(q)
-
-
-def _reference_locations(ws: Workspace, items: list[dict]) -> None:
-    """Where each `refers_to` is: "page 4, paragraph 2" (in the excerpt) or "the paragraph before"."""
-    todo = []
-    for x in items:
-        if x.get("refers_start") is not None:
-            pid = ws.scalar("SELECT passage_id FROM passages WHERE doc_id=? AND start<=? ORDER BY start DESC LIMIT 1",
-                            (x["doc_id"], x["refers_start"]))
-            if pid:
-                todo.append((x["n"], pid, x["refers_start"]))
-    where = locate(ws, todo)
-    for x in items:
-        if x.get("refers_to"):
-            loc = (where.get(x["n"]) or {}).get("location")
-            x["refers_location"] = (loc or "") + (" (the text before the excerpt)" if x.get("refers_where") == "before"
-                                                  else "")
-
-
-def _in_excerpt(p: dict, quote: str | None) -> tuple[int, int] | None:
-    """Where a quote is in an excerpt as it was shown: where it was when the excerpt was kept (`quotes_at`), else
-    its first place in it."""
-    text = p.get("text") or ""
-    if not quote:
-        return None
-    at = (p.get("quotes_at") or {}).get(quote)
-    if isinstance(at, int) and text[at:at + len(quote)] == quote:
-        return at, at + len(quote)
-    i = text.find(quote)
-    if i >= 0:
-        return i, i + len(quote)
-    hit = find_quote(text, quote)
-    return (hit[0], hit[1]) if hit else None
-
-
-def _place_kept(item: dict, p: dict, v: dict) -> None:
-    """0.15: the highlight of an excerpt kept from an earlier reading of its document (Read with the new reader): in
-    the excerpt as it was shown, at the quote shown (the person's, else the AI's). `doc_start` is where the excerpt
-    would begin for that quote to land on its place in the document now, so `doc_start + quote_start` is the
-    quote's document offset as for any excerpt; a quote with no place in the document now points nowhere (the
-    excerpt is shown as one whose document is gone: `in_corpus` false, `not_placed` true)."""
-    if item["quote_by"] == "you":
-        q, ds = v.get("user_quote"), v.get("user_start")
-    elif item["quote_by"]:
-        q, ds = v.get("quote"), v.get("start")
-    else:
-        return
-    local = _in_excerpt(p, q)
-    if local is None:
-        return
-    item.update(quote_start=local[0], quote_end=local[1])
-    if ds is not None and item["in_corpus"]:
-        item["doc_start"] = ds - local[0]
-    elif item["in_corpus"]:
-        item.update(in_corpus=False, not_placed=True)
-
-
-def result(ws: Workspace, claim_id: str, threshold: float | None = None) -> dict:
-    """One claim's check: status, grades with the quote's position in each passage, search terms, rounds.
-
-    Each passage carries the AI's grade (`ai_verdict`), a person's own judgement if they gave one (`user_verdict`),
-    the judgement that counts (`verdict`), and whether it counts at this threshold (`counted`).
-    """
-    thr = _threshold(ws, threshold)
-    rows = ws.query("SELECT * FROM user_claims WHERE claim_id=?", (claim_id,))
-    if not rows:
-        raise KeyError(claim_id)
-    uc = dict(rows[0])
-    groups = _rounds(ws, claim_id)
-    rounds = [t for g in groups for t in g]
-    terms_all = json.loads(uc["terms_json"] or "[]")
-    out = {"claim_id": claim_id, "hyp_id": uc.get("hyp_id") or claim_id, "part": uc.get("part") or 0,
-           "role": uc.get("role"), "claim": uc["text"], "target": uc["target"], "framework": uc.get("framework"),
-           "created_at": uc["created_at"], "terms": terms_all, "rationale": uc["rationale"],
-           "model": uc["model"], "options": json.loads(uc["options_json"] or "{}"), "threshold": thr, "passages": [],
-           "errors": [], "rounds": len(groups), "rounds_info": [], "waiting_for_you": 0, "waiting_local": 0}
-    if uc["target"]:
-        try:
-            _fw, _c, desc, label = frameworks.resolve(ws, uc.get("framework") or "sdg", uc["target"])
-            out["target_description"], out["target_label"] = desc, label
-        except ValueError:
-            pass
-    raw_vs = [dict(v) for v in ws.query("SELECT * FROM verifications WHERE subject_kind='user_claim' AND subject_id=?",
-                                        (claim_id,))]
-    access_of = access.levels(ws, list({p["doc_id"] for t in rounds for p in json.loads(t["payload_json"])["passages"]}))
-    counts, failed = _counting(groups)  # 0.14.3: the AI's judgements in a round that failed count nowhere
-    vs = [effective(v) for v in raw_vs if counts(v)]
-    out["balance"] = balance(vs, thr)
-    stage = uc.get("stage")
-    if not rounds:
-        out["status"] = out["status_any"] = "waiting" if stage in ("terms", "rank", "judge") else "no_passages"
-        return out
-    readers_of = _readers_of(ws, rounds)
-    shown = []
-    for r_i, g in enumerate(groups, 1):
-        main = _main_part(g) or g[0]
-        pls = [json.loads(t["payload_json"]) for t in g]
-        note = _round_notes(ws, [main])[0] if not _is_person(main) else None
-        out["rounds_info"].append({"round": r_i, "status": _round_status(g), "passages": sum(len(pl["passages"]) for pl in pls),
-                                   "terms": pls[0].get("terms", terms_all if r_i == 1 else None), "ai_note": note,
-                                   # 0.8: which task it is, and whether a stronger model read it (or will)
-                                   "task_id": main["task_id"], "stepped_up": bool(main["step"]) and not main["again"],
-                                   "stronger_waiting": bool(main["again"]), "waiting": any(_queued_open(t) for t in g),
-                                   # 0.11: who read which excerpts of this round
-                                   "parts": [{"task_id": t["task_id"], "read_by": readers_of[t["task_id"]],
-                                              "passages": len(pl["passages"]), "status": t["status"]}
-                                             for t, pl in zip(g, pls)]})
-        for t, pl in zip(g, pls):
-            shown += [(r_i, p, t) for p in pl["passages"]]
-    for rd in out["rounds_info"]:  # 0.11.2: whether "Ask a stronger model" can still read this search again
-        rd["can_step_up"] = stronger_eligible(rd)
-    by_passage = {v["passage_id"]: v for v in raw_vs}
-    locs = _locations(ws, list({p["passage_id"] for _r, p, _t in shown}),
-                      {v["passage_id"]: (v["user_start"] if v.get("user_start") is not None else v["start"])
-                       for v in raw_vs if v.get("start") is not None or v.get("user_start") is not None})
-    breaks = _breaks(ws, [(pid, lc["doc_id"], lc["start"], lc["end"]) for pid, lc in locs.items()])
-    seconds = _second_opinions(ws, [claim_id]).get(claim_id, {})
-    # 0.13.3: the title a document has now (the work's title from the bibliography), not the one the check stored;
-    # a document removed since keeps the stored one
-    titles_now = {r["doc_id"]: r["title"] for r in ws.query("SELECT doc_id, title FROM documents")}
-    for n, (r_i, p, part) in enumerate(shown, 1):
-        v = by_passage.get(p["passage_id"])
-        loc = locs.get(p["passage_id"], {})
-        # 0.15: an excerpt kept from an earlier reading of its document (Read with the new reader, reread.py): its text
-        # is the record of what was read, its pointers lead into the document as it reads now
-        earlier = p.get("reader") is not None
-        item = {"n": n, "round": r_i, "passage_id": p["passage_id"], "doc_id": p["doc_id"],
-                "title": titles_now[p["doc_id"]] if p["doc_id"] in titles_now else p["title"], "page": p["page"],
-                "location": loc.get("location") or (f"page {p['page']}" if p["page"] else None),
-                "position_pct": loc.get("position_pct"), "doc_start": loc.get("start"),
-                "span": loc.get("span") or (f"page {p['page']}" if p["page"] else None), "text": p["text"],
-                "found_by": p.get("found_by") or "keywords",
-                "verdict": None, "ai_verdict": None, "confidence": None, "certainty": "", "user_verdict": None,
-                "user_note": None, "counted": False, "quote": None, "quote_start": None, "quote_end": None,
-                "in_corpus": p["passage_id"] in locs, "reviewed": False, "changed": False, "quote_by": None,
-                "ai_quote": None, "breaks": (p.get("breaks") or []) if earlier else breaks.get(p["passage_id"], []),
-                "scope_note": None, "ai_history": [],
-                "reread": False, "reread_info": None,
-                # 0.7: the words that found it (F6), and what its quote refers to (F5)
-                "matched": p.get("matched") or [], "refers_to": None, "refers_where": None, "refers_location": None,
-                "refers_start": None, "reference_missing": False,
-                # 0.11: who read it (claude, local, ai, you) and whether it still waits for the local model or a person
-                "read_by": readers_of[part["task_id"]], "access": access_of.get(p["doc_id"], "none"),
-                "waiting_local": part["status"] in ("pending", "retry") and part["task_id"].endswith(":local"),
-                "waiting_for_you": False, "judged_by": None, "others": [],
-                # 0.14.3: whether a model's judgement of it is stored (not for an excerpt no AI may read, nor for one
-                # whose part is not answered yet or failed)
-                "ai_read": False, "round_failed": p["passage_id"] in failed, "my_verdict": None,
-                # 0.15: the excerpt is the text of an earlier reading of its document (`earlier_reader` read it), and
-                # whether its quote has no place in the document as it reads now (it points nowhere)
-                "earlier_reading": earlier, "earlier_reader": p.get("reader"), "not_placed": False}
-        if v:
-            ai = v["verdict"] if v["verdict"] != "not_enough_info" else None
-            item["ai_read"] = v.get("model") != PERSON
-            eff = effective(v)
-            item.update(ai_verdict=ai, user_verdict=v.get("user_verdict"), user_note=v.get("user_note"),
-                        verdict=eff["verdict"] if eff["verdict"] != "not_enough_info" else None,
-                        reviewed=bool(v.get("user_verdict")), changed=changed_by_person(v),
-                        scope_note=v.get("scope_note") if ai else None)
-            item["my_verdict"] = v.get("user_verdict")  # Margin has one person: every judgement is yours
-            if v.get("user_verdict") or v.get("user_note"):
-                item["judged_by"] = "you"
-            if v.get("reread_json"):
-                item["reread_info"] = json.loads(v["reread_json"])
-            hist = json.loads(v.get("ai_history_json") or "[]")
-            if hist:  # the AI was asked to read this excerpt again: its earlier judgements, oldest first
-                item.update(reread=True, ai_history=[{"verdict": h.get("verdict") if h.get("verdict") in GRADES else None,
-                                                      "confidence": h.get("confidence") if h.get("verdict") in GRADES else None,
-                                                      "quote": h.get("quote"), "scope_note": h.get("scope_note"),
-                                                      "model": h.get("model"), "at": h.get("at"),
-                                                      "replaced_at": h.get("replaced_at"), "why": h.get("why")}
-                                                     for h in hist])
-            base = loc.get("start")
-            if ai:
-                item.update(confidence=v["confidence"], certainty=certainty_word(v["confidence"]), quote=v["quote"],
-                            ai_quote=v["quote"], quote_by="the AI" if v["quote"] else None)
-                if v.get("refers_to"):
-                    item.update(refers_to=v["refers_to"], refers_where=v.get("refers_where"),
-                                refers_start=v.get("refers_start"))
-                elif _opens_with_pronoun(v["quote"]) and (v.get("prompt_version") or "") >= "check-v4":
-                    item["reference_missing"] = True  # check-v4 could have said what "it" is, and did not
-                if earlier:
-                    pass  # placed below, in the excerpt as it was shown
-                elif base is not None and v["start"] is not None:
-                    item.update(quote_start=v["start"] - base, quote_end=v["end"] - base)
-                elif v["quote"] and v["quote"] in p["text"]:  # the document was removed later: find the quote in the copy
-                    s0 = p["text"].index(v["quote"])
-                    item.update(quote_start=s0, quote_end=s0 + len(v["quote"]))
-            if v.get("user_quote") and v.get("user_verdict"):  # the sentence the person points to
-                item.update(quote=v["user_quote"], quote_by="you")
-                if earlier:
-                    pass
-                elif base is not None and v.get("user_start") is not None:
-                    item.update(quote_start=v["user_start"] - base, quote_end=v["user_end"] - base)
-                elif v["user_quote"] in p["text"]:
-                    s0 = p["text"].index(v["user_quote"])
-                    item.update(quote_start=s0, quote_end=s0 + len(v["user_quote"]))
-            if earlier:
-                _place_kept(item, p, v)
-            item["counted"] = bool(item["verdict"]) and (eff["confidence"] or 0) >= thr and counts(v)
-        if earlier and is_tombstone(p["passage_id"]):
-            item["not_placed"] = True  # its quote has no place in the document as it reads now
-        so = seconds.get(p["passage_id"])
-        item["second"] = ({**so, "agrees": so["verdict"] == item["ai_verdict"]} if so else None)
-        item["waiting_for_you"] = item["read_by"] == "you" and not item["user_verdict"]
-        out["waiting_for_you"] += item["waiting_for_you"]
-        out["waiting_local"] += item["waiting_local"]
-        out["passages"].append(item)
-    statuses = [_round_status(g) for g in groups]
-    waiting = _round_waiting(groups[-1])
-    out["status"] = _status_of_rounds(statuses, vs, thr, stage, waiting)
-    out["status_any"] = _status_of_rounds(statuses, vs, 0.0, stage, waiting)
-    # 0.11.2: the answer before a stronger model read the excerpts again (its reading counts; the first is kept)
-    vs_first, out["stronger"] = _before_stronger([v for v in raw_vs if counts(v)])
-    out["status_first"] = _status_of_rounds(statuses, vs_first, thr, stage, waiting) if vs_first else out["status"]
-    out["waiting"] = out["status"] == "waiting"
-    open_ = [t for g in groups for t in g if t["status"] in ("pending", "retry")]
-    if out["waiting"] and stage in ("judge", "done", None) and open_ and all(t["task_id"].endswith(":local")
-                                                                               for t in open_):
-        out["status_text"] = WAITING_LOCAL  # 0.13.11: Claude (Code) is done with this part
-    elif out["status"] == "not_checked" and out["waiting_for_you"] and "done" in statuses:
-        out["status_text"] = WAITING_YOU  # 0.14.3: read by no AI, and not judged by you yet
-    out["rounds_task_ids"] = [r["task_id"] for r in rounds]
-    out["stepped_up"] = {r["task_id"]: {"step": int(r["step"] or 0), "again": bool(r["again"])} for r in rounds}
-    out["round_status"] = statuses[-1]
-    if "done" not in statuses or statuses[-1] in ("failed", "retry"):
-        last = groups[-1]
-        main = _main_part(last)
-        bad = (main if main is not None and main["status"] in ("failed", "retry") else
-               next((t for t in last if not _is_person(t) and t["status"] in ("failed", "retry")), last[-1]))
-        err = ws.query("SELECT errors_json FROM results WHERE task_id=? ORDER BY attempt DESC LIMIT 1", (bad["task_id"],))
-        out["errors"] = json.loads(err[0][0]) if err else []
-    # a `:local` part that failed while the main part succeeded (0.11.1: it was invisible): its excerpts are shown
-    # with no judgement, and the result says why
-    failed_local = [t for t in groups[-1] if t["task_id"].endswith(":local") and t["status"] == "failed"]
-    if failed_local:
-        err = ws.query("SELECT errors_json FROM results WHERE task_id=? ORDER BY attempt DESC LIMIT 1",
-                       (failed_local[0]["task_id"],))
-        out["local_failed"] = {"passages": sum(len(json.loads(t["payload_json"])["passages"]) for t in failed_local),
-                               "errors": (json.loads(err[0][0]) if err else [])[:5]}
-    _reference_locations(ws, out["passages"])
-    out["who"] = who_says_what(out["passages"])
-    out["disagreements"] = sum(1 for x in out["passages"] if x["second"] and not x["second"]["agrees"])
-    out["references_missing"] = sum(1 for x in out["passages"] if x["reference_missing"] and not x["reviewed"])
-    order = {"supports": 0, "partially_supports": 1, "refutes": 2, None: 3}
-    out["passages"].sort(key=lambda x: (order[x["verdict"]], not x["counted"], -(x["confidence"] or 0), x["n"]))
-    return out
-
-
-def hypothesis_result(ws: Workspace, hyp_id: str, threshold: float | None = None) -> dict:
-    """A hypothesis with the check of each of its parts and its overall status."""
-    thr = _threshold(ws, threshold)
-    rows = ws.query("SELECT * FROM hypotheses WHERE hyp_id=?", (hyp_id,))
-    if not rows:
-        raise KeyError(hyp_id)
-    h = dict(rows[0])
-    part_ids = [r[0] for r in ws.query("SELECT claim_id FROM user_claims WHERE hyp_id=? ORDER BY part, rowid", (hyp_id,))]
-    parts = [result(ws, cid, thr) for cid in part_ids]
-    out = {"hyp_id": hyp_id, "text": h["text"], "framework": h["framework"], "code": h["code"],
-           "created_at": h["created_at"], "options": json.loads(h["options_json"] or "{}"),
-           "decomposed": len(parts) > 1, "model": h["model"] or (parts[0]["model"] if parts else None),
-           "batch_id": h["batch_id"], "note": h["note"], "threshold": thr, "parts": parts,
-           "origin": h.get("origin"), "origin_id": h.get("origin_id"),  # 0.13.6: where it comes from
-           "draft_id": h.get("draft_id")}
-    if h["code"]:
-        try:
-            _fw, _c, out["code_description"], out["code_label"] = frameworks.resolve(ws, h["framework"] or "sdg", h["code"])
-        except ValueError:
-            pass
-    if not parts and h.get("queue") == "waiting":
-        out["status"] = out["status_any"] = "waiting"
-    elif len(parts) == 1:
-        out["status"], out["status_any"] = parts[0]["status"], parts[0]["status_any"]
-    else:
-        out["status"] = aggregate([p["status"] for p in parts])
-        out["status_any"] = aggregate([p["status_any"] for p in parts])
-    vs = []
-    for cid in part_ids:  # 0.14.3: as each part counts them (not the AI's judgements of a round that failed)
-        counts, _failed = _counting(_rounds(ws, cid))
-        vs += [effective(v) for v in ws.query("SELECT passage_id, verdict, confidence, doc_id, user_verdict FROM "
-                                              "verifications WHERE subject_kind='user_claim' AND subject_id=?", (cid,))
-               if counts(v)]
-    out["balance"] = balance(vs, thr)
-    out["documents_in_project"] = int(ws.scalar("SELECT COUNT(*) FROM documents") or 0)
-    out["passages_in_project"] = int(ws.scalar("SELECT COUNT(*) FROM passages") or 0)
-    out["excerpts_read"] = sum(len(p["passages"]) for p in parts)
-    # 0.14.3: a part whose excerpts all wait for your own judgement is not unfinished work of the AI (the result says
-    # how many excerpts wait for you instead)
-    out["incomplete"] = any(p["status"] in ("failed", "not_checked", "waiting") and p.get("status_text") != WAITING_YOU
-                            for p in parts)
-    out["queue"] = h.get("queue")
-    out["status_text"] = STATUS_TEXT.get(out["status"], out["status"])
-    if out["status"] == "waiting" and only_local_waits(ws, hyp_id):
-        out["status_text"] = WAITING_LOCAL  # 0.13.11: not "Waiting for Claude Code" once Claude Code is done
-    elif out["status"] == "not_checked" and any(p.get("status_text") == WAITING_YOU for p in parts) and all(
-            p.get("status_text") == WAITING_YOU for p in parts if p["status"] == "not_checked"):
-        out["status_text"] = WAITING_YOU
-    out["models_used"] = models_used(ws, hyp_id, parts)  # 0.14.3: every model whose answer the check used
-    # 0.11.2: the answer the first model gave, when a stronger model read excerpts again and changed it
-    firsts = [p.get("status_first", p["status"]) for p in parts]
-    out["status_first"] = (firsts[0] if len(firsts) == 1 else aggregate(firsts)) if parts else out["status"]
-    out["status_before_stronger"] = out["status_first"] if out["status_first"] != out["status"] else None
-    st_info = [p["stronger"] for p in parts if p.get("stronger")]
-    out["stronger"] = {"excerpts": sum(x["excerpts"] for x in st_info), "changed": sum(x["changed"] for x in st_info),
-                       "first_models": sorted({m for x in st_info for m in x["first_models"]}),
-                       "models": sorted({m for x in st_info for m in x["models"]})} if st_info else {}
-    for p in parts:
-        p["status_before_stronger"] = p["status_first"] if p.get("status_first", p["status"]) != p["status"] else None
-    out["rationale"] = parts[0]["rationale"] if len(parts) == 1 else None
-    items = [x for p in parts for x in p["passages"]]
-    out["waiting_for_you"] = sum(p["waiting_for_you"] for p in parts)  # 0.11: excerpts no model may read
-    out["waiting_local"] = sum(p["waiting_local"] for p in parts)      # 0.11: excerpts waiting for the local model
-    # 0.14.3: your own judgements (in a shared project a colleague's counts where you made none, but it is not yours:
-    # the Excel columns say "you")
-    yours = lambda x: x["reviewed"] and x["judged_by"] == "you"  # noqa: E731
-    mine = [x for x in items if yours(x)]
-    out["corrected"] = sum(1 for x in mine if x["changed"])  # judgements you changed
-    out["reviewed"] = len(mine)                               # judgements you looked at (agreed or changed)
-    out["to_review"] = len(items) - len(mine)                 # excerpts read that you have not judged yet
-    out["to_review_relevant"] = sum(1 for x in items if x["ai_verdict"] and not yours(x))  # of them, the AI's
-    out["who"] = who_says_what(items)                                                           # grades for or against
-    with_second = [x for x in items if x["second"]]
-    out["second_models"] = sorted({x["second"]["model"] for x in with_second})
-    out["second_read"] = len(with_second)
-    out["disagreements"] = sum(1 for x in with_second if not x["second"]["agrees"])
-    out["disagreements_to_review"] = sum(1 for x in with_second if not x["second"]["agrees"] and not yours(x))
-    out["docs_added_since"] = new_documents(ws, hyp_id)
-    out["docs_added_since_matching"] = sum(1 for d in out["docs_added_since"] if d["matching"])
-    return out
-
-
-MODEL_ROLES = {"decompose": "splitting the hypothesis into parts", "expand": "search words",
-               "check": "judging the excerpts", "stepped": "judging again as the stronger model",
-               "local": "judging the excerpts of documents marked Only a local AI",
-               "reread": "reading an excerpt again"}
-
-
-def models_used(ws: Workspace, hyp_id: str, parts: list[dict]) -> list[dict]:
-    """0.14.3: the models whose accepted answers a check used, in the order they first answered, each with what it did:
-    [{"model", "roles": [...]}], for a methods section. Read from the answers themselves, so a stronger model, the
-    local model for restricted documents, an excerpt read again and a model changed in Settings before Claude Code
-    answered are all named (the check's own record names the model chosen when it started). Second opinions are not
-    in it: they never change an answer."""
-    ids = [f"decompose:{hyp_id}"]
-    for p in parts:
-        ids.append(f"expand:{p['claim_id']}")
-        ids += p.get("rounds_task_ids") or []
-        ids += [r[0] for r in ws.query("SELECT task_id FROM tasks WHERE kind='reread' AND task_id LIKE ?",
-                                       (f"reread:{p['claim_id']}:%",))]
-    rows: list = []
-    for i in range(0, len(ids), 900):  # SQLite's limit on bound parameters
-        chunk = ids[i:i + 900]
-        rows += ws.query("SELECT task_id, kind, model, step, received_at FROM results WHERE valid=1 AND task_id IN "
-                         f"({','.join('?' * len(chunk))})", chunk)
-    rows.sort(key=lambda r: (r["received_at"] or "", r["task_id"]))
-    out: dict[str, list[str]] = {}
-    answered: set[str] = set()  # tasks with an accepted answer before the stronger model's
-    for r in rows:
-        if not r["model"] or r["model"] == PERSON:
-            continue
-        role = r["kind"]
-        if role == "check":
-            # the stronger model reads again only an answered task; one that took the last of three tries after two
-            # rejected answers is the task's first answer
-            again = int(r["step"] or 0) and r["task_id"] in answered
-            role = "local" if r["task_id"].endswith(":local") else "stepped" if again else "check"
-        answered.add(r["task_id"])
-        roles = out.setdefault(r["model"], [])
-        if MODEL_ROLES.get(role) and MODEL_ROLES[role] not in roles:
-            roles.append(MODEL_ROLES[role])
-    return [{"model": m, "roles": rs} for m, rs in out.items()]
-
-
-def models_text(res: dict) -> str:
-    """The models a check used, in words (`models_used`): "sonnet (search words, judging the excerpts); opus (…)".
-    A check no model has answered yet names the model chosen for it."""
-    used = res.get("models_used") or []
-    if not used:
-        return res.get("model") or ""
-    return "; ".join(f"{m['model']} ({', '.join(m['roles'])})" if m["roles"] else m["model"] for m in used)
-
-
-def _second_opinions(ws: Workspace, claim_ids: list[str]) -> dict[str, dict[str, dict]]:
-    """The latest second-model grade of each excerpt: {claim_id: {passage_id: {model, verdict, confidence, ...}}}.
-    `verdict` is None for an excerpt the second model found not about the claim."""
-    out: dict[str, dict[str, dict]] = {}
-    if not claim_ids:
-        return out
-    for r in ws.query(f"SELECT * FROM second_opinions WHERE subject_id IN ({','.join('?' * len(claim_ids))}) "
-                      "ORDER BY at, rowid", claim_ids):
-        graded = r["verdict"] in GRADES
-        out.setdefault(r["subject_id"], {})[r["passage_id"]] = {
-            "model": r["model"], "verdict": r["verdict"] if graded else None,
-            "confidence": r["confidence"] if graded else None, "quote": r["quote"] if graded else None,
-            "scope_note": r["scope_note"] if graded else None, "at": r["at"]}
-    return out
-
-
-def _shown_docs(rounds: list) -> set[str]:
-    return {p["doc_id"] for r in rounds for p in json.loads(r["payload_json"])["passages"]}
-
-
-def new_documents(ws: Workspace, hyp_id: str, matching: bool = True) -> list[dict]:
-    """Documents added to the project after a hypothesis was checked (or after its new documents were last read)
-    that none of its rounds read from: [{doc_id, title, added_at, matching}]. `matching` says whether the document
-    has an excerpt that shares a word with the hypothesis or its search words (keyword search, nothing is read).
-    A check limited to chosen documents has none."""
-    h = ws.query("SELECT created_at, docs_checked_at, options_json FROM hypotheses WHERE hyp_id=?", (hyp_id,))
-    if not h:
-        raise KeyError(hyp_id)
-    if json.loads(h[0]["options_json"] or "{}").get("doc_ids"):
-        return []
-    cutoff = max(h[0]["created_at"] or "", h[0]["docs_checked_at"] or "")
-    claims = [dict(r) for r in ws.query("SELECT claim_id, text, terms_json FROM user_claims WHERE hyp_id=?", (hyp_id,))]
-    rounds = [t for c in claims for t in _check_tasks(ws, c["claim_id"])]
-    seen_docs = _shown_docs(rounds)
-    rows = [d for d in ws.query("SELECT doc_id, title, added_at FROM documents WHERE added_at > ? "
-                                "ORDER BY added_at, title", (cutoff,)) if d["doc_id"] not in seen_docs]
-    hits: set[str] = set()
-    if matching and rows:
-        from .search import docs_matching
-
-        for c in claims:
-            hits |= docs_matching(ws, c["text"], json.loads(c["terms_json"] or "[]"), {d["doc_id"] for d in rows})
-    return [{"doc_id": d["doc_id"], "title": d["title"] or "", "added_at": d["added_at"], "matching": d["doc_id"] in hits}
-            for d in rows]
 
 
 def read_new_documents(ws: Workspace, hyp_id: str, backend, model: str, k: int = 8, embedder=None,
@@ -1986,6 +1262,63 @@ def read_new_documents(ws: Workspace, hyp_id: str, backend, model: str, k: int =
     with ws.connect() as cx:
         cx.execute("UPDATE hypotheses SET docs_checked_at=? WHERE hyp_id=?", (now(), hyp_id))
     return {"hyp_id": hyp_id, "documents": len(new), "matching": len(docs), "passages": total, "rounds": rounds}
+
+
+UNREAD_ROUND_MAX = 40   # N5: the most excerpts one press of *Read these* reads per part
+
+
+def further_round_waits(ws: Workspace, hyp_id: str) -> str | None:
+    """Why a further round of this check cannot start yet, or None: a part still choosing its excerpts, or a round
+    not graded yet (by a helper, a Claude chat or the queue). A further round then would take the place of that
+    part's first round, or fail half-way (review of N5, 0.18.7)."""
+    for c in ws.query("SELECT claim_id, stage FROM user_claims WHERE hyp_id=?", (hyp_id,)):
+        if c["stage"] in ("terms", "rank"):
+            return "This check is still choosing its excerpts: read further once it has finished."
+        groups = _rounds(ws, c["claim_id"])
+        last = _main_part(groups[-1]) if groups else None
+        if last is not None and last["status"] not in ("done", "failed"):
+            return "This check still has excerpts waiting to be judged: read further once they are judged."
+    return None
+
+
+def read_unread_documents(ws: Workspace, hyp_id: str, backend, model: str, k: int = 8, embedder=None,
+                          progress: Progress | None = None, should_stop: Callable[[], bool] | None = None) -> dict:
+    """Roadmap N5 (0.18.7), *Read these*: the documents with the check's search words that it never read
+    (`unread_documents`, its `matching` group), read for every part as a further round limited to them, as for the
+    documents added since (the check is not run again, so a person's reviews are kept). A part limited to some
+    documents reads only those of them. Returns {"hyp_id", "documents", "passages", "rounds"}."""
+    say = _adapt(progress)
+    from .check_results import UNREAD_MIN_WORDS, _unread_split
+    from .search import docs_matching
+
+    wait = further_round_waits(ws, hyp_id)
+    if wait:
+        raise ValueError(wait)
+    split = _unread_split(ws, hyp_id)
+    docs = split[1] if split else set()
+    hyp_limit = set(json.loads(ws.scalar("SELECT options_json FROM hypotheses WHERE hyp_id=?", (hyp_id,)) or "{}")
+                    .get("doc_ids") or [])
+    total, rounds = 0, []
+    for c in ws.query("SELECT claim_id, text, terms_json, options_json FROM user_claims WHERE hyp_id=? "
+                      "ORDER BY part, rowid", (hyp_id,)) if docs else []:
+        limit = set(json.loads(c["options_json"] or "{}").get("doc_ids") or []) or hyp_limit
+        # each part reads the documents that hold its own words, within its limit
+        mine = sorted(docs_matching(ws, c["text"], json.loads(c["terms_json"] or "[]"), docs & limit if limit else docs,
+                                    min_words=UNREAD_MIN_WORDS))
+        if not mine:   # never an empty list: that would mean every document
+            continue
+        # one excerpt per document if need be (up to UNREAD_ROUND_MAX), not only the check's usual k: the button
+        # says "Read these"; what is left over stays on the card for the next press
+        r = continue_check(ws, c["claim_id"], backend, model, k=max(k, min(len(mine), UNREAD_ROUND_MAX)),
+                           embedder=embedder, should_stop=should_stop, doc_ids=mine,
+                           progress=lambda s, m, i=None: say(s, m, i or {}))
+        total += len(r["passages"])
+        rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
+                       "ok": r.get("ok")})
+    after = _unread_split(ws, hyp_id) if rounds else None
+    left = after[1] if after else docs
+    return {"hyp_id": hyp_id, "documents": len(docs), "documents_read": len(docs - left), "left": len(left & docs),
+            "passages": total, "rounds": rounds}
 
 
 def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, second_model: str,
@@ -2038,6 +1371,7 @@ def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, 
         with ws.connect() as cx:
             if st is not None:  # asked again after a failure: three new attempts
                 cx.execute("UPDATE tasks SET status='pending', attempts=0 WHERE task_id=?", (tid,))
+                access.relabel(cx, [tid])  # with its documents' settings of now, not of its first try
                 if tasks.queue_mode():
                     tasks.mark_queued(cx, [tid])
             else:
@@ -2058,207 +1392,67 @@ def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, 
     return out
 
 
-def evidence_map(ws: Workspace, threshold: float | None = None, batch_id: str | None = None,
-                 hyp_ids: list[str] | None = None, cache=None) -> dict:
-    """Which documents say what about which hypotheses, as a grid (computed in a few queries).
-
-    `cells[hyp_id][doc_id]` = {"side": "supports" | "partly" | "refutes" | "both", "excerpts": n}, by the rule of
-    `who_says_what` (judgements that count at this strictness; a person's always count). A hypothesis that rests on
-    one document has `single_document`; a document `decides` an answer when leaving out its excerpts would change
-    that answer, and is `key` when it decides at least two answers and a fifth of them.
-    """
-    thr = _threshold(ws, threshold)
-    if cache is not None and batch_id is None and cache.thr == thr:
-        hs = [h for h in cache.history() if h.get("origin") != "citation"]
-    else:
-        hs = history(ws, thr, batch_id=batch_id)
-    if hyp_ids is not None:
-        keep = set(hyp_ids)
-        hs = [h for h in hs if h["hyp_id"] in keep]
-    want = {h["hyp_id"] for h in hs}
-    claims: dict[str, list[tuple[str, str | None]]] = {}
-    for r in ws.query("SELECT claim_id, hyp_id, stage FROM user_claims ORDER BY part, rowid"):
-        if (r["hyp_id"] or r["claim_id"]) in want:
-            claims.setdefault(r["hyp_id"] or r["claim_id"], []).append((r["claim_id"], r["stage"]))
-    tasks_of: dict[str, list] = {}
-    titles: dict[str, str] = {}
-    for r in ws.query("SELECT task_id, status, payload_json, queued, model FROM tasks WHERE kind='check' "
-                      "ORDER BY created_at, rowid"):
-        cid = r["task_id"].split(":")[1]
-        tasks_of.setdefault(cid, []).append(r)
-        for p in json.loads(r["payload_json"])["passages"]:
-            titles.setdefault(p["doc_id"], p.get("title") or "")
-    # 0.14.3: rounds as the result page and the Results list see them (grouped, a part no model answers neutral,
-    # waiting when a part still waits): the map worked them out on its own and disagreed with both
-    rounds: dict[str, tuple[list[str], bool]] = {}
-    counting: dict[str, Callable] = {}
-    for cid, rows in tasks_of.items():
-        groups = _group_rounds(rows)
-        sts = [_round_status(g) for g in groups]
-        rounds[cid] = (sts, bool(groups) and _round_waiting(groups[-1]))
-        counting[cid] = _counting(groups, sts)[0]  # not the AI's judgements of a round that failed
-    in_project = {r["doc_id"]: r["title"] or "" for r in ws.query("SELECT doc_id, title FROM documents")}
-    titles.update(in_project)
-    ver: dict[str, list[dict]] = {}
-    for v in ws.query("SELECT subject_id, passage_id, verdict, confidence, doc_id, user_verdict, model FROM "
-                      "verifications WHERE subject_kind='user_claim'"):
-        if counting.get(v["subject_id"], lambda _v: True)(v):
-            ver.setdefault(v["subject_id"], []).append(effective(v))
-
-    def status_of(hid: str, leave_out: str | None = None) -> str:
-        sts = []
-        for cid, stage in claims.get(hid, []):
-            vs = [v for v in ver.get(cid, []) if v["doc_id"] != leave_out]
-            rs, wt = rounds.get(cid, ([], False))
-            sts.append(_status_of_rounds(rs, vs, thr, stage, wt))
-        return sts[0] if len(sts) == 1 else aggregate(sts)
-
-    cells: dict[str, dict[str, dict]] = {}
-    answers: dict[str, int] = {}
-    decides: dict[str, int] = {}
-    hyps = []
-    for h in hs:
-        hid = h["hyp_id"]
-        per_doc: dict[str, dict[str, int]] = {}
-        # an answer not given yet (waiting, failed, not judged) is not decided by any document
-        decided = h["status"] not in ("waiting", "failed", "not_checked", "no_passages")
-        for cid, _stage in claims.get(hid, []):
-            for v in ver.get(cid, []):
-                if v["verdict"] in GRADES and v["confidence"] is not None and v["confidence"] >= thr:
-                    c = per_doc.setdefault(v["doc_id"], {"supports": 0, "partially_supports": 0, "refutes": 0})
-                    c[v["verdict"]] += 1
-        row = {}
-        for doc, c in per_doc.items():
-            positive = "supports" if c["supports"] else "partly" if c["partially_supports"] else None
-            side = "both" if positive and c["refutes"] else positive or "refutes"
-            row[doc] = {"side": side, "excerpts": sum(c.values())}
-            answers[doc] = answers.get(doc, 0) + 1
-            if decided and status_of(hid, doc) != h["status"]:
-                decides[doc] = decides.get(doc, 0) + 1
-        cells[hid] = row
-        hyps.append({"hyp_id": hid, "text": h["text"], "status": h["status"],
-                     "status_text": h.get("status_text") or STATUS_TEXT.get(h["status"], h["status"]),
-                     "docs_counted": len(row),
-                     "single_document": len(row) == 1, "batch_id": h["batch_id"]})
-    docs = []
-    for doc in sorted(answers, key=lambda d: (-answers[d], -decides.get(d, 0), titles.get(d, "").lower())):
-        n = decides.get(doc, 0)
-        docs.append({"doc_id": doc, "title": titles.get(doc, ""), "answers": answers[doc], "decides": n,
-                     "key": n >= 2 and n >= 0.2 * max(1, len(hyps)), "in_project": doc in in_project})
-    return {"threshold": thr, "hypotheses": hyps, "documents": docs, "cells": cells,
-            "documents_without_evidence": len(set(in_project) - set(answers))}
-
-
-MAP_SYMBOL = {"supports": "+", "partly": "(+)", "refutes": "−", "both": "±"}
-
-
-def map_table(m: dict) -> list[dict]:
-    """The evidence map as rows for a spreadsheet: one row per hypothesis, one column per document."""
-    rows = []
-    heads = []
-    for d in m["documents"]:
-        name = (d["title"] or d["doc_id"])[:60]
-        while name in heads or name in ("Hypothesis", "Answer", "Documents it rests on"):
-            name += " "
-        heads.append(name)
-    for h in m["hypotheses"]:
-        row = {"Hypothesis": h["text"], "Answer": h["status_text"],
-               "Documents it rests on": h["docs_counted"] if not h["single_document"] else "1 (only one document)"}
-        for d, name in zip(m["documents"], heads):
-            c = m["cells"].get(h["hyp_id"], {}).get(d["doc_id"])
-            row[name] = f"{MAP_SYMBOL[c['side']]} {c['excerpts']}" if c else ""
-        rows.append(row)
-    if rows:
-        rows.append({"Hypothesis": "Key: + supports, (+) partly supports, − contradicts, ± both; the number is how many "
-                                   "excerpts of that document count", "Answer": "", "Documents it rests on": ""})
-    return rows
-
-
-CALIBRATION_BINS = (0.0, 0.5, 0.6, 0.7, 0.8, 0.9)
-
-
-def calibration(ws: Workspace) -> dict:
-    """How often a person agreed with the AI, by how sure the AI was: from the excerpts a person judged that also
-    have an AI judgement for or against. Agreeing means giving the same judgement; marking an AI "supports" as not
-    about the hypothesis is a disagreement. For an excerpt the AI was asked to read again, its first judgement is
-    used (the later ones may follow the person's own hint).
-
-    Returns {"bins": [{"from", "to", "judged", "agreed", "rate"}], "total", "agreed", "suggestion": {"threshold",
-    "reason"} | null, "note"}. The suggestion is the lowest strictness (a bin with at least 3 judgements) from which
-    on you agreed with at least 80% of the AI's judgements, once at least 20 were judged.
-    """
-    rows = []
-    for r in ws.query("SELECT verdict, confidence, user_verdict, ai_history_json FROM verifications "
-                      "WHERE subject_kind='user_claim' AND user_verdict IS NOT NULL"):
-        first = json.loads(r["ai_history_json"] or "[]")
-        if first:  # read again (perhaps with the person's hint): the AI's own first judgement is the one to compare
-            r = {"verdict": first[0].get("verdict"), "confidence": first[0].get("confidence"),
-                 "user_verdict": r["user_verdict"]}
-        if r["verdict"] in GRADES and r["confidence"] is not None:
-            rows.append(r)
-    edges = list(CALIBRATION_BINS) + [1.0000001]
-    bins = [{"from": a, "to": min(1.0, b), "judged": 0, "agreed": 0, "rate": None} for a, b in zip(edges, edges[1:])]
-    for r in rows:
-        c = float(r["confidence"])
-        for b, hi in zip(bins, edges[1:]):
-            if b["from"] <= c < hi:
-                b["judged"] += 1
-                b["agreed"] += int(r["user_verdict"] == r["verdict"])
-                break
-    for b in bins:
-        b["rate"] = round(b["agreed"] / b["judged"], 3) if b["judged"] else None
-    total, agreed = sum(b["judged"] for b in bins), sum(b["agreed"] for b in bins)
-    out = {"bins": bins, "total": total, "agreed": agreed, "suggestion": None, "minimum": 20, "note": ""}
-    if total < 20:
-        out["note"] = f"Judge at least 20 of the AI's judgements to get a suggestion ({total} so far)."
-        return out
-    for i, b in enumerate(bins):
-        if b["from"] < 0.5 or b["judged"] < 3:  # start where there is something to go on
-            continue
-        judged = sum(x["judged"] for x in bins[i:])
-        ok = sum(x["agreed"] for x in bins[i:])
-        if judged and ok / judged >= 0.8:
-            out["suggestion"] = {"threshold": b["from"],
-                                 "reason": f"When the AI was at least {round(b['from'] * 100)}% sure, you agreed with it in "
-                                           f"{round(100 * ok / judged)}% of the {judged} excerpts you judged."}
-            break
-    if out["suggestion"] is None:
-        out["note"] = "Even when the AI was very sure, you agreed with it less than 80% of the time: keep reviewing."
-    return out
-
-
 def history(ws: Workspace, threshold: float | None = None, limit: int | None = None, query: str | None = None,
-            status: str | None = None, batch_id: str | None = None, citations: bool = False) -> list[dict]:
+            status: str | None = None, batch_id: str | None = None, _checks: dict | None = None,
+            citations: bool = False) -> list[dict]:
     """Every hypothesis checked in the project, newest first, with its status (computed in a few queries).
     0.13.7: the checks of citations are left out (they are on the Citations page), unless `citations`.
 
     `supports`, `partly`, `refutes` count the excerpts whose judgement counts at this threshold; `uncounted` the
-    judged excerpts below it; `docs_*` count documents as on the result page.
+    judged excerpts below it; `docs_*` count documents as on the result page. With `limit`, the checks and
+    judgements of each hypothesis are read as it is reached, so a short list does not read every check.
+    `_checks`: every claim's check tasks already read (`_light_checks`, by `evidence_map`).
     """
     thr = _threshold(ws, threshold)
     hyps = ws.query("SELECT * FROM hypotheses ORDER BY created_at DESC, rowid DESC")
     claims: dict[str, list] = {}
     for r in ws.query("SELECT claim_id, hyp_id, part, model, options_json, stage FROM user_claims ORDER BY part, rowid"):
         claims.setdefault(r["hyp_id"] or r["claim_id"], []).append(r)
-    rounds: dict[str, list] = {}
-    for r in ws.query("SELECT task_id, status, payload_json, queued, model FROM tasks WHERE kind='check' "
-                      "ORDER BY created_at, rowid"):
-        cid = r["task_id"].split(":")[1]
-        rounds.setdefault(cid, []).append(r)
+    rounds: dict[str, list] = _checks if _checks is not None else {}
     ver: dict[str, list] = {}
     ai_of: dict[tuple[str, str], str | None] = {}
     first_of: dict[str, list] = {}  # 0.11.2: the excerpts as the first model judged them, where a stronger one read again
-    for v in ws.query("SELECT subject_id, passage_id, verdict, confidence, doc_id, user_verdict, model, ai_history_json "
-                      "FROM verifications WHERE subject_kind='user_claim'"):
-        f = first_reading(v)
-        if f is not None:
-            first_of.setdefault(v["subject_id"], []).append(effective(f))
-        e = effective(v)
-        e["_mine"] = bool(v["user_verdict"])
-        e["_changed"] = changed_by_person(v) and e["_mine"]
-        e["_ai_judged"] = v["verdict"] in ("supports", "partially_supports", "refutes")
-        ver.setdefault(v["subject_id"], []).append(e)
-        ai_of[(v["subject_id"], v["passage_id"])] = v["verdict"] if v["verdict"] in GRADES else None
+    from .docrole import nonscientific_docs
+
+    nonsci = nonscientific_docs(ws)  # 0.18.6: their judgements are shown, never counted (verdicts.set_aside)
+    ver_all: dict[str, list] = {}    # with them counted, for the status text (only when there are any)
+    # 0.19.0 (K3): the hypotheses that count them in their own check, and their parts (nothing is set aside there)
+    from .nonscientific import counting_hyps
+
+    counting_all = counting_hyps(ws)
+    counting = counting_all if nonsci else set()
+    counting_cids = {c["claim_id"] for hid in counting for c in claims.get(hid, [])}
+
+    def load(cids: list[str] | None) -> None:
+        """The check tasks and judgements of these claims (of all, with None)."""
+        if _checks is None:
+            rounds.update(_light_checks(ws, cids))
+        sql = ("SELECT subject_id, passage_id, verdict, confidence, doc_id, user_verdict, model, ai_history_json "
+               "FROM verifications WHERE subject_kind='user_claim'")
+        if cids is None:
+            vs = ws.query(sql)
+        else:
+            vs = [v for cid in cids for v in ws.query(sql + " AND subject_id=?", (cid,))]
+        for v in vs:
+            ns = nonsci if v["subject_id"] not in counting_cids else None
+            f = first_reading(v)
+            if f is not None:
+                ef = effective(f)
+                first_of.setdefault(v["subject_id"], []).append(
+                    {**set_aside([ef], ns)[0], "_counts_as": ef} if ns else ef)
+            e = effective(v)
+            if ns:
+                ver_all.setdefault(v["subject_id"], []).append(e)
+                e = set_aside([e], ns)[0]
+                e["_counts_as"] = v  # the row as it was: whether it counts is asked of it (_counting needs user_verdict)
+            e["_mine"] = bool(v["user_verdict"])  # Margin has one person: every judgement is yours
+            e["_changed"] = changed_by_person(v) and e["_mine"]
+            e["_ai_judged"] = v["verdict"] in ("supports", "partially_supports", "refutes")
+            ver.setdefault(v["subject_id"], []).append(e)
+            ai_of[(v["subject_id"], v["passage_id"])] = v["verdict"] if v["verdict"] in GRADES else None
+
+    if not limit:
+        load(None)
     second: dict[tuple[str, str], str | None] = {}  # the latest second-model grade of each excerpt
     for r in ws.query("SELECT subject_id, passage_id, verdict FROM second_opinions ORDER BY at, rowid"):
         second[(r["subject_id"], r["passage_id"])] = r["verdict"] if r["verdict"] in GRADES else None
@@ -2286,7 +1480,10 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
         if batch_id and h["batch_id"] != batch_id:
             continue
         parts = claims.get(h["hyp_id"], [])
+        if limit:
+            load([c["claim_id"] for c in parts])
         st, st_any, st_first, counts, read = [], [], [], {"supports": 0, "partially_supports": 0, "refutes": 0}, 0
+        st_all: list[str] = []  # 0.18.6: counting the Non-scientific documents too
         all_vs = []
         uncounted = corrected = reviewed = to_review = disagree = 0
         shown_docs: set[str] = set()
@@ -2297,31 +1494,34 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
             groups = _group_rounds(rs)  # by round, as the result page does (0.11.1: the two disagreed on "waiting")
             sts = [_round_status(g) for g in groups]
             counts_, _failed = _counting(groups, sts)  # 0.14.3: not the AI's judgements of a round that failed
-            vs = [v for v in ver.get(c["claim_id"], []) if counts_(v)]
+            vs = [v for v in ver.get(c["claim_id"], []) if counts_(v.get("_counts_as", v))]
             all_vs += vs
             wt = bool(groups) and _round_waiting(groups[-1])
             st.append(_status_of_rounds(sts, vs, thr, c["stage"], wt))
+            st_all.append(_status_of_rounds(sts, [v for v in ver_all.get(c["claim_id"], []) if counts_(v)], thr,
+                                            c["stage"], wt) if c["claim_id"] in ver_all else st[-1])
             for_you.append(st[-1] == "not_checked" and "done" in sts and any(_waits_for_person(v) for v in vs))
             st_any.append(_status_of_rounds(sts, vs, 0.0, c["stage"], wt))
             if c["claim_id"] in first_of:  # the stepped-up excerpts as first judged, the others as they are
                 firsts = {(x["passage_id"]) for x in first_of[c["claim_id"]]}
-                vf = [x for x in first_of[c["claim_id"]] if counts_(x)] + [x for x in vs if x["passage_id"] not in firsts]
+                vf = [x for x in first_of[c["claim_id"]] if counts_(x.get("_counts_as", x))] + \
+                     [x for x in vs if x["passage_id"] not in firsts]
                 st_first.append(_status_of_rounds(sts, vf, thr, c["stage"], wt))
             else:
                 st_first.append(st[-1])
             for r in rs:
-                shown = json.loads(r["payload_json"])["passages"]
+                shown = _excerpts(r)
                 read += len(shown)
-                for p in shown:
-                    shown_docs.add(p["doc_id"])
-                    key = (c["claim_id"], p["passage_id"])
+                for pid, did, *_title in shown:
+                    shown_docs.add(did)
+                    key = (c["claim_id"], pid)
                     if key in second and second[key] != ai_of.get(key):
                         disagree += 1
             limited = limited or bool(json.loads(c["options_json"] or "{}").get("doc_ids"))
             for v in ver.get(c["claim_id"], []):
                 corrected += v["_changed"]
                 reviewed += v["_mine"]  # 0.14.3: your own judgements, as on the result and in Excel
-                if v["verdict"] in counts and counts_(v):
+                if v["verdict"] in counts and counts_(v.get("_counts_as", v)):
                     if (v["confidence"] or 0) >= thr:
                         counts[v["verdict"]] += 1
                     else:
@@ -2342,14 +1542,20 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
         since = 0 if limited else sum(1 for at, d in added[bisect.bisect_right(added, (cutoff, "\uffff")):]
                                       if d not in shown_docs)
         st_text = None
-        if s == "waiting" and only_local_waits(ws, h["hyp_id"]):
+        if s == "waiting" and _only_local([c for c in parts if c["hyp_id"] == h["hyp_id"]],
+                                          lambda cid: rounds.get(cid, [])):  # only_local_waits, from what is read
             st_text = WAITING_LOCAL
         elif s == "not_checked" and any(for_you) and all(y for y, x in zip(for_you, st) if x == "not_checked"):
             st_text = WAITING_YOU
+        elif st_all and nonsci_text(s, st_all[0] if len(st_all) == 1 else aggregate(st_all)):
+            st_text = UNSUPPORTED_NONSCI  # 0.18.6: only Non-scientific documents speak to it
         out.append({"hyp_id": h["hyp_id"], "claim_id": first["claim_id"], "created_at": h["created_at"],
                     "claim": h["text"], "text": h["text"], "framework": h["framework"] or "", "target": h["code"] or "",
                     "code": h["code"] or "", "code_label": label(h["framework"]) if h["code"] else "", "status": s,
                     "status_text": st_text,
+                    # 0.18.6: the answer counting the Non-scientific documents too
+                    "status_all_sources": (st_all[0] if len(st_all) == 1 else aggregate(st_all)) if st_all else s,
+                    "count_nonscientific": h["hyp_id"] in counting_all,  # 0.19.0 (K3): its own setting
                     "status_any": st_any[0] if len(st_any) == 1 else aggregate(st_any),
                     "supports": counts["supports"], "partly": counts["partially_supports"], "refutes": counts["refutes"],
                     "uncounted": uncounted, "corrected": corrected, "reviewed": reviewed, "to_review": to_review,
@@ -2365,484 +1571,6 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
     if batch_id:
         out.reverse()  # a set reads in the order it was typed
     return out
-
-
-def export_rows(ws: Workspace, threshold: float | None = None) -> list[dict]:
-    """One row per graded passage of every check (one row for a check with no grade), for a spreadsheet."""
-    rows = []
-    for h in history(ws, threshold):
-        res = hypothesis_result(ws, h["hyp_id"], threshold)
-        for part in res["parts"]:
-            graded = [p for p in part["passages"] if p["verdict"] or p["user_verdict"]] or [None]
-            for p in graded:
-                rows.append({"hyp_id": res["hyp_id"], "claim_id": part["claim_id"], "checked_at": res["created_at"],
-                             "hypothesis": res["text"], "part": part["part"], "claim": part["claim"],
-                             "framework": res["framework"] or "", "target": res["code"] or "", "status": res["status"],
-                             "part_status": part["status"], "model": h["model"],
-                             "verdict": (p["verdict"] or "") if p else "", "ai_verdict": (p["ai_verdict"] or "") if p else "",
-                             "confidence": p["confidence"] if p and p["confidence"] is not None else "",
-                             "counted": (int(p["counted"]) if p else ""),
-                             "user_verdict": (p["user_verdict"] or "") if p else "",
-                             "user_note": (p["user_note"] or "") if p else "",
-                             "quote": (p["quote"] or "") if p else "", "source": p["title"] if p else "",
-                             "page": (p["page"] or "") if p else "", "location": (p["location"] or "") if p else "",
-                             "found_by": p["found_by"] if p else "", "note": res["note"] or ""})
-    return rows
-
-
-def hypothesis_rows(res: dict) -> list[dict]:
-    """The rows of one hypothesis result for CSV: every passage read, graded or not."""
-    out = []
-    for part in res["parts"]:
-        for p in part["passages"]:
-            out.append({"hypothesis": res["text"], "status": res["status"], "part": part["part"], "claim": part["claim"],
-                        "part_status": part["status"], "verdict": p["verdict"] or "", "ai_verdict": p["ai_verdict"] or "",
-                        "confidence": p["confidence"] if p["confidence"] is not None else "", "counted": int(p["counted"]),
-                        "user_verdict": p["user_verdict"] or "", "user_note": p["user_note"] or "",
-                        "quote": p["quote"] or "", "source": p["title"], "page": p["page"] or "",
-                        "location": p["location"] or "", "found_by": p["found_by"], "note": res["note"] or ""})
-    return out
-
-
-JUDGEMENT_TEXT = {"supports": "Supports", "partially_supports": "Partly supports", "refutes": "Contradicts",
-                  "not_relevant": "Not about the hypothesis", None: "Not about the hypothesis"}
-
-
-def _local_time(iso: str | None) -> str:
-    import datetime as _dt
-
-    try:
-        return _dt.datetime.fromisoformat(iso).astimezone().strftime("%Y-%m-%d %H:%M")
-    except (TypeError, ValueError):
-        return iso or ""
-
-
-def _local_dt(iso: str | None):
-    """A local date and time (without zone) that Excel shows as a date; the text as given if it is not one."""
-    import datetime as _dt
-
-    try:
-        return _dt.datetime.fromisoformat(iso).astimezone().replace(tzinfo=None, microsecond=0)
-    except (TypeError, ValueError):
-        return iso or ""
-
-
-class ResultCache:
-    """The history and the results of a project at one strictness, computed once for an Excel file (0.11.1: the
-    sheets of one download each ran the history and every hypothesis's result again, two or three times over)."""
-
-    def __init__(self, ws: Workspace, threshold: float | None = None):
-        self.ws = ws
-        self.thr = _threshold(ws, threshold)
-        self._history: list[dict] | None = None
-        self._results: dict[str, dict] = {}
-
-    def history(self) -> list[dict]:
-        """Every check, the checks of citations too (0.13.7): the Results downloads leave those out themselves."""
-        if self._history is None:
-            self._history = history(self.ws, self.thr, citations=True)
-        return self._history
-
-    def result(self, hyp_id: str) -> dict:
-        if hyp_id not in self._results:
-            self._results[hyp_id] = hypothesis_result(self.ws, hyp_id, self.thr)
-        return self._results[hyp_id]
-
-
-def export_table(ws: Workspace, threshold: float | None = None, hyp_ids: list[str] | None = None,
-                 every_excerpt: bool = True, cache: ResultCache | None = None) -> list[dict]:
-    """Rows for a spreadsheet a person will read: the app's own words, local times, notes and corrections.
-
-    One row per excerpt read, the ones judged not about the hypothesis included (without `every_excerpt`, only the
-    judged ones); a hypothesis without any excerpt still gets one row.
-    """
-    cache = cache or ResultCache(ws, threshold)
-    ids = hyp_ids if hyp_ids is not None else [h["hyp_id"] for h in cache.history() if h.get("origin") != "citation"]
-    rows = []
-    results = [cache.result(hid) for hid in ids]
-    seconds = any(r["second_read"] for r in results)  # columns for a second model only when one was asked
-    for res in results:
-        n_parts = len(res["parts"])
-        for part in res["parts"]:
-            chosen = [p for p in part["passages"] if every_excerpt or p["verdict"] or p["user_verdict"]] or [None]
-            for p in chosen:
-                # 0.14.3: an excerpt no AI judged (its document may not be read by any AI, or its part waits or
-                # failed) says so, instead of "Judged by: the AI / Not about the hypothesis"
-                unread = not_read_text(p) if p else None
-                # an excerpt of a round whose check failed: nothing the AI said about it counts
-                failed = bool(p and p.get("round_failed") and not p["user_verdict"])
-                judged_by = ((p.get("judged_by") or "you") if p["user_verdict"] else
-                             "nobody: the check did not work" if failed else
-                             "nobody yet" if unread else "the AI") if p else ""
-                judgement = ("Not counted: the check did not work" if failed else
-                             "Not judged yet" if unread and not p["user_verdict"]
-                             else JUDGEMENT_TEXT.get(p["verdict"], "")) if p else ""
-                if p and p.get("round_failed") and not unread:
-                    unread = f"{JUDGEMENT_TEXT.get(p['ai_verdict'])} (not counted: the check did not work)"
-                cert = certainty_word(p["confidence"]) if p and p["ai_verdict"] else ""
-                rows.append({
-                    "Checked on": _local_dt(res["created_at"]),
-                    "Hypothesis": res["text"],
-                    "Answer": res.get("status_text") or STATUS_TEXT.get(res["status"], res["status"]),
-                    "Part": f"{part['part']} of {n_parts}" if n_parts > 1 else "",
-                    "Part checked": part["claim"] if n_parts > 1 else "",
-                    "Answer for this part": _part_text(part) if n_parts > 1 else "",
-                    "Judgement": judgement,
-                    "Judged by": judged_by,
-                    "AI's own judgement": (unread or JUDGEMENT_TEXT.get(p["ai_verdict"])) if p else "",
-                    "AI certainty": f"{cert} ({round(p['confidence'] * 100)}%)" if cert else "",
-                    "Counted in the answer": ("yes" if p["counted"] else "no") if p else "",
-                    "Quote": (p["quote"] or "") if p else "",
-                    "Quote chosen by": (p["quote_by"] or "") if p and p["quote"] else "",
-                    "Document": p["title"] if p else "",
-                    "Where": (p["location"] or "") if p else "",
-                    "Your comment on this excerpt": (p["user_note"] or "") if p else "",
-                    "About another group (AI's note)": (p["scope_note"] or "") if p else "",
-                    "What the quote refers to (AI)": (f"{p['refers_to']} ({p['refers_location']})" if p["refers_location"]
-                                                      else p["refers_to"]) if p and p.get("refers_to") else "",
-                    "Words that found this excerpt": ", ".join(p.get("matched") or []) if p else "",
-                    "AI's earlier judgement (before reading it again)": _earlier(p) if p else "",
-                    "Excerpt (the text the AI read)": p["text"] if p else "",
-                    "Your notes on this result": res["note"] or "",
-                    "Code": f"{res.get('code_label') or ''} {res['code']}".strip() if res["code"] else "",
-                })
-                if seconds:
-                    so = p["second"] if p else None
-                    rows[-1].update({
-                        "Second model": so["model"] if so else "",
-                        "Second model's judgement": JUDGEMENT_TEXT.get(so["verdict"]) if so else "",
-                        "Second model's certainty": (f"{certainty_word(so['confidence'])} ({round(so['confidence'] * 100)}%)"
-                                                     if so and so["confidence"] is not None else ""),
-                        "The two models agree": ("yes" if so["agrees"] else "no") if so else "",
-                    })
-    return rows
-
-
-def not_read_text(p: dict) -> str | None:
-    """0.14.3: why no AI judged an excerpt of a result (`result` passages), in words for a spreadsheet; None when a
-    model did judge it."""
-    if p.get("ai_read", True):
-        return None
-    if p.get("read_by") == "you":  # marked No AI (or Only a local AI, with no local model)
-        return "Not read by an AI: kept for your own judgement"
-    if p.get("waiting_local"):
-        return "Not read yet: it waits for your local model"
-    if p.get("read_by") == "waiting":
-        return "Not read yet: it waits for the AI"
-    return "Not read: the AI's answer could not be used"
-
-
-def _part_text(part: dict) -> str:
-    """A part's answer in words, as the result page says it."""
-    return part.get("status_text") or STATUS_TEXT.get(part["status"], part["status"])
-
-
-def _earlier(p: dict) -> str:
-    """The AI's first judgement of an excerpt it was asked to read again: "Supports (75%)"."""
-    if not p.get("ai_history"):
-        return ""
-    h = p["ai_history"][0]
-    return JUDGEMENT_TEXT.get(h["verdict"]) + (f" ({round(h['confidence'] * 100)}%)" if h.get("confidence") is not None else "")
-
-
-def strictness_text(thr: float) -> str:
-    """The strictness as the app words it."""
-    word = "relaxed" if thr <= 0.55 else "normal" if thr <= 0.65 else "strict" if thr <= 0.8 else "very strict"
-    return f"{word}: judgements count if the AI was at least {round(thr * 100)}% sure; yours always count"
-
-
-def summary_table(ws: Workspace, threshold: float | None = None, hyp_ids: list[str] | None = None,
-                  cache: ResultCache | None = None) -> list[dict]:
-    """One row per hypothesis, in the app's words: the answer, who says what, and how much a person reviewed."""
-    cache = cache or ResultCache(ws, threshold)
-    thr = cache.thr
-    rows = []
-    wanted = set(hyp_ids) if hyp_ids is not None else None
-    for h in cache.history():
-        if (h["hyp_id"] not in wanted) if wanted is not None else h.get("origin") == "citation":
-            continue  # the Results download leaves the checks of citations out; a citation's own download keeps it
-        res = cache.result(h["hyp_id"])
-        parts = res["parts"]
-        rows.append({
-            "Checked on": _local_dt(res["created_at"]),
-            "Hypothesis": res["text"],
-            "Answer": res.get("status_text") or STATUS_TEXT.get(res["status"], res["status"]),
-            # 0.11.2: a stronger model read the excerpts again and its reading changed the answer
-            "Answer before a stronger model read it again": STATUS_TEXT.get(res["status_before_stronger"], "")
-            if res.get("status_before_stronger") else "",
-            "Answer for each part": "; ".join(f"{i}. {p['claim']}: {_part_text(p)}"
-                                              for i, p in enumerate(parts, 1)) if len(parts) > 1 else "",
-            "Documents that support it": res["balance"]["docs_supporting"],
-            "Documents that partly support it": res["balance"]["docs_partly"],
-            "Documents that contradict it": res["balance"]["docs_refuting"],
-            "Excerpts that count": h["supports"] + h["partly"] + h["refutes"],
-            "Excerpts too uncertain to count": h["uncounted"],
-            "Excerpts read": h["passages_read"],
-            "Judgements you reviewed": res["reviewed"],
-            "Judgements you changed": res["corrected"],
-            "Excerpts not reviewed by you yet": res["to_review"],
-            "Excerpts where the second opinion differs": res["disagreements"] if res["second_read"] else "",
-            "Documents added since the check": len(res["docs_added_since"]),
-            "Your notes on this result": res["note"] or "",
-            "Code": f"{res.get('code_label') or ''} {res['code']}".strip() if res["code"] else "",
-            "Strictness": strictness_text(thr),
-            # 0.14.3: every model whose answers the check used (a stronger model, the local model), from the answers
-            "AI model used (for a methods section)": models_text(res),
-        })
-    return rows
-
-
-def write_xlsx(rows: list[dict], path_or_buffer, title: str = "Results", summary: list[dict] | None = None,
-               extra: list[tuple[str, list[dict]]] | None = None) -> None:
-    """A tidy Excel file: bold header, wrapped long columns, frozen header row, filters. With `summary`, a first sheet
-    "Summary" (one row per hypothesis) comes before the sheet of excerpts; `extra` sheets (name, rows) follow it."""
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font
-    from openpyxl.utils import get_column_letter
-
-    widths = {"Hypothesis": 50, "Part checked": 40, "Quote": 70, "Document": 40, "Your comment on this excerpt": 40,
-              "Your notes on this result": 40, "Excerpt (the text the AI read)": 90, "Answer for each part": 60,
-              "Strictness": 40, "About another group (AI's note)": 30, "What the quote refers to (AI)": 30,
-              "Words that found this excerpt": 25, "Reason": 40, "Representative passages": 90,
-              "Name": 30, "Key terms": 40, "Description": 50, "Left": 45, "Right": 45}
-    wb = Workbook()
-    sheets = ([("Summary", summary)] if summary is not None else []) + [(title, rows)] + list(extra or [])
-    for i, (name, data) in enumerate(sheets):
-        sh = wb.active if i == 0 else wb.create_sheet()
-        sh.title = name[:31]
-        headers = list(data[0]) if data else ["Hypothesis", "Answer"]
-        sh.append(headers)
-        for c in sh[1]:
-            c.font = Font(bold=True)
-        for r in data:
-            sh.append([r.get(h, "") for h in headers])
-        for j, h in enumerate(headers, 1):
-            sh.column_dimensions[get_column_letter(j)].width = widths.get(h, max(12, min(30, len(h) + 2)))
-            if h == "Checked on":
-                sh.column_dimensions[get_column_letter(j)].width = 17
-                for cell in sh[get_column_letter(j)][1:]:
-                    cell.number_format = "yyyy-mm-dd hh:mm"
-            if h in widths:
-                for cell in sh[get_column_letter(j)][1:]:
-                    cell.alignment = Alignment(wrap_text=True, vertical="top")
-        sh.freeze_panes = "A2"
-        if data:
-            sh.auto_filter.ref = sh.dimensions
-    wb.save(path_or_buffer)
-
-
-_KEEP = object()
-
-
-def set_judgement(ws: Workspace, claim_id: str, passage_id: str, verdict: str | None, note: str | None = None,
-                  quote=_KEEP) -> None:
-    """A person's own judgement of an excerpt the AI read. It replaces the AI's in the answer (and always counts);
-    `verdict` None removes it. The AI's judgement is kept and shown beside it. With `verdict` None and a `note`,
-    only the comment is kept: a comment alone is not a judgement (it does not count as agreeing with the AI).
-
-    `quote` is the sentence the person points to (text of this excerpt, found as quotes are); it is shown and exported
-    instead of the AI's quote. Left out, an earlier one is kept; None or "" removes it.
-    """
-    if verdict is not None and verdict not in USER_VERDICTS:
-        raise ValueError(f"The judgement must be one of {', '.join(USER_VERDICTS)} (or empty to remove yours).")
-    with ws.connect() as cx:
-        row = cx.execute("SELECT v.user_quote, v.user_start, v.user_end, p.text, p.start, p.doc_id, p.end FROM "
-                         "verifications v LEFT JOIN passages p ON p.passage_id=v.passage_id WHERE "
-                         "v.subject_kind='user_claim' AND v.subject_id=? AND v.passage_id=?",
-                         (claim_id, passage_id)).fetchone()
-        if row is None:
-            raise KeyError(f"{claim_id}/{passage_id}")
-        uq, us, ue = row[0], row[1], row[2]
-        if not verdict:
-            uq = us = ue = None
-        elif quote is not _KEEP:
-            q = (quote or "").strip()
-            if not q:
-                uq = us = ue = None
-            else:
-                text, base = row[3], row[4]
-                kept = None  # 0.15: an excerpt kept from an earlier reading of its document (Read with the new reader)
-                for t in _check_tasks(ws, claim_id):
-                    for p in json.loads(t["payload_json"])["passages"]:
-                        if p["passage_id"] == passage_id and (text is None or p.get("reader") is not None):
-                            kept = p
-                if kept is not None:  # the sentence is chosen in the excerpt as it was shown, the check's record
-                    text, base = kept["text"], None
-                hit = find_selection(text or "", q)  # 0.14.3: a selection cutting a word is widened to whole words
-                if not hit:
-                    raise ValueError("The sentence must be text from this excerpt (select it in the excerpt).")
-                uq = (text or "")[hit[0]:hit[1]]
-                us, ue = (base + hit[0], base + hit[1]) if base is not None else (None, None)
-                if kept is not None and row[3] is not None:  # its place in the document as it reads now, if any
-                    from .reread import find_near
-
-                    us, ue = (find_near(cx, row[5], text, hit[0], hit[1], row[4], row[6], kept.get("anchor"))
-                              or (None, None))
-        comment = (note or "").strip()[:2000] or None
-        was = cx.execute("SELECT user_verdict, user_note, user_quote FROM verifications WHERE subject_kind='user_claim' "
-                         "AND subject_id=? AND passage_id=?", (claim_id, passage_id)).fetchone()
-        if tuple(was or (None, None, None)) != ((verdict or None), comment, (uq if verdict else None)):
-            from . import history  # 0.16: your judgements in the check as they were, to compare and restore
-
-            hyp = cx.execute("SELECT COALESCE(hyp_id, claim_id) FROM user_claims WHERE claim_id=?",
-                             (claim_id,)).fetchone()
-            if hyp:
-                history.snapshot(ws, cx, "check", hyp[0], "your judgement of an excerpt")
-        cx.execute("UPDATE verifications SET user_verdict=?, user_note=?, user_at=?, user_quote=?, user_start=?, "
-                   "user_end=? WHERE subject_kind='user_claim' AND subject_id=? AND passage_id=?",
-                   (verdict, comment, now() if verdict or comment else None, uq, us, ue, claim_id, passage_id))
-
-
-def reread_excerpt(ws: Workspace, claim_id: str, passage_id: str, backend, model: str, note: str | None = None,
-                   progress: Progress | None = None, should_stop: Callable[[], bool] | None = None,
-                   readers=None) -> dict:
-    """Ask the AI to read one excerpt again, alone, with the check prompt; a person's comment (`note`, or the
-    comment saved with their judgement) is added as a hint. The new judgement replaces the AI's for this excerpt;
-    the earlier ones are kept (`ai_history` in `result`). A person's own judgement is not changed and still counts.
-
-    Returns {"before": {verdict, confidence}, "after": {verdict, confidence, scope_note}, "ok": bool}.
-    """
-    say = _adapt(progress)
-    _stopper(should_stop)()
-    uc = ws.query("SELECT * FROM user_claims WHERE claim_id=?", (claim_id,))
-    if not uc:
-        raise KeyError(claim_id)
-    uc = dict(uc[0])
-    shown = None
-    for t in _check_tasks(ws, claim_id):
-        for p in json.loads(t["payload_json"])["passages"]:
-            if p["passage_id"] == passage_id:
-                shown = (t, p)
-    if shown is None:
-        raise KeyError(f"{claim_id}/{passage_id}")
-    rnd, p = shown
-    v = ws.query("SELECT * FROM verifications WHERE subject_kind='user_claim' AND subject_id=? AND passage_id=?",
-                 (claim_id, passage_id))
-    v = dict(v[0]) if v else None
-    if note is None and v:
-        note = v.get("user_note")
-    # 0.11: the excerpt is read again by a model its document's setting allows: the main one, or the local model
-    level = access.levels(ws, [p["doc_id"]]).get(p["doc_id"], "none")
-    reader = _readers(backend, model, readers).for_level(level)
-    if reader is None:
-        raise ValueError("This excerpt's document is marked No AI: no model may read it. Give your own judgement."
-                         if level == "none" else "This excerpt's document is marked Only a local AI, and no local "
-                         "model is chosen for such documents (Settings → AI). Give your own judgement, or choose one.")
-    backend, model = reader
-    used = _used(backend, model)
-    payload = _payload(ws, claim_id, uc["text"], uc["target"], uc.get("framework"), [p])
-    if (note or "").strip():
-        payload["reader_note"] = " ".join(note.split())[:1000]
-    payload["previous_at"] = ws.scalar("SELECT received_at FROM results WHERE task_id=? AND valid=1 ORDER BY attempt DESC "
-                                       "LIMIT 1", (rnd["task_id"],))
-    n = int(ws.scalar("SELECT COUNT(*) FROM tasks WHERE kind='reread' AND task_id LIKE ?",
-                      (f"reread:{claim_id}:{passage_id}:%",)) or 0) + 1
-    tid = f"reread:{claim_id}:{passage_id}:{n}"
-    if n > 1:
-        payload["previous_at"] = ws.scalar("SELECT received_at FROM results WHERE task_id=? AND valid=1 ORDER BY attempt "
-                                           "DESC LIMIT 1", (f"reread:{claim_id}:{passage_id}:{n - 1}",)) or payload["previous_at"]
-    _add_task(ws, tid, "reread", used, payload)
-    say("grade", "The AI is reading the excerpt again", {})
-    before = {"verdict": v["verdict"] if v and v["verdict"] in GRADES else None,
-              "confidence": v["confidence"] if v and v["verdict"] in GRADES else None}
-    try:
-        ok, _errs = tasks.run_one(ws, tid, backend, model)
-    except BaseException:
-        with ws.connect() as cx:  # stopped: nothing changes, and it can be asked again
-            cx.execute("DELETE FROM results WHERE task_id=?", (tid,))
-            cx.execute("DELETE FROM tasks WHERE task_id=?", (tid,))
-        raise
-    now_v = ws.query("SELECT verdict, confidence, scope_note FROM verifications WHERE subject_kind='user_claim' AND "
-                     "subject_id=? AND passage_id=?", (claim_id, passage_id))
-    after = ({"verdict": now_v[0]["verdict"] if now_v[0]["verdict"] in GRADES else None,
-              "confidence": now_v[0]["confidence"] if now_v[0]["verdict"] in GRADES else None,
-              "scope_note": now_v[0]["scope_note"],
-              "rationale": json.loads(ws.scalar("SELECT reread_json FROM verifications WHERE subject_kind='user_claim' "
-                                                "AND subject_id=? AND passage_id=?", (claim_id, passage_id)) or "{}"
-                                      ).get("rationale")} if now_v and ok else None)
-    say("grade_done", "Read again; the quote was checked against the document" if ok else
-        "The AI's answers could not be used, even after three tries; its earlier judgement stays", {"ok": ok})
-    return {"claim_id": claim_id, "passage_id": passage_id, "ok": ok, "before": before, "after": after}
-
-
-def more_available(ws: Workspace, claim_id: str, semantic: bool = False) -> bool:
-    """Whether reading further would find any excerpt not read yet: with keywords, one that shares a word with the
-    claim or the words searched so far; with semantic search (`semantic`), any readable excerpt not read yet."""
-    uc = ws.query("SELECT * FROM user_claims WHERE claim_id=?", (claim_id,))
-    if not uc:
-        raise KeyError(claim_id)
-    uc = dict(uc[0])
-    seen = {p["passage_id"] for r in _check_tasks(ws, claim_id) for p in json.loads(r["payload_json"])["passages"]}
-    opts = json.loads(uc["options_json"] or "{}")
-    docs = set(opts.get("doc_ids") or [])
-    if semantic:
-        idx = passage_index(ws)
-        return any(pid not in seen and (not docs or d in docs) for pid, d in zip(idx.ids, idx.doc_of))
-    return bool(rank_passages(ws, uc["text"], json.loads(uc["terms_json"] or "[]"), k=1,
-                              doc_ids=list(docs) or None, exclude=seen))
-
-
-def delete_claim(ws: Workspace, claim_id: str, why: str | None = None, _log: bool = True) -> None:
-    with ws.connect() as cx:
-        hyp = cx.execute("SELECT hyp_id FROM user_claims WHERE claim_id=?", (claim_id,)).fetchone()
-        cx.execute("DELETE FROM verifications WHERE subject_kind='user_claim' AND subject_id=?", (claim_id,))
-        for tid in (f"expand:{claim_id}", f"check:{claim_id}"):
-            cx.execute("DELETE FROM results WHERE task_id=?", (tid,))
-            cx.execute("DELETE FROM tasks WHERE task_id=?", (tid,))
-        for pat in (f"check:{claim_id}:%", f"reread:{claim_id}:%", f"second:check:{claim_id}:%"):
-            cx.execute("DELETE FROM results WHERE task_id LIKE ?", (pat,))
-            cx.execute("DELETE FROM tasks WHERE task_id LIKE ?", (pat,))
-        cx.execute("DELETE FROM second_opinions WHERE subject_id=?", (claim_id,))
-        cx.execute("DELETE FROM user_claims WHERE claim_id=?", (claim_id,))
-        hid = hyp[0] if hyp and hyp[0] else claim_id
-        if not cx.execute("SELECT 1 FROM user_claims WHERE hyp_id=?", (hid,)).fetchone():
-            _note_removed(ws, cx, hid, why, _log)
-            cx.execute("DELETE FROM results WHERE task_id=?", (f"decompose:{hid}",))
-            cx.execute("DELETE FROM tasks WHERE task_id=?", (f"decompose:{hid}",))
-            cx.execute("DELETE FROM hypotheses WHERE hyp_id=?", (hid,))
-
-
-def delete_hypothesis(ws: Workspace, hyp_id: str, why: str | None = None, unmade: bool = False) -> None:
-    """Remove a check. 0.16: the research log says so, with the person's reason (`why`) when they gave one; a check
-    the app takes back before it was made (stopped, withdrawn, interrupted: `unmade`) leaves nothing in the log."""
-    with ws.connect() as cx:
-        if unmade:
-            cx.execute("DELETE FROM research_log WHERE subject_kind='check' AND subject_id=? AND kind='check-added'",
-                       (hyp_id,))
-        else:
-            _log_removed(cx, hyp_id, why)
-        for (cid,) in cx.execute("SELECT claim_id FROM user_claims WHERE hyp_id=?", (hyp_id,)).fetchall():
-            delete_claim(ws, cid, _log=False)  # nested: one transaction
-        _note_removed(ws, cx, hyp_id, log=False)
-        cx.execute("DELETE FROM results WHERE task_id=?", (f"decompose:{hyp_id}",))
-        cx.execute("DELETE FROM tasks WHERE task_id=?", (f"decompose:{hyp_id}",))
-        cx.execute("DELETE FROM hypotheses WHERE hyp_id=?", (hyp_id,))
-        cx.execute("UPDATE draft_claims SET hyp_id=NULL WHERE hyp_id=?", (hyp_id,))  # the claim can be checked again
-
-
-def _note_removed(ws: Workspace, cx, hyp_id: str, why: str | None = None, log: bool = True) -> None:
-    """0.16: a removed check, in the research log. (Margin has no colleague's copy of the project to keep it out of.)"""
-    if log:
-        _log_removed(cx, hyp_id, why)
-
-
-def _log_removed(cx, hyp_id: str, why: str | None) -> None:
-    """0.16: a check removed, in the research log (the claim dropped, and why)."""
-    from . import researchlog
-
-    row = cx.execute("SELECT text FROM hypotheses WHERE hyp_id=?", (hyp_id,)).fetchone()
-    if row:
-        researchlog.record(cx, "check-removed", f"Removed the check of {researchlog.quoted(row[0], 200)}.", "check",
-                           hyp_id, row[0], why=why)
-
-
-def set_note(ws: Workspace, hyp_id: str, note: str) -> None:
-    from . import history
-
-    with ws.connect() as cx:
-        history.snapshot(ws, cx, "check", hyp_id, "the note on the check")
-        if not cx.execute("UPDATE hypotheses SET note=? WHERE hyp_id=?", ((note or "").strip()[:4000], hyp_id)).rowcount:
-            raise KeyError(hyp_id)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -2926,3 +1654,22 @@ def _check_each(ws, items, backend, model, say, should_stop, readers, options) -
         except ValueError as e:
             errors.append({"index": i, "text": it["text"], "error": str(e)})
     return {"batch_id": batch_id, "checked": done, "errors": errors, "stopped": stopped, "total": len(items)}
+
+
+# ---------------------------------------------------------------------------------------------
+# moved to their own modules (roadmap H6); imported last, so they can reach everything above through `_cc.`
+# ---------------------------------------------------------------------------------------------
+from .check_results import (  # noqa: E402,F401
+    _threshold, certainty_word, _locations, locate, _breaks, _round_notes, _readers_of, _opens_with_pronoun,
+    _reference_locations, _in_excerpt, _place_kept, result, _result, hypothesis_result, MODEL_ROLES,
+    models_used, models_text, _second_opinions, _shown_docs, new_documents, unread_documents,
+)
+from .check_exports import (  # noqa: E402,F401
+    evidence_map, document_answers, MAP_SYMBOL, map_table, CALIBRATION_BINS, calibration, export_rows, hypothesis_rows,
+    _assessment_text, JUDGEMENT_TEXT, _local_dt, ResultCache, export_table, not_read_text, _part_text,
+    _earlier, strictness_text, summary_table, write_xlsx,
+)
+from .judgements import (  # noqa: E402,F401
+    _KEEP, set_judgement, _set_judgement, reread_excerpt, more_available, delete_claim, delete_hypothesis,
+    _note_removed, _log_removed, set_note,
+)

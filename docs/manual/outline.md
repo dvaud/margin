@@ -3,7 +3,7 @@
 # Make an outline
 
 > **In short**
-> - *Outline* (in the sidebar, under **Your writing**) turns your themes into a plan to write from: sections with
+> - *Outline* (in the sidebar, under **Write**) turns your themes into a plan to write from: sections with
 >   key terms, best passages, documents to cite and notes of your own.
 > - Start **from a research question** and your hypotheses, so the outline follows your argument, or **from all the
 >   themes**, one section for each.
@@ -62,7 +62,7 @@ A section shows:
 - the passages that represent it best, with their place in the document;
 - the documents to cite, with an APA in-text citation such as *(Haugen, 2024; Okafor, 2023)* and a *Copy* button, when
   the documents are linked to your [bibliography](bibliography.md);
-- the codes of your codebook that its passages carry ([Profile](explore.md#profile));
+- the codes of your codebook that its passages carry ([Profile](explore.md#codes));
 - the concepts its key terms belong to.
 
 A heading comes from the theme: the name the AI gave it (*Themes → Let the AI name the themes*, optional), your own

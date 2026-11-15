@@ -79,17 +79,121 @@ Margin has no shared projects, so everything here is made for one person (*Left 
   codebook) are left out; the rest of its 0.16 tests run as they are, with Margin's wording where Margin differs (the
   label prompt's layout, keywords read in every codebook, a small codebook sent to the AI whole).
 
+### One look on every page, new readers, and much more to explore (ENLENS 0.17.0 to 0.19.3)
+
+Margin takes ENLENS's work of three series, without its team features (*Left out, or made for Margin in this sync*).
+
+**The page**
+
+- **ENLENS's new look, in Margin's colours.** Every button, link, tag, card and notice is drawn one way, in light and
+  dark, by ENLENS's design guide (`docs/DESIGN.md`). Margin's own pages (Skim, Check a draft, Check citations, Outline,
+  Find literature) are redrawn with the same parts. `margin.css` now holds only Margin's colours and the styles of
+  those pages.
+- **A sidebar of seven places, and Write.** *Overview*, *Documents*, then *Explore* (*Search*, *Codes*, *Concepts*,
+  *Themes*, *Skim*), *Check* (*Hypotheses*, now one page for one hypothesis or a list) and Margin's *Write* (*Check a
+  draft*, *Check citations*, *Outline*, *Find literature*). Codebooks, notes, the bibliography and the answers are
+  tabs of their place.
+- **Find** (Ctrl+K, or ⌘K on a Mac) reaches any page, view or setting, Margin's own included.
+- **The research log opens beside every page**, with *This page* and *All*.
+- Wide grids say what is out of sight and open full screen; long lists open at once and fill in as you scroll; judging
+  an excerpt redraws only its card.
+
+**Documents**
+
+- **Readers 4, 5 and 6** (for documents you move to them): text files with one paragraph per line, Word files in full,
+  tables from their ruled lines and across pages, figures as blocks you can leave out, cleaner PDFs (hidden text,
+  publishing details, title, running heads), and one language kept of a document printed in two.
+- **The Documents page is a list of one-line documents**, grouped as you choose (AI setting, role, needs a look,
+  answers behind them, scientific or not) with a filter; *Rename…* a document; see which documents a check never read
+  and which your answers rest on.
+- **Roles:** mark a document as *theory* (the lens, not the evidence), as *non-scientific* (read and judged, counted
+  only when you choose, in one check too), or as *your working document* (your drafts and notes beside the corpus).
+- Adding many documents is far faster, project files are about a quarter smaller, and themes and the glossary need far
+  less memory.
+
+**Exploring and checking**
+
+- **Concepts:** links proposed from the text, paths between two concepts, a concept over time and across groups, and a
+  concept map. The glossary and key terms leave out each language's common words (58 languages).
+- **Codebooks:** from a theory document (terms found without AI; the AI can draft the concepts), from several theories
+  as a framework on a page of its own, from NVivo, ATLAS.ti or MAXQDA (`.qdc`), and a code's definition drafted from
+  its examples. Short code names fit the grid.
+- **Checks:** the assessment in words under each answer, near-duplicate hypotheses pointed out as you type, *more…* at
+  the end of an excerpt, and your project for NVivo, ATLAS.ti and MAXQDA (`.qdpx`).
+- **Search** marks every word you searched for. Search by meaning can be set up from the Search page.
+- **The bibliography** can be checked for retractions and corrections (Crossref).
+
+**The AI**
+
+- **See what is sent**, word for word, before Claude Code takes a batch. Work that sends passages to Claude looks
+  different in the sidebar.
+- **The mix of local and Claude** per kind of task, *how much thought* (energy efficient, balanced, intelligence),
+  a notice at your plan's usage limit, and *Agreement between routes*, which shows whether your local model is good
+  enough for a kind of task.
+- The same question is not asked twice; a small codebook is sent once per batch.
+- Ollama starts by itself and the model offered fits this computer.
+
+**Safer**
+
+- **The page carries no key.** Open Margin from its icon, or copy your link in Settings; no one else on this computer
+  can open your Margin.
+- Spreadsheet and codebook downloads never run a formula. A quote an AI gives can be at most 600 characters. The AI
+  setting is checked again when a task is sent.
+- Jobs wait their turn instead of being refused.
+
+**Changes that can alter your results**
+
+- Documents moved to reader 4, 5 or 6 are split into passages differently, so checks, labels and themes made on them
+  can differ from before. Documents you do not move stay as they are.
+- A codebook from theory offers fewer, better terms than its first version did.
+- Non-scientific documents no longer count towards an answer unless you choose so.
+- The codebook chosen for Codes is taken per project: a project that lacks the chosen codebook asks you to choose one
+  instead of failing.
+
+### Left out, or made for Margin in this sync
+
+- **No team features.** Sharing (*private until shared*), colleagues and their marks, owner, Co-owner and proposals,
+  the shared folder, a team's storage space (Backblaze, Cloudflare, a university drive), the Team tab and page, invite
+  links, the codebook clash review and *use both computers* are all left out: their modules, endpoints, tables, pages,
+  manual pages and tests. `solo.py` answers every "who?" with you. A project or move file made by ENLENS with team
+  tables in it still opens; Margin does not read them.
+- **Moving Margin to another computer** is always a plain move.
+- **The look Margin had on ENLENS's pages is gone on purpose:** serif headings, the red margin rule in the sidebar,
+  small capitals for labels, the tagline under the name, and the wider sidebar. Margin's colours stay; the light
+  theme's grey for quiet text is a step darker, so it can be read on the sidebar.
+- **Margin's own pages** use ENLENS's parts: the Outline's sections are rows, Find literature's tabs and tags are
+  ENLENS's, Skim's cards and lists too. Answer colours stay on a draft's claims and on the evidence for and against.
+- **Check citations stays** (ENLENS removed it in 0.13.8); **no default codebook** stays.
+- **The version number stays in `pyproject.toml` and `__init__.py`.** ENLENS now makes it from the git tag;
+  `tools/release.py check` in Margin still compares the tag, both files and the changelog, and `prepare` writes it.
+- `margin.css` is linked after `site.css`, so it is the last stylesheet.
+
+**Defects fixed on the way**
+
+- An error from the server was taken for an answer by the page after the merge (`lib.js`, `api()`).
+- Skim's key sentences came out empty with ENLENS's smaller term index.
+- Removing a document left its practice-and-element labels behind.
+
 ### Tests
 
 From ENLENS: `test_0_16_0_research_log.py`, `test_0_16_0_notes.py`, `test_0_16_0_history.py`,
 `test_0_16_0_codebook_editor.py`, `test_0_16_1_code_names.py`, `test_0_16_2_update_download.py` (adapted as above).
 `test_0_13_6_page_extensions.py` checks the Overview with the new section.
 
+From ENLENS 0.17.0 to 0.19.3: its tests come in under their new names without a version (`test_notes.py`,
+`test_design.py`, `test_reader6.py`, …); 2,141 pass. Tests of team features are left out, and tests of two colleagues
+are rewritten for one person where their point was something else. `test_m020_look.py` now checks that Margin's
+colours are overrides of ENLENS's tokens, in light and both dark forms, with `margin.css` linked last.
+
 ### Not yet done
 
 - The new pages (Codebooks, Notes, Research log, History) were tried by the tests and in screenshots, not yet in a
   week of use on a real project.
 - Highlights were not tried in Safari (WebKit) or on Windows.
+- From ENLENS 0.17.0 to 0.19.3: every main page was seen in light, dark and at 390 px with no console error and no
+  sideways scrolling, but the new features (readers 4 to 6 on real PDFs, the concept map, codebooks from theory and
+  from NVivo, the `.qdpx` export in NVivo itself, the mix of local and Claude with a real Claude Code) were tried by
+  the tests only. No screen reader was used. The manual's pictures show older screens.
 
 ## 0.15.0 (November 2026): a new reader, and a manual of short pages
 

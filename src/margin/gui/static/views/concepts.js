@@ -1,18 +1,18 @@
 // Concepts (F3): a searchable glossary of the terms the documents use, grouped into concepts, and the card of one
 // concept: its wordings, the documents that discuss it, the passages as concordance lines, and related concepts
 // (a person accepts or rejects the links proposed by search by meaning or by the AI).
-import { featureEyebrow } from "../features.js";
-import { App, api, h, icon, replace, clear, toast, showError, failedLoad, noDocuments, addDocumentsFirst, fmt, pageHead, watchJob, P, emptyState, debounce, switchControl, plural, shortTitle, runningJob } from "../lib.js";
+import { featureEyebrow, withAI, viewTabs } from "../features.js";
+import { App, api, h, icon, replace, clear, toast, showError, failedLoad, noDocuments, addDocumentsFirst, fmt, pageHead, watchJob, P, emptyState, debounce, switchControl, plural, shortTitle, runningJob, button, link, notice, card, tag, input, select, textarea, fold, readsLine, inset, searchHref } from "../lib.js";
 import { MiniJob, jobCard as jobCardOf } from "./progress.js";
+import { pathsCard, timeCard } from "./concept-paths.js";   // 0.18.1: D3 and D4
 
 const PAGE = 50;       // glossary entries per page
 const LINES = 50;      // concordance lines per page
 
 // "green hydrogen" -> "Green hydrogen" (a name written with capitals stays as it is)
 const cap = (s) => (s && /^[a-z]/.test(s) && !/[A-Z]/.test(s) ? s[0].toUpperCase() + s.slice(1) : s || "");
-const searchHref = (q) => `#/search?q=${encodeURIComponent(q)}&mode=phrase`;
 const conceptHref = (tid) => `#/concepts/${encodeURIComponent(tid)}`;
-const checkHref = (text) => `#/check?text=${encodeURIComponent(text)}`;
+const checkHref = (text) => `#/hypotheses?text=${encodeURIComponent(text)}`;
 
 // A glossary job in a card (progress.js): a stopped build changes nothing.
 const jobCard = (box, jobId, title, labelFn, onEnd) => jobCardOf(box, jobId, title, labelFn, onEnd, { stoppedText: "Stopped. Nothing was changed." });
@@ -36,18 +36,20 @@ export async function renderConcepts(view, params, query) {
   const watchers = [];
 
   view.appendChild(pageHead("Concepts", { eyebrow: featureEyebrow("concepts"), sub: "The terms the documents use, grouped into concepts you can follow from one document to the next." }));
+  view.appendChild(viewTabs("concepts", "concepts"));   // D1: Glossary | Map
   if (noDocuments()) { view.appendChild(addDocumentsFirst("The glossary")); return; }
 
   const jobBox = h("section", { class: "section", hidden: true, "aria-label": "Progress" });
   const statusBox = h("div");
-  const search = h("input", { class: "input", type: "search", placeholder: "Find a concept…", value: q, "aria-label": "Find a concept" });
-  const sortSel = h("select", { class: "select input-sm", "aria-label": "Sort the concepts" },
+  const search = input({ type: "search", placeholder: "Find a concept…", value: q, "aria-label": "Find a concept" });
+  const sortSel = select({ sm: true, "aria-label": "Sort the concepts" },
     [["docs", "Most documents first"], ["mentions", "Most mentions first"], ["name", "A to Z"]].map(([v, t]) => h("option", { value: v, selected: v === sort }, t)));
   const filters = h("div", { class: "filters" }, h("div", { class: "filters-top" }, h("div", { class: "search" }, icon("search", { size: 15 }), search), sortSel));
   const live = h("p", { class: "visually-hidden", "aria-live": "polite" });
   const listBox = h("div", { "aria-busy": "false" });
   const judgeBox = h("div");
-  view.append(jobBox, statusBox, filters, live, listBox, judgeBox);
+  const wordsBox = h("div");
+  view.append(jobBox, statusBox, filters, live, listBox, judgeBox, wordsBox);
 
   function keepUrl() {
     const s = new URLSearchParams();
@@ -70,6 +72,7 @@ export async function renderConcepts(view, params, query) {
       filters.hidden = false;
       if (job.state === "done") { jobBox.hidden = true; toast("The glossary is ready.", "ok", { small: true }); }
       await load();
+      drawWords();
     }));
   }
 
@@ -87,31 +90,37 @@ export async function renderConcepts(view, params, query) {
   }
 
   function draw(g) {
+    lastBuilt = !!g.built;
     clear(statusBox); clear(listBox); clear(judgeBox);
     if (!g.built) {
       filters.hidden = true;
       listBox.appendChild(emptyState("network", "No glossary yet", "The glossary lists the terms your documents use, how often and in which documents, and groups the ones that mean the same thing (an abbreviation and its long form, for example). It is made on this computer in a few seconds to a minute; nothing is sent anywhere.",
-        jobBox.hidden ? h("button", { class: "btn btn-primary", type: "button", onClick: (e) => build(e.currentTarget) }, icon("network", { size: 14 }), "Make the glossary") : null));
+        jobBox.hidden ? button({ kind: "main", onClick: (e) => build(e.currentTarget) }, icon("network", { size: 14 }), "Make the glossary") : null));
       return;
     }
     filters.hidden = !jobBox.hidden;
     if (g.stale) {
-      statusBox.appendChild(h("div", { class: "notice notice-warn", style: { marginBottom: "14px" } }, icon("alert-triangle"),
-        h("div", { class: "grow" }, h("p", {}, "Documents were added or removed since the glossary was made, so the counts may be out of date."),
-          jobBox.hidden ? h("button", { class: "btn btn-sm", type: "button", style: { marginTop: "8px" }, onClick: (e) => build(e.currentTarget) }, icon("refresh", { size: 13 }), "Update the glossary") : null)));
+      // 0.17: out of date because documents changed, or because what it leaves out changed
+      const why = g.documents_changed === false && g.words_changed
+        ? h("p", {}, "What the glossary leaves out changed since it was made (your choice under “Words the glossary leaves out”, or the common words of a newer Margin), so it may still list such words. ",
+          link({ kind: "jump", onClick: () => openWords() }, "See what it leaves out"), ".")
+        : h("p", {}, "Documents were added or removed since the glossary was made, so the counts may be out of date.");
+      statusBox.appendChild(notice({ kind: "attention", class: "ct-status-notice" },
+        h("div", { class: "grow" }, why,
+          jobBox.hidden ? button({ sm: true, class: "ct-update-btn", onClick: (e) => build(e.currentTarget) }, icon("refresh", { size: 13 }), "Update the glossary") : null)));
     }
     const total = g.total || 0;
     live.textContent = q ? `${plural(total, "concept")} match “${q}”.` : `${plural(total, "concept")}.`;
     if (!total) {
       listBox.appendChild(emptyState("search-x", q ? "No concept matches" : "The glossary is empty", q ? `No term of the glossary contains “${q}”. Try another word, or search the documents for it.` : "No term occurs often enough in at least two documents.",
-        q ? h("a", { class: "btn", href: searchHref(q) }, icon("text-search", { size: 14 }), "Search the documents for it") : null));
+        q ? link({ kind: "next", href: searchHref(q, { mode: "phrase" }) }, "Search the documents for it") : null));
       return;
     }
     const pager = () => h("div", { class: "pager" },
       h("span", { class: "muted small" }, `${fmt.num(g.offset + 1)}–${fmt.num(Math.min(total, g.offset + g.items.length))} of ${plural(total, "concept")}`),
       total > PAGE ? h("div", { class: "btn-row" },
-        h("button", { class: "btn btn-sm", type: "button", disabled: g.offset <= 0, onClick: () => { offset = Math.max(0, g.offset - PAGE); keepUrl(); load(); } }, icon("chevron-left", { size: 13 }), "Previous"),
-        h("button", { class: "btn btn-sm", type: "button", disabled: g.offset + PAGE >= total, onClick: () => { offset = g.offset + PAGE; keepUrl(); load(); } }, "Next", icon("chevron-right", { size: 13 }))) : null);
+        button({ sm: true, disabled: g.offset <= 0, onClick: () => { offset = Math.max(0, g.offset - PAGE); keepUrl(); load(); } }, icon("chevron-left", { size: 13 }), "Previous"),
+        button({ sm: true, disabled: g.offset + PAGE >= total, onClick: () => { offset = g.offset + PAGE; keepUrl(); load(); } }, "Next", icon("chevron-right", { size: 13 }))) : null);
     listBox.appendChild(pager());
     listBox.appendChild(h("div", { class: "table-wrap" }, h("table", { class: "table table-responsive ct-gloss" },
       h("caption", { class: "visually-hidden" }, "Glossary of concepts"),
@@ -120,7 +129,7 @@ export async function renderConcepts(view, params, query) {
         const others = (e.wordings || []).filter((w) => w !== e.label);
         const href = conceptHref(e.term_id);
         return h("tr", { class: "row-link", onClick: (ev) => { if (ev.target.closest("a")) return; location.hash = href; } },
-          h("td", { class: "ct-name" }, h("a", { href }, e.label),
+          h("td", { class: "ct-name" }, link({ kind: "title", serif: true, href }, e.label),
             others.length ? h("div", { class: "ct-also" }, `also written: ${others.slice(0, 6).join(", ")}${others.length > 6 ? ` and ${others.length - 6} more` : ""}`) : null),
           h("td", { class: "num", "data-label": "Documents" }, fmt.num(e.documents)),
           h("td", { class: "num", "data-label": "Passages" }, fmt.num(e.passages)),
@@ -132,7 +141,7 @@ export async function renderConcepts(view, params, query) {
   }
 
   function drawJudge() {
-    const btn = h("button", { class: "btn btn-sm", type: "button" }, icon("sparkles", { size: 13 }), "Let the AI judge the proposed pairs");
+    const btn = button({ sm: true }, "Let the AI judge the proposed pairs");
     const mini = h("div");
     btn.addEventListener("click", async () => {
       btn.disabled = true;
@@ -155,11 +164,66 @@ export async function renderConcepts(view, params, query) {
         load();
       }).catch(showError);
     });
-    judgeBox.appendChild(h("details", { class: "fold section" }, h("summary", {}, "Terms that may mean the same"),
-      h("div", { class: "card card-plain", style: { marginTop: "8px" } },
-        h("p", { style: { marginTop: 0 } }, "With search by meaning, the glossary proposes pairs of terms that may mean the same (shown as “possibly the same” on a concept). Accept or reject them on the concept. The AI can judge the pairs nobody has judged yet; it never compares all the terms."),
-        h("div", { class: "btn-row" }, btn), mini)));
+    judgeBox.appendChild(fold({ class: "section" }, "Terms that may mean the same",
+      card({ as: "div", class: "ct-pairs-card" },
+        h("p", { class: "ct-pairs-lead" }, "With search by meaning, the glossary proposes pairs of terms that may mean the same (shown as “possibly the same” on a concept). Accept or reject them on the concept. The AI can judge the pairs nobody has judged yet; it never compares all the terms."),
+        h("div", { class: "btn-row" }, withAI(btn)), readsLine("the passages where the two terms occur"), mini)));
   }
+
+  // 0.17: what the glossary and the key terms of themes leave out: each language's common words (a language can be
+  // switched off) and the project's own words. Saving makes the glossary again.
+  let wordsFold = null;
+  function openWords() {
+    if (!wordsFold) return;
+    wordsFold.open = true;
+    wordsFold.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  async function drawWords() {
+    let w;
+    try { w = await api("GET", `/api/projects/${P(project)}/terms/words`); } catch (e) { return; }
+    const wasOpen = wordsFold ? wordsFold.open : query.words === "1";
+    clear(wordsBox);
+    const switches = [];
+    const langList = h("ul", { class: "ct-langs" }, w.languages.map((l) => {
+      const count = h("span", { class: "muted" }, ` · ${plural(l.passages, "passage")}`);
+      if (l.code === "en") return h("li", {}, h("strong", {}, l.name), count, h("span", { class: "muted small" }, " · its common words are always left out, as search leaves them out"));
+      const sw = switchControl(h("span", {}, h("strong", {}, l.name), count), l.on);
+      sw.input.dataset.code = l.code;
+      switches.push(sw.input);
+      return h("li", {}, sw);
+    }));
+    const own = textarea({ rows: 5, id: "ct-own-words", spellcheck: "false", "aria-describedby": "ct-own-help",
+      placeholder: "Interviewer\nR1\nzeg maar" });
+    own.value = (w.own || []).join("\n");
+    const state = h("span", { class: "save-state", "aria-live": "polite" });
+    const save = button({ kind: "main", sm: true }, icon("refresh", { size: 13 }), "Save and update the glossary");
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      state.textContent = "Saving…";
+      const off = switches.filter((i) => !i.checked).map((i) => i.dataset.code).concat((w.off || []).filter((c) => !w.languages.some((l) => l.code === c)));
+      try {
+        await api("PUT", `/api/projects/${P(project)}/terms/words`, { off, own: own.value.split("\n") });
+        state.textContent = "Saved.";
+        build(null);
+      } catch (e) { state.textContent = ""; showError(e); }
+      finally { save.disabled = false; }
+    });
+    wordsFold = fold({ class: "section", id: "left-out", open: wasOpen }, "Words the glossary leaves out",
+      card({ as: "div", class: "stack ct-languages-card" },
+        h("p", { class: "ct-languages-lead" }, "The glossary and the key terms of themes leave out the common words of each language: no term starts or ends with “because” or “themselves”, or in Dutch with “dan”, “wel” or “maar”. Margin tells each passage’s language by the common words it uses, so a Dutch word that is also English (“net”, “door”) is left out only in Dutch passages. Search is not changed: it still finds every word."),
+        w.languages.length
+          ? h("div", {}, h("h3", { class: "ct-languages-title" }, "Languages found"),
+            h("p", { class: "muted small ct-languages-help" }, "Switch a language off to read its passages as English. A language with only a few passages is often a table or a list of references."),
+            langList)
+          : h("p", { class: "muted small ct-languages-empty" }, g_built() ? "Update the glossary to see the languages it finds in your documents." : "The languages show here once the glossary is made."),
+        h("div", { class: "field" }, h("label", { for: "ct-own-words", class: "field-label" }, "Your own words"), own,
+          h("div", { class: "field-help", id: "ct-own-help" }, `One word or phrase per line (at most ${fmt.num(w.max_own || 500)}): a speaker label such as “Interviewer” or “R1”, or a word that says nothing in your project. No term starts or ends with a word listed here; a phrase leaves out just that term.`)),
+        h("div", { class: "btn-row" }, save, state)));
+    wordsBox.appendChild(wordsFold);
+    if (query.words === "1" && wasOpen && !wordsBox.dataset.shown) { wordsBox.dataset.shown = "1"; setTimeout(() => wordsFold.scrollIntoView({ block: "start" }), 80); }
+  }
+  let lastBuilt = false;
+  const g_built = () => lastBuilt;
 
   search.addEventListener("input", debounce(() => { q = search.value.trim(); offset = 0; keepUrl(); load(); }, 250));
   sortSel.addEventListener("change", () => { sort = sortSel.value; offset = 0; keepUrl(); load(); });
@@ -167,13 +231,14 @@ export async function renderConcepts(view, params, query) {
   const running = await runningJob(project, ["terms"]);
   if (running) follow(running.id);
   await load();
+  await drawWords();
   return () => watchers.forEach((w) => w.stop());
 }
 
 // ---------------------------------------------------------------------------------------------
 // the card of one concept
 // ---------------------------------------------------------------------------------------------
-const SOURCE_TEXT = { meaning: "proposed by search by meaning", model: "judged by the AI", person: "added by you", abbreviation: "an abbreviation defined in the documents" };
+const SOURCE_TEXT = { meaning: "proposed by search by meaning", model: "judged by the AI", person: "added by you", abbreviation: "an abbreviation defined in the documents", pattern: "found in the text" };
 // a link from search by meaning joins wordings only once a person accepted it
 const JOINED_TEXT = { meaning: "you", model: "the AI", person: "you", abbreviation: "an abbreviation in the documents" };
 // relations as seen from this concept ("this concept is broader than the other": the other is narrower)
@@ -188,16 +253,21 @@ const GROUPS = [
   ["required_by", "Needed by these", null],
   ["shapes", "Shapes these", null],
   ["shaped_by", "Shaped by these", null],
-  ["replaces", "Replaces these", null],
-  ["replaced_by", "Replaced by these", null],
   ["clashes_with", "Clashes with these", null],
   ["related", "Related to it", null],
+  // 0.18.1 (D2): links the sentences state, "X leads to Y", "X instead of Y" (seen from this concept)
+  ["effect", "What it leads to", "The documents say this concept leads to, causes or changes these."],
+  ["effect_of", "What leads to it", "The documents say these lead to, cause or change this concept."],
+  ["replaces", "What it replaces", "The documents use this concept instead of these."],
+  ["replaced_by", "What replaces it", "The documents use these instead of this concept."],
   ["different", "Judged not the same", null],
 ];
-const RELATION_CHOICES = [["same", "is the same as"], ["broader", "is broader than (includes)"], ["narrower", "is narrower than (is part of)"], ["related", "is related to"], ["different", "is different from"]];
-// 0.9: how the elements of a practice relate (offered when the chosen codebook names practices and elements)
-const ELEMENT_CHOICES = [["element_of", "is an element of the practice"], ["has_element", "is a practice with the element"], ["requires", "needs"], ["shapes", "shapes"], ["replaces", "replaces"], ["clashes_with", "clashes with"]];
-const ELEMENT_RELATIONS = new Set(ELEMENT_CHOICES.map(([v]) => v).concat(["required_by", "shaped_by", "replaced_by"]));
+const RELATION_CHOICES = [["same", "is the same as"], ["broader", "is broader than (includes)"], ["narrower", "is narrower than (is part of)"], ["related", "is related to"],
+  ["effect", "leads to"], ["effect_of", "is an effect of"], ["replaces", "replaces"], ["replaced_by", "is replaced by"], ["different", "is different from"]];
+// 0.9 (Margin): how the elements of a practice relate (offered when the chosen codebook names practices and elements);
+// "replaces" is in the choices above for every link
+const ELEMENT_CHOICES = [["element_of", "is an element of the practice"], ["has_element", "is a practice with the element"], ["requires", "needs"], ["shapes", "shapes"], ["clashes_with", "clashes with"]];
+const ELEMENT_RELATIONS = new Set(ELEMENT_CHOICES.map(([v]) => v).concat(["required_by", "shaped_by"]));
 // the relation choices as <option>s, with the element ones in a group of their own when they apply
 function relationOptions(withElements, selected, text = (t) => t) {
   const opt = ([v, t]) => h("option", { value: v, selected: v === selected }, text(t));
@@ -216,8 +286,8 @@ export async function renderConcept(view, [termId], query) {
   try { c = await fetchCard(); }
   catch (e) {
     if (e.status === 404) {
-      view.appendChild(pageHead("Concept", { eyebrow: h("a", { href: "#/concepts", class: "it" }, icon("network", { size: 12 }), "All concepts") }));
-      view.appendChild(emptyState("search-x", "No such concept", "The glossary was made again since this link was made, or the term no longer occurs often enough. Find it in the glossary.", h("a", { class: "btn", href: "#/concepts" }, "Go to the glossary")));
+      view.appendChild(pageHead("Concept", { back: { href: "#/concepts", text: "All concepts" } }));
+      view.appendChild(emptyState("search-x", "No such concept", "The glossary was made again since this link was made, or the term no longer occurs often enough. Find it in the glossary.", link({ kind: "back", href: "#/concepts" }, "Go to the glossary")));
       return;
     }
     throw e;
@@ -248,23 +318,21 @@ export async function renderConcept(view, [termId], query) {
   }
 
   function draw() {
-    replace(head, h("header", { class: "page-head" },
-      h("div", { class: "page-head-main" },
-        h("p", { class: "eyebrow" }, h("a", { href: "#/concepts", class: "it" }, icon("network", { size: 12 }), "All concepts")),
-        h("h1", { id: "page-title", tabindex: "-1", class: "serif ct-title" }, c.label),
-        h("div", { class: "result-meta", style: { marginTop: "6px" } },
-          h("span", {}, plural(c.mentions, "mention")), h("span", { class: "sep" }, "·"),
-          h("span", {}, plural(c.passages, "passage")), h("span", { class: "sep" }, "·"),
-          h("span", {}, plural((c.documents || []).length, "document")),
-          c.wordings.length > 1 ? [h("span", { class: "sep" }, "·"), h("span", {}, `${c.wordings.length} wordings`)] : null)),
-      h("div", { class: "page-head-actions" },
-        h("a", { class: "btn btn-primary btn-sm", href: checkHref(cap(c.label) + " ") }, icon("flask", { size: 13 }), "Check a hypothesis about this concept"),
-        h("a", { class: "btn btn-sm", href: searchHref(c.label) }, icon("text-search", { size: 13 }), "Search for it"))));
+    // a concept is the research's own words: its title in the Display serif, a back link for the eyebrow; its ways on
+    // are links, so they sit in the line under the title (a page head's right holds only actions: DESIGN.md 4.14)
+    replace(head, pageHead(c.label, {
+      back: { href: "#/concepts", text: "All concepts" }, display: true,
+      titleClass: "ct-title",
+      facts: [plural(c.mentions, "mention"), plural(c.passages, "passage"), plural((c.documents || []).length, "document"),
+        c.wordings.length > 1 ? `${c.wordings.length} wordings` : null],
+      sub: [h("span", { class: "ct-ways" }, link({ href: checkHref(cap(c.label) + " ") }, "Check a hypothesis about this concept"),
+        link({ href: searchHref(c.label, { mode: "phrase" }) }, "Search for it"))],
+    }));
     document.title = `${c.label} · Concepts · Margin`;
     clear(body);
     body.appendChild(jobBox);
     if (c.stale && jobBox.hidden) {
-      const btn = h("button", { class: "btn btn-sm", type: "button", style: { marginTop: "8px" } }, icon("refresh", { size: 13 }), "Update the glossary");
+      const btn = button({ sm: true, class: "ct-update-btn" }, icon("refresh", { size: 13 }), "Update the glossary");
       btn.addEventListener("click", () => {
         btn.disabled = true;
         api("POST", `${base}/terms/build`, {}).then((r) => {
@@ -275,19 +343,19 @@ export async function renderConcept(view, [termId], query) {
           draw();
         }).catch((e) => { showError(e); btn.disabled = false; });
       });
-      body.appendChild(h("div", { class: "notice notice-warn", style: { marginBottom: "14px" } }, icon("alert-triangle"),
+      body.appendChild(notice({ kind: "attention", class: "ct-status-notice" },
         h("div", {}, h("p", {}, "Documents were added or removed since the glossary was made, so these counts may be out of date."), btn)));
     }
-    body.append(...[wordingsCard(), docsSection(), relatedCard(), inLabelsCard(), linesSection()].filter(Boolean));
+    body.append(...[wordingsCard(), docsSection(), relatedCard(), inLabelsCard(), pathsCard(project, termId, c.label), timeCard(project, termId), linesSection()].filter(Boolean));
   }
 
   // ---- wordings, and other wordings the AI proposes
   function wordingsCard() {
-    const list = h("ul", { class: "ct-wordings" }, c.wordings.map((w) => h("li", {},
-      h("a", { href: searchHref(w.label), class: "ct-wording serif", title: `Search the documents for “${w.label}”` }, w.label),
+    const list = h("ul", { class: "ct-wordings" }, c.wordings.map((w) => inset({ as: "li" },
+      link({ kind: "title", serif: true, href: searchHref(w.label, { mode: "phrase" }), class: "ct-wording", title: `Search the documents for “${w.label}”` }, w.label),
       h("span", { class: "muted small" }, `${plural(w.mentions, "mention")} in ${plural(w.documents, "document")}`),
-      w.joined_by && w.joined_by.length ? h("span", { class: "chip" }, `joined by ${[...new Set(w.joined_by.map((s) => JOINED_TEXT[s] || s))].join(" and ")}`) : null,
-      w.joins && w.joins.length ? h("button", { class: "btn btn-sm btn-ghost", type: "button", title: `Split “${w.label}” off: it does not mean the same as the other wordings`, onClick: async (e) => {
+      w.joined_by && w.joined_by.length ? tag({}, `joined by ${[...new Set(w.joined_by.map((s) => JOINED_TEXT[s] || s))].join(" and ")}`) : null,
+      w.joins && w.joins.length ? button({ kind: "quiet", sm: true, title: `Split “${w.label}” off: it does not mean the same as the other wordings`, onClick: async (e) => {
         const b = e.currentTarget; b.disabled = true;
         try {
           for (const j of w.joins) await api("PUT", `${base}/concepts/links`, { a: j.a, b: j.b, decision: "reject" });
@@ -295,7 +363,7 @@ export async function renderConcept(view, [termId], query) {
           if (w.term_id === termId) location.hash = `#/concepts/${encodeURIComponent(termId)}`; else await reload();
         } catch (err) { showError(err); b.disabled = false; }
       } }, icon("x", { size: 12 }), "Not the same") : null)));
-    const ask = h("button", { class: "btn btn-sm", type: "button", disabled: jobRunning }, icon("sparkles", { size: 13 }), "Ask the AI for other wordings");
+    const ask = button({ sm: true, disabled: jobRunning }, "Ask the AI for other wordings");
     ask.addEventListener("click", async () => {
       ask.disabled = true;
       let r;
@@ -318,18 +386,17 @@ export async function renderConcept(view, [termId], query) {
     const sug = c.suggested_wordings || [];
     const sugBox = sug.length ? h("div", { class: "ct-suggest" },
       h("h3", {}, "Other wordings the AI proposes"),
-      h("p", { class: "muted small", style: { margin: "0 0 8px" } }, "Only wordings the documents use are listed. Add one if it means the same as this concept, or say it does not and it is not proposed again."),
+      h("p", { class: "muted small ct-wordings-help" }, "Only wordings the documents use are listed. Add one if it means the same as this concept, or say it does not and it is not proposed again."),
       h("ul", { class: "ct-wordings" }, sug.map((s) => {
-        const add = h("button", { class: "btn btn-sm", type: "button" }, icon("plus", { size: 13 }), "Add as the same");
+        const add = button({ sm: true }, icon("plus", { size: 13 }), "Add as the same");
         add.addEventListener("click", () => saveLink({ a: termId, b: s.term_id, decision: "add", relation: "same" }, add, `“${s.label}” is now a wording of this concept.`));
-        return h("li", {}, h("a", { href: conceptHref(s.term_id), class: "ct-wording serif" }, s.label),
+        return inset({ as: "li", tentative: true }, link({ kind: "title", serif: true, href: conceptHref(s.term_id), class: "ct-wording" }, s.label),
           h("span", { class: "muted small" }, `${plural(s.mentions, "mention")} in ${plural(s.documents, "document")}`), add,
-          h("button", { class: "btn btn-sm btn-ghost", type: "button", title: "It does not mean the same: it is not proposed again",
+          button({ kind: "quiet", sm: true, title: "It does not mean the same: it is not proposed again",
             onClick: (e) => saveLink({ a: termId, b: s.term_id, decision: "add", relation: "different" }, e.currentTarget, `“${s.label}” is not proposed again for this concept.`) }, icon("x", { size: 13 }), "Not the same"));
       }))) : null;
-    return h("section", { class: "card section", "aria-labelledby": "ct-w-h" },
-      h("div", { class: "card-head" }, h("h2", { id: "ct-w-h" }, "How the documents write it"), ask),
-      list, wordJob, sugBox);
+    return card({ class: "section", title: "How the documents write it", titleId: "ct-w-h", action: withAI(ask) },
+      list, wordJob, sugBox, readsLine("passages that name this concept"));
   }
 
   // ---- documents that discuss it
@@ -344,19 +411,19 @@ export async function renderConcept(view, [termId], query) {
       if (again) again.focus();
     });
     const sec = h("section", { class: "section", "aria-labelledby": "ct-d-h" },
-      h("div", { class: "section-title" }, h("h2", { id: "ct-d-h" }, `Documents that discuss it (${docs.length})`)), sw);
+      h("div", { class: "section-title" }, h("h2", { id: "ct-d-h" }, "Documents that discuss it"), h("span", { class: "muted" }, plural(docs.length, "document"))), sw);
     if (!docs.length) { sec.appendChild(emptyState("book-open", "No document mentions it", "The documents may have changed since the glossary was made.")); return sec; }
     if (refs && c.references_total !== undefined) sec.appendChild(h("p", { class: "muted small" }, c.references_total ? `${plural(c.references_total, "reference")} without the name ${c.references_total === 1 ? "refers" : "refer"} to it.` : "No reference without the name was found: the references of these documents may not have been followed yet."));
-    sec.appendChild(h("div", { class: "table-wrap", style: { marginTop: "10px" } }, h("table", { class: "table table-responsive ct-docs" },
+    sec.appendChild(h("div", { class: "table-wrap ct-docs-table" }, h("table", { class: "table table-responsive ct-docs" },
       h("caption", { class: "visually-hidden" }, "Documents that discuss this concept"),
       h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Document"), h("th", { scope: "col", class: "num" }, "Mentions"), refs ? h("th", { scope: "col", class: "num" }, "References") : null, h("th", { scope: "col", class: "num" }, "Passages"), h("th", { scope: "col" }, "First appears"))),
       h("tbody", {}, (allDocs ? docs : docs.slice(0, 10)).map((d) => h("tr", {},
-        h("td", {}, h("div", { class: "doc-title", title: d.title }, h("a", { href: `#/doc/${encodeURIComponent(d.doc_id)}` }, d.title || "untitled"))),
+        h("td", {}, h("div", { class: "doc-title", title: d.title }, link({ kind: "title", serif: true, href: `#/doc/${encodeURIComponent(d.doc_id)}` }, d.title || "untitled"))),
         h("td", { class: "num", "data-label": "Mentions" }, fmt.num(d.mentions)),
         refs ? h("td", { class: "num", "data-label": "References" }, fmt.num(d.references || 0)) : null,
         h("td", { class: "num", "data-label": "Passages" }, fmt.num(d.passages)),
         h("td", { class: "nowrap", "data-label": "First appears" }, d.first_location ? (d.first != null && d.first_end != null ? h("a", { href: `#/doc/${encodeURIComponent(d.doc_id)}?q=${d.first}-${d.first_end}`, title: "Open the document at this place" }, d.first_location) : d.first_location) : "—")))))));
-    if (docs.length > 10) sec.appendChild(h("div", { class: "btn-row", style: { marginTop: "8px" } }, h("button", { class: "btn btn-sm btn-ghost", type: "button", "aria-expanded": allDocs ? "true" : "false",
+    if (docs.length > 10) sec.appendChild(h("div", { class: "btn-row ct-docs-more" }, button({ kind: "quiet", sm: true, "aria-expanded": allDocs ? "true" : "false",
       onClick: () => { allDocs = !allDocs; replace(sec, ...docsSection().childNodes); const b = sec.querySelector("button[aria-expanded]"); if (b) b.focus(); } }, icon(allDocs ? "chevron-up" : "chevron-down", { size: 13 }), allDocs ? "Show the first 10 only" : `Show all ${docs.length} documents`)));
     return sec;
   }
@@ -403,26 +470,30 @@ export async function renderConcept(view, [termId], query) {
     const actions = h("div", { class: "btn-row ct-link-acts" });
     if (proposed) {
       actions.append(
-        h("button", { class: "btn btn-sm", type: "button", onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "accept" }, e.currentTarget, "Accepted.") }, icon("check", { size: 13 }), lk.relation === "same" ? "Yes, the same" : "Yes, right"),
-        h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "reject" }, e.currentTarget, "Rejected.", { undo: true }) }, icon("x", { size: 13 }), lk.relation === "same" ? "No, not the same" : "No"));
-      if (lk.source === "meaning") actions.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", disabled: jobRunning, onClick: (e) => judgePair(lk, e.currentTarget) }, icon("sparkles", { size: 13 }), "Ask the AI"));
+        button({ sm: true, onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "accept" }, e.currentTarget, "Accepted.") }, icon("check", { size: 13 }), lk.relation === "same" ? "Yes, the same" : "Yes, right"),
+        button({ kind: "quiet", sm: true, onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "reject" }, e.currentTarget, "Rejected.", { undo: true }) }, icon("x", { size: 13 }), lk.relation === "same" ? "No, not the same" : "No"));
+      if (lk.source === "meaning") actions.append(...withAI(button({ kind: "quiet", sm: true, disabled: jobRunning, onClick: (e) => judgePair(lk, e.currentTarget) }, "Ask the AI")));
     } else if (lk.source !== "abbreviation") {
-      actions.append(h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "reject" }, e.currentTarget, "Removed.", { undo: true }) }, icon("x", { size: 13 }), "Not right"));
+      actions.append(button({ kind: "quiet", sm: true, onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "reject" }, e.currentTarget, "Removed.", { undo: true }) }, icon("x", { size: 13 }), "Not right"));
     }
     // another relation (as seen from this concept)
-    const sel = h("select", { class: "select input-sm", "aria-label": `How “${c.label}” relates to “${lk.label}”` },
+    const sel = select({ sm: true, "aria-label": `How “${c.label}” relates to “${lk.label}”` },
       relationOptions(withElements(), lk.relation, (t) => `${shortTitle(c.label, 30)} ${t} ${shortTitle(lk.label, 30)}`));
-    const change = h("details", { class: "ct-change" }, h("summary", { class: "btn btn-sm btn-ghost" }, "Another relation…"),
-      h("div", { class: "row", style: { marginTop: "6px", gap: "6px" } }, sel,
-        h("button", { class: "btn btn-sm", type: "button", onClick: (e) => saveLink({ a: lk.this_term, b: lk.term_id, decision: "change", relation: sel.value }, e.currentTarget, "Changed.") }, "Save")));
+    const change = fold({ class: "ct-change small" }, "Another relation…",
+      h("div", { class: "row ct-link-add" }, sel,
+        button({ sm: true, onClick: (e) => saveLink({ a: lk.this_term, b: lk.term_id, decision: "change", relation: sel.value }, e.currentTarget, "Changed.") }, "Save")));
     actions.append(change);
     const quotes = [lk.quote_a, lk.quote_b].filter(Boolean);
-    return h("li", { class: "ct-link" + (proposed ? " ct-proposed" : "") },
+    return inset({ as: "li", tentative: !!proposed, class: "ct-link" },
       h("div", { class: "ct-link-main" },
-        h("a", { href: conceptHref(lk.term_id), class: "serif ct-link-name" }, lk.label),
-        proposed ? h("span", { class: "chip chip-weak" }, "not confirmed") : null,
+        link({ kind: "title", serif: true, href: conceptHref(lk.term_id), class: "ct-link-name" }, lk.label),
+        proposed ? tag({ kind: "attention" }, "not confirmed") : null,
         h("span", { class: "muted small" }, who.join(" · "))),
-      quotes.length ? h("details", { class: "fold ct-why" }, h("summary", {}, "The passages the AI pointed to"), h("ul", { class: "ct-quotes" }, quotes.map((t) => h("li", { class: "serif" }, "“", t, "”")))) : null,
+      // 0.18.1 (D2): a link found in the text shows the sentences it was found in, each with its document and page
+      lk.sentences && lk.sentences.length ? fold({ sm: true, class: "ct-why" }, lk.sentences.length === 1 ? "The sentence it was found in" : `The ${lk.sentences.length} sentences it was found in`,
+        h("ul", { class: "ct-quotes" }, lk.sentences.map((x) => h("li", {}, h("span", { class: "serif" }, "“", x.quote, "” "),
+          link({ href: `#/doc/${encodeURIComponent(x.doc_id)}?q=${x.start}-${x.end}`, class: "small" }, `${x.title || "a document"}${x.page ? `, p. ${x.page}` : ""}`)))))
+      : quotes.length ? fold({ sm: true, class: "ct-why" }, "The passages the AI pointed to", h("ul", { class: "ct-quotes" }, quotes.map((t) => h("li", { class: "serif" }, "“", t, "”")))) : null,
       actions);
   }
 
@@ -436,7 +507,7 @@ export async function renderConcept(view, [termId], query) {
       if (!old || (old.state !== "confirmed" && (lk.state === "confirmed" || (lk.confidence || 0) > (old.confidence || 0)))) byPair.set(key, lk);
     }
     const links = [...byPair.values()];
-    const sec = h("section", { class: "card section", "aria-labelledby": "ct-r-h" }, h("div", { class: "card-head" }, h("h2", { id: "ct-r-h" }, "Related concepts")), linkJob);
+    const sec = card({ class: "section", title: "Related concepts", titleId: "ct-r-h" }, linkJob);
     let any = false;
     for (const [rel_, title, help] of GROUPS) {
       const rows = links.filter((l) => l.relation === rel_).sort((x, y) => (x.state === "proposed" ? 0 : 1) - (y.state === "proposed" ? 0 : 1) || x.label.localeCompare(y.label));
@@ -444,48 +515,50 @@ export async function renderConcept(view, [termId], query) {
       any = true;
       const n = rows.filter((l) => l.state === "proposed").length;
       sec.appendChild(h("div", { class: "ct-group" },
-        h("h3", {}, title, n ? h("span", { class: "chip chip-weak", style: { marginLeft: "8px" } }, `${n} to judge`) : null),
-        help ? h("p", { class: "muted small", style: { margin: "0 0 6px" } }, help) : null,
+        h("h3", {}, title, n ? tag({ kind: "attention", class: "ct-judge-tag" }, `${n} to judge`) : null),
+        help ? h("p", { class: "muted small ct-related-help" }, help) : null,
         h("ul", { class: "ct-links" }, rows.map(linkRow))));
     }
-    if (!any) sec.appendChild(h("p", { class: "muted", style: { marginTop: 0 } }, "No other concept is linked to this one yet. Add a link yourself below."));
+    if (!any) sec.appendChild(h("p", { class: "muted ct-related-empty" }, "No other concept is linked to this one yet. Add a link yourself below."));
+    // the rows' Ask the AI: the card says once, under the rows, where the passages go (docs/DESIGN.md 4.4)
+    if (links.some((l) => l.state === "proposed" && l.source === "meaning")) sec.appendChild(readsLine("the passages where the two terms occur"));
     // add a link of one's own
-    const input = h("input", { class: "input input-sm", type: "text", list: "ct-term-list", autocomplete: "off", placeholder: "another term…", "aria-label": "The other term" });
+    const termIn = input({ sm: true, list: "ct-term-list", autocomplete: "off", placeholder: "another term…", "aria-label": "The other term" });
     const dl = h("datalist", { id: "ct-term-list" });
-    input.addEventListener("input", debounce(async () => {
-      const t = input.value.trim();
+    termIn.addEventListener("input", debounce(async () => {
+      const t = termIn.value.trim();
       if (t.length < 2) return;
       try {
         const g = await api("GET", `${base}/terms?q=${encodeURIComponent(t)}&limit=10`);
         replace(dl, (g.items || []).filter((e) => e.term_id !== termId).map((e) => h("option", { value: e.label })));
       } catch (_) { /* suggestions only */ }
     }, 250));
-    const sel = h("select", { class: "select input-sm", "aria-label": "How the two relate" }, relationOptions(withElements(), null));
-    const save = h("button", { class: "btn btn-sm", type: "button" }, icon("plus", { size: 13 }), "Add the link");
+    const sel = select({ sm: true, "aria-label": "How the two relate" }, relationOptions(withElements(), null));
+    const save = button({ sm: true }, icon("plus", { size: 13 }), "Add the link");
     const msg = h("p", { class: "field-error", role: "alert", hidden: true });
     save.addEventListener("click", async () => {
-      const t = input.value.trim();
+      const t = termIn.value.trim();
       msg.hidden = true;
-      if (!t) { input.focus(); return; }
+      if (!t) { termIn.focus(); return; }
       let other;
       try { other = (await api("GET", `${base}/concepts?name=${encodeURIComponent(t)}`)).term_id; }
       catch (e) { if (e.status === 404) { msg.textContent = `No term of the glossary matches “${t}”.`; msg.hidden = false; return; } showError(e); return; }
       if (c.wordings.some((w) => w.term_id === other)) { msg.textContent = `“${t}” is already a wording of this concept.`; msg.hidden = false; return; }
       saveLink({ a: termId, b: other, decision: "add", relation: sel.value }, save, "Link added.");
     });
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); save.click(); } });
-    sec.appendChild(h("details", { class: "fold ct-add" }, h("summary", {}, "Add a link yourself"),
-      h("div", { class: "ct-add-form" }, h("span", { class: "serif" }, shortTitle(c.label, 40)), sel, input, dl, save), msg));
+    termIn.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); save.click(); } });
+    sec.appendChild(fold({ class: "ct-add" }, "Add a link yourself",
+      h("div", { class: "ct-add-form" }, h("span", { class: "serif" }, shortTitle(c.label, 40)), sel, termIn, dl, save), msg));
     // co-occurrence
     const tog = rel.together || [];
     if (tog.length) {
       sec.appendChild(h("div", { class: "ct-group" },
         h("h3", {}, "Often mentioned together"),
-        h("p", { class: "muted small", style: { margin: "0 0 6px" } }, "Concepts that appear in the same passages more often than chance would make them. The number is how many passages they share."),
-        h("div", { class: "colloc" }, tog.map((t) => h("a", { class: "chip chip-btn", href: conceptHref(t.term_id), title: `${plural(t.together, "passage")} together, ${t.lift} times more often than chance` }, t.label, h("span", { class: "count" }, String(t.together))))),
-        // 0.9: ask how they relate as elements of a practice (requires, shapes, replaces, ...)
-        withElements() ? h("div", { class: "btn-row", style: { marginTop: "8px" } },
-          h("button", { class: "btn btn-sm", type: "button", disabled: jobRunning, onClick: (e) => judgePair(null, e.currentTarget, {
+        h("p", { class: "muted small ct-together-help" }, "Concepts that appear in the same passages more often than chance would make them. The count is how many passages they share."),
+        h("div", { class: "colloc" }, tog.map((t, i) => [i ? " · " : null, link({ href: conceptHref(t.term_id), title: `${plural(t.together, "passage")} together, ${t.lift} times more often than chance` }, t.label), " ", tag({ kind: "count" }, plural(t.together, "passage"))])),
+        // 0.9 (Margin): ask how they relate as elements of a practice (requires, shapes, replaces, ...)
+        withElements() ? h("div", { class: "btn-row ct-elements-ask" },
+          button({ sm: true, disabled: jobRunning, onClick: (e) => judgePair(null, e.currentTarget, {
             body: { term: termId, relations: "elements" }, title: `The AI judges how “${c.label}” relates to the concepts mentioned with it, as parts of a practice` }) },
           icon("sparkles", { size: 13 }), `Ask the AI how ${Math.min(tog.length, 8) === 1 ? "it relates" : "they relate"} in a practice`)) : null));
     }
@@ -499,10 +572,9 @@ export async function renderConcept(view, [termId], query) {
     // a code's short name: the words before the colon of its description ("Materials: the things…" → "Materials")
     const short = (d) => { const i = (d || "").indexOf(":"); return i > 0 && i < 60 ? d.slice(0, i) : shortTitle(d, 60); };
     const books = [...new Set(rows.map((r) => r.framework_title))];
-    return h("section", { class: "card section", "aria-labelledby": "ct-lab-h" },
-      h("div", { class: "card-head" }, h("h2", { id: "ct-lab-h" }, "In codebook labels")),
-      h("p", { class: "muted small", style: { marginTop: 0 } }, "Labels that name this concept as the practice a passage is about, or as the element a code is about."),
-      books.map((b) => [books.length > 1 ? h("h3", {}, b) : h("p", { class: "small muted", style: { margin: "0 0 4px" } }, b),
+    return card({ title: "In codebook labels", titleId: "ct-lab-h" },
+      h("p", { class: "muted small ct-in-note" }, "Labels that name this concept as the practice a passage is about, or as the element a code is about."),
+      books.map((b) => [books.length > 1 ? h("h3", {}, b) : h("p", { class: "small muted ct-in-book" }, b),
         h("ul", { class: "ct-in-labels" }, rows.filter((r) => r.framework_title === b).map((r) => h("li", { title: r.description },
           h("span", { class: "pf-top-code" }, r.code), " ", h("span", {}, short(r.description)),
           h("span", { class: "muted small" }, ` · as ${r.role === "element" ? "an element" : "the practice"} in ${plural(r.passages, "passage")}`,
@@ -519,19 +591,19 @@ export async function renderConcept(view, [termId], query) {
     const pager = () => total > LINES ? h("div", { class: "pager" },
       h("span", { class: "muted small" }, `Mentions ${fmt.num(c.offset + 1)}–${fmt.num(c.offset + lines.length)} of ${fmt.num(total)}`),
       h("div", { class: "btn-row" },
-        h("button", { class: "btn btn-sm", type: "button", disabled: c.offset <= 0, onClick: () => page(Math.max(0, c.offset - LINES)) }, icon("chevron-left", { size: 13 }), "Previous"),
-        h("button", { class: "btn btn-sm", type: "button", disabled: c.offset + LINES >= total, onClick: () => page(c.offset + LINES) }, "Next", icon("chevron-right", { size: 13 })))) : null;
+        button({ sm: true, disabled: c.offset <= 0, onClick: () => page(Math.max(0, c.offset - LINES)) }, icon("chevron-left", { size: 13 }), "Previous"),
+        button({ sm: true, disabled: c.offset + LINES >= total, onClick: () => page(c.offset + LINES) }, "Next", icon("chevron-right", { size: 13 })))) : null;
     { const pg = pager(); if (pg) sec.appendChild(pg); }
     sec.appendChild(h("div", { class: "kwic-wrap" }, h("table", { class: "kwic" },
       h("caption", { class: "visually-hidden" }, `Mentions of ${c.label} in their context`),
       h("tbody", {}, lines.map((l) => {
         const href = `#/doc/${encodeURIComponent(l.doc_id)}?q=${l.start}-${l.end}`;
-        const where = `${shortTitle(l.title, 40)}${l.location ? `, ${l.location}` : ""}`;
         return h("tr", {},
           h("td", { class: "kw-left" }, h("span", {}, l.left)),
           h("td", { class: "kw-node" }, h("a", { href, class: "ct-node", title: `Open ${l.title || "the document"}${l.location ? ` at ${l.location}` : ""}` }, h("mark", {}, l.node))),
           h("td", { class: "kw-right" }, l.right),
-          h("td", { class: "kw-where" }, h("a", { href, title: l.title }, where)));
+          h("td", { class: "kw-where kw-where-title" }, link({ kind: "title", serif: true, href, class: "kw-title", title: l.title }, l.title || "untitled"),
+            l.location ? h("span", { class: "kw-place" }, l.location) : null));
       })))));
     { const pg = pager(); if (pg) sec.appendChild(pg); }
     return sec;

@@ -7,18 +7,20 @@
 // the page follows that job. `label(j, text)`: the row's words when they are more than the kind's name; `tooltip`:
 // the row's tooltip adds the job's own title when the row's words leave it out.
 // 0.15.6: every row has a tooltip, its whole name: the sidebar cuts a long name short ("Reading an ex…").
+// 0.17.0: checks, sets of checks and the answers' own jobs link to Hypotheses (their old pages are part of it).
 export const JOB_KINDS = {
-  check: { icon: "flask", text: "Check", link: "#/check", withJob: true, tooltip: true, label: (j) => j.title || "Check" },
-  prepare: { icon: "eye", text: "Look before checking", link: "#/check", tooltip: true, label: (j, t) => `${t}${j.title ? ` (${j.title})` : ""}` },
-  batch: { icon: "list-checks", text: "Several hypotheses", link: "#/batch", withJob: true, tooltip: true, label: (j, t) => `${t}${j.title ? ` (${j.title})` : ""}` },
-  more: { icon: "search", text: "More evidence", link: "#/history", withJob: true },
-  reread: { icon: "refresh", text: "Reading an excerpt again", link: "#/history" },
-  "read-new": { icon: "book-open", text: "Reading the new documents", link: "#/history", withJob: true, label: (j, t) => j.title || t },
-  "second-opinion": { icon: "cpu", text: "Second opinion", link: "#/history", withJob: true,
+  check: { icon: "flask", text: "Check", link: "#/hypotheses", withJob: true, tooltip: true, label: (j) => j.title || "Check" },
+  prepare: { icon: "eye", text: "Look before checking", link: "#/hypotheses", tooltip: true, label: (j, t) => `${t}${j.title ? ` (${j.title})` : ""}` },
+  batch: { icon: "list-checks", text: "Several hypotheses", link: "#/hypotheses", withJob: true, tooltip: true, label: (j, t) => `${t}${j.title ? ` (${j.title})` : ""}` },
+  more: { icon: "search", text: "More evidence", link: "#/hypotheses", withJob: true },
+  reread: { icon: "refresh", text: "Reading an excerpt again", link: "#/hypotheses" },
+  "read-new": { icon: "book-open", text: "Reading the new documents", link: "#/hypotheses", withJob: true, label: (j, t) => j.title || t },
+  "read-unread": { icon: "book-open", text: "Reading the documents not read yet", link: "#/hypotheses", withJob: true },   // roadmap N5
+  "second-opinion": { icon: "scale", text: "Second opinion", link: "#/hypotheses", withJob: true,
     label: (j, t) => `${t}${/ on (\d+ hypothes\w+)$/.test(j.title || "") ? ` (${/ on (\d+ hypothes\w+)$/.exec(j.title)[1]})` : ""}` },
   ingest: { icon: "upload", text: "Adding documents", link: "#/sources" },
-  index: { icon: "sparkles", text: "Search by meaning set-up", link: "#/sources" },
-  benchmark: { icon: "cpu", text: "Model test", link: "#/settings/test" },
+  index: { icon: "network", text: "Search by meaning set-up", link: "#/sources" },
+  benchmark: { icon: "zap", text: "Model test", link: "#/settings/test" },
   keywords: { icon: "tag", text: "Codes by keywords", link: "#/profile" },
   label: { icon: "tag", text: "The AI labels passages", link: "#/profile" },
   "label-compare": { icon: "scale", text: "Comparing labels", link: "#/profile" },
@@ -30,6 +32,9 @@ export const JOB_KINDS = {
   // a new theme in place of a removed one; its scope is the set of themes
   "theme-new": { icon: "shapes", text: "Finding a new theme", link: (j) => (j.scope ? `#/themes/${encodeURIComponent(j.scope)}` : "#/themes") },
   resolve: { icon: "link", text: "Following references", link: "#/sources" },
+  "theory-codes": { icon: "book-marked", text: "Drafting codes from a theory", link: "#/codebooks" },   // 0.18.4 (K2)
+  "theory-frame": { icon: "book-marked", text: "Reading the theory for a codebook", link: "#/codebooks/draft/theory" },   // K2, the framework draft
+  "code-define": { icon: "sparkles", text: "Drafting a code's definition", link: "#/codebooks" },   // K1, the optional AI part
   quicklook: { icon: "eye", text: "Quick look", link: "#/sources" },
   "claude-install": { icon: "download", text: "Installing Claude Code", link: "#/settings/model" },
   "model-pull": { icon: "download", text: "Downloading a model", link: "#/settings/model" },   // 0.13.7
@@ -38,6 +43,8 @@ export const JOB_KINDS = {
   // 0.13.7: a job's scope is its text
   citations: { icon: "quote", text: "Checking citations", withJob: true, tooltip: true,
     link: (j) => (j.scope ? `#/citations/${encodeURIComponent(j.scope)}` : "#/citations"), label: (j, t) => `${t}${j.title ? ` (${j.title})` : ""}` },
+  // 0.18: a new reading, made in this copy, is on the Documents page
+  new_reader: { icon: "book-open", text: "Reading with the new reader", link: "#/sources" },
 };
 
 // A job's row: {href, icon, text, tooltip}. A kind no one registered shows its own title (an add-on's job).
@@ -46,7 +53,7 @@ export function jobRow(j) {
   if (!k) return { href: "#/overview", icon: "circle", text: j.title || j.kind, tooltip: j.title || j.kind };
   const text = k.label ? k.label(j, k.text) : k.text;
   const link = typeof k.link === "function" ? k.link(j) : k.link;  // a link may depend on the job (its scope)
-  return { href: link + (k.withJob ? `?job=${encodeURIComponent(j.id)}` : ""), icon: k.icon, text,
+  return { href: link + (k.withJob ? `?job=${encodeURIComponent(j.id)}` : ""), icon: k.icon, text, drawer: k.drawer,
     tooltip: k.tooltip && j.title && !text.includes(j.title) ? `${text}: ${j.title}` : text };
 }
 
@@ -57,10 +64,12 @@ export const PAGE_ROUTES = [];
 export const WELCOME_CARDS = [];
 
 // Where a hypothesis comes from (its `origin`): the result page links back to it. `eyebrow`: the link above the
-// hypothesis (in place of "All results"); `meta`: the words in the line under it; `href(id)`.
+// hypothesis (in place of "All results"); `meta`: the words in the line under it (or `meta(result)`); `href(id)`.
 export const ORIGINS = {
-  batch: { meta: "part of a set", href: (id) => `#/history?batch=${encodeURIComponent(id)}` },
-  // 0.13.7: a citation's check; its id is "<text>-<citation>-<work>"
+  batch: { meta: "part of a set", href: (id) => `#/hypotheses?batch=${encodeURIComponent(id)}` },   // 0.17.0: the answers are on Hypotheses
+  // 0.19.0 (N3): started from a document's text (a working document's Check against the corpus); none when it is gone
+  document: { meta: (r) => r.origin_title ? `from ${r.origin_title}` : null, href: (id) => `#/doc/${encodeURIComponent(id)}` },
+  // Margin 0.13.7: a citation's check; its id is "<text>-<citation>-<work>"
   citation: { eyebrow: "Back to the citations", meta: "a citation in your text",
     href: (id) => `#/citations/${encodeURIComponent(String(id).split("-")[0])}?ref=${encodeURIComponent(id)}` },
 };
@@ -71,7 +80,9 @@ export function originLink(r) {
   if (!key) return null;
   const o = ORIGINS[key];
   const id = key === r.origin ? (r.origin_id || r.batch_id || "") : r.batch_id;
-  return { eyebrow: o.eyebrow || null, meta: o.meta || null, href: o.href(id) };
+  const meta = typeof o.meta === "function" ? o.meta(r) : o.meta;   // 0.19.0: a meta may depend on the result
+  if (!meta && !o.eyebrow) return null;
+  return { eyebrow: o.eyebrow || null, meta: meta || null, href: o.href(id) };
 }
 
 // The Overview's sections, in SECTIONS' order: each with the features that show a card there, in FEATURES' order

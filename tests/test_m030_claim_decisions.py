@@ -102,12 +102,12 @@ def test_the_api_takes_a_decision(api):  # noqa: F811
 
 
 def test_the_page_files():
-    # after the draft page's styles (m010), before Margin's look (m020), which comes last (sections of margin.css)
+    # after the draft page's styles (m010) (sections of margin.css; Margin's colours are its first, m-tokens)
     order = sections()
-    assert order.index("m010") < order.index("m030") < order.index("m020")
+    assert order.index("m010") < order.index("m030")
     css = section("m030")
     assert "#" not in css.split("*/", 1)[1]  # colour tokens only
-    assert "overflow-y: auto" in css and "position: sticky" in css  # the claims scroll on their own
+    assert "overflow-y: auto" in section("m010") and "position: sticky" in section("m010")  # the claims scroll on their own
     assert "attr(data-cite)" in css  # the tag where a source should be cited
     js = (STATIC / "views" / "drafts.js").read_text()
     for label in ("Claim supported", "Claim refuted", "Dismiss claim", "cite here"):

@@ -6,7 +6,7 @@ An add-on is a Python module. It comes from one of two places, and Margin reads 
 - a **separate package** names its module under the entry point group `margin.extensions`, in its pyproject.toml:
 
       [project.entry-points."margin.extensions"]
-      margin = "margin_addon"
+      fieldnotes = "fieldnotes_addon"
 
 Margin reads only the names an add-on defines and uses its own default for every other one, so Margin alone (no
 add-on) behaves exactly as before. The names (each one optional):

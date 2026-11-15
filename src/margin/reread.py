@@ -66,16 +66,18 @@ document as it reads now (a stronger model reading a round again, an excerpt rea
 from __future__ import annotations
 
 import bisect
+import copy
 import hashlib
 import json
 import re
+import threading
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from . import __version__, ingest
-from .store import Workspace, now
-from .textutil import _normalise_spans, _word_edge, normalise, split_sentences
+from .store import Workspace, now, passage_range
+from .textutil import _normalise_spans, _word_edge, normalise, pack_text, spacing_matches, split_sentences
 
 # what each kind of result is, for the person (the report's `kind_text`)
 KIND_TEXT = {
@@ -107,7 +109,11 @@ _KEYWORD_SOURCES = ("keywords", "meaning", "both")
 _PK = {"tasks": ("task_id",), "results": ("task_id",), "labels": ("label_id",), "verifications": ("ver_id",),
        "judgements": ("passage_id",), "second_opinions": ("passage_id",), "theme_members": ("passage_id",),
        "claims": ("claim_id",), "claim_targets": ("claim_id",), "interactions": ("inter_id",)}
-_READINGS: dict[tuple, Any] = {}   # the last readings of files (preview, then move, read a file once)
+# the last readings of files, so a preview and the move after it read a file once and align it once: {key: {"key",
+# "doc": the reading as storing needs it (ingest._lighten), "map": the alignment last made on it (_Map.fresh), or
+# None}}. A document's entry goes once it is moved.
+_READINGS: dict[tuple, dict] = {}
+_READINGS_LOCK = threading.Lock()
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -165,18 +171,7 @@ class _Finder:
     def _pack(self, drop: str) -> tuple:
         got = self._packs.get(drop)
         if got is None:
-            chars, starts, ends, gap = [], [], [], []
-            prev = False
-            for c, a, b in zip(self.nh, self.hs, self.he):
-                if c in drop:
-                    prev = True
-                    continue
-                chars.append(c)
-                starts.append(a)
-                ends.append(b)
-                gap.append(prev)
-                prev = False
-            got = self._packs[drop] = ("".join(chars), starts, ends, gap)
+            got = self._packs[drop] = pack_text(self.nh, self.hs, self.he, drop)
         return got
 
     def all(self, quote: str) -> list[tuple[int, int]]:
@@ -200,31 +195,8 @@ class _Finder:
         return out
 
     def _loose(self, nq: str, drop: str) -> list[tuple[int, int]]:
-        sh, starts, ends, gap = self._pack(drop)
-        qc, qgap, prev = [], [], False
-        for c in nq:
-            if c in drop:
-                prev = True
-                continue
-            qc.append(c)
-            qgap.append(prev)
-            prev = False
-        sq = "".join(qc)
-        if len(sq) < 3:
-            return []
-
-        def edge(i: int, start: bool = False) -> bool:
-            return i <= 0 or i >= len(sh) or gap[i] or _word_edge(self.text, sh, starts, i, start)
-
-        out = []
-        pos = sh.find(sq)
-        while pos >= 0:
-            end = pos + len(sq)
-            # a space (or hyphen) the quote puts between two words must be a word edge in the text too
-            if edge(pos, True) and edge(end) and all(edge(pos + k) for k in range(1, len(sq)) if qgap[k]):
-                out.append((starts[pos], ends[end - 1]))
-            pos = sh.find(sq, pos + 1)
-        return out
+        # a space (or hyphen) the quote puts between two words must be a word edge in the text too
+        return list(spacing_matches(self.text, self._pack(drop), nq, drop, True, 3))
 
 
 def _worth(s: str) -> bool:
@@ -268,10 +240,27 @@ class _Map:
         self.old_starts = [p.start for p in self.old]
         self.new_starts = [p.start for p in self.new]
         self.spans, self.ends, self.paginated = new_spans, [e + 2 for _s, e in new_spans], paginated
-        self.f = _Finder(new_text)
+        self._f: _Finder | None = _Finder(new_text)
+        self.sig: str | None = None  # what it was built from (`_sig`), when it is to be used again
         self.anchors: list[tuple[int, int, int, int, str]] = []
         self._align()
         self._passages()
+
+    @property
+    def f(self) -> _Finder:
+        """The new text normalised for finding quotes (two offsets per character: large), made when first needed."""
+        if self._f is None:
+            self._f = _Finder(self.t2)
+        return self._f
+
+    def fresh(self) -> "_Map":
+        """A copy to place results with: the alignment (slow to build, never changed once built) shared, its own
+        blocks and finder, so a copy kept for later holds no normalised text and two uses never meet."""
+        c = copy.copy(self)
+        c._f = None
+        for k in ("blocks", "b_starts", "b_reach"):
+            c.__dict__.pop(k, None)
+        return c
 
     # --- alignment ---------------------------------------------------------------------------------------------
     def _align(self) -> None:
@@ -387,6 +376,10 @@ class _Map:
         """The new reading's blocks: (start, end, kind, whether features read it, after a person's corrections)."""
         self.blocks = sorted(blocks)
         self.b_starts = [b[0] for b in self.blocks]
+        self.b_reach, far = [], None  # the furthest end of the blocks so far: blocks before the first that reaches
+        for b in self.blocks:          # past an offset all end before it
+            far = b[1] if far is None or b[1] > far else far
+            self.b_reach.append(far)
 
     def left_out(self, pos: int) -> str | None:
         """The kind (reader.KINDS) of the block left out of searches that holds a new offset, or None."""
@@ -401,7 +394,9 @@ class _Map:
         q = self.by_new.get(pid)
         if q is None or not getattr(self, "blocks", None):
             return None
-        mine = [(min(q.end, b[1]) - max(q.start, b[0]), b[2], b[3]) for b in self.blocks
+        lo = bisect.bisect_right(self.b_reach, q.start)        # every block before ends at or before q.start
+        hi = bisect.bisect_left(self.b_starts, q.end, lo=lo)   # every block from here starts at or after q.end
+        mine = [(min(q.end, b[1]) - max(q.start, b[0]), b[2], b[3]) for b in self.blocks[lo:hi]
                 if b[0] < q.end and b[1] > q.start]
         if not mine or any(inc for _n, _k, inc in mine):
             return None
@@ -498,23 +493,64 @@ def _old_pids(cx, doc_id: str) -> list[str]:
 def _doc_tasks(cx, doc_id: str, old: set[str]) -> list[dict]:
     """The tasks about this document: their id names one of its passages (or it is one of its reference windows), or
     their payload names its passages."""
+    rows = cx.execute("SELECT rowid AS rid, * FROM tasks WHERE instr(task_id, ?) > 0 OR instr(payload_json, ?) > 0",
+                      (doc_id, doc_id)).fetchall()
+    return [t for t in (_task_of(dict(r), doc_id, old) for r in rows) if t is not None]
+
+
+def _task_of(t: dict, doc_id: str, old: set[str]) -> dict | None:
+    """A task row (a dict of its own) as `_doc_tasks` gives it for this document, or None when it is not about it."""
     from .access import ids_in
 
-    rx = _pid_re(doc_id)
-    out = []
-    for r in cx.execute("SELECT rowid AS rid, * FROM tasks WHERE instr(task_id, ?) > 0 OR instr(payload_json, ?) > 0",
-                        (doc_id, doc_id)).fetchall():
-        t = dict(r)
-        try:
-            t["payload"] = json.loads(t["payload_json"] or "{}")
-        except ValueError:
-            t["payload"] = {}
-        t["id_pids"] = [m.group(0) for m in rx.finditer(t["task_id"]) if m.group(0) in old]
-        t["pay_pids"] = ids_in(t["payload"])[0] & old
-        t["resolve"] = t["kind"] == "resolve" and t["task_id"].startswith(f"resolve:{doc_id}:")
-        if t["id_pids"] or t["pay_pids"] or t["resolve"]:
-            out.append(t)
+    try:
+        t["payload"] = json.loads(t["payload_json"] or "{}")
+    except ValueError:
+        t["payload"] = {}
+    t["id_pids"] = [m.group(0) for m in _pid_re(doc_id).finditer(t["task_id"]) if m.group(0) in old]
+    t["pay_pids"] = ids_in(t["payload"])[0] & old
+    t["resolve"] = t["kind"] == "resolve" and t["task_id"].startswith(f"resolve:{doc_id}:")
+    return t if t["id_pids"] or t["pay_pids"] or t["resolve"] else None
+
+
+def _doc_tasks_many(cx, docs: dict[str, set[str]]) -> dict[str, list[dict]]:
+    """`_doc_tasks` for several documents ({doc_id: its passage ids}) in one pass over the tasks, instead of one per
+    document: the same tasks, in the same order, for each."""
+    out: dict[str, list[dict]] = {d: [] for d in docs}
+    if not docs:
+        return out
+    if len(docs) == 1:
+        d = next(iter(docs))
+        return {d: _doc_tasks(cx, d, docs[d])}
+    ids = sorted(docs, key=lambda d: (-len(d), d))
+    # every place a document's id starts (overlapping, as instr finds it): at each, the longest id that matches;
+    # the shorter ids matching there are its beginnings
+    rx = re.compile("(?=(" + "|".join(re.escape(d) for d in ids) + "))")
+    heads = {d: [e for e in ids if e != d and d.startswith(e)] for d in ids}
+    for r in cx.execute("SELECT rowid AS rid, * FROM tasks"):
+        found: set[str] = set()
+        for text in (r["task_id"] or "", r["payload_json"] or ""):
+            for m in rx.finditer(text):
+                if m.group(1) not in found:
+                    found.add(m.group(1))
+                    found.update(heads[m.group(1)])
+        if not found:
+            continue
+        for d in ids:
+            if d in found:
+                t = _task_of(dict(r), d, docs[d])
+                if t is not None:
+                    out[d].append(t)
     return out
+
+
+def check_many(ws: Workspace, doc_ids: list[str]) -> dict[str, dict]:
+    """`check` for several documents, reading the tasks once for all of them (a batch of moves, the documents due
+    in a shared project): {doc_id: what `check` says}. A document that is not in the project is left out."""
+    cx = ws._conn()
+    docs = {d: set(_old_pids(cx, d)) for d in dict.fromkeys(doc_ids)
+            if cx.execute("SELECT 1 FROM documents WHERE doc_id=?", (d,)).fetchone()}
+    tasks = _doc_tasks_many(cx, docs)
+    return {d: _public(_check(ws, cx, d, tasks=tasks[d])) for d in docs}
 
 
 def _busy(cx, tasks: list[dict]) -> str | None:
@@ -547,7 +583,9 @@ def _busy(cx, tasks: list[dict]) -> str | None:
     return None
 
 
-def _check(ws: Workspace, cx, doc_id: str, verify_file: bool = True) -> dict:
+def _check(ws: Workspace, cx, doc_id: str, verify_file: bool = True, tasks: list[dict] | None = None) -> dict:
+    """What `check` says, and (`tasks`) the document's tasks it looked at, for `_plan` to use again (`tasks` given:
+    those, read already)."""
     from .sources import original_file
 
     row = cx.execute("SELECT reader, sha1, path FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
@@ -558,10 +596,21 @@ def _check(ws: Workspace, cx, doc_id: str, verify_file: bool = True) -> dict:
     if reader >= ingest.READER:
         out["reason"] = "This document was read by the current reader already: there is nothing to do."
         return out
+    from . import languages
+
+    kind = cx.execute("SELECT kind FROM documents WHERE doc_id=?", (doc_id,)).fetchone()[0]
+    if not languages.new_reader_changes(reader, languages.summary_for(cx, doc_id, keep=False), kind):   # 0.19: reader 5 to 6
+        out["reason"] = "The new reader reads this document as it is read now: there is nothing to do."
+        return out
     f = original_file(ws, doc_id, verify=False)
     if not f["available"]:
         out["reason"] = ("No original file was recorded for this document, so it cannot be read again."
                          if not f["recorded"] else
+                         # (a file outside the project's folder is the document's only while it is the file that was
+                         # read: `sources.original_file`)
+                         f"The file at {f['changed']} has changed since it was added, so reading it now would not "
+                         "give the text your results come from. Put the file as it was back in its place."
+                         if f.get("changed") else
                          f"The original file is no longer at {f['recorded']}. Put it back there to read the document "
                          "with the new reader.")
         return out
@@ -577,11 +626,14 @@ def _check(ws: Workspace, cx, doc_id: str, verify_file: bool = True) -> dict:
             out["reason"] = (f"The file at {f['path']} has changed since it was added, so reading it now would not "
                              "give the text your results come from. Put the file as it was back in its place.")
             return out
-    busy = _busy(cx, _doc_tasks(cx, doc_id, set(_old_pids(cx, doc_id))))
+    if tasks is None:
+        tasks = _doc_tasks(cx, doc_id, set(_old_pids(cx, doc_id)))
+    busy = _busy(cx, tasks)
     if busy:
         out["reason"] = busy
         return out
     out["ok"] = True
+    out["tasks"] = tasks
     return out
 
 
@@ -592,23 +644,82 @@ def _public(c: dict) -> dict:
 # ------------------------------------------------------------------------------------------------------------------
 # reading the file again
 # ------------------------------------------------------------------------------------------------------------------
-def _read(ws: Workspace, doc_id: str, path: str, ocr=None, should_stop=None):
-    """The file read by the current reader (nothing is stored). The last two readings are kept, so a preview and the
-    move that follows read the file once."""
+def _read(ws: Workspace, doc_id: str, path: str, ocr=None, should_stop=None) -> dict:
+    """The file read by the current reader (nothing is stored), in its entry of `_READINGS`. The last two readings
+    are kept, so a preview and the move that follows read the file once; kept is only what storing the reading needs
+    (ingest._lighten: a 1,000-page document's every line of layout would hold hundreds of megabytes)."""
     p = Path(path)
     st = p.stat()
     cfg = ws.config["passages"]
     ocr = ocr if ocr is not None else ingest.OcrOptions()
     key = (str(p.resolve()), st.st_mtime_ns, st.st_size, ingest.READER, int(cfg["max_chars"]), int(cfg["min_chars"]),
            ocr.mode, ocr.lang)
-    doc = _READINGS.get(key)
-    if doc is None:
+    with _READINGS_LOCK:
+        entry = _READINGS.get(key)
+    if entry is None:
         doc = ingest.read_document(p, reader=ingest.READER, ocr=ocr, max_chars=int(cfg["max_chars"]),
                                    min_chars=int(cfg["min_chars"]), should_stop=should_stop)
-        _READINGS[key] = doc
-        while len(_READINGS) > 2:
-            _READINGS.pop(next(iter(_READINGS)))
-    return doc
+        entry = {"key": key, "doc": ingest._lighten(doc), "map": None}
+        with _READINGS_LOCK:
+            _READINGS[key] = entry
+            while len(_READINGS) > 2:
+                _READINGS.pop(next(iter(_READINGS)))
+    return entry
+
+
+def _forget(entry: dict) -> None:
+    """A reading no longer needed (its document was moved onto it)."""
+    with _READINGS_LOCK:
+        if _READINGS.get(entry["key"]) is entry:
+            del _READINGS[entry["key"]]
+
+
+class _Stale(Exception):
+    """The document's text or passages changed after its alignment was made (`_plan` with a map)."""
+
+
+def _old_reading(cx, doc_id: str) -> tuple[dict, str, list[_P]]:
+    """A document as stored: its row, its text and its passages."""
+    drow = dict(cx.execute("SELECT * FROM documents WHERE doc_id=?", (doc_id,)).fetchone())
+    old = [_P(r["passage_id"], r["seq"], r["start"], r["end"], r["text"], r["section"], r["page"])
+           for r in cx.execute("SELECT * FROM passages WHERE doc_id=? ORDER BY seq", (doc_id,))]
+    return drow, drow["text"] or "", old
+
+
+def _new_passages(doc_id: str, new_doc) -> tuple[list[str], list[_P]]:
+    new_pids = [f"{doc_id}:{p.seq:04d}" for p in new_doc.passages]
+    return new_pids, [_P(pid, p.seq, p.start, p.end, new_doc.text[p.start:p.end], p.section, p.page)
+                      for pid, p in zip(new_pids, new_doc.passages)]
+
+
+def _sig(doc_id: str, old_text: str, old: list[_P]) -> str:
+    """What an alignment depends on besides the new reading: the document's id (its new passages' ids), its text, and
+    each of its passages' id, place, text and page (the map reads nothing else of them: their sections and the
+    blocks a person left out are read again by `_plan` each time)."""
+    h = hashlib.sha1(doc_id.encode("utf-8", "surrogatepass") + b"\0")
+    h.update(old_text.encode("utf-8", "surrogatepass"))
+    for p in old:
+        h.update(repr((p.pid, p.start, p.end, p.text, p.page)).encode("utf-8", "surrogatepass"))
+    return h.hexdigest()
+
+
+def _map_for(cx, doc_id: str, entry: dict) -> _Map:
+    """The alignment of a document's stored reading with the new one in `entry`, made here (it takes long for a long
+    document, so it is made before any write lock is taken) or the one kept from the preview when the document is
+    as it was then."""
+    _drow, old_text, old = _old_reading(cx, doc_id)
+    sig = _sig(doc_id, old_text, old)
+    with _READINGS_LOCK:
+        kept = entry.get("map")
+    if kept is not None and kept.sig == sig:
+        return kept.fresh()
+    new_doc = entry["doc"]
+    m = _Map(old_text, old, new_doc.text, _new_passages(doc_id, new_doc)[1], new_doc.page_spans,
+             new_doc.raw.paginated)
+    m.sig = sig
+    with _READINGS_LOCK:
+        entry["map"] = m.fresh()
+    return m
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -626,6 +737,7 @@ class _Plan:
         self.dropped: dict[str, str] = {}     # task ids dropped -> the id their ledger rows take
         self.kept: list[str] = []             # the new ids of answered tasks named by a passage, kept
         self.after: list = []                 # (sql, args) run after the new reading is stored
+        self.first: list = []                 # (sql, args) run before the plan's deletions and changes of rows
 
     def upd(self, table: str, rid: int, **cols) -> None:
         self.updates[table].setdefault(rid, {}).update(cols)
@@ -679,23 +791,24 @@ def _in(cx, sql: str, ids: list[str], args=()) -> list[dict]:
     return out
 
 
-def _plan(ws: Workspace, cx, doc_id: str, new_doc) -> tuple[_Plan, dict]:
+def _plan(ws: Workspace, cx, doc_id: str, new_doc, m: _Map | None = None,
+          tasks: list[dict] | None = None) -> tuple[_Plan, dict]:
+    """What moves where. `m`: the alignment made already from `new_doc` (`_map_for`); _Stale when the document is
+    no longer what it was made from. `tasks`: the document's tasks read already in this transaction (`_check`)."""
     from . import profile
     from .access import shares
     from .claimcheck import _breaks
 
-    drow = dict(cx.execute("SELECT * FROM documents WHERE doc_id=?", (doc_id,)).fetchone())
+    drow, old_text, old = _old_reading(cx, doc_id)
     reader = int(drow["reader"] or 1)
-    old_text = drow["text"] or ""
-    old = [_P(r["passage_id"], r["seq"], r["start"], r["end"], r["text"], r["section"], r["page"])
-           for r in cx.execute("SELECT * FROM passages WHERE doc_id=? ORDER BY seq", (doc_id,))]
     old_set = {p.pid for p in old}
     old_spans = [(r[0], r[1]) for r in cx.execute("SELECT start, end FROM pages WHERE doc_id=? ORDER BY page",
                                                   (doc_id,))]
-    new_pids = [f"{doc_id}:{p.seq:04d}" for p in new_doc.passages]
-    new = [_P(pid, p.seq, p.start, p.end, new_doc.text[p.start:p.end], p.section, p.page)
-           for pid, p in zip(new_pids, new_doc.passages)]
-    m = _Map(old_text, old, new_doc.text, new, new_doc.page_spans, new_doc.raw.paginated)
+    new_pids, new = _new_passages(doc_id, new_doc)
+    if m is None:
+        m = _Map(old_text, old, new_doc.text, new, new_doc.page_spans, new_doc.raw.paginated)
+    elif m.sig != _sig(doc_id, old_text, old):
+        raise _Stale(doc_id)
     from . import reader as reader2
 
     choices = {r[0]: r[1] for r in cx.execute("SELECT fp, included FROM block_choices WHERE doc_id=?", (doc_id,))}
@@ -717,13 +830,15 @@ def _plan(ws: Workspace, cx, doc_id: str, new_doc) -> tuple[_Plan, dict]:
         return m.one.get(pid) or tomb[pid]
 
     # --- tasks ---------------------------------------------------------------------------------------------------
-    tasks = _doc_tasks(cx, doc_id, old_set)
+    if tasks is None:
+        tasks = _doc_tasks(cx, doc_id, old_set)
     valid = {r["task_id"] for r in _in(cx, "SELECT DISTINCT task_id FROM results WHERE valid=1 AND task_id IN ({})",
                                         [t["task_id"] for t in tasks])}
     excerpt_tasks = [t for t in tasks if not t["resolve"] and t["payload"].get("subject_kind")
                      and t["payload"].get("subject_id")
                      and ("passages" in t["payload"] or "passage_id" in t["payload"])]
-    plain_tasks = [t for t in tasks if not t["resolve"] and t not in excerpt_tasks]
+    shown = {t["rid"] for t in excerpt_tasks}
+    plain_tasks = [t for t in tasks if not t["resolve"] and t["rid"] not in shown]
 
     def drop_task(t: dict, ledger_id: str) -> None:
         plan.deletes["tasks"].add(t["rid"])
@@ -833,8 +948,9 @@ def _plan(ws: Workspace, cx, doc_id: str, new_doc) -> tuple[_Plan, dict]:
     # --- excerpts: checks (and the SDG pack's checks of claims), with judgements and second opinions ----------------
     vrows = [v for v in _rows(cx, "SELECT rowid AS rid, * FROM verifications WHERE doc_id=?", (doc_id,))
              if v["passage_id"] in old_set]
+    have = {x["rid"] for x in vrows}
     vrows += [v for v in _in(cx, "SELECT rowid AS rid, * FROM verifications WHERE passage_id IN ({})", sorted(old_set))
-              if v["rid"] not in {x["rid"] for x in vrows}]
+              if v["rid"] not in have]
     # Margin keeps a person's judgement on the excerpt itself (verifications.user_*): no `judgements` per person
     jrows: list[dict] = []
     srows = _in(cx, "SELECT rowid AS rid, * FROM second_opinions WHERE passage_id IN ({})", sorted(old_set))
@@ -856,11 +972,28 @@ def _plan(ws: Workspace, cx, doc_id: str, new_doc) -> tuple[_Plan, dict]:
     texts = {r[0]: r[1] for r in cx.execute("SELECT claim_id, text FROM user_claims")}
     breaks = _breaks(ws, [(pid, doc_id, by_old[pid].start, by_old[pid].end)
                           for s, pids in subjects.items() if s[0] == "user_claim" for pid in pids])
+    # 0.19.0rc2: a subject's excerpts on this document that are not on the reading moved (they name the new reading's
+    # passages already: a colleague's, brought in from their newer reading) take their passages, as another excerpt of
+    # the subject does; an SDG pack claim is looked up under its new id too. Judgements and second opinions already on
+    # the new reading are kept apart row by row below (`on_new`), so a move never breaks on UNIQUE
+    taken: dict[tuple, set[str]] = defaultdict(set)
+    lo, hi = f"{doc_id}:", f"{doc_id};"
+    for sk, sid, pid in cx.execute("SELECT subject_kind, subject_id, passage_id FROM verifications WHERE passage_id >= ? "
+                                   "AND passage_id < ?", (lo, hi)).fetchall():
+        if pid not in old_set:
+            taken[(sk, sid)].add(pid)
+    on_new: set[tuple] = set()  # (Margin keeps no `judgements` per person: see jrows above)
+    on_new |= {("s",) + tuple(r) for r in cx.execute(
+        "SELECT subject_id, passage_id, model FROM second_opinions WHERE passage_id >= ? AND passage_id < ?", (lo, hi))
+        if r[1] not in old_set}
     keys: dict[tuple, dict[str, str]] = {}
     anchors: dict[tuple, dict] = defaultdict(dict)
+    over: dict[tuple, dict[str, str]] = defaultdict(dict)   # an excerpt taken by one there already: where that is
     for s, pids in subjects.items():
+        tk = taken.get(s, set()) | (taken.get((s[0], claim_map[s[1]]), set()) if s[0] == "claim" and s[1] in claim_map
+                                    else set())
         keys[s] = _excerpt_keys(m, s, sorted(pids, key=lambda x: by_old[x].start), by_sp, tomb, plan, texts, old_page,
-                                anchors[s])
+                                anchors[s], tk, over[s])
     jby = defaultdict(list)
     for j in jrows:
         jby[(("user_claim", j["claim_id"]), j["passage_id"])].append(j)
@@ -909,15 +1042,28 @@ def _plan(ws: Workspace, cx, doc_id: str, new_doc) -> tuple[_Plan, dict]:
                 if v.get("user_verdict") or v.get("user_note"):  # Margin: the person's judgement is on the excerpt
                     plan.counts["judgement"]["moved" if placed else "not_placed"] += 1
             for j in jby.get((s, pid), []):
-                u = pl(j["quote"], j["start"])
-                plan.upd("judgements", j["rid"], passage_id=key, start=u[0] if u else None, end=u[1] if u else None)
+                # 0.19.0rc2: a person's judgement goes where its excerpt goes; when that excerpt is one already on the
+                # new reading (`over`), to it, unless the person judged it there already; one that would meet the
+                # person's own judgement already on its passage stays a record (never two of one person on one)
+                to, at_ok = key, placed
+                if not placed and over[s].get(pid) and ("j", s[1], over[s][pid], j["person_id"]) not in on_new:
+                    to, at_ok = over[s][pid], True
+                elif placed and ("j", s[1], key, j["person_id"]) in on_new:
+                    to, at_ok = tomb[pid], False
+                on_new.add(("j", s[1], to, j["person_id"]))
+                u = (m.place(j["quote"], j["start"], pid) if at_ok and j["quote"] else None)
+                plan.upd("judgements", j["rid"], passage_id=to, start=u[0] if u else None, end=u[1] if u else None)
                 if j["verdict"] or j["note"]:
-                    plan.counts["judgement"]["moved" if placed else "not_placed"] += 1
+                    plan.counts["judgement"]["moved" if at_ok else "not_placed"] += 1
             for r in sby.get((s, pid), []):
-                a = pl(r["quote"], r["start"])
-                plan.upd("second_opinions", r["rid"], passage_id=key, start=a[0] if a else None,
+                to, at_ok = key, placed
+                if placed and ("s", s[1], key, r["model"]) in on_new:
+                    to, at_ok = tomb[pid], False   # the same model's second opinion is on its passage already
+                on_new.add(("s", s[1], to, r["model"]))
+                a = m.place(r["quote"], r["start"], pid) if at_ok and r["quote"] else None
+                plan.upd("second_opinions", r["rid"], passage_id=to, start=a[0] if a else None,
                          end=a[1] if a else None)
-                plan.counts["second_opinion"]["moved" if placed else "not_placed"] += 1
+                plan.counts["second_opinion"]["moved" if at_ok else "not_placed"] += 1
 
     # --- results of renamed tasks --------------------------------------------------------------------------------
     for old_id, new_id in plan.renamed.items():
@@ -1043,8 +1189,8 @@ def _plan(ws: Workspace, cx, doc_id: str, new_doc) -> tuple[_Plan, dict]:
     for r in _in(cx, "SELECT rowid AS rid FROM embeddings WHERE passage_id IN ({})", sorted(old_set | set(new_pids))):
         plan.deletes["embeddings"].add(r["rid"])
     n_emb = len(plan.deletes["embeddings"])
-    plan.deletes["term_mentions"] |= {r[0] for r in cx.execute("SELECT rowid FROM term_mentions WHERE doc_id=?",
-                                                               (doc_id,))}
+    # 0.17.2: the glossary's places have no rowid (store.SCHEMA): the document's go by the range of its passage ids
+    plan.first.append(("DELETE FROM term_mentions WHERE passage_id >= ? AND passage_id < ?", passage_range(doc_id)))
     plan.deletes["mentions"] |= {r[0] for r in cx.execute("SELECT rowid FROM mentions WHERE doc_id=?", (doc_id,))}
 
     # --- a bibliography match's evidence (where the title stands) --------------------------------------------------
@@ -1188,11 +1334,12 @@ def _map_payload(obj: Any, f) -> Any:
 
 
 def _excerpt_keys(m: _Map, s: tuple, pids: list[str], by_sp: dict, tomb: dict, plan: _Plan, texts: dict,
-                  old_page, anchors: dict) -> dict[str, str]:
+                  old_page, anchors: dict, taken: set[str] = frozenset(),
+                  over: dict | None = None) -> dict[str, str]:
     """The new passage of each excerpt of one subject (a check's part, an SDG pack claim): the passage holding its
     quote (the AI's; and the person's judgement in force must be found too), or without a quote the passage most of
     its text is in; a tombstone where that cannot be found, or where another excerpt of the subject took the
-    passage."""
+    passage (one moved with it, or one already on the new reading: `taken`; `over` then says which)."""
     found = []
     for pid in pids:
         p = m.by_old[pid]
@@ -1214,10 +1361,16 @@ def _excerpt_keys(m: _Map, s: tuple, pids: list[str], by_sp: dict, tomb: dict, p
         found.append((pid, ok, anchor, why, key_q, at, p))
     order = sorted(found, key=lambda x: (not x[1], x[2] is None, x[2][0] if x[2] else x[6].start))
     out: dict[str, str] = {}
-    used: set[str] = set()
+    used: set[str] = set(taken)
     for pid, ok, anchor, why, q, at, p in order:
         key = (m.passage_at(anchor[0]).pid if anchor else m.main.get(pid)) if ok else None
         if key is not None and key in used:
+            if over is not None and key in taken:
+                # the same excerpt, already on the new reading (a colleague's): the judgements go to it, and this row
+                # stays as a record without counting as a result with no place (nothing of it is lost)
+                over[pid] = key
+                out[pid] = tomb[pid]
+                continue
             key, why = None, "shared"
         if key is not None and anchor:
             anchors[pid] = (q if anchor is not None and q else None, anchor)
@@ -1316,11 +1469,15 @@ def preview(ws: Workspace, doc_id: str, ocr=None, should_stop=None) -> dict:
     title = cx.execute("SELECT title FROM documents WHERE doc_id=?", (doc_id,)).fetchone()[0] or ""
     if not c["ok"]:
         return {**_public(c), "doc_id": doc_id, "title": title}
-    new_doc = _read(ws, doc_id, c["path"], ocr, should_stop)
+    entry = _read(ws, doc_id, c["path"], ocr, should_stop)
+    new_doc = entry["doc"]
     empty = _empty(new_doc)
     if empty:
         return {**_public(c), "ok": False, "reason": empty, "doc_id": doc_id, "title": title}
-    _plan_, info = _plan(ws, cx, doc_id, new_doc)
+    try:  # the alignment is kept for the move that follows
+        _plan_, info = _plan(ws, cx, doc_id, new_doc, _map_for(cx, doc_id, entry), c["tasks"])
+    except _Stale:  # changed between the two reads: made again from what is stored now
+        _plan_, info = _plan(ws, cx, doc_id, new_doc)
     return info["report"]
 
 
@@ -1367,22 +1524,40 @@ def move(ws: Workspace, doc_id: str, person_id: str | None = None, ocr=None, sho
     c = _check(ws, ws._conn(), doc_id)
     if not c["ok"]:
         raise ValueError(c["reason"])
-    new_doc = _read(ws, doc_id, c["path"], ocr, should_stop)
+    entry = _read(ws, doc_id, c["path"], ocr, should_stop)
+    new_doc = entry["doc"]
     empty = _empty(new_doc)
     if empty:
         raise ValueError(empty)
-    who = person_id  # Margin: one person (ENLENS names who moved it, for a shared project)
-    with ws.connect() as cx:
-        c = _check(ws, cx, doc_id, verify_file=False)  # again, holding the database: nothing changed meanwhile
-        if not c["ok"]:
-            raise ValueError(c["reason"])
-        want = (cx.execute("SELECT sha1 FROM documents WHERE doc_id=?", (doc_id,)).fetchone()[0] or "").split("~")[0]
-        if new_doc.raw.sha1 != want:  # the file changed between its check and its reading
-            raise ValueError("The original file changed while it was being read. Nothing was changed; try again.")
-        plan, info = _plan(ws, cx, doc_id, new_doc)
-        if keep_all and info["report"].get("not_placed"):
-            raise WouldLose(info["report"])  # before anything is written: the transaction has nothing to undo
-        _apply(ws, cx, doc_id, plan, info, new_doc, who)
+    from .solo import me  # Margin: one person
+
+    who = person_id or me()
+    # the alignment takes long for a long document (minutes for thousands of pages): it is made before the write lock
+    # is taken, so other work on the project goes on meanwhile; holding the lock, only the rows are worked out and
+    # written, once it is clear the document is still what the alignment was made from
+    m = _map_for(ws._conn(), doc_id, entry)
+    for attempt in (1, 2):
+        try:
+            with ws.connect() as cx:
+                c = _check(ws, cx, doc_id, verify_file=False)  # again, holding the database: nothing changed meanwhile
+                if not c["ok"]:
+                    raise ValueError(c["reason"])
+                want = (cx.execute("SELECT sha1 FROM documents WHERE doc_id=?",
+                                   (doc_id,)).fetchone()[0] or "").split("~")[0]
+                if new_doc.raw.sha1 != want:  # the file changed between its check and its reading
+                    raise ValueError("The original file changed while it was being read. Nothing was changed; try "
+                                     "again.")
+                plan, info = _plan(ws, cx, doc_id, new_doc, m, c["tasks"])
+                if keep_all and info["report"].get("not_placed"):
+                    raise WouldLose(info["report"])  # before anything is written: the transaction has nothing to undo
+                _apply(ws, cx, doc_id, plan, info, new_doc, who)
+            break
+        except _Stale:  # its text or passages changed while the alignment was made: made once more, else left
+            if attempt == 2:
+                raise ValueError("The document changed while it was being read again. Nothing was changed; try "
+                                 "again.") from None
+            m = _map_for(ws._conn(), doc_id, entry)
+    _forget(entry)
     report = info["report"]
     report["moved"] = True
     return report
@@ -1394,7 +1569,11 @@ def text_fp(text: str | None) -> str:
     return hashlib.sha1((text or "").encode("utf-8") + b"\0").hexdigest()[:16]
 
 
-def _apply(ws: Workspace, cx, doc_id: str, plan: _Plan, info: dict, new_doc, who: str | None) -> None:
+def _write_plan(cx, plan: _Plan) -> None:
+    """The plan's deletions and changes of rows (every result moved to its place in the new reading). (ENLENS's sync
+    uses it too, to place a colleague's results made on another reading of a document.)"""
+    for sql, args in plan.first:
+        cx.execute(sql, args)
     for table, rids in plan.deletes.items():
         ids = sorted(rids)
         for i in range(0, len(ids), 500):
@@ -1411,6 +1590,10 @@ def _apply(ws: Workspace, cx, doc_id: str, plan: _Plan, info: dict, new_doc, who
         for rid, cols in rows.items():
             sets = ", ".join(f"{k}=?" for k in cols)
             cx.execute(f"UPDATE {table} SET {sets} WHERE rowid=?", (*cols.values(), rid))
+
+
+def _apply(ws: Workspace, cx, doc_id: str, plan: _Plan, info: dict, new_doc, who: str | None) -> None:
+    _write_plan(cx, plan)
     # the document's own rows: its old reading out, the new one in
     for t in ("pages", "paragraphs", "headings", "passages", "blocks", "doc_tables"):
         cx.execute(f"DELETE FROM {t} WHERE doc_id=?", (doc_id,))
@@ -1420,7 +1603,8 @@ def _apply(ws: Workspace, cx, doc_id: str, plan: _Plan, info: dict, new_doc, who
     raw = new_doc.raw
     from . import notes, researchlog
 
-    moved_notes = notes.move(cx, doc_id, new_doc.text)  # 0.16: a person's notes follow their words
+    # 0.16: a person's notes follow their words (0.17.2: and take the page of their new place)
+    moved_notes = notes.move(cx, doc_id, new_doc.text, new_doc.page_spans if raw.paginated else None)
     # what Claude had read of passages that have no place now still counts (access.shares)
     sent = info["sent_share"]
     cx.execute("UPDATE documents SET text=?, n_chars=?, n_pages=?, reader=?, app_version=?, text_fp=?, "

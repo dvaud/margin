@@ -221,10 +221,10 @@ def test_page_files_and_docs():
     assert re.search(r'skim: \{\s*section: "explore", title: "Skim", icon: "eye", href: "#/skim", ai: "none"', feats)
     app = (STATIC / "app.js").read_text()
     assert 'from "./views/skim.js"' in app and '"skim", renderSkim]' in app and '"skim", renderSkimIndex]' in app
-    assert 'href="#/skim" data-route="skim"' in (STATIC / "index.html").read_text()
+    assert 'data-route="skim"' not in (STATIC / "index.html").read_text()   # in the sidebar through features.js (nav: true)
     ql = (STATIC / "views" / "quicklook.js").read_text()
     assert "navigate(`#/skim/${encodeURIComponent(added[0].doc_id)}`)" in ql
-    assert "#/skim/${encodeURIComponent(docId)}" in (STATIC / "views" / "sources.js").read_text()
+    assert "#/skim/${encodeURIComponent(docId)}" in (STATIC / "views" / "doc-page.js").read_text()   # the document page, since ENLENS 0.18
     page = (STATIC / "views" / "skim.js").read_text()
     assert "/skim.md" in page or "`${base}.md`" in page
     css = (STATIC / "margin.css").read_text()

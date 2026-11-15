@@ -57,7 +57,7 @@ class SetupApi:
         stopped jobs have cleaned up (at most 20 s). Returns how many jobs were stopped."""
         running = [j for j in self.app.jobs.all() if j.state in ("queued", "running")]
         for j in running:
-            j.cancel.set()
+            self.app.jobs.cancel(j)  # 0.18 (M6): the jobs waiting for their turn leave at once
         self._stop_claude_runs()
 
         def later():
@@ -141,8 +141,10 @@ class SetupApi:
         return self._start_ollama()
 
     def _start_ollama(self) -> dict:
+        """0.18.0rc2: also what the card does by itself when Ollama is on the computer but does not answer, so a second
+        call while it starts, or one when it already answers, starts nothing."""
         try:
-            return ollama_setup.start()
+            return ollama_setup.start_once((self.app.settings().get("ollama_url") or "").strip() or None)
         except ValueError as e:
             raise ApiError(409, str(e)) from e
 

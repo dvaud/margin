@@ -101,7 +101,7 @@ With Python 3.10 or newer, in a clone of the repository:
 ```bash
 pip install -e '.[connector]'    # the app, the command line and the connector (recommended)
 pip install -e .                 # core only: the app and the command line
-pip install -e '.[fast]'         # numpy: faster search by meaning on large projects
+pip install -e '.[fast]'         # numpy: faster search by meaning and faster themes by words on large projects
 pip install -e '.[pdfminer]'     # the PDF layout reader (columns, tables)
 pip install -e '.[anthropic]'    # the Claude API (cloud, opt-in)
 pip install -e '.[ocr]'          # scanned PDFs on this computer (also needs Tesseract, above)
@@ -120,15 +120,15 @@ The programs are `margin-gui` (the app), `margin` (the [command line](command-li
 flowchart LR
     A["Margin looks for a new version<br/>when a page opens, every 2 minutes,<br/>and when you come back to its tab"] --> B["A pop-up in the corner:<br/>Margin 0.x.y is available"]
     B -- "Update and restart" --> C["Download and check it"]
-    B -- "Later" --> D["The button stays in the sidebar:<br/>Update to 0.x.y"]
+    B -- "Later" --> D["The button stays in the sidebar:<br/>Update"]
     D --> C
     C --> E["Install, restart,<br/>the page reloads by itself"]
 ```
 
 **In the app.** Margin looks for the latest release (or, for a git copy, new commits) when a page opens, every two
 minutes after, and when you come back to its tab. When there is a new version, a pop-up in the corner names it (*Margin
-0.x.y is available*), with *Update and restart* and *Later*, and a button *Update to 0.x.y* appears at the bottom of
-the sidebar. *Later* puts the pop-up away for that version; the button stays until you update.
+0.x.y is available*), with *Update and restart* and *Later*, and an *Update* button takes the place of *Quit* at the
+foot of the sidebar. *Later* puts the pop-up away for that version; the button stays until you update.
 
 *Update and restart* installs the new version and restarts Margin on the same address. The open page shows
 *Starting Margin …* and opens the new version by itself; started from the icon, Margin restarts the same way without
@@ -142,6 +142,11 @@ still made that way, as it runs their code.) If the install cannot finish, Margi
 the corner saying why. Most often Claude Code still had Margin connected, which holds its files: close Claude Code, then
 press *Update* again. The details are in `logs/update.log` in the data folder. If Margin cannot open at all after an
 update, a PowerShell window opens by itself and installs it again.
+
+**What is new.** After an update, a small note in the bottom right corner names the new version and what it is
+about. *Read what's new* opens the list of what it brings, with a link to every change on GitHub; the x (or Escape)
+closes the note, and it does not come back. The list is also beside the version on every Settings tab, and Find has it
+(type *changelog* or *what's new*).
 
 **Looking yourself.** *Settings → Technical → Updates → Check for updates* looks now and says why a look failed (the
 version at the top right of every Settings tab opens it). Looks that fail (offline, files of a git copy edited by
@@ -176,8 +181,8 @@ applications menu (Linux). On Linux desktops that ask for it, right-click the ic
   check or documents being added still run in it: then every page says *Margin X is installed, but Y is still
   running*, with *Restart now*.
 - If your AI is Ollama on this computer and Ollama is not running, the icon starts it too.
-- **Quit Margin** at the bottom of the sidebar stops it (it asks first when a check is still running). What Margin
-  would print goes to `logs/margin.log` in the data folder.
+- **Quit** at the foot of the sidebar (with an update ready, in *Settings → Technical*) stops it (it asks first when
+  a check is still running). What Margin would print goes to `logs/margin.log` in the data folder.
 
 The icon calls the Python Margin was installed in, so another `margin-gui` earlier on the PATH (an old one in
 Anaconda, say) cannot get in the way.

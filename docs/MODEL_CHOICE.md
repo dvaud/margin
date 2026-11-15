@@ -2,14 +2,14 @@
 
 This is the report the 0.8 roadmap asks for: for every kind of task, which model is good enough and how long it takes,
 measured on the pilot, and the default that follows. **It is not filled in yet.** The runs need the sample sheets
-filled in by a person once, pass marks the team sets before any run is scored, and real Claude Code sessions. Until
+filled in by a person once, pass marks you set before any run is scored, and real Claude Code sessions. Until
 then the defaults below are the roadmap's starting points.
 
 ## How the runs are made
 
 ```bash
 margin --ws pilot acceptance samples                      # once: acceptance/*.csv for a person to fill in
-# the team writes acceptance/pass_marks.json, e.g. {"label": 0.6, "link": 0.8, "theme": 0.8, "resolve": 0.8, "check": 0.8}
+# you write acceptance/pass_marks.json, e.g. {"label": 0.6, "link": 0.8, "theme": 0.8, "resolve": 0.8, "check": 0.8}
 margin --ws pilot acceptance queue --kind label --model haiku     # a copy of the pilot with label tasks for Haiku
 /margin-run "pilot eval label haiku"                                # in Claude Code: answers them
 margin --ws pilot acceptance queue --kind label --model local:qwen3:8b

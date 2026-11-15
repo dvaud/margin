@@ -41,6 +41,27 @@ Besides the answer and who says what, the card shows:
 When the AI was too unsure to count any excerpt, the card says so in one sentence, and *Next to review* takes you to
 those excerpts: your own judgement always counts.
 
+### The assessment in words
+
+Under the answer, a few sentences say what it rests on. They are made by fixed rules from the judgements, never
+written by an AI, so they read the same each time and change no answer:
+
+- **The other side, quoted.** When excerpts contradict the hypothesis, the strongest of them is quoted with its
+  document and place; when the evidence is mixed, the supporting side is quoted too.
+- **Where the support comes from.** A warning when one document carries most of it (*Most of the support comes from
+  one document (Smith 2021, 4 of 6 excerpts)*), or all of it comes from one year or one kind of document (from the
+  [bibliography](bibliography.md)).
+- **Each part**, for a hypothesis checked in parts: what holds and what has no evidence.
+- **What is not counted**: excerpts below your strictness, and those waiting for your own judgement or for the local
+  model.
+- **What your judgements did.** When your judgements give another answer than the AI's alone, it names the one that
+  moved it: *Your judgement on Jones 2022, page 12 turned this from Supported to Mixed evidence*. Each such change is
+  also written into the [research log](notes-and-log.md).
+
+*Show* beside a sentence takes you to the excerpt it rests on. Excerpts of documents no AI may read, or only a local
+one, are counted but never quoted here, as the text also goes into the downloads. Whether two excerpts that disagree
+concern another place, group or period, and how strong each source is, are left to you.
+
 ## The evidence
 
 *Cards* or *Table* beside the title: the table has one row per excerpt, with your decisions; click a row to open its
@@ -63,16 +84,22 @@ Each card shows, from top to bottom:
    before it). A short heading that opens the paragraph (*Recommendations.*) shows as a small heading above it. An
    excerpt also read for another part says *also in part 1* (hover it for your judgement there).
 
-Cards that count come first; cards you have judged sit back (no fill, a dashed edge). Every card has the same row of
-actions:
+Cards that count come first; cards you have judged sit back (no fill, a dashed edge). A long list shows its first 40
+cards and draws more as you scroll (a line under the list says *40 of 120 excerpts*, with *Show more*); *Next to
+review*, *Show* and the other jumps draw the card they go to, and printing draws them all. Every card has the same row
+of actions:
 
 | Action | What it does |
 | --- | --- |
 | **Agree** | Makes the AI's judgement yours: it then counts, whatever the AI's certainty. A note at the bottom says so and whether the answer changed, with *Undo*. The button becomes **Take back**. |
 | **Not about this** | Dismisses the excerpt in one click: it moves under the cards, with the excerpts not about the hypothesis. *Undo* is offered. |
 | **Judge differently…** | The other judgements (each saves at once, with *Undo*), a comment (saved on <kbd>Enter</kbd> or when you leave the field), and the sentence you mean when the AI highlighted the wrong one: select it in the excerpt and press *Use it*, or pick it from a list. Called *Edit judgement…* once you have judged, and *Judge this excerpt…* when no AI may read it. |
-| **In context** | The whole excerpt the AI read, with *Open the whole document at this place* (the quote highlighted; *Back to the result* returns), *the original file* (a PDF at the page, a text file with the quote highlighted, a web page scrolled to the quote where the browser can) and *a highlighted copy* of the document with this hypothesis's judgements marked. |
+| **more…** (at the end of the excerpt) | The whole excerpt the AI read, with *Open the whole document at this place* (the quote highlighted; *Back to the result* returns), *the original file* (a PDF at the page, a text file with the quote highlighted, a web page scrolled to the quote where the browser can) and *a highlighted copy* of the document with this hypothesis's judgements marked. *less* folds it again. |
 | **Details** | *Ask the AI to read this again* (this excerpt alone, with your comment as a hint; the card then shows what it was and what it is now, and your own judgement still counts), the certainty as a percentage, how the excerpt was found, and technical facts (span, id, earlier judgements). |
+
+When you judge an excerpt, only what the judgement changes is drawn again: its card, the answer, and the counts. The
+page stays where it is, and a judgement that changed the answer says so once, under the answer, as *Just now: …*. An
+excerpt that moves to another list (*Not about this*) draws the page again, with a note where the card went.
 
 > [!NOTE]
 > A comment without a judgement stays a comment: it is not a review. Your judgement replaces the AI's in the answer
@@ -101,6 +128,23 @@ Under the cards:
 New excerpts are marked *new*, a *Just now* line in the answer says what was found, and when everything that matches
 has been read, the line above the buttons says so.
 
+**Documents not read in this check.** A check reads only the excerpts it picks, so many documents may never come up.
+Under the evidence, a small card says how many documents no excerpt was read from, in two groups (it shows nothing
+when both are empty):
+
+- *3 documents with the search words were never read in this check*: an excerpt of each holds at least two different
+  words of the hypothesis or its search words. *Read these* reads their best excerpts as a further search for this
+  result, as for documents added since; the check is not run again, so your reviews are kept.
+- *2 documents share no word with this hypothesis or its search words*: they may be off its topic, or say it in other
+  words. *Search with other words* opens the box above. Documents that share a single word only are counted after
+  it.
+
+*Which ones* lists the titles; each opens the document. The keyword search is asked again with the check's own words
+(no AI reads anything). Theory documents, documents added since the check (they have their own line in the answer),
+documents with no readable text and documents the check was limited away from are left out. A document never read is
+not a weak one: the count changes no answer. The Excel summary has the first number as *Documents with the search
+words never read*.
+
 ## Ask another AI model
 
 The section says what has happened so far (what a second opinion found, or that no stronger model is set, with *Set
@@ -123,7 +167,7 @@ count either way. When the AI chosen in Settings has no stronger model, the card
 
 | Download | What is in it |
 | --- | --- |
-| *Excel (.xlsx)* | A **Summary** sheet, one row per hypothesis: the answer and the answer per part, documents per side, excerpts counted and too uncertain, your reviews and changes, notes, strictness, and, for a methods section, every AI model the check used with what each did (search words, judging, judging again as the stronger model, reading the excerpts of documents marked *Only a local AI*). An **Excerpts** sheet, one row per excerpt read: the judgement and who made it (you, the AI or nobody yet), the AI's own judgement and certainty or why no AI judged it, counted or not, the quote and who chose it, document, where, your comment, the note about another group, earlier judgements, the second model's judgement, and the full excerpt. It ends with *How these results were made*. |
+| *Excel (.xlsx)* | A **Summary** sheet, one row per hypothesis: the answer, the assessment in words, and the answer per part, documents per side, excerpts counted and too uncertain, your reviews and changes, notes, strictness, and, for a methods section, every AI model the check used with what each did (search words, judging, judging again as the stronger model, reading the excerpts of documents marked *Only a local AI*). An **Excerpts** sheet, one row per excerpt read: the judgement and who made it (you, the AI or nobody yet), the AI's own judgement and certainty or why no AI judged it, counted or not, the quote and who chose it, document, where, your comment, the note about another group, earlier judgements, the second model's judgement, and the full excerpt. It ends with *How these results were made*. |
 | *Highlighted documents (.zip)* | The documents, with this hypothesis's quotes marked. |
 | *Whole project (.zip)* | The project in one file ([Projects and other computers](projects.md)). |
 | *CSV · JSON (for programmers)* | The same data, for scripts. |
@@ -138,9 +182,9 @@ search looked for and the AI's note on what it read.
 A check still **waiting for Claude Code** shows only the waiting card (with *Start Claude Code*), any excerpts
 already read, and your notes; the rest appears when the answer is in.
 
-## All your results
+## The list of answers
 
-**Results** lists every hypothesis with its answer, the excerpts that count (and how many were too uncertain), and
+Under the box of *Hypotheses* is the list of every hypothesis with its answer, the excerpts that count (and how many were too uncertain), and
 tags: *part of a set*, *checked in 2 parts*, *N to review*, *N changed by you*, *has notes*, *N documents added
 since*, *second opinion differs on N*, and the date. An answer a stronger model changed carries a small mark (*was
 partly supported*). Search, filter by answer, open one, or download them all (*Download all: Excel (.xlsx)*, with a
@@ -150,9 +194,12 @@ partly supported*). Search, filter by answer, open one, or download them all (*D
 - *Get a second opinion for all results* does the same for second opinions (for comparison only).
 
 The checks of a draft's claims are here too, as a set ([Check a draft](drafts.md)). Checks of citations are kept apart:
-they are not in *Results*, the map or its downloads ([Check citations](citations.md)).
+they are not in the answers, the map or its downloads ([Check citations](citations.md)).
 
-**Show as a map** shows all results, or one set, as a grid: one row per hypothesis, one column per document.
+### The evidence map
+
+The *Evidence map* tab of *Hypotheses* shows all answers, or one set, as a grid: one row per hypothesis, one column per
+document.
 
 <img src="../images/manual/map.png" alt="The evidence map: hypotheses by documents" width="800">
 
@@ -164,8 +211,15 @@ they are not in *Results*, the map or its downloads ([Check citations](citations
 | ± | both |
 
 Each cell gives the number of excerpts that count. The map flags answers that rest on one document, and documents
-that **decide** answers (leaving them out would change those answers): read those most carefully. *highlighted* under
-each document gives it with the quotes marked.
+that **decide** answers (leaving them out would change those answers): read those most carefully. The download arrow under
+each document's title gives it with the quotes marked.
+
+**The documents behind no answer.** A document none of whose excerpts counts in any answer has no column. The line
+under the map says how many there are, and *Show them in Documents* opens the Documents list grouped by the answers
+behind each document (*Group by: Answers behind them*; *Sort: Most answers* puts the busiest first). Once five
+hypotheses are checked, the Documents list says the same in one quiet line. A document behind no answer may be off
+your topic, or say it in other words than your hypotheses: a search with other words tells which. The count says
+nothing about how good a document is.
 
 ---
 

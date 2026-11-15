@@ -1,4 +1,4 @@
-"""A whole project in one zip file, to hand to a colleague or move to another computer.
+"""A whole project in one zip file, to keep or to move to another computer.
 
     margin --ws X export-project out.zip
     margin import-project in.zip --ws Y
@@ -10,7 +10,8 @@ The zip holds:
 - the original file of every document the project has: kept at its place when it is inside the project folder
   (`uploads/`, `inputs/`), and as `originals/<doc_id>/<name>` when it was read from somewhere else on the computer.
   0.14.3: nothing else of `uploads/` (the file of a document removed since stays on this computer);
-- `bundle.json`: what is where (the version that made it and, per document, its file in the zip).
+- `bundle.json`: what is where (the version that made it and, per document, its file in the zip). (ENLENS also writes
+  who sent it and its sync format, for a colleague's copy of the project; Margin reads neither.)
 
 Everything is written to a temporary file on disk and copied in chunks, never held in memory. Importing unpacks
 with the same guards as adding a zip of sources (no path can leave the project folder, a size budget against zip
@@ -21,6 +22,7 @@ whose database cannot be read leaves nothing in `projects/`.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -28,6 +30,7 @@ import time
 import unicodedata
 import zipfile
 from pathlib import Path
+from typing import Any, Iterable
 
 from . import __version__
 from .store import Workspace
@@ -42,7 +45,8 @@ def _add(zf: zipfile.ZipFile, path: Path, arcname: str) -> None:
 
 
 def export_project(ws: Workspace, out: str | Path) -> dict:
-    """Write the project to the zip file `out`; returns what it holds."""
+    """Write the whole project to the zip file `out` (to keep, or to move it to another computer); returns what it
+    holds. (ENLENS 0.18 can also write only what was shared, for a colleague: Margin has no colleagues.)"""
     from .sources import original_file
 
     out = Path(out)
@@ -147,6 +151,29 @@ DAMAGED_DB = ("The project's database in this zip cannot be read: the zip is dam
               "Ask for a new copy of the file.")
 
 
+NOT_ROWS = ("The project's database in this zip holds more than a project's rows (a table that works out its own "
+            "values). Margin does not open it. Ask for a new copy, made with “Download as a zip”.")
+
+
+def _rows_only(cx: sqlite3.Connection) -> None:
+    """A database that came from someone else is taken for its rows alone. What else a database file can hold goes:
+    triggers (they would run at every change this person makes afterwards: one turned *Only a local AI* back to
+    *cloud* the moment it was set, another emptied the record of what was sent to Claude) and views (one can stand in
+    the place of a table). A table that works out its values itself (a generated column, a virtual table) is refused:
+    a setting kept in one could not be changed here. (ENLENS's own triggers, which count changes for its shared folder,
+    go too: Margin has none.) An add-on's own come back when the project is opened (`store._setup_addons`)."""
+    for kind, name in cx.execute("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view')").fetchall():
+        cx.execute(f"DROP {'TRIGGER' if kind == 'trigger' else 'VIEW'} IF EXISTS \"{name.replace(chr(34), chr(34) * 2)}\"")
+    for name, sql in cx.execute("SELECT name, sql FROM sqlite_master WHERE type='table'").fetchall():
+        if name.startswith("sqlite_"):
+            continue
+        quoted = name.replace(chr(34), chr(34) * 2)
+        if (sql or "").lstrip().upper().startswith("CREATE VIRTUAL") or any(
+                r[6] in (2, 3) for r in cx.execute(f"PRAGMA table_xinfo(\"{quoted}\")")):
+            raise ValueError(NOT_ROWS)
+    cx.commit()
+
+
 def _open_staged(folder: Path) -> bool:
     """0.14.3: check the database unpacked into the staging folder and open it there (which adds the tables and
     columns of this version), before the project is put in place. Raises ValueError with a plain message when it
@@ -155,6 +182,8 @@ def _open_staged(folder: Path) -> bool:
         cx = sqlite3.connect(folder / "enlens.sqlite")
         try:
             ok = cx.execute("PRAGMA quick_check").fetchone()
+            if ok and ok[0] == "ok":
+                _rows_only(cx)
             before_011 = "ai_access" not in {r[1] for r in cx.execute("PRAGMA table_info(documents)")}
         finally:
             cx.close()
@@ -167,9 +196,68 @@ def _open_staged(folder: Path) -> bool:
     return before_011
 
 
+# config.json: what Margin reads of a project's settings, and what each may hold. A project from a zip keeps only these,
+# each of its kind and in a sensible range, else Margin's own (`store.DEFAULT_CONFIG`): the file comes from someone
+# else's computer, and a value of the wrong kind stopped every page of results (a `thresholds` that is not a dict)
+_NUMBERS = {"thresholds": {"screen_min_score": (0.0, 100.0), "accept_confidence": (0.0, 1.0),
+                           "support_confidence": (0.0, 1.0), "verify_top_k": (1, 200)},
+            "passages": {"max_chars": (100, 100000), "min_chars": (0, 100000)}}
+_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,119}")  # a model's name, as Settings and the routes write it
+
+
+def _clean_config(raw: Any) -> dict:
+    """A project's config.json as a zip brought it, with only what Margin knows (see `_NUMBERS`)."""
+    from .access import LEVELS
+    from .store import DEFAULT_CONFIG
+
+    cfg = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {}
+    for part, ranges in _NUMBERS.items():
+        given = cfg.get(part) if isinstance(cfg.get(part), dict) else {}
+        out[part] = {}
+        for k, (lo, hi) in ranges.items():
+            v = given.get(k)
+            ok = isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi and \
+                (isinstance(v, int) or not isinstance(lo, int))
+            out[part][k] = v if ok else DEFAULT_CONFIG[part][k]
+    if out["passages"]["min_chars"] > out["passages"]["max_chars"]:
+        out["passages"] = dict(DEFAULT_CONFIG["passages"])
+    models = cfg.get("models") if isinstance(cfg.get("models"), dict) else {}
+    out["models"] = {k: (v if isinstance(v, str) and _MODEL.fullmatch(v) else d)
+                     for k, d in DEFAULT_CONFIG["models"].items() for v in [models.get(k)]}
+    if cfg.get("ai_access_default") in LEVELS:
+        out["ai_access_default"] = cfg["ai_access_default"]
+    for k in ("ai_access_ask", "ai_access_banner"):
+        if isinstance(cfg.get(k), bool):
+            out[k] = cfg[k]
+    return out
+
+
+# what a project zip may hold that is not unpacked: made again here (the search index, the cache of the terms), or the
+# sender's own (the copy of their database made before they brought work in)
+_NOT_UNPACKED = ("cache/", "backups/")
+
+
+class _Without:
+    """A zip as `ingest._safe_extract` reads it, without what is not unpacked (`_NOT_UNPACKED`)."""
+
+    def __init__(self, zf: zipfile.ZipFile, prefix: str):
+        self.zf, self.prefix = zf, prefix
+
+    def infolist(self) -> list[zipfile.ZipInfo]:
+        from .ingest import zip_name
+
+        skip = tuple(self.prefix + n for n in _NOT_UNPACKED)
+        return [i for i in self.zf.infolist() if not zip_name(i).startswith(skip)]
+
+    def open(self, *a, **k):
+        return self.zf.open(*a, **k)
+
+
 def import_project(zip_path: str | Path, dest: str | Path) -> Workspace:
     """Unpack a project zip into the folder `dest` (which must not exist yet, or be empty) and open it. The zip is one
-    made with export_project, or a project folder zipped by hand."""
+    made with export_project (by Margin or by ENLENS: the tables of ENLENS's shared projects stay in the file,
+    unread), or a project folder zipped by hand (0.13.5)."""
     from .ingest import ZIP_ERRORS, _safe_extract, zip_name, zip_problem
 
     zip_path, dest = Path(zip_path), Path(dest)
@@ -188,7 +276,7 @@ def import_project(zip_path: str | Path, dest: str | Path) -> Workspace:
         staging.mkdir(parents=True)
         try:
             try:
-                _safe_extract(zf, staging, [MAX_IMPORT], strip=prefix)
+                _safe_extract(_Without(zf, prefix), staging, [MAX_IMPORT], strip=prefix)
             except ZIP_ERRORS as e:  # 0.14.3: a damaged or password-protected zip, in words
                 raise ValueError(f"This project zip could not be unpacked ({zip_problem(e)}). Ask for a new copy of "
                                  "the file.") from e
@@ -208,6 +296,12 @@ def import_project(zip_path: str | Path, dest: str | Path) -> Workspace:
             shutil.rmtree(staging, ignore_errors=True)
             raise
     ws = Workspace.open(dest)  # opened in staging already: the tables and columns of this version are there
+    try:
+        sent = json.loads(ws.config_path.read_text(encoding="utf-8")) if ws.config_path.exists() else {}
+    except (OSError, ValueError):
+        sent = {}
+    ws.config_path.write_text(json.dumps(_clean_config(sent), indent=2), encoding="utf-8")
+    ws._config_cache = None
     if before_011:
         # 0.11: a project made before per-document AI settings: the app asks once who may read its documents
         cfg = json.loads(ws.config_path.read_text(encoding="utf-8")) if ws.config_path.exists() else {}
@@ -242,6 +336,14 @@ def import_project(zip_path: str | Path, dest: str | Path) -> Workspace:
 MOVE_MANIFEST = "enlens-move.json"
 # settings that belong to this computer rather than to the person: not carried over
 MACHINE_SETTINGS = {"project", "benchmark_reference", "claude_plan_detected"}  # 0.13.10: found per computer
+# ENLENS roles: who the person is (ENLENS's settings; a move zip made by ENLENS may hold them). Margin has one person,
+# so they are never taken
+PERSON_SETTINGS = ("person_id", "your_name")
+# ENLENS roles (§4.11): the settings that hold a server's address; one that is not on this computer is taken only when
+# the person ticks it (a back end left without its address keeps this computer's own)
+SERVER_SETTINGS = ("ollama_url", "openai_url", "embed_url")
+_SERVER_OF = {"ollama": "ollama_url", "openai": "openai_url"}  # a server kind and the setting of its address
+NOT_A_MOVE = "This zip was not made with “Move Margin to another computer”."
 
 
 def is_move_zip(zip_path: str | Path) -> bool:
@@ -291,53 +393,127 @@ def export_all(out: str | Path, progress=None) -> dict:
     return {"projects": listed, "skipped": skipped, "size": out.stat().st_size}
 
 
-def import_all(zip_path: str | Path, settings: bool | None = None) -> dict:
-    """Bring in a zip made by export_all: every project as a new project (a name in use gets " (2)"), and the
-    settings when `settings` is True, or (None) when this computer has no project yet: a new computer takes the old
-    one's settings, one in use keeps its own. Returns {"projects": [{"from", "name", "documents"}], "settings": bool}."""
+def _move_meta(zf: zipfile.ZipFile) -> dict:
+    try:
+        meta = json.loads(zf.read(MOVE_MANIFEST))
+    except (KeyError, ValueError) as e:
+        raise ValueError(NOT_A_MOVE) from e
+    if not isinstance(meta, dict) or meta.get("format") != "enlens-move":
+        raise ValueError(NOT_A_MOVE)
+    if not isinstance(meta.get("settings"), dict):
+        meta["settings"] = {}
+    return meta
+
+
+def _fresh() -> bool:
+    """Whether this computer has no project yet (a quick look that was not kept does not count)."""
+    from . import home
+
+    return not [n for n in home.list_projects() if not home.is_temporary(n)]
+
+
+def peek_move(zip_path: str | Path) -> dict:
+    """What a move zip holds, shown before anything is brought in (ENLENS roles §5.5): {"made", "version", "projects":
+    [{"name", "documents"}], "settings": {key: value}, "servers": [{"key", "url", "here"}], "fresh"} ("settings": what
+    *Take the settings too* would take, but the servers' addresses, listed in "servers"; "here": the address is this
+    computer, so it is taken with the settings without asking; "fresh": this computer has no project yet, so the
+    settings are taken by default). Margin: you always move, the same person (ENLENS also asks "moving" or "both
+    computers")."""
+    from . import home
+    from .access import on_this_computer
+
+    with zipfile.ZipFile(zip_path) as zf:
+        meta = _move_meta(zf)
+    sent = meta["settings"]
+    projects = [{"name": str(p.get("name") or ""), "documents": p.get("documents") if isinstance(p.get("documents"), int)
+                 else None} for p in meta.get("projects") or [] if isinstance(p, dict)]
+    shown = {k: v for k, v in sent.items() if k in home.DEFAULTS and k not in MACHINE_SETTINGS
+             and k not in PERSON_SETTINGS and k not in SERVER_SETTINGS}
+    servers = [{"key": k, "url": str(sent[k]), "here": on_this_computer(str(sent[k]))}
+               for k in SERVER_SETTINGS if isinstance(sent.get(k), str) and sent[k].strip()]
+    return {"made": meta.get("made"), "version": meta.get("version"), "projects": projects,
+            "settings": shown, "servers": servers, "fresh": _fresh()}
+
+
+def _settings_to_take(sent: dict, servers: Iterable[str]) -> dict:
+    """The other computer's settings this one takes (*Take the settings too*): never this computer's own (the
+    installation, the current project), nor ENLENS's who the person is, nor an address that is not
+    on this computer unless its key is in `servers`. A back end, a search server or the local AI for restricted
+    documents whose address was not taken keeps this computer's own setting."""
+    from . import home
+    from .access import on_this_computer
+
+    allowed = set(servers or ())
+    wanted = {k: v for k, v in sent.items() if k in home.DEFAULTS and k not in MACHINE_SETTINGS
+              and k not in PERSON_SETTINGS}
+    dropped = {k for k in SERVER_SETTINGS if isinstance(wanted.get(k), str) and wanted[k].strip()
+               and not on_this_computer(wanted[k]) and k not in allowed}
+    for k in dropped:
+        wanted.pop(k, None)
+    if _SERVER_OF.get(str(wanted.get("backend"))) in dropped:
+        for k in ("backend", "ollama_model", "openai_model"):
+            wanted.pop(k, None)
+    embed_url = sent.get("embed_url") if isinstance(sent.get("embed_url"), str) else ""
+    if "embed_url" in dropped or (not embed_url.strip() and _SERVER_OF.get(str(wanted.get("embed_backend"))) in dropped):
+        for k in ("embed_backend", "embed_url", "embed_model"):
+            wanted.pop(k, None)
+    if _SERVER_OF.get(str(wanted.get("restricted_server"))) in dropped:
+        for k in ("restricted_server", "restricted_model"):
+            wanted.pop(k, None)
+    return wanted
+
+
+def _take_settings(wanted: dict) -> bool:
+    from . import home
+
+    try:
+        home.update_settings(wanted)
+    except ValueError:
+        # e.g. the old computer used Claude Code and this one keeps everything on it (local only)
+        wanted = {k: v for k, v in wanted.items() if k not in ("backend", "allow_cloud", "allow_claude_code")}
+        try:
+            home.update_settings(wanted)
+        except ValueError:
+            wanted = {}
+    return bool(wanted)
+
+
+def import_all(zip_path: str | Path, settings: bool | None = None, servers: Iterable[str] = ()) -> dict:
+    """Bring in a zip made by export_all: every project as a new project (a name in use gets " (2)"). Margin: you move
+    to this computer and stay the same person (ENLENS also offers "I will use both computers", a second person).
+    `settings`: take the other settings too (`_settings_to_take`; `servers`: the addresses not on this computer to
+    take as well); None: only when this computer has no project yet (a new computer takes the old one's settings, one
+    in use keeps its own). Returns {"projects": [{"from", "name", "documents"}], "settings": bool, "current", "made",
+    "version"}."""
     from . import home
 
     zip_path = Path(zip_path)
     with zipfile.ZipFile(zip_path) as zf:
-        try:
-            meta = json.loads(zf.read(MOVE_MANIFEST))
-        except (KeyError, ValueError) as e:
-            raise ValueError("This zip was not made with “Move Margin to another computer”.") from e
-        if meta.get("format") != "enlens-move":
-            raise ValueError("This zip was not made with “Move Margin to another computer”.")
-        fresh = not [n for n in home.list_projects() if not home.is_temporary(n)]
-        take_settings = fresh if settings is None else settings
+        meta = _move_meta(zf)
+        sent = meta["settings"]
+        fresh = _fresh()
+        take = fresh if settings is None else bool(settings)
         done, renamed = [], {}
         tmp_dir = Path(tempfile.mkdtemp(prefix="enlens-move-in-"))
         try:
             for p in meta.get("projects") or []:
+                if not isinstance(p, dict):
+                    continue
                 arc = str(p.get("file") or "")
                 if not arc.startswith("projects/") or ".." in arc or arc not in zf.namelist():
                     continue
                 one = tmp_dir / "one.zip"
                 with zf.open(arc) as src, open(one, "wb") as dst:
                     shutil.copyfileobj(src, dst, 1 << 20)
-                name = home.unique_project_name(str(p.get("name") or "Imported project"))
-                ws = import_project(one, home.home() / "projects" / name)
+                pname = home.unique_project_name(str(p.get("name") or "Imported project"))
+                ws = import_project(one, home.home() / "projects" / pname)
                 one.unlink()
                 n_docs = ws.scalar("SELECT COUNT(*) FROM documents") or 0
-                done.append({"from": p.get("name"), "name": name, "documents": n_docs})
-                renamed[p.get("name")] = name
+                done.append({"from": p.get("name"), "name": pname, "documents": n_docs})
+                renamed[p.get("name")] = pname
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-    applied = False
-    if take_settings and isinstance(meta.get("settings"), dict):
-        wanted = {k: v for k, v in meta["settings"].items() if k in home.DEFAULTS and k not in MACHINE_SETTINGS}
-        try:
-            home.update_settings(wanted)
-        except ValueError:
-            # e.g. the old computer used Claude Code and this one keeps everything on it (local only)
-            wanted = {k: v for k, v in wanted.items() if k not in ("backend", "allow_cloud", "allow_claude_code")}
-            try:
-                home.update_settings(wanted)
-            except ValueError:
-                wanted = {}
-        applied = bool(wanted)
+    applied = _take_settings(_settings_to_take(sent, servers)) if take else False
     current = renamed.get(meta.get("current")) or (done[0]["name"] if done else None)
     if current and (fresh or not home.load_settings().get("project")):
         home.update_settings({"project": current})   # a computer in use stays on the project it was on
@@ -345,3 +521,73 @@ def import_all(zip_path: str | Path, settings: bool | None = None) -> dict:
         current = home.load_settings().get("project") or current
     return {"projects": done, "settings": applied, "current": current, "made": meta.get("made"),
             "version": meta.get("version")}
+
+
+# ---------------------------------------------------------------------------------------------
+# ENLENS roles (§4.11): a folder linked as a project is cleaned as an import is. (ENLENS also asks first about a folder
+# another person made; Margin has one person: every folder is yours.)
+# ---------------------------------------------------------------------------------------------
+def _linked_config(root: Path) -> tuple[dict | None, list[str]]:
+    """config.json of a folder to link, as it is kept: `_clean_config`. (None, []) when it needs no change; else (the
+    new config, the keys that change: dropped or given another value)."""
+    f = root / "config.json"
+    try:
+        raw = json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
+    except (OSError, ValueError):
+        raw = "unreadable"
+    if raw is None:
+        return None, []
+    new = _clean_config(raw)
+    old = raw if isinstance(raw, dict) else {}
+    changed = sorted(k for k in old if old.get(k) != new.get(k)) if isinstance(raw, dict) else ["config.json"]
+    return (new if new != old else None), changed
+
+
+def _sqlite(root: Path) -> sqlite3.Connection:
+    db = root / "enlens.sqlite"
+    if not db.is_file():
+        raise ValueError(f"No workspace (enlens.sqlite) in {root}.")
+    return sqlite3.connect(db, timeout=60)
+
+
+def check_linked(path: str | Path) -> dict:
+    """What linking an existing folder as a project would clean, without changing anything: {"triggers": n, "views":
+    n, "config": [keys changed]}."""
+    root = Path(path).expanduser().resolve()
+    cx = _sqlite(root)
+    try:
+        try:
+            kinds = cx.execute("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view')").fetchall()
+        except sqlite3.DatabaseError as e:
+            raise ValueError(DAMAGED_DB.replace("in this zip", "in this folder")) from e
+    finally:
+        cx.close()
+    _new, changed = _linked_config(root)
+    return {"triggers": sum(1 for k, _n in kinds if k == "trigger"), "views": sum(1 for k, _n in kinds if k == "view"),
+            "config": changed}
+
+
+def clean_linked(path: str | Path) -> dict:
+    """Clean a folder before it is linked as a project, as a project from a zip is (`import_project`): the quick
+    check, its rows alone (`_rows_only`: triggers and views go, a table that works out its own values is refused)
+    and its config.json (`_clean_config`; the old file kept as config.json.before-linking). Returns what
+    `check_linked` found."""
+    root = Path(path).expanduser().resolve()
+    report = check_linked(root)
+    cx = _sqlite(root)
+    try:
+        ok = cx.execute("PRAGMA quick_check").fetchone()
+        if not ok or ok[0] != "ok":
+            raise ValueError(DAMAGED_DB.replace("in this zip", "in this folder"))
+        _rows_only(cx)  # before Margin opens it: a trigger would run at the first change opening it makes
+    except sqlite3.DatabaseError as e:
+        raise ValueError(DAMAGED_DB.replace("in this zip", "in this folder")) from e
+    finally:
+        cx.close()
+    new, _changed = _linked_config(root)
+    if new is not None:
+        f = root / "config.json"
+        if f.exists():
+            shutil.copyfile(f, root / "config.json.before-linking")
+        f.write_text(json.dumps(new, indent=2), encoding="utf-8")
+    return report

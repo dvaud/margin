@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from _static import defined_tokens
+from margin_static import section
 from helpers import api_docs
 
 STATIC = Path(__file__).resolve().parent.parent / "src" / "margin" / "gui" / "static"
@@ -43,18 +44,21 @@ def test_the_page_shows_what_is_sent_and_never_builds_html():
                  "Add a research question", "Look for open copies", "Margin never fills it in by itself"):
         assert text in js, text
     assert "/api/literature/zotero" in js and "/api/literature/export" in js
-    assert 'rel: "noopener noreferrer"' in js   # works open in a new tab without handing it this page
+    # works open in a new tab without handing it this page: the link helper of lib.js gives every external link its rel
+    assert 'kind: "external"' in js and "a.rel = \"noopener\"" in (STATIC / "lib.js").read_text(encoding="utf-8")
     assert "api.openalex.org" not in js   # the page never talks to a service: only the app does (the page's CSP)
 
 
 def test_the_css_uses_the_tokens_and_has_a_phone_layout():
     css = (STATIC / "margin.css").read_text(encoding="utf-8")
-    block = css[css.index("/* ---- Find literature"):]
-    assert ".lit-work.chosen" in block and ".lit-bar" in block and "@media (max-width: 600px)" in block
+    block = section("literature")
+    assert ".lit-work[data-chosen]" in block and ".lit-bar" in block and "@media (max-width: 600px)" in block
     used = set(re.findall(r"var\((--[a-z0-9-]+)", block))
     assert used and used <= defined_tokens(), used - defined_tokens()
     assert not re.search(r"#[0-9a-fA-F]{3,6}\b", block)   # colours only through the tokens (light and dark)
-    assert "a.dc-link:hover" in css   # the draft card's Find literature link has its own hover colours
+    # the draft card's Find literature link is the Links component (no look of its own: DESIGN.md 4.3)
+    drafts = (STATIC / "views" / "drafts.js").read_text(encoding="utf-8")
+    assert "function literatureLink(c)" in drafts and "dc-link" not in css and "dc-link" not in drafts
 
 
 def test_every_endpoint_is_documented():

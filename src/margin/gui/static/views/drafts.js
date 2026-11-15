@@ -13,7 +13,9 @@
 // Margin: the draft read against itself, without AI (consistency.py): where it may contradict itself, what is
 // inconsistent (numbers, abbreviations, spelling) and what may confuse a reader, each with its places in the draft.
 import { featureEyebrow } from "../features.js";
-import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, statusBadge, confirmDialog, dialog, download, TERMINAL, runningJob, plural, session, queueNotice, navigate } from "../lib.js";
+import { App, api, h, icon, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, statusBadge, confirmDialog, dialog, download, TERMINAL, runningJob, plural, session, queueNotice, navigate,
+  button, downloadLinks, fileButton, link, notice, tag, fold as foldEl, field, input as inputEl, textarea as textareaEl, select as selectEl, choice as pickOne,
+  card as makeCard, listGroup, listRow, withAI, readsLine, aiWhere, judgementIcon, workState } from "../lib.js";
 import { ProgressPanel, jobCard } from "./progress.js";
 import { LEVEL, levels, accessBadge, accessChoice } from "./ai-access.js";
 
@@ -34,13 +36,13 @@ const ADVICE = {
   waiting: "Waiting for Claude Code to read the excerpts.",
   not_checked: "",
 };
-const SIDES = [["supports", "Supports it", "circle-check", "ok"], ["partly", "Partly supports it", "circle-half", "partly"], ["refutes", "Contradicts it", "circle-x", "bad"]];
+const SIDES = [["supports", "Supports it", "supports", "ok"], ["partly", "Partly supports it", "partially_supports", "partly"], ["refutes", "Contradicts it", "refutes", "bad"]];   // [evidence key, words, judgement, look]
 const FILTERS = [["all", "All"], ["open", "To decide"], ["you_supported", "You: supported"], ["you_refuted", "You: refuted"], ["cite_notice", "Citation to look at"], ["unchecked", "Not checked"], ["supported", "Supported"], ["partially_supported", "Partly supported"], ["contested", "Mixed evidence"], ["contradicted", "Contradicted"], ["unsupported", "No evidence"], ["no_passages", "Nothing matched"], ["uncertain", "Uncertain"], ["waiting", "Waiting"], ["skip", "Dismissed"]];
 // the person's decisions on a claim (Margin 0.3); `side` is the evidence the folded card names as what to cite
 const DECIDE = {
-  supported: { label: "Claim supported", seg: "Supported", short: "You: supported", icon: "circle-check", side: "supports", cite: "Cite a source here", none: "Cite the source that supports it here." },
-  refuted: { label: "Claim refuted", seg: "Refuted", short: "You: refuted", icon: "circle-x", side: "refutes", cite: "Cite or revise here", none: "Cite the source that contradicts it, or revise the sentence." },
-  dismissed: { label: "Dismiss claim", seg: "Dismiss", short: "Dismissed", icon: "x", title: "Not a claim that needs a source" },
+  supported: { label: "Claim supported", seg: "Supported", short: "You: supported", side: "supports", cite: "Cite a source here", none: "Cite the source that supports it here." },
+  refuted: { label: "Claim refuted", seg: "Refuted", short: "You: refuted", side: "refutes", cite: "Cite or revise here", none: "Cite the source that contradicts it, or revise the sentence." },
+  dismissed: { label: "Dismiss claim", seg: "Dismiss", short: "Dismissed", title: "Not a claim that needs a source" },
 };
 
 const ALT_CLICK = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "Option-click" : "Alt-click";
@@ -60,10 +62,19 @@ const citesOf = (c) => (c.citations || []).filter((r) => !r.ignored);
 const citeNotice = (c) => citesOf(c).some((r) => CITE_NOTICES.includes(r.group));
 const citeName = (r) => r.work || (r.raw.length > 60 ? `${r.raw.slice(0, 57)}…` : r.raw);
 // the draft read against itself: its groups, how each opens, and the short name of each kind of notice on a claim
-const SELF_GROUPS = [["contradiction", "alert-triangle", true], ["inconsistency", "arrows-opposed", false], ["unclear", "help", false]];
+const SELF_GROUPS = [["contradiction", "split", true], ["inconsistency", "layers", false], ["unclear", "help", false]];
 const SELF_KIND = { opposite: "may contradict", numbers: "gives another number than", same_passage: "may contradict", answers_differ: "got another answer than",
   pronoun: "Opens with “This …”", strength: "Careful and absolute at once", overloaded: "Several claims in one sentence" };
 const clip = (s, n = 140) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+// The AI of a draft, by its own setting (docs/DESIGN.md 4.4): a button that sends text to the AI carries the mark, and the
+// card says once who reads. "No AI": rules do the work, so there is neither mark nor line.
+const withAIFor = (level, ...buttons) => (level === "none" ? buttons : withAI(...buttons));
+function aiLine(level, what) {
+  if (level === "none") return null;
+  if (level === "local") return aiWhere(`Only a model on this computer reads ${what}; without one, rules find the claims and you judge the excerpts.`, "local");
+  return readsLine(what);
+}
 
 // ---------------------------------------------------------------------------------------------
 // the list of drafts, and a new one
@@ -76,24 +87,27 @@ export async function renderDrafts(view) {
     eyebrow: featureEyebrow("drafts"),
     sub: "Paste or load what you are writing. The AI marks the statements a reader would want a source for, then checks each one against the documents of this project: which support it, which contradict it, and what you could cite.",
   }));
-  view.appendChild(h("ol", { class: "draft-steps-intro" },
+  view.appendChild(h("ol", { class: "plain-steps muted draft-steps-intro" },
     h("li", {}, h("strong", {}, "Find the claims. "), "Numbers, causes and effects, comparisons, what research found: each marked in your text, with the exact sentence."),
     h("li", {}, h("strong", {}, "Keep the ones you want checked. "), "Drop, reword, or select a sentence to add one."),
     h("li", {}, h("strong", {}, "Check them. "), "Each gets the documents that support or contradict it, with quotes checked against the source."),
     h("li", {}, h("strong", {}, "Check your citations. "), "Each source your draft cites, such as (Smith, 2020), is checked against its own document: does it say what your sentence says?")));
 
   let level = res.default && levels().includes(res.default) ? res.default : levels()[0];
-  const choice = accessChoice({ value: level, name: "draft-access", many: false, onChange: (v) => { level = v; } });
-  choice.querySelector("legend").textContent = "Who may read this draft with AI?";
-  for (const lv of levels()) { const el = choice.querySelector(`.access-${lv} .muted`); if (el) el.textContent = SUB[lv]; }
+  const aiBox = h("div", { class: "draft-ai-line" });
+  const aiFor = (lv) => replace(aiBox, aiLine(lv, "the parts of your draft it needs to find the claims, and the excerpts to check them"));
+  const accessPick = accessChoice({ value: level, name: "draft-access", many: false, onChange: (v) => { level = v; aiFor(v); } });
+  accessPick.querySelector("legend").textContent = "Who may read this draft with AI?";
+  for (const lv of levels()) { const el = accessPick.querySelector(`.option-card[data-value="${lv}"] .option-card-sub`); if (el) el.textContent = SUB[lv]; }
+  aiFor(level);
 
-  const title = h("input", { class: "input", id: "draft-title", placeholder: "For example: Chapter 2, literature review", maxlength: 200 });
-  const ta = h("textarea", { class: "textarea draft-input", id: "draft-text", rows: 10, placeholder: "Paste a section, a chapter or the whole paper…" });
+  const title = inputEl({ id: "draft-title", placeholder: "For example: Chapter 2, literature review", maxlength: 200 });
+  const ta = textareaEl({ class: "draft-input", id: "draft-text", rows: 10, placeholder: "Paste a section, a chapter or the whole paper…" });
   ta.value = session("draftText") || "";
   ta.addEventListener("input", () => { session("draftText", ta.value); goBtn.disabled = ta.value.trim().length < 40; });
-  const goBtn = h("button", { class: "btn btn-primary", type: "button", disabled: ta.value.trim().length < 40 }, icon("sparkles", { size: 14 }), "Find the claims");
-  const fileInput = h("input", { type: "file", accept: ".docx,.pdf,.txt,.md,.html,.htm", class: "visually-hidden", id: "draft-file" });
-  const fileBtn = h("label", { class: "btn", for: "draft-file", tabindex: "0", onKeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } } }, icon("upload", { size: 14 }), "Load a file", fileInput);
+  const goBtn = button({ kind: "main", disabled: ta.value.trim().length < 40 }, "Find the claims");
+  const fileInput = h("input", { type: "file", accept: ".docx,.pdf,.txt,.md,.html,.htm", id: "draft-file" });
+  const fileBtn = fileButton({ kind: "standard", sm: false, icon: "upload" }, fileInput, "Load a file");
   const status = h("span", { class: "muted small", role: "status" });
 
   async function start(draft) {
@@ -122,25 +136,22 @@ export async function renderDrafts(view) {
     } catch (e) { status.textContent = ""; showError(e); }
   });
 
-  view.appendChild(h("section", { class: "card draft-new", "aria-label": "A new draft" },
-    h("div", { class: "card-head" }, h("h2", {}, "A new draft")),
-    h("div", { class: "field" }, h("label", { class: "field-label", for: "draft-title" }, "Title ", h("span", { class: "muted small" }, "(optional)")), title),
-    h("div", { class: "field" }, h("label", { class: "field-label", for: "draft-text" }, "Your text"), ta,
-      h("div", { class: "hint-row" }, h("span", {}, "Or load a Word file, a PDF, a text or Markdown file. Your draft is kept apart from the documents: it is never used as evidence."))),
-    choice,
-    h("div", { class: "btn-row", style: { marginTop: "14px" } }, goBtn, fileBtn, status)));
+  view.appendChild(makeCard({ class: "draft-new", title: "A new draft", titleId: "draft-new-h" },
+    field(["Title ", h("span", { class: "muted small" }, "(optional)")], title),
+    field("Your text", ta, { help: "Or load a Word file, a PDF, a text or Markdown file. Your draft is kept apart from the documents: it is never used as evidence." }),
+    accessPick,
+    h("div", { class: "btn-row draft-new-go" }, withAIFor(level, goBtn), fileBtn, status),
+    aiBox));
 
   const list = res.drafts || [];
   view.appendChild(h("section", { class: "section", "aria-label": "Your drafts" },
     h("div", { class: "section-title" }, h("h2", {}, "Your drafts"), h("span", { class: "muted" }, list.length ? plural(list.length, "draft", "drafts") : "none yet")),
-    list.length ? h("ul", { class: "draft-list" }, list.map((d) => h("li", {},
-      h("a", { class: "draft-row", href: `#/drafts/${encodeURIComponent(d.draft_id)}` },
-        icon("file-pen", { size: 16 }),
-        h("span", { class: "grow" }, h("span", { class: "draft-row-title" }, d.title),
-          h("span", { class: "muted small" }, [fmt.dateShort(d.created_at), d.file_name, `${fmt.num(Math.round(d.chars / 6))} words`].filter(Boolean).join(" · "))),
-        h("span", { class: "muted small draft-row-counts" }, [d.claims ? `${plural(d.claims, "claim", "claims")} · ${d.checked} checked` : d.found_at ? "no claims found" : "not read yet",
-          d.citations ? plural(d.citations, "citation", "citations") : null].filter(Boolean).join(" · ")),
-        accessBadge(d.ai_access)))))
+    list.length ? makeCard({ class: "draft-list" }, listGroup(null, ...list.map((d) => listRow({
+      title: d.title, href: `#/drafts/${encodeURIComponent(d.draft_id)}`, serif: true, time: fmt.dateShort(d.created_at),
+      sub: [d.file_name, `${fmt.num(Math.round(d.chars / 6))} words`,
+        d.claims ? `${plural(d.claims, "claim", "claims")} · ${d.checked} checked` : d.found_at ? "no claims found" : "not read yet",
+        d.citations ? plural(d.citations, "citation", "citations") : null].filter(Boolean).join(" · "),
+      actions: [accessBadge(d.ai_access)] }))))
       : emptyState("file-pen", "No draft yet", "Paste a section of what you are writing above: it takes a minute to see which claims your documents back.")));
 }
 
@@ -153,7 +164,7 @@ export async function renderDraft(view, [draftId], query) {
   let data;
   try { data = await api("GET", base); }
   catch (e) {
-    if (e.status === 404) { view.appendChild(emptyState("search-x", "This draft no longer exists", "It was removed, or it belongs to another project.", h("a", { class: "btn", href: "#/drafts" }, "All drafts"))); return; }
+    if (e.status === 404) { view.appendChild(emptyState("search-x", "This draft no longer exists", "It was removed, or it belongs to another project.", link({ kind: "next", href: "#/drafts" }, "All drafts"))); return; }
     throw e;
   }
   let filter = "all";
@@ -168,13 +179,13 @@ export async function renderDraft(view, [draftId], query) {
 
   const head = h("div");
   const setting = h("div", { class: "draft-setting" });
-  const steps = h("section", { class: "card draft-steps", "aria-label": "Steps" });
+  const steps = makeCard({ class: "draft-steps", "aria-label": "Steps" });
   const stepsBody = h("div");
   const jobBox = h("div", { class: "draft-job", hidden: true });
   steps.append(stepsBody, jobBox);
-  const chips = h("div", { class: "draft-filter", role: "toolbar", "aria-label": "Show claims" });
+  const chips = h("div", { class: "draft-filter" });
   const textBox = h("div", { class: "draft-text", id: "draft-text-view" });
-  const markBtn = h("button", { class: "btn btn-sm btn-primary draft-mark-btn", type: "button", hidden: true }, icon("plus", { size: 13 }), "Mark as a claim");
+  const markBtn = button({ sm: true, icon: "plus", hidden: true, class: "draft-mark-btn" }, "Mark as a claim");
   const textWrap = h("div", { class: "draft-text-wrap" }, textBox, markBtn);
   const list = h("div", { class: "draft-claims" });
   const board = h("div", { class: "draft-board" },
@@ -182,7 +193,7 @@ export async function renderDraft(view, [draftId], query) {
       h("div", { class: "section-title" }, h("h2", {}, "Your draft"), h("span", { class: "muted" }, "select a sentence to mark it as a claim")), textWrap),
     h("section", { class: "draft-col draft-col-claims", "aria-label": "Claims" },
       h("div", { class: "section-title" }, h("h2", {}, "Claims"), h("span", { class: "muted draft-claims-count" })), chips, list));
-  const selfBox = h("section", { class: "card draft-self", "aria-label": "Your draft against itself", hidden: true });
+  const selfBox = h("div", { class: "draft-self-host", hidden: true });
   view.append(head, setting, steps, selfBox, board);
 
   async function reload() {
@@ -212,35 +223,33 @@ export async function renderDraft(view, [draftId], query) {
       const items = shown.filter((n) => n.group === g);
       if (!items.length) return null;
       const n = inner.counts[g] || 0;
-      const box = h("details", { class: `ds-group ds-${g}`, open: openSelf.has(g) },
-        h("summary", {}, icon(ic, { size: 14 }), h("span", { class: "ds-group-name" }, inner.groups[g]), h("span", { class: "count" }, String(n))),
+      const box = foldEl({ open: openSelf.has(g), class: `ds-group ds-${g}` },
+        [icon(ic, { size: 14 }), h("span", { class: "ds-group-name" }, inner.groups[g]), tag({ kind: g === "contradiction" ? "attention" : "count" }, String(n))],
         h("div", { class: "ds-list" }, items.map(noteRow)));
       box.addEventListener("toggle", () => { if (box.open) openSelf.add(g); else openSelf.delete(g); });
       return box;
     }).filter(Boolean);
-    const aside = inner.dismissed ? h("button", { class: "btn btn-sm btn-ghost ds-aside", type: "button", "aria-pressed": String(showAside), onClick: () => { showAside = !showAside; drawSelf(); } },
+    const aside = inner.dismissed ? button({ kind: "quiet", sm: true, class: "ds-aside", "aria-pressed": String(showAside), onClick: () => { showAside = !showAside; drawSelf(); } },
       showAside ? "Hide the notices set aside" : `Show ${plural(inner.dismissed, "notice", "notices")} set aside`) : null;
-    replace(selfBox,
-      h("div", { class: "section-title" }, h("h2", {}, icon("arrows-opposed", { size: 16 }), "Your draft against itself"),
-        h("span", { class: "muted" }, open.length ? plural(open.length, "notice", "notices") : "")),
+    replace(selfBox, makeCard({ class: "draft-self", title: "Your draft against itself", titleId: "draft-self-h", action: open.length ? tag({ kind: "count" }, plural(open.length, "notice", "notices")) : null },
       intro,
       groups.length ? h("div", { class: "ds-groups" }, groups)
-        : h("p", { class: "ds-none small" }, icon("circle-check", { size: 14 }), " Nothing found: no contradictions, inconsistencies or unclear sentences that these rules can see."),
-      aside);
+        : notice({ kind: "done", class: "ds-none" }, h("p", {}, "Nothing found: no contradictions, inconsistencies or unclear sentences that these rules can see.")),
+      aside));
   }
 
   function noteRow(n) {
     const places = n.places.map((p, i) => {
       const no = p.claim_id ? claimNo(p.claim_id) : 0;
-      const b = h("button", { class: "ds-place", type: "button", title: "Show it in the draft" },
+      const b = button({ kind: "quiet", sm: true, wrap: true, class: "ds-place", title: "Show it in the draft" },
         h("span", { class: "ds-place-n" }, no ? `Claim ${no}` : n.places.length > 1 ? `Place ${i + 1}` : "In the draft"),
         h("q", {}, clip(p.quote)));
       b.addEventListener("click", () => showPlaces(n, i));
       return b;
     });
     const btn = n.dismissed
-      ? h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => setAside(n, false) }, "Show again")
-      : h("button", { class: "btn btn-sm btn-ghost", type: "button", title: "Set this notice aside: it stays aside while these sentences are the same", onClick: () => setAside(n, true) }, icon("x", { size: 13 }), "Not a problem");
+      ? button({ kind: "quiet", sm: true, onClick: () => setAside(n, false) }, "Show again")
+      : button({ kind: "quiet", sm: true, icon: "x", title: "Set this notice aside: it stays aside while these sentences are the same", onClick: () => setAside(n, true) }, "Not a problem");
     return h("article", { class: `ds-note${n.dismissed ? " ds-dismissed" : ""}`, "data-key": n.key },
       h("p", { class: "ds-text" }, n.text), h("div", { class: "ds-places" }, places), h("div", { class: "btn-row ds-actions" }, btn));
   }
@@ -296,8 +305,8 @@ export async function renderDraft(view, [draftId], query) {
       const label = n.group === "unclear" ? SELF_KIND[n.kind]
         : n.group === "contradiction" ? `${SELF_KIND[n.kind][0].toUpperCase()}${SELF_KIND[n.kind].slice(1)} ${other && other.claim_id ? `claim ${claimNo(other.claim_id)}` : "another sentence of your draft"}`
         : n.text.split(". ")[0];
-      return h("button", { class: `ds-chip ds-chip-${n.group}`, type: "button", title: n.text, onClick: () => showNote(n) },
-        icon(n.group === "unclear" ? "help" : n.group === "contradiction" ? "alert-triangle" : "arrows-opposed", { size: 12 }), label);
+      return link({ kind: "jump", title: n.text, onClick: () => showNote(n) },
+        icon(n.group === "unclear" ? "help" : n.group === "contradiction" ? "split" : "layers", { size: 12 }), label);
     }));
   }
 
@@ -319,21 +328,21 @@ export async function renderDraft(view, [draftId], query) {
   // --- head
   function drawHead() {
     const d = data.draft;
-    const xlsx = h("button", { class: "btn btn-sm", type: "button", disabled: !data.claims.length, onClick: () => download(`${base}/export.xlsx`).catch(showError) }, icon("download", { size: 14 }), "Excel");
-    const csv = h("button", { class: "btn btn-sm btn-ghost", type: "button", disabled: !data.claims.length, onClick: () => download(`${base}/export.csv`).catch(showError) }, "CSV");
-    const rename = h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: renameDialog }, "Rename");
-    const del = h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: removeDraft }, icon("trash", { size: 14 }), "Remove");
+    const files = data.claims.length ? downloadLinks([
+      { text: "Excel (.xlsx)", onClick: () => download(`${base}/export.xlsx`).catch(showError) },
+      { text: "CSV", onClick: () => download(`${base}/export.csv`).catch(showError) }]) : null;
     replace(head, pageHead(d.title, {
-      eyebrow: h("a", { href: "#/drafts", class: "it" }, icon("arrow-left", { size: 12 }), "All drafts"),
-      sub: [`${fmt.num(d.words)} words`, `added ${fmt.dateShort(d.created_at)}`, d.file_name ? `from ${d.file_name}` : null].filter(Boolean).join(" · "),
-      actions: [xlsx, csv, rename, del],
+      display: true,
+      back: { href: "#/drafts", text: "All drafts" },
+      facts: [`${fmt.num(d.words)} words`, `added ${fmt.dateShort(d.created_at)}`, d.file_name ? `from ${d.file_name}` : null].filter(Boolean),
+      actions: [files, button({ kind: "quiet", sm: true, onClick: renameDialog }, "Rename"), button({ kind: "danger", sm: true, icon: "trash", onClick: removeDraft }, "Remove")].filter(Boolean),
     }));
   }
 
   async function renameDialog() {
-    const input = h("input", { class: "input", value: data.draft.title, maxlength: 200, "aria-label": "Title" });
+    const input = inputEl({ value: data.draft.title, maxlength: 200 });
     const t = await dialog({
-      title: "Rename the draft", body: h("label", { class: "field" }, h("span", { class: "field-label" }, "Title"), input),
+      title: "Rename the draft", body: field("Title", input),
       actions: [{ text: "Cancel", value: null }, { text: "Rename", primary: true, onClick: () => { if (!input.value.trim()) return false; return true; }, value: "ok" }],
       onOpen: () => { input.focus(); input.select(); input.addEventListener("keydown", (e) => { if (e.key === "Enter") e.target.closest("dialog").querySelector(".btn-primary").click(); }); },
     });
@@ -351,8 +360,8 @@ export async function renderDraft(view, [draftId], query) {
   // --- the AI setting, and what Claude has read
   function drawSetting() {
     const d = data.draft;
-    const sel = h("select", { class: "select select-sm access-select", "aria-label": "Who may read this draft with AI", "data-level": d.ai_access },
-      levels().map((lv) => h("option", { value: lv, selected: d.ai_access === lv }, LEVEL[lv].title)));
+    const sel = selectEl({ sm: true, "aria-label": "Who may read this draft with AI", "data-level": d.ai_access },
+      ...levels().map((lv) => h("option", { value: lv, selected: d.ai_access === lv }, LEVEL[lv].title)));
     sel.addEventListener("change", async () => {
       sel.disabled = true;
       try { await api("PUT", base, { ai_access: sel.value }); toast(`${LEVEL[sel.value].title}: this applies to the finding and to every check of this draft not answered yet.`, "ok"); await reload(); }
@@ -373,7 +382,13 @@ export async function renderDraft(view, [draftId], query) {
   function drawSteps() {
     const c = data.counts, f = data.finding || {}, d = data.draft;
     const running = watchers.length > 0;
-    const findBtn = h("button", { class: `btn ${d.found_at || c.claims ? "btn-sm btn-ghost" : "btn-primary"}`, type: "button", disabled: running }, icon(d.found_at ? "refresh" : "sparkles", { size: 14 }), d.found_at ? "Find again" : "Find the claims");
+    const docs = data.documents || 0;
+    // one main button in the card: the step that is next
+    const ct = data.citations;
+    const next = !d.found_at && !c.claims ? 1 : c.to_check && docs ? 2 : ct && ct.ready ? 3 : 0;
+    const level = d.ai_access;
+    const findAgain = !!(d.found_at || c.claims);
+    const findBtn = button({ kind: next === 1 ? "main" : findAgain ? "quiet" : "standard", sm: findAgain, icon: d.found_at ? "refresh" : null, disabled: running }, d.found_at ? "Find again" : "Find the claims");
     findBtn.addEventListener("click", async () => {
       if (d.found_at && !(await confirmDialog({ title: "Find the claims again?", message: "The claims you have not checked, decided on, reworded or dismissed are found anew. The others, and the ones you marked, stay.", confirmText: "Find again", danger: false }))) return;
       startJob("find", {});
@@ -385,26 +400,25 @@ export async function renderDraft(view, [draftId], query) {
         h("h3", {}, "Find the claims that need a source"),
         f.waiting && !running ? queueNotice({ text: `Waiting for Claude Code: ${plural(f.waiting, "part of the draft", "parts of the draft")} to read`, command: data.queue_command })
           : h("p", { class: "muted small" }, d.found_at ? `${plural(c.claims, "claim", "claims")} found ${by}, ${fmt.date(d.found_at)}${c.cited ? `; ${c.cited} already cited in your draft` : ""}.` : SUB[d.ai_access]),
-        f.failed ? h("details", { class: "fold small" }, h("summary", {}, `${plural(f.failed, "part", "parts")} of the draft could not be read; find again to try once more`),
+        f.failed ? foldEl({ sm: true }, `${plural(f.failed, "part", "parts")} of the draft could not be read; find again to try once more`,
           h("ul", { class: "mono small" }, (f.errors || []).map((e) => h("li", {}, e)))) : null),
-      findBtn);
-    const docs = data.documents || 0;
-    const checkBtn = h("button", { class: "btn btn-primary", type: "button", disabled: running || !c.to_check || !docs }, icon("play", { size: 14 }), c.to_check ? `Check ${c.to_check === 1 ? "this claim" : `${c.to_check} claims`}` : "Check the claims");
+      h("div", { class: "draft-step-act" }, withAIFor(level, findBtn)));
+    const checkBtn = button({ kind: next === 2 ? "main" : "standard", icon: "play", disabled: running || !c.to_check || !docs }, c.to_check ? `Check ${c.to_check === 1 ? "this claim" : `${c.to_check} claims`}` : "Check the claims");
     checkBtn.addEventListener("click", () => startJob("check", {}));
     const step2 = h("div", { class: "draft-step" },
       h("span", { class: `draft-step-n ${c.checked && !c.to_check ? "done" : ""}` }, c.checked && !c.to_check ? icon("check", { size: 14 }) : "2"),
       h("div", { class: "grow" },
         h("h3", {}, "Check them against your documents"),
-        h("p", { class: "muted small" }, !docs ? h("span", {}, "This project has no documents yet. ", h("a", { href: "#/sources" }, "Add the documents your draft draws on"), ", then check the claims.")
+        h("p", { class: "muted small" }, !docs ? h("span", {}, "This project has no documents yet. ", link({ href: "#/sources" }, "Add the documents your draft draws on"), ", then check the claims.")
           : !c.claims ? "Find the claims first, or select a sentence in your draft to mark one."
           : c.to_check ? `${plural(c.to_check, "claim waits", "claims wait")} to be checked; ${c.checked} checked so far. Each is checked like a hypothesis, against all ${plural(docs, "document", "documents")}.`
           : doneText(c))),
-      c.to_check || !c.checked ? checkBtn : null);
-    replace(stepsBody, step1, step2, citeStep(running));
+      c.to_check || !c.checked ? h("div", { class: "draft-step-act" }, withAIFor(level, checkBtn)) : null);
+    replace(stepsBody, step1, step2, citeStep(running, next === 3), aiLine(level, "the parts of your draft, the claims and the excerpts they need"));
   }
 
   // Step 3: the draft's own citations, each checked against the document of the work it cites (Check citations).
-  function citeStep(running) {
+  function citeStep(running, isNext) {
     const ct = data.citations;
     if (!ct) return null;
     const done = !ct.ready && !ct.checking && (ct.accurate || ct.notices);
@@ -412,10 +426,10 @@ export async function renderDraft(view, [draftId], query) {
       ct.checking ? `${ct.checking} being checked` : null, ct.ready ? `${ct.ready} not checked yet` : null,
       ct.blocked ? `${ct.blocked} cannot be checked yet` : null].filter(Boolean);
     const line = `${plural(ct.citations, "citation", "citations")} in your draft${ct.works ? `, of ${plural(ct.works, "work", "works")} in your bibliography` : ""}${said.length ? `: ${said.join(", ")}` : ""}.`;
-    const help = !ct.has_bibliography ? h("span", {}, " Bring in your ", h("a", { href: "#/bibliography" }, "bibliography"), " first: each citation is matched with its work, and checked against that work’s document.")
+    const help = !ct.has_bibliography ? h("span", {}, " Bring in your ", link({ href: "#/bibliography" }, "bibliography"), " first: each citation is matched with its work, and checked against that work’s document.")
       : ct.ready ? " Each is checked against its own source’s document only: does it say what your sentence says?"
       : !ct.accurate && !ct.notices && ct.blocked ? " Each needs a work of your bibliography whose document is in this project." : null;
-    const btn = h("button", { class: "btn btn-primary", type: "button", disabled: running }, icon("play", { size: 14 }), ct.ready === 1 ? "Check this citation" : `Check ${ct.ready} citations`);
+    const btn = button({ kind: isNext ? "main" : "standard", icon: "play", disabled: running }, ct.ready === 1 ? "Check this citation" : `Check ${ct.ready} citations`);
     btn.addEventListener("click", () => startCitations({}));
     return h("div", { class: "draft-step draft-step-cite" },
       h("span", { class: `draft-step-n ${done ? "done" : ""}` }, done ? icon("check", { size: 14 }) : "3"),
@@ -423,9 +437,9 @@ export async function renderDraft(view, [draftId], query) {
         h("h3", {}, "Check your citations against their sources"),
         h("p", { class: "muted small" }, line, help),
         ct.numeric_unread ? h("p", { class: "muted small" }, icon("info", { size: 12 }), ` ${plural(ct.numeric_unread, "numbered citation", "numbered citations")} ([1], [2]…) could not be read: the draft has no numbered reference list at its end.`) : null,
-        h("p", { class: "small draft-cite-link" }, h("a", { class: "it", href: `#/citations/${encodeURIComponent(ct.text_id)}` }, "Review every citation", icon("arrow-right", { size: 12 })),
+        h("p", { class: "small draft-cite-link" }, link({ href: `#/citations/${encodeURIComponent(ct.text_id)}` }, "Review every citation"),
           h("span", { class: "muted" }, " · choose the work of a citation, or leave one out"))),
-      ct.ready ? btn : null);
+      ct.ready ? h("div", { class: "draft-step-act" }, withAIFor(data.draft.ai_access, btn)) : null);
   }
 
   async function startCitations(body) {
@@ -552,14 +566,10 @@ export async function renderDraft(view, [draftId], query) {
 
   function drawChips(claims) {
     const count = (k) => claims.filter((c) => matches(c, k)).length;
-    clear(chips);
-    for (const [k, label] of FILTERS) {
-      const n = count(k);
-      if (k !== "all" && !n) continue;
-      if (k === "open" && n === claims.length) continue;  // nothing decided yet: the same as All
-      chips.appendChild(h("button", { class: `chip-btn draft-chip dm-chip-${k}`, type: "button", "aria-pressed": String(filter === k), onClick: () => { filter = k; drawBoard(); } }, `${label} `, h("span", { class: "count" }, String(n))));
-    }
     if (filter !== "all" && !count(filter)) filter = "all";
+    const options = FILTERS.map(([k, label]) => [k, label, count(k)])
+      .filter(([k, , n]) => (k === "all" || n) && !(k === "open" && n === claims.length));  // nothing decided yet: "To decide" is the same as All
+    replace(chips, pickOne({ filter: true, label: "Show claims", options, value: filter, onPick: (k) => { filter = k; drawBoard(); } }));
     const cnt = view.querySelector(".draft-claims-count");
     const nd = claims.filter((c) => c.decision).length;
     if (cnt) cnt.textContent = claims.length ? `${plural(claims.length, "claim", "claims")}, in the order of the draft${nd ? `; ${nd} decided` : ""}` : "";
@@ -619,9 +629,9 @@ export async function renderDraft(view, [draftId], query) {
   // narrative form, "Verhoeven and Okafor (2025)".
   function apaButton(cite, opts = {}) {
     const narrative = !opts.all && cite.narrative;
-    const btn = h("button", { class: `dc-apa${opts.all ? " dc-apa-all" : ""}`, type: "button",
+    const btn = button({ kind: "quiet", sm: true, wrap: true, icon: "copy", class: `dc-apa${opts.all ? " dc-apa-all" : ""}`,
       title: `Copy ${cite.text} to paste into your text${narrative ? `. ${ALT_CLICK}: ${cite.narrative}` : ""}`,
-      "aria-label": `Copy the APA citation ${cite.text}` }, icon("copy", { size: 12 }), h("span", { class: "dc-apa-text" }, cite.text));
+      "aria-label": `Copy the APA citation ${cite.text}` }, h("span", { class: "dc-apa-text" }, cite.text));
     btn.addEventListener("click", async (e) => {
       const alt = e.altKey && narrative;
       const text = alt ? cite.narrative : cite.text, html = alt ? cite.narrative_html : cite.html;
@@ -635,17 +645,17 @@ export async function renderDraft(view, [draftId], query) {
   function notLinked(n, total) {
     if (!n || !data.bibliography) return null;
     return h("p", { class: "dc-cite-line dc-cite-docs muted" }, n === total ? `${n === 1 ? "This document is" : "These documents are"} not linked to a work of your bibliography, so there is no citation to copy. `
-      : `${plural(n, "document is", "documents are")} not linked to a work of your bibliography. `, h("a", { href: "#/bibliography" }, "Bibliography"));
+      : `${plural(n, "document is", "documents are")} not linked to a work of your bibliography. `, link({ href: "#/bibliography" }, "Bibliography"));
   }
 
   function claimCard(c) {
     const st = statusOf(c);
-    const card = h("article", { class: `dc-card dc-${st}${c.decision ? ` dc-you-${c.decision}` : ""}${picked === c.claim_id ? " dc-picked" : ""}`, "data-id": c.claim_id },
+    const el = makeCard({ as: "article", sm: true, class: `dc-card dc-${st}${c.decision ? ` dc-you-${c.decision}` : ""}${picked === c.claim_id ? " dc-picked" : ""}`, "data-id": c.claim_id },
       h("div", { class: "dc-head" },
         h("button", { class: `dc-n dm-${st}`, type: "button", title: "Show it in the draft", "aria-label": `Show claim ${c.n} in the draft`, onClick: () => pick(c.claim_id, "text") }, String(c.n)),
         h("span", { class: "dc-kind" }, c.kind_text),
-        c.cited ? h("span", { class: "chip dc-chip", title: "Your draft already gives a source for this" }, icon("quote", { size: 11 }), "cited in your draft") : null,
-        c.source !== "ai" ? h("span", { class: "chip dc-chip" }, c.source === "person" ? "marked by you" : "found by rules") : null,
+        c.cited ? tag({ icon: "quote", title: "Your draft already gives a source for this" }, "cited in your draft") : null,
+        c.source !== "ai" ? tag({}, c.source === "person" ? "marked by you" : "found by rules") : null,
         h("span", { class: "grow" }),
         c.status ? statusBadge(c.status, { short: true }) : h("span", { class: "muted small" }, c.skip ? "Dismissed" : "Not checked yet")),
       h("p", { class: "dc-claim" }, c.claim),
@@ -654,7 +664,7 @@ export async function renderDraft(view, [draftId], query) {
       c.status ? evidence(c) : c.why && !c.skip ? h("p", { class: "muted small dc-why" }, c.why) : null,
       citeBlock(c),
       h("div", { class: "dc-foot" }, decide(c), actions(c)));
-    return clickToShow(card, c);
+    return clickToShow(el, c);
   }
 
   // A claim decided on: folded to its number, the decision, the claim and what to cite (Margin 0.3).
@@ -671,27 +681,27 @@ export async function renderDraft(view, [draftId], query) {
       : h("div", { class: "dc-cite small" }, docs.length
         ? [copyAll ? h("p", { class: "dc-cite-line" }, icon("quote", { size: 12 }), h("span", {}, "Cite: "), copyAll) : null,
           h("p", { class: `dc-cite-line${copyAll ? " dc-cite-docs" : ""}` }, copyAll ? null : icon("quote", { size: 12 }), copyAll ? null : h("span", {}, "Cite: "),
-            ...docs.slice(0, 3).flatMap((e, i) => [i ? h("span", { class: "muted" }, " · ") : null, h("a", { href: `#/doc/${encodeURIComponent(e.doc_id)}`, class: "dc-doc" }, e.title)].filter(Boolean)),
+            ...docs.slice(0, 3).flatMap((e, i) => [i ? h("span", { class: "muted" }, " · ") : null, link({ kind: "title", serif: true, href: `#/doc/${encodeURIComponent(e.doc_id)}`, class: "dc-doc" }, e.title)].filter(Boolean)),
             docs.length > 3 ? h("span", { class: "muted" }, ` and ${docs.length - 3} more`) : null),
           notLinked(all ? all.missing : data.bibliography ? docs.length : 0, docs.length)].filter(Boolean)
         : h("p", { class: "dc-cite-line" }, icon("quote", { size: 12 }), you.none));
-    const card = h("article", { class: `dc-card dc-folded dc-${st} dc-you-${c.decision}${picked === c.claim_id ? " dc-picked" : ""}`, "data-id": c.claim_id },
+    const el = makeCard({ as: "article", sm: true, class: `dc-card dc-folded dc-${st} dc-you-${c.decision}${picked === c.claim_id ? " dc-picked" : ""}`, "data-id": c.claim_id },
       h("div", { class: "dc-head" },
         h("button", { class: `dc-n dm-${st} dm-you-${c.decision}`, type: "button", title: "Show it in the draft", "aria-label": `Show claim ${c.n} in the draft`, onClick: () => pick(c.claim_id, "text") }, String(c.n)),
-        h("span", { class: `dc-you dc-you-badge-${c.decision}` }, icon(you.icon, { size: 13 }), you.short),
+        tag({ icon: "user" }, you.short),
         c.status && c.decision !== "dismissed" ? h("span", { class: "muted small dc-ai" }, `AI: ${(c.status_text || App.statusText(c.status) || "").toLowerCase()}`) : null,
         h("span", { class: "grow" }),
-        h("button", { class: "btn btn-sm btn-ghost", type: "button", "aria-expanded": "false", title: "Show the whole card", onClick: () => { unfolded.add(c.claim_id); drawList(numbered()); } }, icon("chevron-down", { size: 13 }), "More"),
-        h("button", { class: "btn btn-sm btn-ghost", type: "button", title: "Take the decision back", onClick: () => decideClaim(c, null) }, "Undo")),
+        button({ kind: "quiet", sm: true, toggle: true, title: "Show the whole card", onClick: () => { unfolded.add(c.claim_id); drawList(numbered()); } }, "More"),
+        button({ kind: "quiet", sm: true, title: "Take the decision back", onClick: () => decideClaim(c, null) }, "Undo")),
       h("p", { class: "dc-claim" }, c.claim),
       cite);
-    return clickToShow(card, c);
+    return clickToShow(el, c);
   }
 
   // What the claim's own citations say (step 3): for each cited work, whether its source says it, and the way on.
   function citeBadge(r) {
     return r.status ? h("span", { class: `dc-cite-badge dcit-badge-${citeLook(r.group)}` }, statusBadge(r.status, { text: r.text }))
-      : h("span", { class: `chip dc-chip dcit-badge-${citeLook(r.group)}` }, r.text);
+      : tag({ class: `dcit-badge-${citeLook(r.group)}` }, r.text);
   }
 
   function citeBlock(c) {
@@ -708,19 +718,19 @@ export async function renderDraft(view, [draftId], query) {
           r.help && CITE_NOTICES.includes(r.group) ? h("p", { class: "muted small dc-cite-help" }, r.help) : null),
         r.quote && r.group !== "accurate" ? h("blockquote", { class: "dc-q" }, r.quote) : null,
         h("div", { class: "dc-cite-actions small" },
-          r.hyp_id ? h("a", { class: "it", href: `#/h/${encodeURIComponent(r.hyp_id)}` }, CITE_NOTICES.includes(r.group) ? "See the excerpts and judge them" : "See the excerpts", icon("arrow-right", { size: 12 }))
-            : r.state === "ready" ? h("button", { class: "link-btn", type: "button", disabled: running, onClick: () => startCitations({ ref_ids: [r.ref_id] }) }, icon("play", { size: 12 }), "Check this citation")
-            : h("a", { class: "it", href: `#/citations/${encodeURIComponent(tid)}?ref=${encodeURIComponent(r.ref_id)}` }, "What it needs", icon("arrow-right", { size: 12 })))))));
+          r.hyp_id ? link({ href: `#/h/${encodeURIComponent(r.hyp_id)}` }, CITE_NOTICES.includes(r.group) ? "See the excerpts and judge them" : "See the excerpts")
+            : r.state === "ready" ? withAIFor(data.draft.ai_access, button({ kind: "quiet", sm: true, icon: "play", disabled: running, onClick: () => startCitations({ ref_ids: [r.ref_id] }) }, "Check this citation"))
+            : link({ href: `#/citations/${encodeURIComponent(tid)}?ref=${encodeURIComponent(r.ref_id)}` }, "What it needs"))))));
   }
 
   // The person's decision: one switch of three; the one chosen is pressed, and pressing it again takes it back.
   function decide(c) {
     return h("div", { class: "dc-decide" },
-      h("span", { class: "dc-decide-label", "aria-hidden": "true" }, "Your verdict"),
-      h("div", { class: "dc-seg", role: "group", "aria-label": `Your verdict on claim ${c.n}` },
-        Object.entries(DECIDE).map(([k, d]) => h("button", { class: `dc-decide-btn dc-decide-${k}`, type: "button", "aria-pressed": String(c.decision === k),
-          title: `${d.label}${d.title ? `: ${d.title.toLowerCase()}` : ""}${c.decision === k ? " (press again to take it back)" : ""}`,
-          onClick: () => decideClaim(c, c.decision === k ? null : k) }, icon(d.icon, { size: 13 }), d.seg))));
+      h("span", { class: "dc-decide-label muted small", "aria-hidden": "true" }, "Your verdict"),
+      pickOne({ filter: true, sm: true, label: `Your verdict on claim ${c.n}`, value: c.decision || null,
+        options: Object.entries(DECIDE).map(([k, d]) => [k, d.seg, undefined,
+          `${d.label}${d.title ? `: ${d.title.toLowerCase()}` : ""}${c.decision === k ? " (press again to take it back)" : ""}`]),
+        onPick: (k) => decideClaim(c, c.decision === k ? null : k) }));
   }
 
   async function decideClaim(c, decision) {
@@ -732,9 +742,9 @@ export async function renderDraft(view, [draftId], query) {
   function evidence(c) {
     const ev = c.evidence || {};
     const sides = SIDES.filter(([k]) => (ev[k] || []).length).map(([k, label, ic, cls]) => h("div", { class: `dc-side dc-side-${cls}` },
-      h("div", { class: "dc-side-label" }, icon(ic, { size: 13 }), label),
+      h("div", { class: "dc-side-label" }, judgementIcon(ic, 13), label),
       h("ul", { class: "dc-docs" }, ev[k].map((e) => h("li", {},
-        h("a", { href: `#/doc/${encodeURIComponent(e.doc_id)}`, class: "dc-doc" }, e.title),
+        link({ kind: "title", serif: true, href: `#/doc/${encodeURIComponent(e.doc_id)}`, class: "dc-doc" }, e.title),
         e.apa ? apaButton(e.apa) : null,
         e.location ? h("span", { class: "muted small" }, ` · ${e.location}`) : null,
         e.excerpts > 1 ? h("span", { class: "muted small" }, ` · ${e.excerpts} excerpts`) : null,
@@ -742,7 +752,7 @@ export async function renderDraft(view, [draftId], query) {
     const advice = ADVICE[c.status] || "";
     return h("div", { class: "dc-evidence" }, sides,
       advice ? h("p", { class: "dc-advice small" }, advice) : null,
-      c.waiting_for_you ? h("p", { class: "small dc-advice" }, icon("alert-circle", { size: 12 }), ` ${plural(c.waiting_for_you, "excerpt waits", "excerpts wait")} for your judgement on the result page.`) : null);
+      c.waiting_for_you ? h("p", { class: "small dc-advice" }, workState("attention", `${plural(c.waiting_for_you, "excerpt waits", "excerpts wait")} for your judgement on the result page.`)) : null);
   }
 
   // Margin: a claim no document supports can be taken to Find literature (a draft kept on this computer cannot send its
@@ -750,7 +760,7 @@ export async function renderDraft(view, [draftId], query) {
   function literatureLink(c) {
     if (c.skip || c.decision === "dismissed" || !["unsupported", "no_passages", "uncertain"].includes(c.status)) return null;
     const ok = data.draft.ai_access === "cloud";
-    return h("a", { class: "dc-link dc-lit", href: ok ? `#/literature?draft=${encodeURIComponent(draftId)}&claim=${encodeURIComponent(c.claim_id)}` : "#/literature",
+    return link({ class: "it", href: ok ? `#/literature?draft=${encodeURIComponent(draftId)}&claim=${encodeURIComponent(c.claim_id)}` : "#/literature",
       title: ok ? "Search OpenAlex for works to cite. You see and edit the search words before anything is sent." : "This draft's AI setting keeps its words on this computer, so the search starts without them." }, icon("search", { size: 13 }), "Find literature");
   }
 
@@ -761,28 +771,28 @@ export async function renderDraft(view, [draftId], query) {
     if (c.hyp_id) {
       const lit = literatureLink(c);
       if (lit) row.append(lit);
-      row.append(h("a", { class: "dc-link", href: `#/h/${encodeURIComponent(c.hyp_id)}` }, "Open the result", icon("arrow-right", { size: 13 })));
+      row.append(link({ href: `#/h/${encodeURIComponent(c.hyp_id)}` }, "Open the result"));
     } else if (!c.skip) {
       const docs = data.documents || 0;
-      row.append(h("button", { class: "btn btn-sm", type: "button", disabled: watchers.length > 0 || !docs, onClick: () => startJob("check", { claim_ids: [c.claim_id] }) }, icon("play", { size: 13 }), "Check this one"));
-      row.append(h("button", { class: "dc-link", type: "button", onClick: () => reword(c, row) }, icon("file-pen", { size: 13 }), "Reword"));
+      row.append(...withAIFor(data.draft.ai_access, button({ sm: true, icon: "play", disabled: watchers.length > 0 || !docs, onClick: () => startJob("check", { claim_ids: [c.claim_id] }) }, "Check this one")));
+      row.append(button({ kind: "quiet", sm: true, icon: "file-pen", onClick: () => reword(c, row) }, "Reword"));
     }
     const end = [
-      c.decision ? h("button", { class: "dc-link dc-link-quiet dc-fold", type: "button", "aria-expanded": "true", title: "Fold the card again", onClick: () => { unfolded.delete(c.claim_id); drawList(numbered()); } }, icon("chevron-up", { size: 13 }), "Fold") : null,
-      c.hyp_id || c.source === "person" ? h("button", { class: "dc-link dc-link-quiet dc-link-danger", type: "button", title: "Remove this claim", onClick: () => removeClaim(c) }, icon("trash", { size: 13 }), "Remove") : null,
+      c.decision ? button({ kind: "quiet", sm: true, icon: "chevron-up", "aria-expanded": "true", title: "Fold the card again", onClick: () => { unfolded.delete(c.claim_id); drawList(numbered()); } }, "Fold") : null,
+      c.hyp_id || c.source === "person" ? button({ kind: "danger", sm: true, icon: "trash", title: "Remove this claim", onClick: () => removeClaim(c) }, "Remove") : null,
     ].filter(Boolean);
     if (end.length) row.append(h("span", { class: "dc-actions-end" }, end));
     return row.childNodes.length ? row : null;
   }
 
   function reword(c, row) {
-    const ta = h("textarea", { class: "textarea dc-edit", rows: 3, "aria-label": `New wording of claim ${c.n}` });
+    const ta = textareaEl({ class: "dc-edit", rows: 3, "aria-label": `New wording of claim ${c.n}` });
     ta.value = c.claim;
-    const save = h("button", { class: "btn btn-sm btn-primary", type: "button" }, "Save");
-    const cancel = h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => drawBoard() }, "Cancel");
+    const save = button({ kind: "main", sm: true }, "Save");
+    const cancel = button({ kind: "quiet", sm: true, onClick: () => drawBoard() }, "Cancel");
     save.addEventListener("click", () => setClaim(c, { claim: ta.value }));
-    replace(row, h("div", { class: "stack", style: { gap: "6px", width: "100%" } },
-      h("p", { class: "muted small", style: { margin: 0 } }, "Write it as one sentence a source could support or contradict: what is checked is this wording, not your draft's."),
+    replace(row, h("div", { class: "stack dc-reword" },
+      h("p", { class: "muted small" }, "Write it as one sentence a source could support or contradict: what is checked is this wording, not your draft's."),
       ta, h("div", { class: "btn-row" }, save, cancel)));
     ta.focus();
   }

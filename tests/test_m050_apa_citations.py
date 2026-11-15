@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from test_0130_bibliography import _library, zotero  # noqa: F401  (fixture)
-from test_0133_zotero_titles import OFFICE, _with_draft
+from test_bibliography import _library, zotero  # noqa: F401  (fixture)
+from test_zotero_titles import OFFICE, _with_draft
 from test_app import api, home  # noqa: F401  (fixtures)
 
 from margin import bibliography as b
@@ -164,8 +164,8 @@ def test_the_page_copies_the_citation():
     assert 'html && html.includes("<i>") && window.ClipboardItem' in js and 'document.execCommand("copy")' in js
     assert "ALT_CLICK" in js and "cite.narrative" in js
     # documents of the side without a work of the bibliography are named, with the way to link them
-    assert 'h("a", { href: "#/bibliography" }, "Bibliography")' in js
+    assert 'link({ href: "#/bibliography" }, "Bibliography")' in js
     order = sections()  # sections of margin.css, imported by site.css (the local layer)
-    assert order.index("m050") < order.index("m020")
+    assert order.index("m050") < order.index("m060")
     css = section("m050")
-    assert ".dc-apa:hover" in css and not __import__("re").search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css)
+    assert ".dc-apa {" in css and not __import__("re").search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css)

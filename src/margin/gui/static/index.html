@@ -3,30 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="margin-token" content="{{MARGIN_TOKEN}}">
+<meta name="margin-run" content="{{MARGIN_RUN}}">
 <meta name="margin-version" content="{{MARGIN_VERSION}}">
 <meta name="color-scheme" content="light dark">
 <title>Margin · your writing and your sources</title>
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/tokens.css">
 <link rel="stylesheet" href="/static/app.css">
-<link rel="stylesheet" href="/static/v07.css">
-<link rel="stylesheet" href="/static/concepts-themes.css">
-<link rel="stylesheet" href="/static/profile-viewer.css">
-<link rel="stylesheet" href="/static/v09.css">
-<link rel="stylesheet" href="/static/v010.css">
-<link rel="stylesheet" href="/static/v0101.css">
-<link rel="stylesheet" href="/static/v0102.css">
-<link rel="stylesheet" href="/static/v011.css">
-<link rel="stylesheet" href="/static/v0111.css">
-<link rel="stylesheet" href="/static/v0112.css">
-<link rel="stylesheet" href="/static/v0113.css">
-<link rel="stylesheet" href="/static/v012.css">
-<link rel="stylesheet" href="/static/v013.css">
-<link rel="stylesheet" href="/static/v0133.css">
-<link rel="stylesheet" href="/static/v0134.css">
+<link rel="stylesheet" href="/static/components.css">
+<link rel="stylesheet" href="/static/views.css">
 <!-- release stylesheets end -->
 <link rel="stylesheet" href="/static/site.css">
+<link rel="stylesheet" href="/static/margin.css">
 <script type="module" src="/static/app.js"></script>
 </head>
 <body>
@@ -45,45 +33,40 @@
     <div class="sidebar-inner">
       <a class="brand" href="#/overview" aria-label="Margin home">
         <img src="/static/logo.svg" alt="" width="34" height="34">
-        <span class="brand-text"><strong>Margin</strong><small>your writing and your sources</small></span>
+        <span class="brand-text"><strong>Margin</strong></span>
       </a>
       <div class="project-switch" id="project-switch"></div>
+      <!-- 0.17.0: Find a feature or page by name (finder.js); Ctrl+K or Cmd+K from anywhere -->
+      <button class="find-btn" id="find-btn" type="button" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K"><span class="nav-icon" data-icon="search"></span><span class="find-text">Find a feature or page</span><kbd class="find-key" id="find-key">Ctrl K</kbd></button>
+      <!-- 0.17.0: the places (features.js PLACES). A place's views are tabs on its pages, never links here. -->
       <nav class="nav" aria-label="Main" id="nav">
-        <a href="#/overview" data-route="overview" title="Everything you can do with this project, and what is already made"><span class="nav-icon" data-icon="grid"></span><span>Overview</span></a>
-        <a href="#/sources" data-route="sources"><span class="nav-icon" data-icon="book-open"></span><span>Documents</span></a>
-        <a href="#/bibliography" data-route="bibliography"><span class="nav-icon" data-icon="library"></span><span>Bibliography</span></a>
-        <a href="#/codebooks" data-route="codebooks"><span class="nav-icon" data-icon="book-marked"></span><span>Codebooks</span></a>
-        <span class="nav-group" role="presentation">Explore the documents</span>
-        <a href="#/skim" data-route="skim" title="A one-page report on one document, without AI"><span class="nav-icon" data-icon="eye"></span><span>Skim</span></a>
+        <a href="#/overview" data-route="overview"><span class="nav-icon" data-icon="grid"></span><span>Overview</span></a>
+        <a href="#/sources" data-route="documents"><span class="nav-icon" data-icon="book-open"></span><span>Documents</span></a>
+        <span class="nav-group" role="presentation" data-section="explore">Explore</span>
         <a href="#/search" data-route="search"><span class="nav-icon" data-icon="text-search"></span><span>Search</span></a>
-        <a href="#/profile" data-route="profile"><span class="nav-icon" data-icon="tag"></span><span>Profile</span></a>
+        <a href="#/profile" data-route="codes"><span class="nav-icon" data-icon="tag"></span><span>Codes</span></a>
         <a href="#/concepts" data-route="concepts"><span class="nav-icon" data-icon="network"></span><span>Concepts</span></a>
         <a href="#/themes" data-route="themes"><span class="nav-icon" data-icon="shapes"></span><span>Themes</span></a>
-        <span class="nav-group" role="presentation">Your writing</span>
-        <a href="#/drafts" data-route="drafts"><span class="nav-icon" data-icon="file-pen"></span><span>Check a draft</span></a>
-        <a href="#/citations" data-route="citations"><span class="nav-icon" data-icon="quote"></span><span>Check citations</span></a>
-        <a href="#/outline" data-route="outline"><span class="nav-icon" data-icon="file-text"></span><span>Outline</span></a>
-        <span class="nav-group" role="presentation">Check hypotheses</span>
-        <a href="#/check" data-route="check"><span class="nav-icon" data-icon="flask"></span><span>Check a hypothesis</span></a>
-        <a href="#/batch" data-route="batch"><span class="nav-icon" data-icon="list-checks"></span><span>Check several</span></a>
-        <a href="#/history" data-route="history"><span class="nav-icon" data-icon="history"></span><span>Results</span></a>
-        <span class="nav-group" role="presentation">Your notes and decisions</span>
-        <a href="#/notes" data-route="annotations"><span class="nav-icon" data-icon="highlighter"></span><span>Notes</span></a>
-        <a href="#/log" data-route="researchlog"><span class="nav-icon" data-icon="notebook"></span><span>Research log</span></a>
+        <span class="nav-group" role="presentation" data-section="check">Check</span>
+        <a href="#/hypotheses" data-route="hypotheses"><span class="nav-icon" data-icon="flask"></span><span>Hypotheses</span></a>
       </nav>
       <div class="sidebar-foot">
-        <div id="jobs-indicator"></div>
-        <div id="queue-indicator"></div>
-        <div id="privacy-indicator"></div>
+        <!-- 0.17.0: one status area of a fixed size: where text goes (the AI line); while work runs or waits, the work
+             in its place, with only what matters and one action (app.js renderStatus) -->
+        <div class="status-area" id="status-area">
+          <div class="work-box" id="work-indicator" hidden></div>
+          <div id="privacy-indicator"></div>
+        </div>
         <div class="sidebar-app">
           <div class="sidebar-app-row">
             <nav class="nav nav-foot" id="nav-foot" aria-label="App">
               <a href="#/settings" data-route="settings" title="The AI (Claude Code, a local model), checking, exploring, documents, and the version"><span class="nav-icon" data-icon="sliders"></span><span>Settings</span></a>
             </nav>
+            <!-- an update takes Quit's place (Quit is then in Settings › Technical) -->
+            <button class="btn btn-ghost btn-sm" id="update-btn" type="button" hidden></button>
+            <button class="btn btn-ghost btn-sm" id="quit-btn" type="button" hidden></button>
             <button class="icon-btn theme-btn" id="theme-btn" type="button" aria-live="polite"></button>
           </div>
-          <button class="btn btn-ghost btn-sm" id="update-btn" type="button" hidden></button>
-          <button class="btn btn-ghost btn-sm" id="quit-btn" type="button" hidden></button>
         </div>
       </div>
     </div>

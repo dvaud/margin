@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .retrieve import BM25
+from .review import csv_uncell
 from .textutil import tokens
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
@@ -306,7 +307,9 @@ def parse_csv(text: str, allow_empty: bool = False, extra: bool = False) -> dict
     that name is read as before 0.16."""
     text = text.lstrip("\ufeff")
     reader = csv.DictReader(io.StringIO(text), delimiter=_delimiter(text))
-    rows = list(reader)
+    # 0.17.2: a codebook's CSV is written through review.csv_cell (a spreadsheet would run "=..." as a formula); the
+    # apostrophe it adds comes off again here, so the codebook reads as it was written
+    rows = [{k: csv_uncell(v) for k, v in r.items()} for r in reader]
     if not rows:
         heads = {(c or "").strip().lower() for c in (reader.fieldnames or [])}
         if allow_empty and {"code", "description"} <= heads:
@@ -377,6 +380,10 @@ def _load_file(path: Path, source: str) -> Framework | None:
                    str(meta.get("label") or "code"), codes, source, directional=bool(meta.get("directional")),
                    ordered=bool(meta.get("ordered")), meta=meta, **_meta_fields(meta))
     with _LOCK:
+        # one entry per file: the earlier states of a codebook saved in the editor (each with its index) go, not
+        # kept in memory for good
+        for k in [k for k in _CACHE if k[0] == key[0] and k != key]:
+            del _CACHE[k]
         _CACHE[key] = fw
     return fw
 
@@ -413,6 +420,16 @@ def _folders(ws=None) -> list[tuple[Path, str]]:
 
     out = [(home() / "frameworks", "home")]
     if ws is not None:
+        # 0.17: a quick look can use the codebooks of the project it was opened from, read-only (its own labels stay
+        # in the quick look); a codebook of the quick look itself comes after and wins
+        from .home import project_path, quicklook_origin
+
+        try:
+            origin = quicklook_origin(Path(ws.root).name)
+        except OSError:
+            origin = None
+        if origin and project_path(origin).resolve() != Path(ws.root).resolve():
+            out.append((project_path(origin) / "frameworks", "origin"))
         out.append((Path(ws.root) / "frameworks", "project"))
     return out
 
@@ -463,6 +480,13 @@ def get(name: str | None, ws=None) -> Framework | None:
     if fw is None:
         raise ValueError(f"Unknown framework {name!r}. Available: {', '.join(available(ws))}.")
     return fw
+
+
+def chosen(name: str | None, ws=None) -> str:
+    """The codebook to use when none is named: `name` (the profile codebook setting, one for the whole app) when this
+    project has it. A codebook made in one project is not in the others. Margin has no default codebook: "" when
+    none is chosen here (ENLENS falls back to the SDG targets), and the caller asks the person to choose one."""
+    return name if name and name in available(ws) else ""
 
 
 BUNDLED = ("sdg", "sdg_goals", "practice", "change_framing")

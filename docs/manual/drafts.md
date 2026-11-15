@@ -10,7 +10,7 @@
 > - Your draft is kept apart from your documents: it is never used as evidence. One marked *Only a local AI* or *No AI*
 >   is never sent to Claude.
 
-**Check a draft** (sidebar, *Your writing*) is for what you are writing yourself: a section, a chapter or a whole
+**Check a draft** (sidebar, under **Write**) is for what you are writing yourself: a section, a chapter or a whole
 paper.
 
 <img src="../images/manual/draft.png" alt="A draft with its claims coloured by their answers, and the claim cards beside it" width="800">
@@ -158,8 +158,8 @@ sentence in the draft to bring its card into view.
 
 *Excel* and *CSV* download one row per claim: the sentence, the claim checked, whether it is cited, the answer, your
 decision and the documents on each side, as a list of what to cite, with their APA 7 citation when you have a
-bibliography. They gain *Your citations* and *What the cited source says*. The checks are also under *Results*, as a
-set ([Read and review a result](review.md#all-your-results)).
+bibliography. They gain *Your citations* and *What the cited source says*. The checks are also among the answers of *Hypotheses*, as a
+set ([Read and review a result](review.md#the-list-of-answers)).
 
 A draft marked *Only a local AI* or *No AI* is never sent to Claude, in finding its claims or in any task of their
 checks, and is hidden from a Claude chat. For a draft Claude may read, the page says how much of it Claude has read

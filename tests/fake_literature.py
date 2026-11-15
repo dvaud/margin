@@ -230,7 +230,9 @@ class FakeLiterature:
             def log_message(self, *a):
                 pass
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        from margin.gui.server import QuickServer  # starts without a 35 s name lookup on Mac runners
+
+        self.server = QuickServer(("127.0.0.1", 0), H)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         root = f"http://127.0.0.1:{self.server.server_address[1]}"
         return {"openalex": root + "/openalex", "crossref": root + "/crossref", "s2": root + "/s2",

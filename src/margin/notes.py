@@ -20,7 +20,7 @@ import sqlite3
 import uuid
 
 from .store import Workspace, now
-from .textutil import find_selection
+from .textutil import find_selection, normalise
 
 COLOURS = ("yellow", "green", "blue", "pink")
 MAX_QUOTE = 4000
@@ -176,14 +176,19 @@ def _placed(cx: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[dict]:
             texts[did] = (row[0] or "", row[1], True) if row else (None, *_title(cx, did))
         body, title, present = texts[did]
         d["title"], d["present"], d["lost"] = title, present, False
-        if present and body[d["start"]:d["end"]] != d["quote"]:
+        here = body[d["start"]:d["end"]] if present else d["quote"]
+        # 0.17.2: words that differ from the note's only in typography (a new reading) are still its words in place:
+        # nothing is looked for again, and nothing is written
+        if present and here != d["quote"] and normalise(here) != normalise(d["quote"] or ""):
             got = find(body, d["quote"] or "", d["start"])
             if got is None:
                 d["lost"] = True
             else:
+                page = _page(cx, did, got[0])
+                if got != (d["start"], d["end"]) or page != d["page"]:  # written down only when the place changed
+                    cx.execute("UPDATE notes SET start=?, end=?, page=? WHERE note_id=?", (*got, page, d["note_id"]))
                 d["start"], d["end"] = got
-                d["page"] = _page(cx, did, got[0])
-                cx.execute("UPDATE notes SET start=?, end=?, page=? WHERE note_id=?", (*got, d["page"], d["note_id"]))
+                d["page"] = page
         d["mine"] = d["person_id"] == me
         out.append(d)
     if out:
@@ -223,10 +228,9 @@ def search(ws: Workspace, q: str | None = None, doc_id: str | None = None, colou
     """Notes whose words or note contain `q` (every word of it, in any order), newest first: {notes, total,
     documents: [{doc_id, title, notes}]}."""
     where, args = [], []
-    for w in (q or "").lower().split()[:12]:
-        like = "%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        where.append("(lower(COALESCE(text, '')) LIKE ? ESCAPE '\\' OR lower(quote) LIKE ? ESCAPE '\\')")
-        args += [like, like]
+    # the words are looked for here, not by the database: its lower() and LIKE know the letters a to z only, so a
+    # note that writes "Életminőség" was not found by "életminőség"
+    words = (q or "").casefold().split()[:12]
     if doc_id:
         where.append("doc_id=?")
         args.append(doc_id)
@@ -237,10 +241,17 @@ def search(ws: Workspace, q: str | None = None, doc_id: str | None = None, colou
         where.append("person_id=?")
         args.append(_me())
     sql_where = ("WHERE " + " AND ".join(where)) if where else ""
+    first, most = max(0, int(offset)), max(1, min(int(limit), 100000))
     with ws.connect() as cx:
-        total = cx.execute(f"SELECT COUNT(*) FROM notes {sql_where}", args).fetchone()[0]
-        rows = cx.execute(f"SELECT * FROM notes {sql_where} ORDER BY COALESCE(edited_at, created_at) DESC, rowid DESC "
-                          "LIMIT ? OFFSET ?", (*args, max(1, min(int(limit), 100000)), max(0, int(offset)))).fetchall()
+        if words:
+            rows = [r for r in cx.execute(f"SELECT * FROM notes {sql_where} ORDER BY COALESCE(edited_at, created_at) "
+                                          "DESC, rowid DESC", args).fetchall()
+                    if all(w in (r["text"] or "").casefold() or w in (r["quote"] or "").casefold() for w in words)]
+            total, rows = len(rows), rows[first:first + most]
+        else:
+            total = cx.execute(f"SELECT COUNT(*) FROM notes {sql_where}", args).fetchone()[0]
+            rows = cx.execute(f"SELECT * FROM notes {sql_where} ORDER BY COALESCE(edited_at, created_at) DESC, rowid "
+                              "DESC LIMIT ? OFFSET ?", (*args, most, first)).fetchall()
         out = _placed(cx, rows)
         docs = []
         for did, n in cx.execute("SELECT doc_id, COUNT(*) FROM notes GROUP BY doc_id").fetchall():
@@ -344,9 +355,12 @@ def use_as_evidence(ws: Workspace, note_id: str, claim_id: str, verdict: str, co
     return {"hyp_id": uc["hyp_id"] or claim_id, "claim_id": claim_id, "passage_id": p["passage_id"], "new": new}
 
 
-def move(cx: sqlite3.Connection, doc_id: str, new_text: str) -> dict:
+def move(cx: sqlite3.Connection, doc_id: str, new_text: str, page_spans: list | None = None) -> dict:
     """The notes of a document read again into `new_text` (reread.py): each follows its words, nearest its old place
-    in proportion; those whose words cannot be found keep them and are marked lost when shown. {moved, lost}."""
+    in proportion, and takes the page of its new place (`page_spans`: the new reading's (start, end) of each page, in
+    order; none for a text without pages); those whose words cannot be found keep them and are marked lost when
+    shown. {moved, lost}."""
+    starts = [a for a, _b in page_spans or []]
     rows = cx.execute("SELECT note_id, start, quote FROM notes WHERE doc_id=?", (doc_id,)).fetchall()
     old_len = cx.execute("SELECT length(text) FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
     scale = (len(new_text) / old_len[0]) if old_len and old_len[0] else 1.0
@@ -356,33 +370,7 @@ def move(cx: sqlite3.Connection, doc_id: str, new_text: str) -> dict:
         if got is None:
             lost += 1
             continue
-        cx.execute("UPDATE notes SET start=?, end=? WHERE note_id=?", (*got, nid))
+        page = max(0, bisect.bisect_right(starts, got[0]) - 1) + 1 if starts else None
+        cx.execute("UPDATE notes SET start=?, end=?, page=? WHERE note_id=?", (*got, page, nid))
         moved += 1
     return {"moved": moved, "lost": lost}
-
-
-def merge(cx: sqlite3.Connection, rows: list[dict], fix) -> int:
-    """A colleague's notes (sync.py): those not here come in (unless removed here, or their document did not come in);
-    one of theirs they changed since is brought up to date. Yours are never changed."""
-    me = _me()
-    gone = {r[0] for r in cx.execute("SELECT key FROM sync_removed WHERE kind='note'")}
-    docs = {r[0] for r in cx.execute("SELECT doc_id FROM documents")}
-    cols = [r[1] for r in cx.execute("PRAGMA table_info(notes)")]
-    n = 0
-    for r in rows:
-        if not isinstance(r.get("note_id"), str) or not _ID.fullmatch(r["note_id"]) or r["note_id"] in gone:
-            continue
-        r = fix(r)
-        if r is None or r.get("doc_id") not in docs:
-            continue
-        have = cx.execute("SELECT person_id, edited_at FROM notes WHERE note_id=?", (r["note_id"],)).fetchone()
-        use = [c for c in cols if c in r]
-        if have is None:
-            cx.execute(f"INSERT INTO notes({','.join(use)}) VALUES ({','.join('?' * len(use))})", [r[c] for c in use])
-            n += 1
-        elif have[0] != me and have[0] == r.get("person_id") and (r.get("edited_at") or "") > (have[1] or ""):
-            sets = [c for c in use if c != "note_id"]
-            cx.execute(f"UPDATE notes SET {', '.join(c + '=?' for c in sets)} WHERE note_id=?",
-                       [*(r[c] for c in sets), r["note_id"]])
-            n += 1
-    return n

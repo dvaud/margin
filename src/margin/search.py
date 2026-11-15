@@ -30,6 +30,15 @@ class PassageIndex:
         self.rows, self.bm25, self.pos = rows, bm25, pos
         self.ids = ids if ids is not None else [r["passage_id"] for r in rows]
         self.doc_of = doc_of if doc_of is not None else [r["doc_id"] for r in rows]
+        self.key: tuple | None = None          # the state of the project it was made from (`_key`)
+        self._totals: dict[str, int] = {}     # each word's occurrences in all the passages, summed once
+
+    def total(self, word: str) -> int:
+        """How often a word (a stem, as indexed) occurs in all the passages: its postings summed, once per index."""
+        n = self._totals.get(word)
+        if n is None:
+            n = self._totals[word] = sum(f for _i, f in self.bm25.postings.get(word, ()))
+        return n
 
     @property
     def on_disk(self) -> bool:
@@ -52,7 +61,7 @@ class PassageIndex:
 
     def terms_starting(self, prefix: str) -> list[tuple[str, int]]:
         """(word, occurrences) of every indexed word starting with `prefix`, in the order of words."""
-        return sorted((t, sum(f for _i, f in pl)) for t, pl in self.bm25.postings.items() if t.startswith(prefix))
+        return sorted((t, self.total(t)) for t in self.bm25.postings if t.startswith(prefix))
 
 
 _INDEXES: "OrderedDict[tuple, PassageIndex]" = OrderedDict()
@@ -81,6 +90,23 @@ def _build(ws: Workspace, all_sections: bool) -> PassageIndex:
     return PassageIndex(rows, BM25([tokens(r["text"]) for r in rows]), {r["passage_id"]: i for i, r in enumerate(rows)})
 
 
+def _retitled(ws: Workspace, key: tuple) -> PassageIndex | None:
+    """The cached index of the same passages when only the titles' version differs (a work of the bibliography was
+    linked): its words and postings hold no title (since 0.16 titles are read with the rows when shown), so they are
+    used again, and only what reads the rows is made afresh."""
+    if IN_MEMORY:
+        return None
+    from . import searchindex
+
+    with _LOCK:
+        old = next((v for k, v in reversed(_INDEXES.items()) if k[:4] == key[:4] and k[5:] == key[5:]), None)
+    if old is None or not old.on_disk:
+        return None
+    idx = PassageIndex(searchindex._Rows(ws, old.ids), old.bm25, old.pos, old.ids, old.doc_of)
+    idx._totals = old._totals
+    return idx
+
+
 def passage_index(ws: Workspace, all_sections: bool = False) -> PassageIndex:
     """Readable passages of the project and their keyword index (built on first use, then cached).
 
@@ -98,7 +124,8 @@ def passage_index(ws: Workspace, all_sections: bool = False) -> PassageIndex:
             hit = _INDEXES.get(key)
         if hit is not None:
             return hit
-        idx = _build(ws, all_sections)
+        idx = _retitled(ws, key) or _build(ws, all_sections)
+        idx.key = key
         with _LOCK:
             for k in [k for k in _INDEXES if k[0] == key[0] and k[-1] == key[-1]]:  # older states of the project
                 del _INDEXES[k]
@@ -149,7 +176,7 @@ def rerank(idx: "PassageIndex", query_text: str, ranked: list[tuple[int, float]]
 
 def rank_passages(ws: Workspace, query_text: str, terms: list[str] | None = None, k: int = 8, per_doc: int = 2,
                   doc_ids: list[str] | None = None, exclude: set[str] | None = None, embedder=None,
-                  require_terms: bool = False, second_pass: bool = False) -> list[dict]:
+                  require_terms: bool = False, second_pass: bool = False, evidence_only: bool = True) -> list[dict]:
     """The k passages that best match the claim and its search terms, at most `per_doc` from one document first.
 
     With `require_terms`, only passages containing at least one of the terms qualify (a search with other words a
@@ -159,12 +186,22 @@ def rank_passages(ws: Workspace, query_text: str, terms: list[str] | None = None
     Each row carries `score` (BM25, or the fused score) and `found_by`: "keywords", "meaning" or "both", and (0.7)
     `matched`: the words of the passage that it shares with the claim and its search terms, as the passage writes
     them (empty for a passage found by meaning alone).
+
+    0.18.1 (K2): `evidence_only` (the default, what a check reads) leaves out documents marked as theory, unless
+    `doc_ids` names them (a person who limits a check to a theory document by hand means it). The Search page's
+    search by meaning passes False: theory is still found there.
     """
     idx = passage_index(ws)
     rows = idx.rows
     if not rows:
         return []
     allowed = set(doc_ids) if doc_ids else None
+    if evidence_only and allowed is None:
+        from .docrole import not_evidence_docs  # 0.19.0 (N3): working documents are never a source either
+
+        theory = not_evidence_docs(ws._conn())
+        if theory:
+            allowed = set(idx.doc_of) - theory
     skip = exclude or set()
     having = None
     if require_terms:
@@ -238,14 +275,37 @@ def shared_words(text: str, stems: set[str]) -> list[str]:
     return list(seen.values())
 
 
-def docs_matching(ws: Workspace, query_text: str, terms: list[str] | None, doc_ids: set[str]) -> set[str]:
+def docs_matching(ws: Workspace, query_text: str, terms: list[str] | None, doc_ids: set[str],
+                  min_words: int = 1) -> set[str]:
     """Which of these documents have a readable passage that shares a word with the claim or its search words
-    (one keyword query, nothing is read by a model)."""
+    (one keyword query, nothing is read by a model).
+
+    `min_words` (roadmap N5, 0.18.7) sets a stricter bar: the passage must hold at least that many *different* words
+    (stems, as the ranking counts them) of the claim and its search words, or every one of them when there are fewer.
+    One shared word is a weak sign: "water" or "production" turns up in most documents of a corpus about hydrogen,
+    whatever they say. Two different words of the hypothesis in one excerpt, such as "water" and "stress", or a
+    two-word search term found whole, is what the check's own ranking needs to put an excerpt near the top. The bar
+    counts words, not their weight, so it can be said in a sentence ("holds at least two of its words"). The default,
+    1, keeps the old rule (any shared word), which the documents added since a check use."""
+    from .docrole import not_evidence_docs
+
+    doc_ids = set(doc_ids) - not_evidence_docs(ws._conn())   # K2, N3: a theory or working document is not evidence
     if not doc_ids:
         return set()
     idx = passage_index(ws)
     q = tokens(query_text) + tokens(" ".join(terms or []))
-    return {idx.doc_of[i] for i, sc in idx.bm25.sparse(q).items() if sc > 0 and idx.doc_of[i] in doc_ids}
+    if min_words <= 1:
+        return {idx.doc_of[i] for i, sc in idx.bm25.sparse(q).items() if sc > 0 and idx.doc_of[i] in doc_ids}
+    stems = set(q)
+    need = min(min_words, len(stems))
+    if not need:
+        return set()
+    doc_of, held = idx.doc_of, {}
+    for st in stems:   # each passage's count of different words, from the postings (the passages are not read)
+        for i, _f in idx.bm25.postings.get(st, ()):
+            if doc_of[i] in doc_ids:
+                held[i] = held.get(i, 0) + 1
+    return {doc_of[i] for i, n in held.items() if n >= need}
 
 
 def neighbours(ws: Workspace, passage_id: str, before: int = 1, after: int = 1) -> dict:

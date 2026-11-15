@@ -190,9 +190,12 @@ def _summary(ws, check_id: str) -> dict:
     evidence, restricted = [], {"supports": 0, "partially_supports": 0, "refutes": 0, "waiting_for_the_user": 0,
                                 "waiting_for_the_local_model": 0}
     held_notes = 0
+    nonsci = 0  # 0.18.6: judgements of documents marked Non-scientific: shown, never counted
     for p in r["passages"]:
         if lv.get(p["doc_id"], "none") != "cloud":  # 0.11: no text of a restricted document, only what it says
-            if p["verdict"]:
+            if p.get("nonscientific"):
+                nonsci += bool(p["verdict"])
+            elif p["verdict"]:
                 restricted[p["verdict"]] += 1
             restricted["waiting_for_the_user"] += bool(p.get("waiting_for_you"))
             restricted["waiting_for_the_local_model"] += bool(p.get("waiting_local"))
@@ -200,8 +203,13 @@ def _summary(ws, check_id: str) -> dict:
         if p["verdict"]:
             note = p.get("scope_note") if p["passage_id"] in ok else None
             held_notes += bool(p.get("scope_note")) and note is None
+            nonsci += bool(p.get("nonscientific"))
             evidence.append({"grade": p["verdict"], "confidence": p["confidence"], "quote": p["quote"],
-                             "document": p["title"], "page": p["page"],
+                             "document": p["title"], "page": p["page"], "counted": bool(p.get("counted")),
+                             **({"non_scientific": True} if p.get("nonscientific") else {}),
+                             # 0.19.0 (K3): marked non-scientific, counted by this hypothesis's own setting
+                             **({"non_scientific": True, "counted_by_exception": True}
+                                if p.get("nonscientific_counted") else {}),
                              **({"about_another_group": note} if note else {})})
     out = {"check_id": check_id, "claim": r["claim"], "status": r["status"],
            "status_text": r.get("status_text") or claimcheck.STATUS_TEXT.get(r["status"], r["status"]),
@@ -222,6 +230,18 @@ def _summary(ws, check_id: str) -> dict:
                      ") are not shown either.")
     if notes:
         out["restricted_note"] = " ".join(notes)
+    if nonsci:  # 0.18.6
+        out["status_counting_non_scientific"] = r.get("status_all_sources") or r["status"]
+        out["non_scientific_note"] = (f"{nonsci} judged excerpt(s) come from documents the user marked non-scientific "
+                                      "(no method or data of their own): they are shown, but never count in the "
+                                      "status. Say so when you report them.")
+    if r.get("count_nonscientific") and any(p.get("nonscientific_counted") for p in r["passages"]):  # 0.19.0 (K3)
+        out["non_scientific_counted_here"] = True
+        out["status_without_non_scientific"] = r.get("status_without_nonscientific") or r["status"]
+        out["non_scientific_note"] = ("The user set this hypothesis to count documents marked non-scientific (they are "
+                                      "the material it is about), so their grades count in the status here: the "
+                                      "evidence marked counted_by_exception. status_without_non_scientific is the "
+                                      "status without them, as in other checks. Say so when you report them.")
     if r["status_any"] != r["status"]:
         low = sum(1 for e in evidence if (e["confidence"] or 0) < r["threshold"])
         out["note"] = (f"Counting every grade: {claimcheck.STATUS_TEXT.get(r['status_any'], r['status_any']).lower()}. "
@@ -436,12 +456,18 @@ def build_server():
 
         name, ws = _project(project)
         hidden = access.restricted_titles(ws)
-        everything = concordance.search(ws, query, mode, document_ids, "doc", 0, 1, exact, near)
         # 0.11: lines only from documents Claude may read; hits in the others as counts
-        cloud = sorted(d for d, lv in access.levels(ws).items() if lv == "cloud" and
-                       (not document_ids or d in set(document_ids)))
+        levels = access.levels(ws)
+        wanted = set(document_ids) if document_ids else None
+        cloud = sorted(d for d, lv in levels.items() if lv == "cloud" and (wanted is None or d in wanted))
         r = concordance.search(ws, query, mode, cloud or ["-"], "doc", max(0, int(offset)), max(1, min(int(lines), 200)),
                                exact, near)
+        # 0.17.2: the counts are of every document asked for; when Claude may read all of them they are this search's,
+        # so it is not made twice (a search over other documents is another search: the cache does not know it)
+        if all(lv == "cloud" for d, lv in levels.items() if wanted is None or d in wanted):
+            everything = r
+        else:
+            everything = concordance.search(ws, query, mode, document_ids, "doc", 0, 1, exact, near)
         shown = [{"document": x["title"], "where": x["location"], "text": f"{x['left']}[{x['node']}]{x['right']}",
                   "passage_id": x["passage_id"]} for x in r["lines"]]
         access.record_passages(ws, [x["passage_id"] for x in r["lines"]], access.ROUTE_NAMES["chat"], "search")
@@ -548,8 +574,10 @@ def build_server():
             bad: list[str] = []
 
             def waiting(name, ws):
-                n = ws.scalar("SELECT COUNT(*) FROM tasks WHERE COALESCE(queued, 0)=1 AND (status IN ('pending', "
-                              "'retry') OR (status='done' AND again=1))") or 0
+                # what queue_status of that project calls waiting: tasks Claude Code may take now (not those a
+                # claim holds, nor any it is never handed)
+                n = ws.scalar(f"SELECT COUNT(*) FROM tasks t WHERE {taskqueue.WAITING} AND NOT {taskqueue.CLAIMED}",
+                              (taskqueue._cutoff(),)) or 0
                 if n:
                     out.append({"project": name, "waiting": n})
 

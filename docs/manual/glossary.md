@@ -8,12 +8,16 @@ The app speaks plain language; the command line, the API and the code use techni
 | --- | --- | --- |
 | **Project** | Project, workspace | A folder with `config.json` and `enlens.sqlite` (the database keeps the ENLENS name). The app keeps its projects in `~/margin/projects` (or `MARGIN_HOME`); the command line works on any folder given with `--ws`. Both use the same format. |
 | **Document** | Document | One source file (PDF, Word .docx, HTML, TXT or MD; zips are opened). Its text is stored once, and every place in it points into that text. Its paragraphs and headings are kept, so a quote can be cited as "paragraph 6 of 8" (text and web pages) or "page 2, paragraph 3" (PDFs). Scanned pages can be read by text recognition (OCR). |
+| **Theory document** | Document role `theory` | A document marked as the framework the research is read through. It is still read, searched and noted, but left out of themes, codebook labels, the excerpts a check reads and key terms. You mark it; Margin never guesses ([Theory documents](explore.md#theory-documents)). In the code, never *framework*: that word means a codebook. |
+| **Working document** | Document role `working` | Your own draft or notes, kept in the project beside the documents you study. It is read, searched and noted, but is never a source: themes, checks and counts leave it out ([Working documents](explore.md#working-documents)). |
+| **Non-scientific document** | Document flag | A news article, press release or blog that reports no method or data of its own. Its excerpts are read and judged but no judgement of them counts in an answer, unless you count them in one hypothesis ([Non-scientific documents](explore.md#non-scientific-documents)). |
+| **Assessment** | Assessment | A few sentences under an answer, made by fixed rules and never written by an AI: the other side quoted, where the support comes from, each part, what is not counted and what your judgements did ([The assessment in words](review.md#the-assessment-in-words)). |
 | **Excerpt**, **passage** | Passage | A paragraph of a document (long ones cut, short ones put together; up to about 1,100 characters, some 180 words). Excerpts are what the AI reads. Reference lists, page furniture and unreadable text are left out ([How documents are read](reading.md)). |
 | **Hypothesis** | Hypothesis | What you check. Checked as written, or split into 2 to 5 *parts* that must all hold, each checked on its own. |
 | **Part** | Claim | One statement that is checked: the hypothesis itself, or one of its parts. |
 | **Judgement** | Grade, verdict | What the AI says about one excerpt: *supports*, *partly supports* (an important part is stated; something remains to be inferred), *contradicts* (`refutes`), or *not about this hypothesis*. With a quote and a certainty. |
 | **Your judgement** | User verdict | Your own judgement of an excerpt. It replaces the AI's in the answer and the counts, always counts, and is kept next to the AI's. Agreeing with the AI is a review; choosing another judgement is a change. You can point to the sentence you mean. |
-| **Answer** | Status | What the documents say about the whole hypothesis: *supported*, *partly supported*, *mixed evidence* (`contested`), *contradicted*, and the rest ([The answers](check.md#the-answers)). |
+| **Answer** | Status | What the documents say about the whole hypothesis: *supported*, *partly supported*, *mixed evidence* (`contested`), *contradicted*, and the rest ([The answers](how-a-check-works.md#the-answers)). |
 | **AI certainty** | Confidence | The AI's own estimate (0–100%) of how sure it is: high (≥ 80%), medium (≥ 60%), low. Not a check of whether it is right. |
 | **Strictness** | Threshold | How sure the AI must be for a judgement to count (default 60%). Weaker judgements stay visible, marked *Not counted*. It applies to every result, old and new. |
 | **Search** (in a check) | Round | One set of excerpts read for a part. *Read more excerpts* and *Search with other words* add searches. |
@@ -48,9 +52,9 @@ The app speaks plain language; the command line, the API and the code use techni
 | **Find literature** | Literature search | A search of online sources (OpenAlex, Crossref, Semantic Scholar, Unpaywall) for works you do not have yet ([Find literature](literature.md)). |
 | **Theme** | Theme | What the documents are about, grouped by their passages' meaning or terms; the same documents and settings always give the same themes ([Explore your documents](explore.md#themes)). |
 | **Concept** | Concept | A term the documents use (one or more words), with its wordings, documents and related concepts ([Explore your documents](explore.md#concepts)). |
-| **Profile** | Document profile | Which codes of a codebook a document addresses, how much and where ([Explore your documents](explore.md#profile)). |
+| **Codes by document** | Document profile | Which codes of a codebook a document addresses, how much and where ([Explore your documents](explore.md#codes)). |
 | **Check several** | Batch | Many hypotheses checked one after the other from a list or CSV ([Check a hypothesis](check.md#checking-many-at-once)). |
-| **Who says what** | Sides | The documents behind an answer, by side: supporting, partly supporting, contradicting ([Check a hypothesis](check.md#who-says-what)). |
+| **Who says what** | Sides | The documents behind an answer, by side: supporting, partly supporting, contradicting ([Check a hypothesis](how-a-check-works.md#who-says-what)). |
 | **Mixed evidence** | `contested` | Some excerpts support the hypothesis and others contradict it. |
-| **Evidence map** | Map | All results as a grid of hypotheses by documents, with + (supports), (+) (partly), − (contradicts) and ± (both) ([Read and review a result](review.md#all-your-results)). |
+| **Evidence map** | Map | All results as a grid of hypotheses by documents, with + (supports), (+) (partly), − (contradicts) and ± (both) ([Read and review a result](review.md#the-evidence-map)). |
 | **The queue** | Task queue | The AI work Margin has prepared for Claude Code, answered by helpers ([Claude Code](claude-code.md)). |

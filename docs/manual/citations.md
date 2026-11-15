@@ -9,7 +9,7 @@
 >   the project, and against no other.
 > - The answer is a prompt to look, and your judgement of the excerpts overrules it.
 
-*Check citations* (sidebar, under *Your writing*, beside *Check a draft*) reads a text for its citations and checks each
+*Check citations* (sidebar, under **Write**, beside *Check a draft*) reads a text for its citations and checks each
 one against the source it cites. It needs the project's bibliography ([Your bibliography](bibliography.md)).
 
 Your own writing has one home: a text you paste or choose here is kept as a draft (with its name and AI setting), so
@@ -111,7 +111,7 @@ result](review.md)). Your judgement changes the answer on the Citations page too
 answer, the quote and its page. *Remove this text* removes the text, its citations and their checks; your file and your
 documents are not touched.
 
-Checks of citations are kept apart from your hypotheses: they are not in *Results*, the evidence map or its downloads.
+Checks of citations are kept apart from your hypotheses: they are not among the answers of *Hypotheses*, the evidence map or its downloads.
 
 ## What it sends
 

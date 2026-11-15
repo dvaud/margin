@@ -12,12 +12,14 @@ import random
 import re
 import sqlite3
 import threading
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
 
 from pydantic import ValidationError
 
+from .docrole import evidence_sql
 from . import __version__, access, prompts, taskkinds
 from .retrieve import BM25, H2_RE
 from .schema import (CheckOut, DecomposeOut, ExpandOut, ExtractOut, ImpactClaimOut, InteractionOut, SplitOut,
@@ -127,7 +129,7 @@ def replace_task(cx, task_id: str, kind: str, model: str, payload: dict) -> bool
 
 def _send(ws: Workspace, t, backend) -> None:
     """Before a backend is asked: the guard (0.11), and the ledger when the text leaves this computer."""
-    access.require(backend, t)
+    access.require(backend, t, ws)
     if access.is_cloud(backend) and getattr(backend, "name", "") != "claude_code":
         with ws.connect() as cx:
             access.record_sent(cx, t["task_id"], json.loads(t["payload_json"]),
@@ -157,7 +159,9 @@ def select_per_target(ws: Workspace, n: int, only_screened: bool = True, hydroge
     before (which the task shows as CONTEXT); without it, general energy passages crowd out the value chain.
     """
     sql = ("SELECT p.passage_id, p.text, q.text AS prev FROM passages p LEFT JOIN passages q "
-           "ON q.doc_id = p.doc_id AND q.seq = p.seq - 1 WHERE p.section='body'" + (" AND p.screened=1" if only_screened else ""))
+           "ON q.doc_id = p.doc_id AND q.seq = p.seq - 1 WHERE p.section='body' AND "
+           + evidence_sql("p.doc_id")  # 0.18.1 (K2): a theory document is no evidence for the SDG pack either
+           + (" AND p.screened=1" if only_screened else ""))
     rows = ws.query(sql)
     if hydrogen_only:
         rows = [r for r in rows if H2_RE.search(r["text"]) or H2_RE.search((r["prev"] or "")[-500:])]
@@ -232,7 +236,8 @@ def make_verify_vca(ws: Workspace, model: str | None = None, k: int | None = Non
     made, missing, no_ai = 0, 0, 0
     tdesc = targets()
     vcs = ws.query("SELECT * FROM vca_claims ORDER BY target, seq")
-    all_docs = [r["doc_id"] for r in ws.query("SELECT doc_id FROM documents")]
+    # 0.18.1 (K2): beyond the cited sources, only evidence documents (a cited one is kept, as one named by hand)
+    all_docs = [r["doc_id"] for r in ws.query(f"SELECT doc_id FROM documents WHERE {evidence_sql()}")]
     docs_by_target = {t: (all_docs if beyond_cited else docs_for_target(ws, t)) for t in {vc["target"] for vc in vcs}}
     # the passages of a set of sources and their index, built once per set (every target, with --beyond-cited)
     indexes: dict[tuple, tuple[list, BM25 | None]] = {}
@@ -269,8 +274,9 @@ def make_verify_vca(ws: Workspace, model: str | None = None, k: int | None = Non
             # for the new set (earlier answers are kept); an unchanged set is not asked again.
             tid = f"verify_set:{vc['vca_claim_id']}"
             ids = sorted(p["passage_id"] for p in payload["passages"])
-            earlier = cx.execute("SELECT task_id, payload_json FROM tasks WHERE kind='verify_set' AND (task_id=? OR task_id LIKE ?) "
-                                 "AND task_id NOT LIKE '%:audit:%'", (tid, tid + ":%")).fetchall()
+            earlier = cx.execute("SELECT task_id, payload_json FROM tasks WHERE +kind='verify_set' AND (task_id=? OR "
+                                 "(task_id >= ? AND task_id < ?)) AND task_id NOT LIKE '%:audit:%'",
+                                 (tid, *id_range(tid + ":"))).fetchall()
             sets: dict[str, list[str]] = {}
             for r in earlier:  # 0.11: a set split by AI setting is one set (its cloud part and its `:local` part)
                 b = r["task_id"][:-6] if r["task_id"].endswith(":local") else r["task_id"]
@@ -450,7 +456,8 @@ def _errs(e: ValidationError) -> list[str]:
 
 def ingest_result(ws: Workspace, task_id: str, raw: Any, model: str | None = None,
                   provenance: dict | None = None, route: str | None = None, helper: str | None = None,
-                  claimed_at: str | None = None, problem: str | None = None) -> tuple[bool, list[str]]:
+                  claimed_at: str | None = None, problem: str | None = None, claim: str | None = None,
+                  free: bool = False, cached: bool = False) -> tuple[bool, list[str]]:
     """Validate and store one answer. `provenance` (0.7): the model's digest, the seed and the settings that
     produced it (`llm.provenance`), kept with the raw answer. 0.8: `route` (Claude Code, Claude API, local model
     server, file queue), the plugin's `helper` agent and when its batch was claimed, kept with it too.
@@ -462,14 +469,21 @@ def ingest_result(ws: Workspace, task_id: str, raw: Any, model: str | None = Non
     as a rejected attempt with that problem, so it is asked again like any answer that fails the checks. The prompt
     version recorded (on the task, with the answer and with what it stores) is the one of the instructions the model
     was given: those of now (a task made before an update is answered under the new instructions), or for a task in
-    the file queue, those written beside it when it was exported."""
+    the file queue, those written beside it when it was exported.
+
+    `claim`: the answer comes from that claim of the queue, and is stored only while the claim holds the task and
+    the task waits for an answer; `free`: the answer comes from outside the queue (a Claude chat), and is stored only
+    while the task is neither in the queue nor held by a claim. Both are checked in the transaction that stores the
+    answer, so two callers never both store one; otherwise `NotHeld` is raised and nothing is stored."""
     with ws.connect() as cx:
         t = cx.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         if not t:
             return False, [f"unknown task {task_id}"]
+        again = t["status"] == "done" and bool(t["again"])
+        if claim is not None or free:
+            _check_holder(t, again, claim, free)
         payload = json.loads(t["payload_json"])
         model = model or t["model"]
-        again = t["status"] == "done" and bool(t["again"])
         attempt = int(t["attempts"]) + 1
         # the instructions of now; a task written to the file queue keeps those of when it was written (`export`)
         version = t["prompt_version"] if t["status"] == "exported" else (prompts.VERSIONS.get(t["kind"])
@@ -495,6 +509,8 @@ def ingest_result(ws: Workspace, task_id: str, raw: Any, model: str | None = Non
         if not ok:
             cx.execute("ROLLBACK TO handler")
         cx.execute("RELEASE handler")
+        if ok and not problem:  # 0.18.1 (H4): kept by the question asked, or counted as a task avoided
+            _cache_store(cx, t, payload, model, version, raw, cached)
         if again:  # a second reading by the stronger model: the first answer stays unless this one is accepted
             status = "done"
             keep_again = 0 if ok or attempt >= MAX_ATTEMPTS else 1
@@ -519,12 +535,41 @@ def ingest_result(ws: Workspace, task_id: str, raw: Any, model: str | None = Non
     return ok, errors
 
 
+class NotHeld(Exception):
+    """An answer that is not stored because its caller does not hold the task (`ingest_result` with `claim` or
+    `free`). `reason`: "answered" (it has its answer), "lapsed" (another claim holds it, or none), "queued" (it
+    waits in the queue, or a claim holds it, and the caller is outside the queue)."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _check_holder(t, again: bool, claim: str | None, free: bool) -> None:
+    open_ = t["status"] in ("pending", "retry") or again
+    if claim is not None:
+        if t["claimed_by"] != claim:
+            raise NotHeld("answered" if t["status"] == "done" and not again else "lapsed")
+        if not open_:
+            raise NotHeld("answered")
+    if free:
+        from .taskqueue import _cutoff
+
+        if t["queued"] or (t["claimed_by"] is not None and (t["claimed_at"] or "") >= _cutoff()):
+            raise NotHeld("queued")
+        if not open_:
+            raise NotHeld("answered")
+
+
 def _store_answer(cx, t, payload, obj, model) -> tuple[bool, list[str]]:
     """Store an answer with its kind's store function. 0.13.6: an add-on's kind is checked first by Margin: its schema,
     then every quote against the text the kind names (`quote_from`); the store function sees only what passed."""
     kind = taskkinds.get(t["kind"])
     if kind is None or kind.store is None:
         raise ValueError(f"unknown task kind {t['kind']!r}")
+    problems = taskkinds.long_quote_problems(obj, kind.quote_fields)  # 0.17.2: too long is as good as not found
+    if problems:
+        return False, problems
     if not kind.core:
         if kind.schema is not None:
             obj = kind.schema.model_validate(obj).model_dump()
@@ -748,6 +793,27 @@ def capped(verdict: str, scope_note: str | None) -> str:
     return "partially_supports" if scope_note and verdict == "supports" else verdict
 
 
+_NOT_GRADED = ("not_enough_info", None, None, None, None, None)
+
+
+def _graded_row(cx, p: dict, graded: tuple, missing: int | None = None) -> tuple:
+    """(verdict, confidence, quote, start, end, scope_note) of a graded excerpt, as the three paths that store a
+    grade (a set of excerpts, one read again, a second opinion) keep it. `missing`: see doc_span."""
+    ev, hit = graded
+    note = getattr(ev, "scope_note", None)  # a set's grades carry none
+    return (capped(ev.verdict, note), ev.confidence, p["text"][hit[0]:hit[1]],
+            *doc_span(cx, p["passage_id"], p["text"], hit[0], hit[1], missing=missing, anchor=p.get("anchor")), note)
+
+
+def _history_entry(b, at: str | None = None, why: str | None = None) -> dict:
+    """The AI's earlier grade of an excerpt (a row of `verifications`) as one entry of `ai_history_json`."""
+    e = {"verdict": b["verdict"], "confidence": b["confidence"], "quote": b["quote"], "scope_note": b["scope_note"],
+         "model": b["model"], "prompt_version": b["prompt_version"], "at": at, "replaced_at": now()}
+    if why is not None:
+        e["why"] = why
+    return e
+
+
 def _store_verify_set(cx, t, payload, obj, model, schema=VerifySetOut) -> tuple[bool, list[str]]:
     v = schema.model_validate(obj)
     passages = payload["passages"]
@@ -760,21 +826,18 @@ def _store_verify_set(cx, t, payload, obj, model, schema=VerifySetOut) -> tuple[
     for n, p in enumerate(passages, 1):
         vid = f"v{_h(t['task_id'], p['passage_id'])}"
         before = cx.execute("SELECT * FROM verifications WHERE ver_id=?", (vid,)).fetchone()
-        note = None
         ref = (None, None, None, None)
         if n in graded:
-            ev, hit = graded[n]
-            note = getattr(ev, "scope_note", None)
-            row = (capped(ev.verdict, note), ev.confidence, p["text"][hit[0]:hit[1]],
-                   *doc_span(cx, p["passage_id"], p["text"], hit[0], hit[1], missing=0, anchor=p.get("anchor")))
-            ref = _refers(cx, p, ev)
+            row = _graded_row(cx, p, graded[n], missing=0)
+            ref = _refers(cx, p, graded[n][0])
         else:
-            row = ("not_enough_info", None, None, None, None)
+            row = _NOT_GRADED
+        note = row[5]
         cx.execute("INSERT OR REPLACE INTO verifications(ver_id, subject_kind, subject_id, passage_id, doc_id, verdict, "
                    "confidence, quote, start, end, page, model, prompt_version, scope_note, refers_to, refers_start, "
                    "refers_end, refers_where) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (vid, payload["subject_kind"], payload["subject_id"],
-                    p["passage_id"], p["doc_id"], *row[:3], row[3], row[4], p.get("page"), model, t["prompt_version"],
+                    p["passage_id"], p["doc_id"], *row[:5], p.get("page"), model, t["prompt_version"],
                     note, *ref))
         if before is not None:
             _keep_person_and_history(cx, vid, before, why)
@@ -786,9 +849,7 @@ def _keep_person_and_history(cx, vid: str, before, why: str) -> None:
     the AI's earlier judgement joins its history (shown on the result, as for an excerpt read again)."""
     b = dict(before)
     hist = json.loads(b.get("ai_history_json") or "[]")
-    hist.append({"verdict": b.get("verdict"), "confidence": b.get("confidence"), "quote": b.get("quote"),
-                 "scope_note": b.get("scope_note"), "model": b.get("model"), "prompt_version": b.get("prompt_version"),
-                 "at": None, "replaced_at": now(), "why": why})
+    hist.append(_history_entry(b, why=why))
     cx.execute("UPDATE verifications SET user_verdict=?, user_note=?, user_at=?, user_quote=?, user_start=?, user_end=?, "
                "ai_history_json=?, reread_json=? WHERE ver_id=?",
                (b.get("user_verdict"), b.get("user_note"), b.get("user_at"), b.get("user_quote"), b.get("user_start"),
@@ -805,12 +866,10 @@ def _store_reread(cx, t, payload, obj, model) -> tuple[bool, list[str]]:
         return False, errors
     ref = (None, None, None, None)
     if 1 in graded:
-        ev, hit = graded[1]
-        row = (capped(ev.verdict, ev.scope_note), ev.confidence, p["text"][hit[0]:hit[1]],
-               *doc_span(cx, p["passage_id"], p["text"], hit[0], hit[1], anchor=p.get("anchor")), ev.scope_note)
-        ref = _refers(cx, p, ev)
+        row = _graded_row(cx, p, graded[1])
+        ref = _refers(cx, p, graded[1][0])
     else:
-        row = ("not_enough_info", None, None, None, None, None)
+        row = _NOT_GRADED
     old = cx.execute("SELECT * FROM verifications WHERE subject_kind=? AND subject_id=? AND passage_id=?",
                      (payload["subject_kind"], payload["subject_id"], p["passage_id"])).fetchone()
     info = json.dumps({"hint": payload.get("reader_note"), "rationale": (v.rationale or "").strip() or None,
@@ -818,9 +877,7 @@ def _store_reread(cx, t, payload, obj, model) -> tuple[bool, list[str]]:
     history = []
     if old is not None:
         history = json.loads(old["ai_history_json"] or "[]")
-        history.append({"verdict": old["verdict"], "confidence": old["confidence"], "quote": old["quote"],
-                        "scope_note": old["scope_note"], "model": old["model"], "prompt_version": old["prompt_version"],
-                        "at": payload.get("previous_at"), "replaced_at": now()})
+        history.append(_history_entry(old, at=payload.get("previous_at")))
         cx.execute("UPDATE verifications SET verdict=?, confidence=?, quote=?, start=?, end=?, scope_note=?, model=?, "
                    "prompt_version=?, ai_history_json=?, reread_json=?, refers_to=?, refers_start=?, refers_end=?, "
                    "refers_where=? WHERE ver_id=?",
@@ -873,12 +930,7 @@ def _store_second(cx, t, payload, obj, model) -> tuple[bool, list[str]]:
         return False, errors
     second = payload.get("second_model") or model
     for n, p in enumerate(passages, 1):
-        if n in graded:
-            ev, hit = graded[n]
-            row = (capped(ev.verdict, ev.scope_note), ev.confidence, p["text"][hit[0]:hit[1]],
-                   *doc_span(cx, p["passage_id"], p["text"], hit[0], hit[1], anchor=p.get("anchor")), ev.scope_note)
-        else:
-            row = ("not_enough_info", None, None, None, None, None)
+        row = _graded_row(cx, p, graded[n]) if n in graded else _NOT_GRADED
         cx.execute("INSERT OR REPLACE INTO second_opinions(subject_id, passage_id, model, verdict, confidence, quote, "
                    "start, end, scope_note, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                    (payload["subject_id"], p["passage_id"], second, *row, now()))
@@ -894,6 +946,21 @@ def round_base(task_id: str) -> str:
         if task_id.endswith(suf):
             return task_id[: -len(suf)]
     return task_id
+
+
+def id_range(prefix: str) -> tuple[str, str]:
+    """The bounds of the task ids that start with `prefix`, for `task_id >= ? AND task_id < ?`: the prefix, and the
+    prefix with its last character one higher (`check:<id>:` → `check:<id>;`). A range on the primary key finds them
+    directly; `LIKE 'prefix%'` cannot use the key (SQLite's LIKE ignores case), so it read every task of the kind.
+    Put a `+` before a `kind=` beside it (`+kind='check'`), or SQLite takes the index on the kind instead."""
+    return prefix, prefix[:-1] + chr(ord(prefix[-1]) + 1)
+
+
+def check_task_ids_sql(claim_id: str) -> tuple[str, list[str]]:
+    """The condition (and its arguments) for every task of one claim's check: `check:<claim>` and its further rounds
+    and parts (`check:<claim>:r2`, `…:local`, `…:person`), as a lookup and a range on the primary key."""
+    lo, hi = id_range(f"check:{claim_id}:")
+    return "(task_id=? OR (task_id >= ? AND task_id < ?))", [f"check:{claim_id}", lo, hi]
 
 
 def _store_check(cx, t, payload, obj, model) -> tuple[bool, list[str]]:
@@ -968,6 +1035,35 @@ for _kind, _store in {"extract": _store_extract, "split": _store_split, "verify"
                      "label": _store_label, "link": _store_link, "theme": _store_theme,
                      "resolve": _store_resolve}.items():
     taskkinds.attach(_kind, store=_store)
+# 0.18.4 (K2 part 2): the AI's draft of a theory document's concepts (theorycodes.py), its offline answer and size
+from . import theorycodes as _theorycodes  # noqa: E402 - after the store functions it may import
+
+
+def _store_theory_codes(cx, t, payload, obj, model):
+    return _theorycodes.store_ai_draft(cx, t, payload, obj, model)
+
+
+taskkinds.attach("theory_codes", store=_store_theory_codes, demo=_theorycodes.demo_answer, size=_theorycodes.prompt_size)
+# K2, the framework draft: the drafts of several theory documents joined into one framework (theoryframe.py)
+from . import theoryframe as _theoryframe  # noqa: E402 - after the store functions it may import
+
+
+def _store_theory_frame(cx, t, payload, obj, model):
+    return _theoryframe.store_frame(cx, t, payload, obj, model)
+
+
+taskkinds.attach("theory_frame", store=_store_theory_frame, demo=_theoryframe.demo_answer,
+                 size=_theoryframe.prompt_size)
+# K1 (the optional AI part): a code's definition drafted from its examples (codedefine.py)
+from . import codedefine as _codedefine  # noqa: E402 - after the store functions it may import
+
+
+def _store_code_definition(cx, t, payload, obj, model):
+    return _codedefine.store_answer(cx, t, payload, obj, model)
+
+
+taskkinds.attach("code_definition", store=_store_code_definition, demo=_codedefine.demo_answer,
+                 size=_codedefine.prompt_size)
 # 0.13.6: the store function of each kind, Margin's and the add-ons', from the registry
 HANDLERS = taskkinds.Table("store")
 
@@ -992,6 +1088,8 @@ def _sync_thresholds(ws: Workspace) -> None:
 
 def pending(ws: Workspace, kind: str, limit: int | None = None, statuses=("pending", "retry")) -> list:
     q = f"SELECT * FROM tasks WHERE kind=? AND status IN ({','.join('?' * len(statuses))}) ORDER BY task_id"
+    if limit and limit > 0:  # cut in SQL: every payload is not read to keep the first few
+        return ws.query(q + " LIMIT ?", (kind, *statuses, int(limit)))
     rows = ws.query(q, (kind, *statuses))
     return rows[:limit] if limit else rows
 
@@ -1028,13 +1126,20 @@ def model_for(t, backend, model: str | None = None) -> str:
 def _step_up(ws: Workspace, t, backend, ok: bool, raw: Any) -> str | None:
     """After an answer: does the task go up to the stronger model (routing, once at most)? Returns "again" (an
     accepted answer read again: it counts meanwhile), "retry" (the last attempt goes to the stronger model) or None."""
-    from .routing import STEP_UP_BELOW, certainty
+    return step_up(ws, t, getattr(backend, "router", None), ok, raw)[0]
 
-    router = getattr(backend, "router", None)
-    from .routing import task_kind
+
+def step_up(ws: Workspace, t, router, ok: bool, raw: Any) -> tuple[str | None, float | None]:
+    """The step-up rule, decided and written (the app's runs and the queue's answers both go through it): after an
+    answer to task `t` (its row from before the answer), with `router`'s choice of a stronger model for its kind.
+    An accepted answer less sure than STEP_UP_BELOW is read again ("again": step=1, again=1, its attempts start
+    anew; the answer counts meanwhile); a second rejected answer leaves the last attempt to the stronger model
+    ("retry": step=1). Never for a task a person forced onto a model, nor one that stepped up already. Returns (what
+    was decided or None, the answer's certainty when it was worked out). The queue then lets go of the claim."""
+    from .routing import STEP_UP_BELOW, certainty, task_kind
 
     if router is None or t["forced_model"] or int(t["step"] or 0) or not router.step_up(task_kind(t)):
-        return None
+        return None, None
     if ok:
         try:
             c = certainty(t["kind"], parse_json(raw))
@@ -1043,14 +1148,14 @@ def _step_up(ws: Workspace, t, backend, ok: bool, raw: Any) -> str | None:
         if c is not None and c < STEP_UP_BELOW:
             with ws.connect() as cx:
                 cx.execute("UPDATE tasks SET step=1, again=1, attempts=0 WHERE task_id=?", (t["task_id"],))
-            return "again"
-        return None
+            return "again", c
+        return None, c
     cur = ws.query("SELECT status, attempts FROM tasks WHERE task_id=?", (t["task_id"],))[0]
     if cur["status"] == "retry" and int(cur["attempts"]) >= MAX_ATTEMPTS - 1:
         with ws.connect() as cx:
             cx.execute("UPDATE tasks SET step=1 WHERE task_id=?", (t["task_id"],))
-        return "retry"
-    return None
+        return "retry", None
+    return None, None
 
 
 def run_one(ws: Workspace, task_id: str, backend, model: str | None = None) -> tuple[bool, list[str]]:
@@ -1067,7 +1172,13 @@ def run_one(ws: Workspace, task_id: str, backend, model: str | None = None) -> t
 
         t = ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))
         if t:
-            access.require(backend, t[0])  # a task the queue would never hand out must not be waited for
+            access.require(backend, t[0], ws)  # a task the queue would never hand out must not be waited for
+            if lent_to_local(t[0]):  # 0.18.1 (I1): a kind the AI mix gives the local model first
+                local = mix_local()
+                if local is not None:
+                    answer_locally_first(ws, task_id, local[0], local[1])
+                else:
+                    to_claude(ws, [task_id])
         return wait_for(ws, task_id, backend)
     errors: list[str] = []
     # 0.14.3: each phase has its own attempts (the first model's, then the stronger model's: `attempts` starts again
@@ -1081,8 +1192,13 @@ def run_one(ws: Workspace, task_id: str, backend, model: str | None = None) -> t
             return True, errors
         if t["status"] == "failed":
             break
-        system, user = render(ws, t)
         call = model_for(t, backend, model)
+        # a kept answer only where this backend may read the task (the guard first: a document marked No AI, or one
+        # whose setting changed, is never answered from an AI's answer to the same text)
+        if not t["attempts"] and t["status"] != "done" and access.require(backend, t, ws) is None \
+                and answer_from_cache(ws, task_id, call, _route_name(backend)):
+            return True, []  # 0.18.1 (H4): the same question was answered before, and the answer fits this text
+        system, user = render(ws, t)
         _send(ws, t, backend)
         raw, problem = _complete(backend, t, system, user, call)
         used = "baseline" if getattr(backend, "name", "") == "baseline" else call
@@ -1104,6 +1220,277 @@ def run_one(ws: Workspace, task_id: str, backend, model: str | None = None) -> t
     if ws.scalar("SELECT status FROM tasks WHERE task_id=?", (task_id,)) == "done":
         return True, errors
     return False, errors
+
+
+# ---------------------------------------------------------------------------------------------
+# 0.18.1 (H4): fewer AI tasks. An accepted answer is kept by the question asked: the kind, its prompt version, the
+# model and the prompt's own text (the passage, the codebook, the claim; not the task id). A task that asks the same
+# question again, under another id (a check run again, a document read again by a new reader, the same text in two
+# documents), is answered from it instead of a model, and the answer is checked against its own passage like any other
+# (a cached answer that fails the check is not used: the model is asked). Never for a reading asked again on purpose
+# (`again`, a reread, a second opinion), nor for a task forced onto a model (a model test), nor for the demo model.
+# ---------------------------------------------------------------------------------------------
+NO_CACHE_KINDS = frozenset({"reread", "second", "audit"})
+
+
+def cache_key(kind: str, version: str | None, model: str | None, payload: dict) -> str:
+    text = "\x1f".join([kind, version or "", model or "", prompts.system_prompt(kind), prompts.user_prompt(kind, payload)])
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _cacheable(t, model: str | None) -> bool:
+    try:
+        forced = t["forced_model"]
+    except (KeyError, IndexError):
+        forced = None
+    return bool(model) and model != "baseline" and t["kind"] not in NO_CACHE_KINDS and not forced and not (
+        t["status"] == "done" and t["again"])
+
+
+def cached_answer(ws: Workspace, t, model: str | None) -> str | None:
+    """The kept answer to the question task `t` asks of `model`, or None."""
+    if not _cacheable(t, model):
+        return None
+    key = cache_key(t["kind"], prompts.VERSIONS.get(t["kind"]) or t["prompt_version"], model,
+                    json.loads(t["payload_json"]))
+    r = ws.query("SELECT raw_json FROM ai_cache WHERE key=?", (key,))
+    return r[0][0] if r and not _unsure(t["kind"], r[0][0]) else None
+
+
+def _unsure(kind: str, raw: Any) -> bool:
+    """An answer a fresh run would hand to a stronger model (certainty under routing.STEP_UP_BELOW): never kept nor
+    used as a kept answer, so a kept answer never stands where a stronger model would have read again."""
+    from .routing import STEP_UP_BELOW, certainty
+
+    try:
+        c = certainty(kind, parse_json(raw))
+    except ValueError:
+        return True
+    return c is not None and c < STEP_UP_BELOW
+
+
+def _cache_store(cx, t, payload: dict, model: str | None, version: str | None, raw: Any, cached: bool) -> None:
+    if not _cacheable(t, model) or (not cached and _unsure(t["kind"], raw)):
+        return
+    key = cache_key(t["kind"], version, model, payload)
+    if cached:
+        cx.execute("UPDATE ai_cache SET hits=hits+1 WHERE key=?", (key,))
+    else:
+        cx.execute("INSERT OR IGNORE INTO ai_cache(key, kind, prompt_version, model, raw_json, at) VALUES (?,?,?,?,?,?)",
+                   (key, t["kind"], version, model, raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False),
+                    now()))
+
+
+def answer_from_cache(ws: Workspace, task_id: str, model: str | None, route: str | None = None) -> bool:
+    """Answer a task from the kept answer to the same question, when there is one and it passes the checks against
+    this task's own text. True when it did (the task is done); nothing changes otherwise."""
+    t = ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))
+    if not t or t[0]["status"] not in ("pending", "retry") or int(t[0]["attempts"] or 0):
+        return False
+    raw = cached_answer(ws, t[0], model)
+    if raw is None:
+        return False
+    ok, _e = ingest_result(ws, task_id, raw, model=model, provenance={"settings": {"from_cache": True}},
+                           route=(route or "") + " (kept answer)" if route else "kept answer", cached=True)
+    if not ok:  # a kept answer that does not fit this text: as if it had not been tried
+        _forget_cache_try(ws, task_id)
+    return ok
+
+
+def _forget_cache_try(ws: Workspace, task_id: str) -> None:
+    with ws.connect() as cx:
+        cx.execute("UPDATE tasks SET status='pending', attempts=0 WHERE task_id=? AND status IN ('retry', 'failed')",
+                   (task_id,))
+        cx.execute("DELETE FROM results WHERE task_id=? AND valid=0 AND attempt=(SELECT MAX(attempt) FROM results "
+                   "WHERE task_id=?)", (task_id, task_id))
+
+
+def avoided(ws: Workspace) -> dict[str, int]:
+    """The AI tasks answered from kept answers instead of a model, per kind (`margin measure`, the validation report)."""
+    try:
+        return {r[0]: int(r[1]) for r in ws.query("SELECT kind, SUM(hits) FROM ai_cache GROUP BY kind HAVING SUM(hits)>0")}
+    except sqlite3.Error:
+        return {}
+
+
+# ---------------------------------------------------------------------------------------------
+# 0.18.1 (I1, I2): the AI mix. With Claude Code as the main route and a local model chosen, the kinds of task the
+# chosen mix gives the local model (routing.mix_kinds) are answered by it first, here, and Claude Code's helpers leave
+# them alone (taskqueue.next_tasks). An answer goes up to Claude (the queue, as a step up: the stronger model of the
+# kind) when the local model is unsure (certainty under routing.STEP_UP_BELOW), when its answers fail the quote check
+# three times, or when it would change a decision (an excerpt judged as contradicting); only tasks of documents Claude
+# may read are in the queue at all. An accepted local answer counts meanwhile. Without a local model that answers,
+# the task goes to Claude as before.
+# ---------------------------------------------------------------------------------------------
+_MIX_LOCAL: dict = {}
+_MIX_LOCK = threading.Lock()
+
+
+def mix_local(settings: dict | None = None):
+    """(backend, model) of the local model the AI mix lends work to (Settings' local model for restricted documents),
+    or None. Made once per choice and kept (each task would otherwise ask the model server again)."""
+    from .home import load_settings, make_restricted_backend
+    from .llm import BackendError
+
+    s = settings if settings is not None else load_settings()
+    key = (s.get("restricted_server"), s.get("restricted_model"), s.get("ollama_url"), s.get("openai_url"))
+    with _MIX_LOCK:
+        if key in _MIX_LOCAL:
+            return _MIX_LOCAL[key]
+    try:
+        got = make_restricted_backend(s)
+    except BackendError:
+        got = None
+    if got is not None:  # a model not there now is asked about again next time (it may be installed meanwhile)
+        with _MIX_LOCK:
+            _MIX_LOCAL.clear()
+            _MIX_LOCAL[key] = got
+    return got
+
+
+def to_claude(ws: Workspace, task_ids: Iterable[str]) -> int:
+    """Tasks the AI mix lent to the local model, handed to Claude Code when no local model can answer them (it is not
+    on this computer, or not installed): as a step up, so its helpers take them."""
+    n = 0
+    with ws.connect() as cx:
+        for tid in task_ids:
+            n += cx.execute("UPDATE tasks SET step=1 WHERE task_id=? AND COALESCE(step, 0)=0 AND status IN ('pending', "
+                            "'retry')", (tid,)).rowcount
+            mark_queued(cx, [tid])
+    return n
+
+
+def lent_to_local(t, settings: dict | None = None) -> bool:
+    """Whether the AI mix gives task `t` to the local model first (a kind it lends, not stepped up, answered or forced
+    onto a model, of documents Claude may read)."""
+    from .home import load_settings
+    from .routing import mix_kinds, task_kind
+
+    if t["forced_model"] or int(t["step"] or 0) or t["status"] == "done" or (t["access"] or "cloud") != "cloud":
+        return False
+    return task_kind(t) in mix_kinds(settings if settings is not None else load_settings())
+
+
+def mix_local_for(t, settings: dict | None = None):
+    """The local (backend, model) that answers task `t` first under the AI mix, or None: Claude answers it (a kind the
+    mix leaves to Claude, a task already stepped up or answered, one a person forced onto a model, a document Claude
+    may not read, or no local model)."""
+    from .home import load_settings
+    from .routing import mix_kinds, task_kind
+
+    if t["forced_model"] or int(t["step"] or 0) or t["status"] == "done" or (t["access"] or "cloud") != "cloud":
+        return None
+    s = settings if settings is not None else load_settings()
+    if task_kind(t) not in mix_kinds(s):
+        return None
+    return mix_local(s)
+
+
+def answer_locally_first(ws: Workspace, task_id: str, backend, model: str) -> str | None:
+    """The local model's answer to a task of the AI mix (up to three attempts), and the step up to Claude it may need.
+    Returns None (the local answer stands), "again" (accepted but unsure, or it would change a decision: Claude reads
+    it again, the local answer counts meanwhile) or "retry" (no answer passed: Claude answers it). A backend error
+    (the model server is down, Stop) hands the task to Claude the same way, except Stop, which propagates."""
+    from .llm import BackendError
+    from .routing import STEP_UP_BELOW, certainty, judging_changes, task_kind
+
+    raw, ok = None, False
+    # held while it answers, as a batch of Claude Code is: Claude Code (and a second local run) leave it alone, and an
+    # answer is stored only while this claim holds the task (a mix changed meanwhile hands it to Claude Code)
+    claim = "local-" + uuid.uuid4().hex[:12]
+    from .taskqueue import _cutoff
+
+    with ws.connect() as cx:
+        got = cx.execute("UPDATE tasks SET claimed_by=?, claimed_at=? WHERE task_id=? AND status IN ('pending', 'retry') "
+                         "AND (claimed_by IS NULL OR claimed_by='' OR claimed_at < ?)",
+                         (claim, now(), task_id, _cutoff())).rowcount
+    if not got:
+        return None  # answered, or held by Claude Code or another local run
+    try:
+        t0 = ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))[0]
+        kept = cached_answer(ws, t0, model) if not t0["attempts"] else None
+        if kept is not None:
+            ok, _e = ingest_result(ws, task_id, kept, model=model, provenance={"settings": {"from_cache": True}},
+                                   route=f"{_route_name(backend)} (kept answer)", claim=claim, cached=True)
+            raw = kept if ok else None  # 0.18.1 (H4): answered before by this model; it steps up as it would then
+            if not ok:  # a kept answer that does not fit this text: as if it had not been tried
+                _forget_cache_try(ws, task_id)
+        for _ in range(0 if ok else MAX_ATTEMPTS):
+            t = ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))[0]
+            if t["status"] in ("done", "failed") or t["claimed_by"] != claim:
+                break
+            system, user = render(ws, t)
+            _send(ws, t, backend)
+            raw, problem = _complete(backend, t, system, user, model)
+            ok, _e = ingest_result(ws, task_id, raw, model=model, provenance=_provenance(backend, model),
+                                   route=_route_name(backend), problem=problem, claim=claim)
+            if ok:
+                break
+    except NotHeld:
+        return None  # handed to Claude Code meanwhile: its answer counts
+    except BackendError as e:
+        if str(e).startswith("Stopped"):
+            with ws.connect() as cx:
+                cx.execute("UPDATE tasks SET claimed_by=NULL, claimed_at=NULL WHERE task_id=? AND claimed_by=?",
+                           (task_id, claim))
+            raise
+        ok = False
+    with ws.connect() as cx:
+        cx.execute("UPDATE tasks SET claimed_by=NULL, claimed_at=NULL WHERE task_id=? AND claimed_by=?", (task_id, claim))
+    t = ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))[0]
+    how = None
+    if ok:
+        try:
+            obj = parse_json(raw)
+        except ValueError:
+            obj = None
+        c = certainty(t["kind"], obj)
+        if (c is not None and c < STEP_UP_BELOW) or judging_changes(task_kind(t), obj):
+            how = "again"
+    elif t["status"] != "done":
+        how = "retry"
+    if how:
+        with ws.connect() as cx:
+            if how == "again":
+                cx.execute("UPDATE tasks SET step=1, again=1, attempts=0 WHERE task_id=?", (task_id,))
+            else:
+                cx.execute("UPDATE tasks SET step=1, status='pending', attempts=0 WHERE task_id=?", (task_id,))
+            mark_queued(cx, [task_id])
+    return how
+
+
+def answer_mix_waiting(ws: Workspace, backend=None, model: str | None = None, task_ids: Iterable[str] | None = None,
+                       should_stop=None, progress=None) -> dict:
+    """Answer, with the local model, the tasks of the AI mix that wait for it (made by a check by queue, a profile or
+    themes while Claude Code works, or left when the app closed). `task_ids` limits it to these tasks."""
+    from .home import load_settings
+    from .routing import mix_kinds
+
+    s = load_settings()
+    kinds = sorted(mix_kinds(s))
+    out = {"answered": 0, "to_claude": 0}
+    if not kinds:
+        return out
+    got = (backend, model) if backend is not None else mix_local(s)
+    q = (f"SELECT task_id FROM tasks WHERE kind IN ({','.join('?' * len(kinds))}) AND status IN ('pending', 'retry') "
+         "AND COALESCE(step, 0)=0 AND forced_model IS NULL AND COALESCE(access, 'cloud')='cloud' "
+         "AND (claimed_by IS NULL OR claimed_by='') ORDER BY kind, task_id")
+    ids = [r[0] for r in ws.query(q, kinds)]
+    if task_ids is not None:
+        wanted = set(task_ids)
+        ids = [i for i in ids if i in wanted]
+    if got is None:  # no local model answers: Claude Code does
+        out["to_claude"] = to_claude(ws, ids)
+        return out
+    backend, model = got
+    for i, tid in enumerate(ids, 1):
+        if should_stop and should_stop():
+            break
+        if progress:
+            progress(i, len(ids))
+        how = answer_locally_first(ws, tid, backend, model)
+        out["to_claude" if how else "answered"] += 1
+    return out
 
 
 def _complete(backend, t, system: str, user: str, model: str) -> tuple[Any, str | None]:
@@ -1155,11 +1542,21 @@ def run_stepups(ws: Workspace, backend, kinds: Iterable[str] | None = None,
 
 def answer_again(ws: Workspace, task_id: str, backend) -> bool:
     """The stronger model's reading of an answered task (`again`): up to three attempts; the first answer stays when
-    none is accepted. With the Claude Code backend: wait for it in the queue. Returns whether the new answer counts."""
+    none is accepted. With the Claude Code backend: wait for it in the queue. Returns whether the new answer counts.
+
+    A task whose documents this backend may no longer read (a setting changed since it was answered) is not read
+    again: the first answer stays, and the request is given up, so it does not wait for a reading no one here may
+    give (a person can ask again on a route that may read it)."""
+    with ws.connect() as cx:
+        lv = access.recheck(cx, task_id, budget=False)
+        if lv is not None and lv not in access.backend_levels(backend):
+            cx.execute("UPDATE tasks SET again=0, step=0, claimed_by=NULL, claimed_at=NULL WHERE task_id=? AND "
+                       "status='done' AND again=1", (task_id,))
+            return False
     if getattr(backend, "name", "") == "claude_code":
         from .taskqueue import wait_for
 
-        access.require(backend, ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))[0])
+        access.require(backend, ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))[0], ws)
         wait_for(ws, task_id, backend)
         return int(ws.scalar("SELECT step FROM tasks WHERE task_id=?", (task_id,)) or 0) == 1 and \
             bool(ws.scalar("SELECT valid FROM results WHERE task_id=? ORDER BY attempt DESC LIMIT 1", (task_id,)))
@@ -1192,6 +1589,9 @@ def ask_stronger(ws: Workspace, task_id: str) -> dict:
         raise ValueError("A stronger model has already read this; a task steps up once at most.")
     with ws.connect() as cx:
         cx.execute("UPDATE tasks SET step=1, again=1, attempts=0, claimed_by=NULL WHERE task_id=?", (task_id,))
+        # its documents' settings of now, not of when it was answered: a document restricted since keeps it from
+        # Claude (and out of the queue)
+        access.relabel(cx, [task_id])
         if queue_mode():
             mark_queued(cx, [task_id])
     return {"task_id": task_id, "kind": t["kind"]}
@@ -1209,13 +1609,21 @@ def _provenance(backend, model: str) -> dict:
 def run(ws: Workspace, kind: str, backend, limit: int | None = None, model: str | None = None) -> dict[str, int]:
     _sync_thresholds(ws)
     stats = {"done": 0, "retry": 0, "failed": 0}
+    may = access.backend_levels(backend)
+    dflt = access.default(ws)
     for _round in range(MAX_ATTEMPTS):
         todo = pending(ws, kind, limit)
         if not todo:
             break
         for t in todo:
-            if (t["access"] or "cloud") not in access.backend_levels(backend):
+            if (t["access"] or "cloud") not in may:
                 continue  # 0.11: a task of a restricted document is left for a model that may read it
+            # worked out again per task: a document's cap counts what the tasks before this one sent, and a setting
+            # changed since the task was labelled leaves it for a model that may read it (instead of the guard
+            # stopping the run)
+            with ws.connect() as cx:
+                if access.recheck(cx, t["task_id"], dflt) not in may:
+                    continue
             system, user = render(ws, t)
             _send(ws, t, backend)
             raw, problem = _complete(backend, t, system, user, model or t["model"])
@@ -1243,12 +1651,36 @@ You are answering model tasks for the Margin claims pipeline.
 """
 
 
+_EXPORT_CHUNK = 200  # tasks whose payloads are read at once while the file queue checks what may leave
+
+
 def export(ws: Workspace, kind: str, batch_size: int = 25, limit: int | None = None) -> list[Path]:
     _sync_thresholds(ws)
     # 0.11: the file queue hands tasks to a worker outside this program, so only tasks whose documents Claude may
-    # read are written; the others stay pending for a local model or a person
-    todo = [t for t in pending(ws, kind) if (t["access"] or "cloud") == "cloud"]
-    todo = todo[:limit] if limit else todo
+    # read are written; the others stay pending for a local model or a person. 0.17.2: only the ids are listed; a
+    # task's payload is read for the few tasks of a chunk, then again for the batch it is written in, so 20,000
+    # waiting tasks are never all in memory
+    cand = [r[0] for r in ws.query(
+        "SELECT task_id FROM tasks WHERE kind=? AND status IN ('pending','retry') "
+        "AND COALESCE(NULLIF(access,''),'cloud')='cloud' ORDER BY task_id", (kind,))]
+    # the passages leave with the files: recorded per task in order, so a document's cap counts the tasks written
+    # before each one (a task over the cap stays pending for a local model or a person)
+    todo: list[str] = []
+    with ws.connect() as cx:
+        dflt = access.default(ws)
+        for c in range(0, len(cand), _EXPORT_CHUNK):
+            if limit and len(todo) >= limit:
+                break
+            chunk = cand[c:c + _EXPORT_CHUNK]
+            payloads = dict(cx.execute(
+                f"SELECT task_id, payload_json FROM tasks WHERE task_id IN ({','.join('?' * len(chunk))})", chunk))
+            for tid in chunk:
+                if limit and len(todo) >= limit:
+                    break
+                if access.recheck(cx, tid, dflt) != "cloud":
+                    continue
+                access.record_sent(cx, tid, json.loads(payloads[tid]), "file queue", kind)
+                todo.append(tid)
     out_dir = ws.root / "tasks" / kind
     out_dir.mkdir(parents=True, exist_ok=True)
     (ws.root / "results" / kind).mkdir(parents=True, exist_ok=True)
@@ -1259,16 +1691,18 @@ def export(ws: Workspace, kind: str, batch_size: int = 25, limit: int | None = N
     files = []
     for b in range(0, len(todo), batch_size):
         path = out_dir / f"batch_{start + b // batch_size + 1:04d}.jsonl"
+        ids = todo[b:b + batch_size]
+        rows = {r["task_id"]: r for r in ws.query(
+            f"SELECT * FROM tasks WHERE task_id IN ({','.join('?' * len(ids))})", ids)}
         with path.open("w", encoding="utf-8") as f:
-            for t in todo[b:b + batch_size]:
-                _sys, user = render(ws, t)
-                f.write(json.dumps({"task_id": t["task_id"], "user": user}, ensure_ascii=False) + "\n")
+            for tid in ids:
+                _sys, user = render(ws, rows[tid])
+                f.write(json.dumps({"task_id": tid, "user": user}, ensure_ascii=False) + "\n")
         files.append(path)
     with ws.connect() as cx:
-        for t in todo:  # 0.14.3: with the version of the instructions written beside it (SYSTEM.md)
-            cx.execute("UPDATE tasks SET status='exported', prompt_version=? WHERE task_id=?",
-                       (prompts.VERSIONS.get(kind) or t["prompt_version"], t["task_id"]))
-            access.record_sent(cx, t["task_id"], json.loads(t["payload_json"]), "file queue", t["kind"])
+        # 0.14.3: with the version of the instructions written beside it (SYSTEM.md)
+        cx.executemany("UPDATE tasks SET status='exported', prompt_version=COALESCE(NULLIF(?, ''), prompt_version) "
+                       "WHERE task_id=?", [(prompts.VERSIONS.get(kind), tid) for tid in todo])
     return files
 
 
@@ -1367,24 +1801,35 @@ def refresh(ws: Workspace, kind: str, model: str | None = None) -> int:
             # second opinions (audits of VCA checks, second checks of extracted claims) are about their own model:
             # they are queued again under the new prompt but keep the model they were made for
             own = ("COALESCE(json_extract(payload_json, '$.subject_kind'), '') IN ('vca_claim_audit', 'claim')")
-            cur = cx.execute("UPDATE tasks SET status='pending', attempts=0, prompt_version=?, model=? "
-                             f"WHERE kind=? AND NOT {own} AND (prompt_version != ? OR model != ?)",
-                             (version, model, kind, version, model))
-            n = cur.rowcount
-            cur = cx.execute("UPDATE tasks SET status='pending', attempts=0, prompt_version=? "
-                             f"WHERE kind=? AND {own} AND prompt_version != ?", (version, kind, version))
-            return n + cur.rowcount
+            mine = f"WHERE kind=? AND NOT {own} AND (prompt_version != ? OR model != ?)"
+            theirs = f"WHERE kind=? AND {own} AND prompt_version != ?"
+            ids = [r[0] for r in cx.execute("SELECT task_id FROM tasks " + mine, (kind, version, model))]
+            ids += [r[0] for r in cx.execute("SELECT task_id FROM tasks " + theirs, (kind, version))]
+            cx.execute("UPDATE tasks SET status='pending', attempts=0, prompt_version=?, model=? " + mine,
+                       (version, model, kind, version, model))
+            cx.execute("UPDATE tasks SET status='pending', attempts=0, prompt_version=? " + theirs,
+                       (version, kind, version))
         else:
-            cur = cx.execute("UPDATE tasks SET status='pending', attempts=0, prompt_version=? WHERE kind=? AND prompt_version != ?",
-                             (version, kind, version))
-        return cur.rowcount
+            ids = [r[0] for r in cx.execute("SELECT task_id FROM tasks WHERE kind=? AND prompt_version != ?",
+                                            (kind, version))]
+            cx.execute("UPDATE tasks SET status='pending', attempts=0, prompt_version=? WHERE kind=? AND "
+                       "prompt_version != ?", (version, kind, version))
+        _relabel(cx, ids)
+        return len(ids)
+
+
+def _relabel(cx, task_ids: list[str]) -> None:
+    """Tasks brought back after an answer (or after they were handed out) get their documents' settings of now:
+    one answered while Claude could read its document is not sent to Claude after the document was restricted."""
+    for i in range(0, len(task_ids), 500):
+        access.relabel(cx, task_ids[i:i + 500])
 
 
 def requeue(ws: Workspace, kind: str | None = None) -> int:
     """Put exported tasks that never got an answer back in the queue."""
     with ws.connect() as cx:
-        if kind:
-            cur = cx.execute("UPDATE tasks SET status='pending' WHERE status='exported' AND kind=?", (kind,))
-        else:
-            cur = cx.execute("UPDATE tasks SET status='pending' WHERE status='exported'")
-        return cur.rowcount
+        where, args = ("WHERE status='exported' AND kind=?", (kind,)) if kind else ("WHERE status='exported'", ())
+        ids = [r[0] for r in cx.execute("SELECT task_id FROM tasks " + where, args)]
+        cx.execute("UPDATE tasks SET status='pending' " + where, args)
+        _relabel(cx, ids)
+        return len(ids)

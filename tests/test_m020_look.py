@@ -15,11 +15,38 @@ ICONS = Path(__file__).resolve().parent.parent / "src" / "margin" / "gui" / "ico
 
 
 def test_the_new_stylesheet_comes_last():
-    sheets = [s for s in sheets_in_order() if s != "site.css"]  # Margin's look is imported by site.css, linked last
-    assert sheets[-1] == "margin.css", sheets  # Margin 0.6: all of Margin's CSS, after every sheet of ENLENS
-    assert sheets.index("margin.css") > sheets.index("tokens.css")  # Margin's tokens over ENLENS's
-    # inside it, Margin's tokens first and its look (m020) last: it restyles what the others draw, so it must win
-    assert sections()[0] == "m-tokens" and sections()[-1] == "m020"
+    sheets = sheets_in_order()
+    assert sheets == ["tokens.css", "app.css", "components.css", "views.css", "site.css", "margin.css"], sheets
+    # Margin's colours are token overrides, linked after every sheet of ENLENS (site.css, the installation's own, ships
+    # empty): they win over tokens.css, and every rule of ENLENS's sheets reads them through var()
+    assert sections()[0] == "m-tokens"
+    # ENLENS's look is not restyled: its five sheets are ENLENS's own and margin.css holds no rule for ENLENS's pages
+    # beyond the few of m-shared (the serif headings, the red margin rule in the sidebar and the small eyebrows are gone)
+    css = (STATIC / "margin.css").read_text(encoding="utf-8")
+    for dropped in (".sidebar .brand-text em", "text-transform: uppercase", "font-variant-caps", "--sidebar-w: 248px"):
+        assert dropped not in css, dropped
+
+
+def test_margins_colours_are_token_overrides_and_nowhere_else():
+    """Margin's colours are custom properties on :root (light), on the dark-by-system selector and on the dark-chosen
+    one, in the m-tokens section. No other rule of margin.css holds a colour of its own (a hex or rgb value)."""
+    from _static import css_blocks
+
+    tokens = section("m-tokens")
+    blocks = css_blocks(tokens)
+    assert [sels for _m, sels, _d in blocks] == [[":root"], [":root:not([data-theme=\"light\"])"], [":root[data-theme=\"dark\"]"]]
+    assert blocks[1][0] == "@media (prefers-color-scheme: dark)" and blocks[0][0] == "" and blocks[2][0] == ""
+    for _m, _s, decls in blocks:
+        assert decls and all(k.startswith("--") for k in decls), decls   # only tokens are overridden
+    # every token it overrides is one of ENLENS's (tokens.css), plus Margin's own rule colours
+    ours = {"--rule", "--rule-soft", "--rule-text"}
+    defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", (STATIC / "tokens.css").read_text(encoding="utf-8")))
+    for _m, _s, decls in blocks:
+        assert set(decls) - ours <= defined, set(decls) - ours - defined
+    # outside the token block, no hard-coded colour
+    css = (STATIC / "margin.css").read_text(encoding="utf-8")
+    rest = re.sub(r"/\*.*?\*/", "", css.replace(tokens, ""), flags=re.S)
+    assert not re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(", rest), re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(", rest)
 
 
 def test_margin_rule_tokens_in_light_and_both_dark_settings():

@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 STATIC = Path(__file__).resolve().parent.parent / "src" / "margin" / "gui" / "static"
+from _static import all_css, css_blocks
 from test_app import Api, api, home  # noqa: F401  (fixtures)
 
 
@@ -284,7 +285,8 @@ def test_the_page_offers_it():
         assert s in js, s
     reg = (STATIC / "registry.js").read_text(encoding="utf-8")
     assert '"theme-new": { icon: "shapes", text: "Finding a new theme"' in reg
-    sheet = (STATIC / "concepts-themes.css").read_text(encoding="utf-8")  # the Themes page's own stylesheet
-    css = sheet[sheet.index("themes: remove one, and find a new one"):]
+    css = all_css()  # the Themes page's rules are in views.css since 0.17.0; the cascade, not a sheet by name
     assert ".th-removed" in css and ".th-new" in css
+    css = "\n".join(c for _m, sels, d in css_blocks(css) if any(".th-removed" in x or ".th-new" in x for x in sels)
+                    for c in d.values())
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css)  # colour tokens only: light and dark both work

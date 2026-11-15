@@ -32,10 +32,10 @@ it too; it can be left out there.
 ## Download a project as a zip
 
 *Download as a zip* on the *Projects* page puts the whole project in one file: the database, the documents and their
-original files, the codebooks and the notes you made. Use it for a backup, to give a project to someone, or to move it.
+original files, the codebooks and the notes you made. Use it for a backup, or to move it.
 
 - The file of a document you removed stays on this computer: it is not in the zip.
-- *Download the whole project (.zip)* is also on the *Results* page.
+- *Download the whole project (.zip)* is also on the *Hypotheses* page.
 - From a terminal: `margin --ws myproject export-project myproject.zip`.
 
 ## Import a project
@@ -57,7 +57,7 @@ A zip made by an old ENLENS (before its 0.11) holds no such settings, so Margin 
 ```mermaid
 flowchart LR
     A["Old computer:<br/>Projects → Move Margin to<br/>another computer"] --> B["Download everything (.zip)"]
-    B --> C["Carry the file over<br/>(USB stick, shared folder)"]
+    B --> C["Carry the file over<br/>(USB stick, cloud folder)"]
     C --> D["New computer: install Margin"]
     D --> E["First screen:<br/>Import from another computer"]
 ```
@@ -71,6 +71,9 @@ flowchart LR
 
 Each project keeps its name (`name (2)` when the name is taken). The settings come along only when the new computer
 has no project yet, and on an installation without cloud AI (`--local-only`) never the choice of a cloud AI.
+An address of another computer's server (for what Margin reads, or for text recognition) is never taken silently: each
+one that is not on the new computer has its own tick box, off, and a back end left without its address goes back to its
+default.
 
 > [!NOTE]
 > A saved Claude API key is left out: it stays on the old computer. So are quick looks you did not keep. Projects used

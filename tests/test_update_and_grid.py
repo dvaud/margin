@@ -1,0 +1,180 @@
+"""0.8.2: the heat grids stay readable on hover, and `margin update` moves a git copy forward without a new venv."""
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from margin import update
+
+STATIC = Path(__file__).resolve().parents[1] / "src" / "margin" / "gui" / "static"
+
+
+# ---------------------------------------------------------------------------------------------
+# the grids
+# ---------------------------------------------------------------------------------------------
+def _specificity(selector: str) -> tuple[int, int, int]:
+    s = re.sub(r"::?[a-z-]+\([^)]*\)", lambda m: m.group(0) if m.group(0).startswith(":not") else ":p", selector)
+    ids = len(re.findall(r"#[\w-]+", s))
+    classes = len(re.findall(r"\.[\w-]+|\[[^\]]+\]|(?<!:):(?!not)[\w-]+", s))
+    elements = len(re.findall(r"(?:^|[\s>+~])([a-z][\w-]*)", s))
+    return ids, classes, elements
+
+
+def _rules(css: str) -> list[tuple[str, str]]:
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    return [(sel.strip(), body) for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)]
+
+
+def test_heat_levels_outrank_the_row_hover():
+    from _static import all_css  # 0.17.0: the whole cascade, so it holds when rules move between sheets
+
+    css = all_css()
+    rules = _rules(css)
+    hovers = [sel for s, body in rules if "background" in body for sel in s.split(",")
+              if ".row-link:hover" in sel and not re.search(r"\.(pf|th|heat)-l0|\.map-hyp|\.m-none", sel)]
+    assert hovers, "the row hover rules were not found"
+    strongest_hover = max(_specificity(h.strip()) for h in hovers)
+    # 0.17.0 (design guide): the heat grid is one component; its levels are .heat-l1 … .heat-l4 on every grid
+    for p in ("heat",):
+        for lv in range(1, 5):
+            sels = [sel.strip() for s, body in rules if "background" in body for sel in s.split(",")
+                    if f".{p}-l{lv}" in sel and ":hover" not in sel]
+            assert sels, f"no background for .{p}-l{lv}"
+            assert max(_specificity(x) for x in sels) > strongest_hover, f".{p}-l{lv} loses to the row hover"
+
+
+def test_code_columns_are_headed_by_one_helper_and_names_are_never_one_long_line():
+    """A codebook of your own has names for codes ("Public trust in medical AI"). Each stood on one line in the mono,
+    so a column was as wide as its name and four of thirty-two codes showed at a time."""
+    from _static import all_css
+
+    lib = (STATIC / "lib.js").read_text("utf-8")
+    assert "export function heatHead(" in lib
+    for view in ("themes.js", "profile.js"):
+        js = (STATIC / "views" / view).read_text("utf-8")
+        assert "heatHead(" in js, view
+        assert "th-code-head" not in js and "pf-code-head" not in js, f"{view} heads its code columns by hand"
+    css = all_css()
+    assert "th-code-head" not in css and "pf-code-head" not in css
+    rules = dict((sel.strip(), body) for s, body in _rules(css) for sel in s.split(","))
+    # a mark stays on its line; a name wraps (and is never cut to fit: at most its lines are clamped)
+    assert "nowrap" in rules[".heat-head"]
+    assert "white-space: normal" in rules[".heat-named thead th.heat-head"]
+    assert "line-clamp" in rules[".heat-named .heat-head-text"] and "ellipsis" not in rules[".heat-named .heat-head-text"]
+    # heatGrid() chooses: names when a head is long, slanted once a column each would not fit the frame
+    grid = lib[lib.index("export function heatGrid("):]
+    assert '"heat-named"' in grid and '"heat-slant"' in grid and "NAME_COL" in grid
+    assert "rotate(-45deg)" in rules[".heat-slant .heat-head-turn"]
+    # a slanted name hangs over the next columns: no head is positioned (its ground would cover its neighbour's
+    # name), so in Full screen the header row is held as a whole, and the rows end in a column to hang over
+    assert "sticky" in rules[".grid-full .map-table.heat-slant thead"]
+    assert "static" in rules[".grid-full .map-table.heat-slant thead th.heat-head"]
+    assert _specificity(".grid-full .map-table.heat-slant thead th.heat-head") > _specificity(".grid-full .map-table thead th")
+    assert "table-cell" in rules[".heat-slant tr::after"]
+
+
+def test_darkest_cell_has_its_own_token_in_every_theme():
+    app = (STATIC / "tokens.css").read_text("utf-8")  # 0.13.5: the tokens moved out of app.css
+    assert app.count("--heat-4:") == 3  # light, dark by system setting, dark by choice
+    from _static import all_css  # 0.17.0: the cascade, not the Themes and Profile sheets
+
+    assert "var(--heat-4)" in all_css()
+
+
+# ---------------------------------------------------------------------------------------------
+# margin update
+# ---------------------------------------------------------------------------------------------
+needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+
+
+def _g(cwd: Path, *args: str) -> str:
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main", *args],
+                          cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+
+def _release(repo: Path, version: str, deps: str = '"pydantic>=2.5"') -> None:
+    (repo / "src" / "margin").mkdir(parents=True, exist_ok=True)
+    (repo / "src" / "margin" / "__init__.py").write_text(f'__version__ = "{version}"\n', encoding="utf-8")
+    (repo / "pyproject.toml").write_text(f'[project]\nname = "x"\nversion = "{version}"\ndependencies = [{deps}]\n',
+                                         encoding="utf-8")
+    _g(repo, "add", "-A")
+    _g(repo, "commit", "-qm", version)
+
+
+@pytest.fixture
+def copies(tmp_path, monkeypatch):
+    """A GitHub stand-in (bare), the developer's copy and the user's installed copy."""
+    monkeypatch.setattr(update, "_refresh_plugin", lambda: False)
+    monkeypatch.setattr(update, "_app_running", lambda: False)
+    remote, dev, user = tmp_path / "remote.git", tmp_path / "dev", tmp_path / "user"
+    _g(tmp_path, "init", "-q", "--bare", str(remote))
+    _g(tmp_path, "init", "-q", str(dev))
+    _release(dev, "0.8.1")
+    _g(dev, "remote", "add", "origin", str(remote))
+    _g(dev, "push", "-q", "-u", "origin", "HEAD:main")
+    _g(tmp_path, "clone", "-q", "-b", "main", str(remote), str(user))
+    return dev, user
+
+
+class Pip:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, cmd, cwd):
+        if cmd[1:3] == ["-m", "pip"]:
+            self.calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return update._run(cmd, cwd)
+
+
+@needs_git
+def test_up_to_date(copies):
+    _, user = copies
+    out = update.update(root=user, run=Pip())
+    assert out["updated"] is False and out["version"] == "0.8.1" and "up to date" in out["message"]
+
+
+@needs_git
+def test_code_only_update_needs_no_reinstall(copies):
+    dev, user = copies
+    (dev / "src" / "margin" / "__init__.py").write_text('__version__ = "0.8.2"\n', encoding="utf-8")
+    _g(dev, "commit", "-qam", "0.8.2")
+    _g(dev, "push", "-q")
+    assert update.update(check_only=True, root=user, run=Pip())["waiting"] == 1
+    assert update.version_in(user) == "0.8.1"  # --check changes nothing
+    pip = Pip()
+    out = update.update(root=user, run=pip)
+    assert out["updated"] and out["from"] == "0.8.1" and out["version"] == "0.8.2"
+    assert out["reinstalled"] is False and pip.calls == []
+
+
+@needs_git
+def test_new_requirements_are_installed_into_the_same_python(copies):
+    dev, user = copies
+    _release(dev, "0.8.2", deps='"pydantic>=2.5", "numpy>=1.24"')
+    _g(dev, "push", "-q")
+    pip = Pip()
+    out = update.update(root=user, run=pip, python="/the/venv/python")
+    assert out["reinstalled"] is True
+    assert pip.calls == [["/the/venv/python", "-m", "pip", "install", "--quiet", "-e", str(user)]]
+
+
+@needs_git
+def test_local_changes_stop_the_update(copies):
+    dev, user = copies
+    _release(dev, "0.8.2")
+    _g(dev, "push", "-q")
+    (user / "src" / "margin" / "__init__.py").write_text('__version__ = "mine"\n', encoding="utf-8")
+    with pytest.raises(update.UpdateError, match="changed on this computer.*__init__.py"):
+        update.update(root=user, run=Pip())
+    assert update.version_in(user) == "mine"
+
+
+def test_not_a_git_copy(monkeypatch):
+    monkeypatch.setattr(update, "source_root", lambda: None)
+    with pytest.raises(update.UpdateError, match="installed with pip, so it cannot update itself"):
+        update.update(run=Pip())

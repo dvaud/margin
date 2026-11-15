@@ -8,48 +8,134 @@
 # Install-Margin-macOS.zip), from a removed install, the way a double-click runs them.
 # 0.15: a tag of a release candidate (v0.15.0rc1) drafts a pre-release. The install line and the app's Update take
 # the latest full release (GitHub's "latest" leaves pre-releases out), so only someone who asks gets the candidate.
+# 2026-11-12: the suite is not run again here. The Tests workflow (tests.yml) runs it on Linux, macOS and Windows on
+# every push to main; the "tests" job below takes the result of its run of this very commit, waiting for it when the
+# tag came with the commit (git push --follow-tags starts both at once), while the package is built and the install
+# tried beside it. A failed Tests run stops the draft. Only without a Tests run of this commit (none, or one cancelled
+# by a later push to main) does the job run the suite itself, on Linux. A release takes about as long as Tests
+# (~8 minutes) instead of Tests and then the suite once more.
+# 0.18.1 (roadmap J1.3, J1.5, J1.7, J1.8): the version is the tag's. (ENLENS makes it from the tag with setuptools-scm;
+# Margin keeps it in pyproject.toml and src/margin/__init__.py: `release.py check` makes sure they, the tag and the
+# changelog agree, and `assets --expect` stops a wheel of another version); the
+# tag is made by tag-release.yml when a release pull request is merged, and it starts this workflow by dispatch (a
+# tag pushed with the workflow token starts no workflow by itself); packages come from uv.lock; every action is pinned
+# by its commit hash; and each file of the release gets a signed build provenance attestation (who built it, from which
+# commit), which `gh attestation verify <file> --repo <owner>/<repo>` checks.
 name: Release
 
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
+  workflow_dispatch:   # also how tag-release.yml starts it, with the tag as the ref
 
 permissions:
-  contents: write
+  contents: read
+  actions: read   # to look up the Tests runs of this commit
 
 jobs:
-  build:
-    name: Test and build
+  tests:
+    name: Tests of this commit (Linux, macOS, Windows)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Wait for the Tests run of this commit
+        id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state() {   # "passed <url>", "running <url>", "failed <url>" or "none -"; a pull request's run tests a merge
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?head_sha=$GITHUB_SHA&per_page=50" --jq '
+              [.workflow_runs[] | select(.event != "pull_request")] as $r
+              | ([$r[] | select(.conclusion == "success")][0]) as $ok
+              | ([$r[] | select(.status != "completed")][0]) as $going
+              | ([$r[] | select(.conclusion == "failure" or .conclusion == "timed_out")][0]) as $bad
+              | if $ok then "passed \($ok.html_url)" elif $going then "running \($going.html_url)"
+                elif $bad then "failed \($bad.html_url)" else "none -" end'
+          }
+          start=$(date +%s); said=""
+          while :; do
+            read -r what url <<< "$(state || echo "none -")"
+            waited=$(( $(date +%s) - start ))
+            case "$what" in
+              passed)
+                echo "Tests passed on $GITHUB_SHA on Linux, macOS and Windows ($url): not running them again here."
+                echo "here=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              failed)
+                echo "::error::Tests failed on $GITHUB_SHA ($url), so no release is drafted. Fix it in a new commit; or, if a test failed only by chance, re-run that run's failed jobs and then this run's."
+                exit 1 ;;
+              running)
+                [ "$said" = "$url" ] || { echo "Waiting for Tests on $GITHUB_SHA ($url)."; said="$url"; }
+                if [ "$waited" -gt 3300 ]; then
+                  echo "::error::Tests has not finished on $GITHUB_SHA after 55 minutes ($url): re-run this job once it has."
+                  exit 1
+                fi ;;
+              *)
+                if [ "$waited" -ge 60 ]; then   # the run of a commit pushed with its tag appears within seconds
+                  echo "No Tests run of $GITHUB_SHA to wait for (none, or cancelled by a later push): the tests run here, on Linux."
+                  echo "here=true" >> "$GITHUB_OUTPUT"; exit 0
+                fi ;;
+            esac
+            sleep 20
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.wait.outputs.here == 'true'
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: steps.wait.outputs.here == 'true'
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Run the tests here (only without a Tests run of this commit)
+        if: steps.wait.outputs.here == 'true'
+        run: |
+          uv sync --frozen --extra dev --extra connector --extra fast --extra pdfminer
+          uv run --frozen --no-sync python -m pytest -q -n auto --dist worksteal --timeout=600   # side by side, as in tests.yml
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - name: Check the version (tag, pyproject.toml, __init__.py, CHANGELOG.md)
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - name: Check the version (the tag, pyproject.toml, __init__.py and the top entry of CHANGELOG.md)
         id: version
         run: |
           python tools/release.py check "${{ github.ref_type == 'tag' && github.ref_name || '' }}"
+          # a release joins its changelog fragments first (changes/*.md, 0.18.1); a run by hand on main may have some
+          if [ "${{ github.ref_type }}" = "tag" ]; then python tools/release.py fragments --check; fi
           echo "prerelease=$(python tools/release.py prerelease)" >> "$GITHUB_OUTPUT"
-      - name: Test
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e '.[dev,connector,fast,pdfminer]'
-          python -m pytest -q
+      - name: Install (from uv.lock)
+        run: uv sync --frozen --extra dev --extra connector --extra fast --extra pdfminer
       - name: Build the package and the install scripts
         run: |
-          pip install build
-          python -m build --wheel --outdir dist
-          python tools/release.py assets dist
+          uv build --wheel --out-dir dist
+          # a tag: the wheel must carry the tag's version (pyproject.toml's); a run by hand takes the wheel's own
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            python tools/release.py assets dist --expect "${{ github.ref_name }}"
+          else
+            python tools/release.py assets dist
+          fi
           python tools/release.py notes > release-notes.md
       # 0.15 (roadmap J4.3): the validation report's half that needs no AI: how well each reader reads documents of
       # known text, and that reading is the same twice; a file of the release, beside its notes
       - name: Measure how documents are read
-        run: python -m margin.cli measure --report dist/validation-report.md
-      - uses: actions/upload-artifact@v4
+        run: uv run --frozen --no-sync python -m margin.cli measure --report dist/validation-report.md
+      # 0.18.4 (J4.3): its AI half, from the newest recorded run in tools/validation/runs (no AI here); with none
+      # recorded yet it says so and writes nothing
+      - name: Report on the recorded AI run
+        run: uv run --frozen --no-sync python -m margin.cli validate report --latest tools/validation/runs --out dist/validation-report-ai.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: margin-release
           path: |
@@ -64,10 +150,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     env:
       MARGIN_NO_OPEN: "1"
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: margin-release
       - name: Install with install.sh (the built package)
@@ -252,7 +339,7 @@ jobs:
     env:
       MARGIN_NO_OPEN: "1"
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: margin-release
       - name: Install with install.sh (the built package)
@@ -284,13 +371,23 @@ jobs:
 
   release:
     name: Draft the GitHub Release
-    needs: [build, try-install]
+    needs: [build, try-install, tests]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write        # the draft release
+      id-token: write        # the signature of the attestation (a short-lived token of this run)
+      attestations: write    # where the attestation is stored
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: margin-release
+      # 0.18.1 (J1.8): who built each file, from which commit and workflow, signed and kept by GitHub. The checksums in
+      # SHA256SUMS say a file arrived whole; this says it came from this repository.
+      - name: Attest the build provenance of every release file
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
       - name: Upload to a draft release
         env:
           GH_TOKEN: ${{ github.token }}

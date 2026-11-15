@@ -1,62 +1,23 @@
-[Manual](../MANUAL.md) › How documents are read
+[Manual](../MANUAL.md) › Look at how a document was read
 
-# How documents are read
+# Look at how a document was read
 
 > **In short**
-> - Before anything else, Margin turns each file into text and cuts it into passages. Search, codes, themes,
->   concepts and checks all read those passages.
-> - What is not the document's own text (running heads, page numbers, author details, reference lists…) is set
->   aside, and tables are kept as tables.
-> - The reading view shows what was read and what was left out, and lets you put it right with *Restore* and *Leave
->   out*.
-
-The part of Margin that does this is the **reader**. Every document records the reader that read it, and a document
-keeps that reading until you move it ([below](#read-with-the-new-reader)), so every quote and judgement in it stays
-where it is.
-
-| Reader | Reads |
-| --- | --- |
-| 1 | Documents added with Margin 0.14 and earlier. |
-| 2 | PDFs by their layout: columns, tables, what to set aside. |
-| 3 | Reader 2, plus text files and books: running heads, page numbers, paragraphs and headings found from the text alone. |
-
-A new document is read with the newest reader.
+> - The reading view shows each document the way it was read: what counts, and what was left out. *Leave out* and
+>   *Restore* put it right.
+> - The *Reading* panel says how well it was read and what to look at; *Checked: it reads well enough* clears the mark.
+> - A document printed in two languages (a side-by-side translation): *Keep only English* leaves the other language
+>   out.
+> - A document read by an older reader can be moved to the newest, one at a time or many at once; every result follows
+>   its quote.
+> - How a file becomes text, and what each reader changed: [How documents are read](how-documents-are-read.md).
 
 ## What the reader does
 
-**With a PDF**, it looks at where each line stands on the page (with the `pdfminer` extra, which the one-line install
-has; without it, it reads the PDF's text layer, without columns or tables):
-
-- **Columns** are read one after the other, not across, and a title or abstract set across the page comes first.
-- **What is not the document's own text is set aside**: running heads and footers, page numbers, line numbers in the
-  margin, the words inside charts and diagrams, author names, affiliations, e-mail addresses and dates on the first
-  page (*author and article details*), acknowledgements, funding, conflicts of interest, data availability and
-  licence notes (*end notes*), footnotes, and the reference list. They stay in the document and in a search of all
-  its text, but searches, codes, themes and checks do not read them. So themes no longer form around journal names,
-  and checks no longer read a funding note.
-- **Tables are kept as tables**, with their caption, rows and cells. They are left out of the passages (a table read
-  as prose garbles a passage), and each can be downloaded for Excel.
-- **Words are repaired**: a word cut at a line end is joined ("exam-ple" → "example"), a compound keeps its hyphen
-  ("long-term"), words that ran together are split only where the document itself writes them apart ("ofthe" → "of
-  the"), and ligatures (ﬁ, ﬂ), odd spaces and accents set apart from their letter are put right.
-- **A passage is a paragraph.** Long ones are cut into parts of about equal size, short ones are put together, and a
-  heading starts a new passage with the text under it. Paragraphs are numbered as quotes are cited: per page in a PDF
-  (a heading with the text under it counts as one), every block between blank lines in a text file.
-
-**Word files, web pages and text files** are read with the same repairs, their headings and reference list set aside
-in the same way.
-
-**Text files and books.** Many `.txt` and `.md` files are text copied out of a PDF by a converter: every running
-head and page number is still in the text, while the pages, the headings and often the spaces between words are
-gone. Reader 3 reads such files by rules on the text alone (no AI):
-
-| It finds | How |
-| --- | --- |
-| Running heads and footers | They come back about once a page, next to a page break or at regular intervals ("Frontiers in Neurology 04 frontiersin.org"); a short one in capitals with its page number ("2 INTRODUCTION") from two pages, or from the contents. Answers that recur in an interview ("[P] Ja.") recur irregularly, mid-text: they stay. |
-| Page numbers | Lines that are only a number, counting up a page apart. |
-| Paragraphs and headings | A short line that ends a sentence ends its paragraph; a short line on its own is a heading. A Markdown file, web page or Word file that marks fewer than three headings gets headings this way too. |
-| A book's parts | The table of contents (lines ending in page numbers that go up) is set aside, and its entries find the chapter headings. Front matter before the first chapter (half title, other books by the author, copyright page, dedication, lists of figures) is set aside, but an abstract, summary or preface stays. Notes, bibliography, index, *About the author* and acknowledgements at the end are set aside; an index is also known by its lines ("archetypes, 112–116, 191"). |
-| Damaged text | Text printed twice ("TTIISS ffiinnaall" → "TIS final"), ligatures broken by a space ("fi nd" → "find"), and, only in a file that lost many of its spaces, words run together ("peoplelivingwithdementia" → "people living with dementia", using words the document itself writes apart; never into word endings). |
+The reader decides what counts as the document's own text. A PDF is read by its layout (columns, tables, figures),
+running heads, page numbers, author details, notes and the reference list are set aside, broken words are repaired,
+and a passage is a paragraph. Text files and books are read by rules on the text alone; Word files and web pages with
+the same repairs. All of it, reader by reader: [How documents are read](how-documents-are-read.md#what-the-reader-does).
 
 > [!TIP]
 > If you have the PDF of a text file, add the PDF instead: it reads better. The *Reading* panel says when a text
@@ -80,7 +41,14 @@ where it is cited you get:
 | **Text ends here** | On a block in the last third: leaves out everything after it (notes, bibliography, index). *Undo end* takes it back. |
 | **Excel** | On a table: downloads it. |
 
-A heading goes with the text under it, and short paragraphs that share a passage go together. Your choice is kept by
+**A figure** (reader 5) shows its picture in the text, where it stands on the page: drawn from the original PDF when
+it is shown, never stored. Beneath it are its caption and **Open the page**, which opens the *Page* panel at its page;
+the words inside it, if any, are under a small fold *Words in the figure*. A figure is never read by searches, codes,
+themes or checks, so it has no *Leave out* or *Restore*. A picture of a Word file or web page, or one whose PDF is no
+longer there, shows only its alternative text or its words, folded under *Left out of the text* as before.
+
+A heading goes with the text under it, and short paragraphs that share a passage go together: *Leave out* and
+*Restore* then say how many blocks go (*17 together*) before you press them. Your choice is kept by
 the block's words, so it holds when the document is read again; *restored by you*, *left out by you* or *the text
 starts here (you said)* stands beside the block. A block you restore before the start or after the end still counts.
 Changing what counts makes keyword codes, key terms and themes out of date, as adding a document does.
@@ -100,11 +68,43 @@ takes it back). A new reading of the document asks again.
 original PDF with every block the reader found outlined: solid for what counts, dashed for what was left out. It follows the text
 as you scroll; click an outline to go to that block.
 
+## A document in two languages
+
+Some journals print each article twice, in the original language and in English, column beside column (a
+*side-by-side translation*). Margin reads the columns one after the other, so it has every finding twice: search by
+meaning finds both, a check may quote the other language, codes and themes count each point twice.
+
+When at least a fifth of a document's text is in a second language, the *Reading* panel says so, with the share of
+each: *In two languages: English 52 %, Spanish 48 %*. **Keep only English** (or the other one) leaves the paragraphs,
+headings and captions of the other language out of searches, codes, themes and checks. They stay in the text, folded
+under *Left out of the text*, each marked *left out: Spanish (you kept English)*. **Count both again** takes it back.
+
+- Each paragraph's language is told by its common words, for the document's two languages only. A paragraph in both
+  (a title printed in both languages) and one whose language cannot be told (a name, a page number) still count.
+  So does a short quotation in the other language inside the language you keep; a longer one, a paragraph of its
+  own, is left out with the rest of that language.
+- Your *Restore* or *Leave out* of a paragraph wins: restore a paragraph of the other language and it counts.
+- The choice is kept with the document, so it holds when the document is read again.
+- **Read with the new reader.** A reader before reader 6 sometimes put a paragraph of each language
+  into one passage: where a column ended without a full stop and the next started in lower case, it took the second
+  for the end of the first. Such a passage still counts, the other language with it; the panel says how many there
+  are. Reader 6 keeps the two languages apart, and is offered for those documents (and, for what else it changes, for
+  PDFs): any other document in one language reads the same with it.
+
+Changing what counts makes keyword codes, key terms and themes out of date, as adding a document does.
+
 ## Read with the new reader
 
 A document read by an older reader keeps that reading, and the list of documents marks it (*read before 0.15*, or
 *read by an earlier reader*). Its *Reading* panel offers **Read with the new reader** (the mark in the list opens it
-with the preview already started):
+with the preview already started). It is offered only where the new reader can change the reading: a PDF or web page
+read by reader 3 was not offered reader 4, a plain text file read by reader 4 is not offered reader 5, and of the
+documents reader 5 read only PDFs and documents in two languages that have a passage in both are offered reader 6, as
+the others would read the same. Reader 5 changes PDFs with ruled tables,
+tables over two pages or figures, and Word files and web pages with pictures; reader 6 changes PDFs with text hidden
+behind a figure, publishing details at the foot of the first page, or running heads beside a page number, and any
+document in two languages one of whose passages holds both. The preview
+says what would change.
 
 ```mermaid
 flowchart LR
@@ -125,29 +125,30 @@ step, or not at all:
 - what cannot be placed is kept without a place in the text and listed (its check marks it *no place in the new
   reading*).
 
-It needs the original file, unchanged, and no task of the document out with Claude Code.
+It needs the original file, unchanged, and no task of the document out with Claude Code. While other work of the
+project runs (documents being added, say), it waits its turn: *Queued: starts when … has finished*, with *Cancel*.
 
 **Several at once.** Above the list of documents, **Read all with the new reader** (or *Read the selected with the new
-reader*, when you tick some) moves them one after the other. A document moves only when every one of its results finds
-its place; one where any would not, and one that cannot be read again now (its file is missing or changed, or Claude
-Code is working on it), is left as it was. The note afterwards lists them with the reason, each linked to its page,
-where the preview shows what would be lost. You can work on meanwhile, or stop it: documents already moved stay moved.
+reader*, when you tick some) first checks them, with nothing changed: each file is read again, and Margin
+says beforehand how many documents move cleanly (every result finds its place) and how many results would lose
+their place, in which documents. Then you choose:
+
+- **Move the ones that move cleanly.** The others are left as they were.
+- **Review the results without a place.** One list of all of them, grouped by document, each with its quote and what
+  it belongs to. **Move anyway** moves those documents as well: such a result is kept as a record that points at no
+  words in the text (as when you move one document from its own page), and the move is written in the research log.
+- **Review next** opens the documents that would lose results one at a time, each at its *Reading* preview.
+
+A document that cannot be read again now (its file is missing or changed, or Claude Code is working on it) is listed
+with the reason and left as it was. When the move ends, one line says how many documents moved and how many results
+went with them, and a short table lists the documents with results that have no place (with *Review*). You can work on
+meanwhile, or stop it: documents already moved stay moved.
 
 ## Measuring how well Margin reads
 
-`margin measure` shows in figures how well Margin reads, with no AI. It makes small PDFs whose text it knows (one and
-two columns, running heads, line numbers, front and back matter, a table, footnotes), reads them with each reader,
-and reports the share of the words kept, the share that belong, whether they come in order, words run together or
-broken apart, and leftover boilerplate.
-
-| Option | Adds |
-| --- | --- |
-| `--folder DIR` | Measures PDFs that have a `.txt` of their true text beside them. |
-| `--ws PROJECT` | How many of a project's quotes still find their place in each reader's text (on a copy: the project never changes). |
-| `--timings` | How long reading, search, *Words nearby*, the keyword pass, the Profile page, key terms and themes take. |
-| `--report FILE.md` | Writes it all as a report. |
-
-Each release carries this report as `validation-report.md`.
+`margin measure` shows in figures how well Margin reads, with no AI, on small PDFs whose text it knows. What it
+measures, its options and the figures of reader 5: [Measuring how well Margin
+reads](how-documents-are-read.md#measuring-how-well-margin-reads).
 
 ---
 

@@ -1,6 +1,6 @@
 # Building on Margin
 
-An app built on Margin (Margin is one) adds its features **in files of its own**, plus a short list of files that
+An app built on Margin adds its features **in files of its own**, plus a short list of files that
 Margin creates once and never edits again: the **local layer**. A new Margin release then merges without clashes,
 because it never touches what the app wrote.
 
@@ -9,7 +9,7 @@ changes for people who use Margin itself.
 
 ## Two ways to build on Margin
 
-- **A fork** (a copy of Margin's repository, like Margin) fills in the local-layer files listed below. Its own new
+- **A fork** (a copy of Margin's repository) fills in the local-layer files listed below. Its own new
   modules, views and tests live in files Margin does not have.
 - **A separate package** installed next to Margin names an add-on module under the Python entry point group
   `margin.extensions`, in its `pyproject.toml`:
@@ -30,7 +30,8 @@ Margin releases **never edit** these files. Margin ships each one empty, or hold
 
 | File | What it is for |
 | --- | --- |
-| `src/margin/gui/static/site.css` | The installation's own look. Linked last, so it wins. |
+| `src/margin/gui/static/site.css` | The installation's own look. Linked after the four stylesheets, so it wins over them. |
+| `src/margin/gui/static/margin.css` | Margin's own look (its colours, fonts and the pages that are Margin's own). Linked after `site.css`. |
 | `src/margin/gui/static/brand.json` | The app's name and words. |
 | `src/margin/gui/extensions.py` | The fork's add-on module. |
 | `src/margin/gui/static/extensions.js` | The fork's page module (0.13.6). |
@@ -39,27 +40,49 @@ Margin releases **never edit** these files. Margin ships each one empty, or hold
 
 ## The look: `site.css` and the theme tokens
 
-`index.html` links Margin's stylesheets in release order, then a fixed comment, then `site.css`:
+`index.html` links Margin's four stylesheets, then a fixed comment, then `site.css`:
 
 ```html
 <link rel="stylesheet" href="/static/tokens.css">
 <link rel="stylesheet" href="/static/app.css">
-…
-<link rel="stylesheet" href="/static/v0134.css">
+<link rel="stylesheet" href="/static/components.css">
+<link rel="stylesheet" href="/static/views.css">
 <!-- release stylesheets end -->
 <link rel="stylesheet" href="/static/site.css">
 ```
 
-Each release adds its own stylesheet just above the comment, so `site.css` always loads last.
+`tokens.css` holds the tokens, `app.css` the base and the shell, `components.css` every component (one section each,
+numbered as in [DESIGN.md](DESIGN.md)), `views.css` each page's own pieces. Releases change these four and add no sheet
+of their own, so `site.css` always loads after them. Margin's own sheet, `margin.css`, is linked after `site.css`: it holds Margin's colours as token values and the rules of its own pages, and a token it sets is the one the page uses unless a rule names it more specifically.
 
 The colours, faces, shadows and sizes are **tokens** (CSS custom properties) in `tokens.css`, for the light theme,
 the dark theme chosen by the system, and the dark theme chosen in the app. A different look overrides them in
-`site.css`; nobody edits `app.css` or `tokens.css` for it:
+`site.css`; nobody edits Margin's sheets for it. Releases add tokens and never rename or remove one; a changed value is
+named in `CHANGELOG.md` (the redesign added `--attention*`, `--danger*`, the type, spacing and corner scales, `--drawer-w`
+and others, and changed the light `--muted` and `--sidebar-w`). `site.css` may also restyle a component (a class of
+`components.css`) for the whole installation; a class Margin removes is named in `CHANGELOG.md`:
 
 ```css
 :root { --accent: #8a3b12; --accent-strong: #6d2e0e; --font-ui: "Inter", system-ui, sans-serif; }
 :root[data-theme="dark"] { --accent: #f0a46c; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --accent: #f0a46c; } }
+```
+
+**Classes the redesign removed.** A `site.css` rule for one of these styles nothing any more: each was a component drawn
+by one page (an action drawn as a link, a page's own badge, chip, banner or message box), and its look is now its
+helper's, in that helper's section of `components.css` (`docs/DESIGN.md` 9 lists the helpers). A test reads this list
+and keeps every class in it gone:
+
+<!-- removed-classes -->
+```text
+link-btn danger-link btn-lg seg-on chip-btn seg-pick seg-choice so-seg nav-ai nav-ai-uses nav-ai-optional
+nav-legend badge-accent badge-warn badge-provisional badge-job status-prefix chip-weak chip-counted chip-yours
+chip-scope chip-second chip-agrees chip-disagrees chip-flag chip-wait-you new-badge access-option route-card
+rc-badge cb-start-opt note-pick-item ps-item ps-sep logdrawer-seg logdrawer-entry logdrawer-entry-link
+card-verdict person-mark-partly bc-sup bc-part bc-ref map-key-doc ev-words result-meta update-ready
+res-code-line th-title-meta dv-file-meta card-title hero th-num pf-where-note batch-banner map-batch-banner
+run-summary moved-note user-note whats-new tag-disagree hyp-list-warn map-note-attention cb-unsaved dv-q-good
+dv-q-fair dv-q-poor tag-clash warn-text batch-error bib-tiles bib-tile bib-tile-n bib-tile-label
 ```
 
 A **package** puts its page files in a folder and names it in its add-on module:
@@ -93,6 +116,11 @@ BRAND = {"name": "Fieldnotes", "tagline": "notes from the field", "logo": "/stat
 ```
 
 Page code names the app with `appName()` (or `brand()`) from `lib.js`, never with a fixed "Margin".
+
+An add-on's pages build with the same helpers as Margin's (`button()`, `link()`, `card()`, `inset()`, `notice()`,
+`tag()`, `choice()`, `field()` and the rest of [DESIGN.md](DESIGN.md), section 9.3) from `/static/lib.js`, never by spelling
+Margin's classes, so they look native and follow every change of a component. `#/design` shows each one as it renders
+in this installation.
 
 ## Routes, downloads and extra keys (0.13.6)
 
@@ -159,7 +187,9 @@ added only when it is missing. Table and column names are plain names (letters, 
 **Where a hypothesis comes from.** `claimcheck.create_hypothesis(ws, text, …, origin="draft", origin_id=draft_id)`
 records it in the hypothesis's `origin` and `origin_id` columns, so an add-on that makes hypotheses needs no column
 or argument of its own. `check_hypothesis` and `queue_check` take the same two arguments. Margin uses `origin="batch"`
-for *Check several*; a hypothesis typed by a person has none. Results and the history return both.
+for *Check several* and `origin="document"` for a check started from a document's text (a working
+document's *Check against the corpus*, `origin_id` the document's id); a hypothesis typed by a person has none. Both
+names are Margin's own: an add-on uses a name of its own. Results and the history return both.
 
 ## Access (0.13.6)
 
@@ -192,6 +222,13 @@ access.register_hidden(drafts_kept_here)
   to open them. A hook that fails hides every hypothesis.
 
 Margin loads the add-ons before it decides anything, so hooks an add-on registers when it is imported always count.
+
+Margin's own `origin="document"` uses the same two hooks (`docrole.origin_floor`, `docrole.kept_here`, registered by
+`access.py`): the words of a check started from a document's text keep that document's AI setting. A floor restricts
+every task that names the hypothesis (`hyp_id`) or one of its parts (`claim_id`, or `subject_id` of a `user_claim`);
+when the floor leaves the main model out, `check_hypothesis` and `prepare_check` have the hypothesis split and its
+search words proposed by the local model for restricted documents, or not at all (it is checked as written), and
+`queue_check` asks Claude Code for neither. An add-on's floor that keys on `hyp_id` is followed the same way.
 
 ## A kind of AI task of its own (0.13.6)
 
@@ -298,8 +335,10 @@ Every extension point is tried with a stand-in add-on, `tests/fake_extension/`, 
 stands in for Claude Code. The `addon` fixture turns it on through its entry point, as if it were installed; the
 `local_addon` fixture fills in `gui/extensions.py` as a fork would (`tests/addon_fixtures.py`).
 
-Tests of a release's stylesheet say which sheets it follows, not that it is linked last: `assert_sheet_after(sheet,
-earlier)` in `tests/_static.py`. The routes-are-documented tests read every `docs/*API*.md`.
+A test that checks a rule reads the cascade, not a sheet by name (`all_css()` and `rule()` in `tests/_static.py`), so it
+holds when a rule moves into its component's section; `assert_sheet_after(sheet, earlier)` checks the order of sheets.
+A test that reads the names in a script reads it through `js_code()` (the same file): comments, strings and regular
+expressions blanked, so only code is read. The routes-are-documented tests read every `docs/*API*.md`.
 
 ## Keeping it small, and stable
 

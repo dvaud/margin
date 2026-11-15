@@ -150,10 +150,15 @@ def document_overview(ws: Workspace) -> list[dict]:
     """One row per document with the checks a reader needs before trusting it as a source."""
     bad = unreadable_docs(ws)
     claims = {r[0]: r[1] for r in ws.query("SELECT doc_id, COUNT(DISTINCT claim_id) FROM claims GROUP BY doc_id")}
+    from . import languages
+    from .ingest import READER
+
+    # 0.19: a document reader 5 read is offered reader 6 only when it would read otherwise
+    langs = languages.of_documents(ws) if READER == 6 else {}
     out = []
     for d in ws.query("SELECT d.doc_id, d.title, d.kind, d.n_pages, d.n_chars, d.path, d.added_at, d.ocr_pages, "
                       "d.scanned_pages, (SELECT COUNT(*) FROM passages p WHERE p.doc_id=d.doc_id AND p.section='body') AS body, "
-                      "COALESCE(d.reader, 1) AS reader, d.app_version, d.reading_json FROM documents d ORDER BY d.title"):
+                      "COALESCE(d.reader, 1) AS reader, d.app_version, d.reading_json, d.own_title FROM documents d ORDER BY d.title"):
         flags = []
         ocr, scanned = d["ocr_pages"] or 0, d["scanned_pages"] or 0
         scan = ""
@@ -167,13 +172,16 @@ def document_overview(ws: Workspace) -> list[dict]:
             flags.append("the text could not be read (perhaps a scanned or protected PDF)")
         if d["n_chars"] < 1000:  # a saved landing page or an agenda instead of the report itself
             flags.append("very short: is this the whole document?")
-        out.append({"doc_id": d["doc_id"], "title": d["title"] or "", "kind": d["kind"], "pages": d["n_pages"],
+        out.append({"doc_id": d["doc_id"], "title": d["title"] or "", "named": bool(d["own_title"]),  # 0.19.1: renamed
+                    "kind": d["kind"], "pages": d["n_pages"],
                     "chars": d["n_chars"],
                     "passages": d["body"], "claims": claims.get(d["doc_id"], 0), "file": re.sub(r".*[/\\]", "", d["path"] or ""),
                     "added": (d["added_at"] or "")[:16].replace("T", " "), "added_at": d["added_at"] or "",
                     "check": "; ".join(flags), "scanned": scan, "ocr_pages": ocr, "scanned_pages": scanned,
                     # 0.15: the reader that read it and the Margin version (None: before 0.15), and how well it read
-                    "reader": d["reader"], "app_version": d["app_version"], **_reading_summary(d["reading_json"])})
+                    "reader": d["reader"], "app_version": d["app_version"], **_reading_summary(d["reading_json"]),
+                    "new_reader_changes": languages.new_reader_changes(d["reader"], langs.get(d["doc_id"]),
+                                                                       d["kind"])})
     return out
 
 
@@ -199,6 +207,12 @@ def original_file(ws: Workspace, doc_id: str, verify: bool = True) -> dict:
     Returns {"doc_id", "kind", "title", "recorded", "name", "path" | None, "available", "inside", "reason"};
     `inside` says the file is in the project folder. With `verify`, a file whose checksum differs from the one
     recorded (up to 300 MB) is reported as changed, not available.
+
+    A file outside the project folder is the document's only when it is the very file that was read: its checksum
+    must be recorded and equal, whatever `verify` says. The recorded path is a line in the project's database, and a
+    project that came from someone else (a zip, a folder linked) may name any file of this computer there: it was
+    shown as the document's original and went out again with the next zip of the project. A path on another
+    computer (`\\\\server\\share`) is never looked at: Windows would sign in to that computer to look.
     """
     from .ingest import _sha1
 
@@ -206,10 +220,14 @@ def original_file(ws: Workspace, doc_id: str, verify: bool = True) -> dict:
     if not row:
         raise KeyError(doc_id)
     recorded, sha1, kind, title = row[0]["path"] or "", row[0]["sha1"], row[0]["kind"], row[0]["title"]
+    sha1 = (sha1 or "").split("~")[0] or None  # ENLENS 0.14: a sync-clash copy's is "<sha1>~<mark>" (in its projects)
     out = {"doc_id": doc_id, "kind": kind, "title": title, "recorded": recorded,
            "name": re.sub(r".*[/\\]", "", recorded), "path": None, "available": False, "inside": False, "reason": ""}
     if not recorded:
         out["reason"] = "No file was recorded for this document."
+        return out
+    if recorded.startswith(("\\\\", "//")):
+        out["reason"] = "The original file is recorded on another computer; the text the app read is shown here."
         return out
     p = Path(recorded)
     cands = [p] if p.is_absolute() else [ws.root / p, ws.root.parent / p, Path.cwd() / p]
@@ -229,12 +247,16 @@ def original_file(ws: Workspace, doc_id: str, verify: bool = True) -> dict:
             continue
         st = c.stat()
         key = (str(c), st.st_mtime_ns, st.st_size)
-        if verify and key not in _SHA1S and st.st_size <= 300 * 1024 ** 2:
+        inside = c.is_relative_to(root)
+        if not inside and not sha1:  # nothing says this file is the document's
+            continue
+        if (verify and st.st_size <= 300 * 1024 ** 2 or not inside) and key not in _SHA1S:
             _SHA1S[key] = _sha1(c)
-        if verify and sha1 and key in _SHA1S and _SHA1S[key] != sha1:
+        if (verify or not inside) and sha1 and key in _SHA1S and _SHA1S[key] != sha1:
             out["reason"] = f"The file at {c} has changed since it was added; the text the app read is shown here."
+            out["changed"] = str(c)  # (there, and not the file that was read: for those who say so in their own words)
             return out
-        out.update(path=str(c), available=True, inside=c.is_relative_to(root))
+        out.update(path=str(c), available=True, inside=inside)
         return out
     out["reason"] = f"The original file is no longer at {recorded}; the text the app read is shown here."
     return out

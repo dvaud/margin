@@ -207,6 +207,33 @@ class Api:
         raise AssertionError("job did not finish")
 
 
+def _wait_until(cond, timeout=30, step=0.02):
+    """2026-11-12: poll for a condition (a generous timeout: CI machines are slow) instead of sleeping a fixed time."""
+    t0 = time.monotonic()
+    while not cond():
+        if time.monotonic() - t0 > timeout:
+            raise AssertionError("the condition was not met in time")
+        time.sleep(step)
+
+
+class _SkewedDatetime:
+    """Stands in for `datetime` inside `store`, so that `store.now()` runs `seconds` ahead of the real clock."""
+
+    def __init__(self, seconds):
+        import datetime as real
+        self._real, self._skew = real, real.timedelta(seconds=seconds)
+        outer = self
+
+        class _DT:
+            @staticmethod
+            def now(tz=None):
+                return outer._real.datetime.now(tz) + outer._skew
+        self.datetime = _DT
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
 @pytest.fixture
 def api(home):
     from margin.gui.server import make_server
@@ -226,7 +253,8 @@ def test_api_guards(api):
     assert api("GET", "/api/nothing")[0] == 404
     assert api("DELETE", "/api/state")[0] == 405
     st, page = api("GET", "/", token=False)
-    assert st == 200 and api.token.encode() in page and b"{{MARGIN_TOKEN}}" not in page
+    # 0.17.2: the page never carries the token (any account on this computer can fetch it)
+    assert st == 200 and api.token.encode() not in page and b"{{MARGIN_" not in page
     assert api("GET", "/static/../server.py", token=False)[0] == 404
     st, s = api("GET", "/api/state")
     assert st == 200 and s["settings"]["backend"] == "claude_code" and s["projects"] == [] and s["statuses"]
@@ -322,8 +350,11 @@ def test_api_check_with_a_local_server_semantic_index_and_cancel(api, corpus):
         assert {p["found_by"] for p in h["parts"][0]["passages"]} & {"both", "meaning"}
 
         srv.delay = 0.2  # slow enough to stop it midway
-        st, r = api("POST", "/api/projects/P/checks", {"text": CLAIM, "k": 3})
-        time.sleep(0.5)
+        seen = len(srv.requests)
+        # 0.18.1 (H4): another wording, so the model is asked (the same question again is answered from the kept answer)
+        st, r = api("POST", "/api/projects/P/checks", {"text": CLAIM.replace("arid", "dry"), "k": 3})
+        # 2026-11-12: wait until the model has begun to answer (it streams for seconds at this delay), not a fixed 0.5 s
+        _wait_until(lambda: any(p == "/api/chat" for p, _ in srv.requests[seen:]), 30)
         api("POST", f"/api/jobs/{r['job']['id']}/cancel")
         job = api.wait(r["job"]["id"])
         assert job["state"] == "cancelled"
@@ -366,7 +397,7 @@ def test_progress_tracker_and_model_line():
 
 def test_openai_compatible_server_falls_back_and_streams(loaded):
     """LM Studio rejects json_object; llama.cpp streams SSE. The backend copes with both."""
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from http.server import BaseHTTPRequestHandler
 
     seen = []
 
@@ -400,7 +431,9 @@ def test_openai_compatible_server_falls_back_and_streams(loaded):
                 self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
             self.wfile.write(b"data: [DONE]\n\n")
 
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    from margin.gui.server import QuickServer  # starts without a 35 s name lookup on Mac runners
+
+    srv = QuickServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         url = f"http://127.0.0.1:{srv.server_address[1]}/v1"
@@ -623,7 +656,7 @@ def test_api_second_model_keeps_one_model_in_memory_and_shows_disagreements(api)
         srv.shutdown()
 
 
-def test_api_map_calibration_new_documents_and_project_zip(api, tmp_path):
+def test_api_map_calibration_new_documents_and_project_zip(api, tmp_path, monkeypatch):
     srv, url = fake_servers.start("ollama")
     srv.varied = True
     try:
@@ -638,8 +671,9 @@ def test_api_map_calibration_new_documents_and_project_zip(api, tmp_path):
         cal = api("GET", "/api/projects/Z/calibration")[1]
         assert cal["total"] == 0 and cal["suggestion"] is None and len(cal["bins"]) == 6 and "20" in cal["note"]
 
-        import time
-        time.sleep(1.1)
+        # 2026-11-12: stored times have whole seconds, so the clock jumps 2 s instead of the test sleeping past a second
+        from margin import store
+        monkeypatch.setattr(store, "_dt", _SkewedDatetime(2))
         (tmp_path / "late").mkdir()
         (tmp_path / "late" / "late_commute_study.txt").write_text(
             "A late study of commuting. Working from home reduces commuting emissions by a fifth in our sample. " * 3)
@@ -728,17 +762,19 @@ def test_the_icon_starts_one_copy_without_a_terminal_and_quit_stops_it(home, tmp
                 break
             time.sleep(0.1)
         live = launcher.running()
-        assert live and live["port"] == port and live["pid"] == first.pid
+        from _started import is_started  # 0.18.1: on Windows uv's python.exe starts the interpreter as its child
+
+        assert live and live["port"] == port and is_started(live["pid"], first.pid)
         again = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)  # a second double-click
         assert again.returncode == 0 and "already running" in again.stdout
-        page = urllib.request.urlopen(live["url"], timeout=5).read().decode()
-        token = page.split('name="margin-token" content="')[1].split('"')[0]
+        token = launcher.read_token(live["port"])  # 0.17.2: the page carries none
         a = Api(live["url"].rstrip("/"), token)
         st, s = a("GET", "/api/state")
         assert s["launcher"] is True and s["can_quit"] is True
         assert a("POST", "/api/quit", {})[1]["stopping"] is True
         assert first.wait(timeout=15) == 0
         assert not (home.home() / "app.json").exists() and launcher.running() is None
+        assert not launcher.token_path(port).exists()  # 0.17.2: its token file goes with it
         log = (home.home() / "logs" / "margin.log").read_text()
         assert "started by the launcher" in log and "Margin stopped." in log
     finally:

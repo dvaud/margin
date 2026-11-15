@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import io
+import json
 import re
 import shutil
 import socket
@@ -68,7 +69,7 @@ SHOTS = [
     ("reading-view", ("--reading",), "a document in the reading view, with the Reading panel and Leave out on a hovered block"),
     ("bibliography", ("--corpus", "social", "--zotero"), "Bibliography after bringing in the stand-in Zotero library"),
     ("waiting", ("--corpus", "social", "--claude-code-paused"), "a check waiting for Claude Code: Start Claude Code and the speed choice"),
-    ("documents", ("--mixed",), "Documents with the AI column: who may read each document with AI"),
+    ("documents", ("--mixed",), "Documents: each one a line that opens; who may read it with AI in its panel"),
     # Margin's own pages
     ("overview", ("--corpus", "social", "--claude-code"), "the Overview of a project, with the sidebar (the manual's start page)"),
     ("outline", ("--corpus", "social", "--claude-code"), "an outline made from the themes"),
@@ -96,7 +97,7 @@ class DevServer:
         cmd = [python, str(DEV_SERVER), "--home", str(self.home), "--port", str(port), *options]
         self.lines: list[str] = []
         self.proc = subprocess.Popen(cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        self.url = ""
+        self.url = self.token = ""
         ready = threading.Event()
 
         def drain():
@@ -105,6 +106,9 @@ class DevServer:
                 m = re.match(r"app: (http://\S+)", line)
                 if m and not self.url:
                     self.url = m.group(1)
+                t = re.match(r"token: (\S+)", line)  # printed after the address
+                if t and not self.token:
+                    self.token = t.group(1)
                     ready.set()
             ready.set()
 
@@ -314,7 +318,13 @@ def shot_waiting(page, server):
 def shot_documents(page, server):
     go(page, server, "#/sources")
     settled(page, 1000)
-    return ("from", page.get_by_role("heading", name=re.compile("^In this project")).first, 640)
+    # 0.18.3: a document is a line that opens; the picture shows one open, a document kept from Claude if there is one
+    # (0.18.5: the list is grouped by who may read the documents; the first of the groups kept from Claude)
+    page.evaluate("""() => { const items = [...document.querySelectorAll('.doc-item')];
+      const it = document.querySelector('.doc-group[data-group="local"] .doc-item, .doc-group[data-group="none"] .doc-item') || items[0];
+      if (it) it.querySelector('.doc-toggle').click(); }""")
+    settled(page, 400)
+    return ("from", page.get_by_role("heading", name=re.compile("documents? in this project$")).first, 640)
 
 
 def shot_overview(page, server):
@@ -382,10 +392,11 @@ def take(page, what, path: Path) -> None:
             "x": SIDEBAR, "y": max(0, top), "width": page.viewport_size["width"] - SIDEBAR, "height": h})
     else:                                                   # a locator: its box with a little air
         what.scroll_into_view_if_needed()
-        box = what.bounding_box()
+        box = what.bounding_box()   # in the window's coordinates; a full-page clip takes the page's
+        sx, sy = page.evaluate("[window.scrollX, window.scrollY]")
         pad = 8
         page.screenshot(path=str(path), full_page=True, clip={
-            "x": max(0, box["x"] - pad), "y": max(0, box["y"] - pad), "width": box["width"] + 2 * pad, "height": box["height"] + 2 * pad})
+            "x": max(0, sx + box["x"] - pad), "y": max(0, sy + box["y"] - pad), "width": box["width"] + 2 * pad, "height": box["height"] + 2 * pad})
 
 
 QUANTISE = (
@@ -447,6 +458,8 @@ def main() -> int:
                 page.on("pageerror", lambda x, e=errors: e.append(str(x)))
                 try:
                     server = servers.get(tuple(options))
+                    # 0.17.2: the page carries no token: the tab holds it, as one opened from the app's link would
+                    ctx.add_init_script(f"try {{ sessionStorage.setItem('margin-token', {json.dumps(server.token)}); }} catch (e) {{}}")
                     what = globals()["shot_" + name.replace("-", "_")](page, server)
                     path = out / f"{name}.png"
                     take(page, what, path)

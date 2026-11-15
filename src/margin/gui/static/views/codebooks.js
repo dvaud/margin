@@ -3,27 +3,38 @@
 // and example quotes from the documents, in groups; drag (or Move up / down) to reorder, rename, merge, split and
 // remove codes. *Try it* counts what the keyword pass would pick, without AI. Saving keeps the codebook as it was
 // (History) and writes the changes in the research log; labels follow renames and merges, and wait under *Removed
-// codes* when a code is removed. An edit changes no result by itself.
-import { featureEyebrow } from "../features.js";
+// codes* when a code is removed. An edit changes no result by itself. K1's optional AI part: *Draft from the examples*
+// offers a definition, when to use it and when not, from the passages that hold a code's examples only; taken, the
+// words are marked *AI draft* until you rewrite them.
+import { featureEyebrow, viewTabs, withAI } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, P, plural, confirmDialog, download,
-  dialog, field, switchControl, watchJob, emptyState, shortTitle, session } from "../lib.js";
+  dialog, field, switchControl, watchJob, emptyState, shortTitle, session, button, iconButton, downloadButton, link, menu, notice, card, tag, input, select, textarea, choice, optionCards, readsLine, aiWhere, inset, workState, readTextFile, setBusy } from "../lib.js";
 import { forgetFrameworks } from "./options.js";
 import { showHistory, askWhy } from "./versions.js";
 
 const WHERE = { project: ["This project", "folder"], home: ["All projects", "layers"], bundled: ["Ships with Margin", "library"] };
 const drafts = new Map();   // unsaved edits, kept while you look at another page: `${project}:${name}` -> {st, merges}
+// K1 (the optional AI part): the fields a draft from the examples fills, and those still the AI's words
+const FIELDS_OF_DRAFT = ["description", "include", "exclude"];
+const DRAFT_LABEL = { description: "the definition", include: "when to use it", exclude: "when not to use it" };
+const flat = (v) => String(v || "").split(/\s+/).filter(Boolean).join(" ");
+function draftFields(c) {
+  const d = c && c.ai_draft;
+  return d ? FIELDS_OF_DRAFT.filter((f) => flat(d[f]) && flat(d[f]) === flat(c[f])) : [];
+}
+const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+function listWords(xs) { return xs.length < 2 ? (xs[0] || "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`; }
+// The audit's DEC-2: a downloaded file (CSV, .qdc) does not carry the AI draft mark. While codes on screen still hold
+// the AI's words, one short line in the page head, under the title, says so (codebooks.py `draft_note`, which the commands print);
+// none when no code does. No dialog: the download stays one click.
+function draftNote(codes) {
+  const n = (codes || []).filter((c) => draftFields(c).length).length;
+  return n ? `${n} ${n === 1 ? "code still holds" : "codes still hold"} the AI’s draft. A downloaded file does not carry that mark: say so to whoever you send it to.` : null;
+}
 
 function whereBadge(where) {
   const [t, ic] = WHERE[where] || [where, "circle"];
-  return h("span", { class: `badge cb-where cb-where-${where}` }, icon(ic, { size: 12 }), t);
-}
-
-// A CSV file as text: UTF-8, else the Windows code page of a spreadsheet saved in Europe (f.text() read every file as
-// UTF-8 and garbled the others: ő and ű mark the Central European page).
-async function readCsv(f) {
-  const bytes = new Uint8Array(await f.arrayBuffer());
-  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^\uFEFF/, ""); }
-  catch (_) { return new TextDecoder(bytes.some((b) => b === 0xF5 || b === 0xD5) ? "windows-1250" : "windows-1252").decode(bytes); }
+  return tag({ class: `cb-where cb-where-${where}`, icon: ic }, t);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -32,39 +43,49 @@ async function readCsv(f) {
 export async function renderCodebooks(view) {
   const project = App.project;
   const base = `/api/projects/${P(project)}/codebooks`;
-  const newBtn = h("button", { class: "btn btn-primary", type: "button", onClick: () => newCodebook() }, icon("plus", { size: 14 }), "New codebook");
-  view.appendChild(pageHead("Codebooks", {
+  const newBtn = button({ kind: "main", onClick: () => newCodebook() }, icon("plus", { size: 14 }), "New codebook");
+  view.appendChild(pageHead("Codes", {
     eyebrow: featureEyebrow("codebooks"),
-    sub: "The codes Profile and the Codes panel look for, and that a hypothesis can be tagged with. A codebook stays a CSV file, so it still opens in a spreadsheet.",
+    sub: "Your codebooks: the codes looked for in the documents (By document, and a document’s Codes panel), and that a hypothesis can be tagged with. A codebook stays a CSV file, so it still opens in a spreadsheet.",
     actions: newBtn,
   }));
+  view.appendChild(viewTabs("codes", "codebooks"));   // 0.17.0: Codebooks is a view of Codes
   const box = h("div", { class: "cb-list" });
   view.appendChild(box);
-  let data;
+  let data, theory = null;
+  // K2: a codebook from theory being drafted (views/theory-draft.js) waits on its page; the list says so
+  const asked = api("GET", `/api/projects/${P(project)}/codebook-theory/draft`).catch(() => null);
   try { data = await api("GET", base); } catch (e) { failedLoad(box, e); return; }
+  theory = await asked;
+  if (theory && theory.draft) {
+    const d = theory.draft;
+    box.appendChild(notice({ class: "cb-draft-notice" }, h("p", {}, `A codebook from theory is being drafted: “${d.title}”, ${plural(d.concepts.filter((c) => c.keep).length, "concept")} in the codebook.`),
+      link({ kind: "next", href: "#/codebooks/draft/theory" }, "Continue the draft")));
+  }
   for (const b of data.problems || []) {
-    box.appendChild(h("div", { class: "notice notice-warn" }, icon("alert-triangle"), h("p", {}, `The codebook file ${b.file} (${b.source === "home" ? "for all projects" : "in this project"}) cannot be used: ${b.error}`)));
+    box.appendChild(notice({ kind: "attention" }, h("p", {}, `The codebook file ${b.file} (${b.source === "home" ? "for all projects" : "in this project"}) cannot be used: ${b.error}`)));
   }
   const own = data.codebooks.filter((c) => c.where !== "bundled");
   const ships = data.codebooks.filter((c) => c.where === "bundled");
-  const card = (c) => h("li", { class: "cb-card" },
-    h("a", { class: "cb-card-main", href: `#/codebooks/${encodeURIComponent(c.name)}` },
-      h("span", { class: "cb-card-title" }, c.title || c.name),
+  // 0.17.0 (design guide): the title is the link (a title link, not serif); the rest of the card opens it too
+  const cardItem = (c) => h("li", { class: "cb-card", onClick: (e) => { if (!e.target.closest("a")) location.hash = `#/codebooks/${encodeURIComponent(c.name)}`; } },
+    h("div", { class: "cb-card-main" },
+      link({ kind: "title", class: "cb-card-title", href: `#/codebooks/${encodeURIComponent(c.name)}` }, c.title || c.name),
       h("span", { class: "cb-card-sub" }, `${plural(c.codes, "code")}${c.groups ? ` in ${plural(c.groups, "group")}` : ""} · each is called “${c.label}”`),
       h("span", { class: "cb-card-use" }, whereBadge(c.where),
         c.labels ? h("span", { class: "muted" }, plural(c.labels, "label")) : null,
         c.checks ? h("span", { class: "muted" }, plural(c.checks, "check")) : null,
-        c.profile_default ? h("span", { class: "badge badge-accent" }, icon("tag", { size: 11 }), "Profile uses it") : null)),
+        c.profile_default ? tag({}, icon("tag", { size: 11 }), "Profile uses it") : null)),
     h("span", { class: "cb-card-go", "aria-hidden": "true" }, icon("chevron-right", { size: 16 })));
   if (!own.length) {
-    box.appendChild(h("div", { class: "card cb-start" }, h("h2", { class: "card-title" }, "Make a codebook of your own"),
+    box.appendChild(card({ as: "div", class: "cb-start", title: "Make a codebook of your own" },
       h("p", {}, "Start fresh, from the themes already found in the documents, as a copy of the SDG targets, or from a spreadsheet. Each code gets a definition, when to use it and when not, the words it is matched by and examples from the documents."),
-      h("div", { class: "btn-row" }, h("button", { class: "btn btn-primary", type: "button", onClick: () => newCodebook("themes") }, icon("shapes", { size: 14 }), "Start from the themes"),
-        h("button", { class: "btn", type: "button", onClick: () => newCodebook("fresh") }, icon("plus", { size: 14 }), "Start fresh"))));
+      h("div", { class: "btn-row" }, button({ kind: "main", onClick: () => newCodebook("themes") }, icon("shapes", { size: 14 }), "Start from the themes"),
+        button({ onClick: () => newCodebook("fresh") }, icon("plus", { size: 14 }), "Start fresh"))));
   } else {
-    box.append(h("h2", { class: "cb-h2" }, "Your codebooks"), h("ul", { class: "cb-cards" }, own.map(card)));
+    box.append(h("h2", { class: "cb-h2" }, "Your codebooks"), h("ul", { class: "cb-cards" }, own.map(cardItem)));
   }
-  box.append(h("h2", { class: "cb-h2" }, "Ship with Margin"), h("ul", { class: "cb-cards" }, ships.map(card)),
+  box.append(h("h2", { class: "cb-h2" }, "Ship with Margin"), h("ul", { class: "cb-cards" }, ships.map(cardItem)),
     h("p", { class: "muted small" }, "To change one of these, open it and make a copy."));
 }
 
@@ -72,38 +93,40 @@ export async function renderCodebooks(view) {
 export async function newCodebook(start = "fresh", opts = {}) {
   const project = App.project;
   const base = `/api/projects/${P(project)}/codebooks`;
-  const title = h("input", { class: "input", type: "text", maxlength: 200, placeholder: "e.g. Remote work and wellbeing", value: opts.title || "" });
-  const name = h("input", { class: "input", type: "text", maxlength: 40, placeholder: "e.g. remote_work" });
+  const title = input({ maxlength: 200, placeholder: "e.g. Remote work and wellbeing", value: opts.title || "" });
+  const name = input({ maxlength: 40, placeholder: "e.g. remote_work" });
   let nameTouched = false;
   name.addEventListener("input", () => { nameTouched = true; });
   title.addEventListener("input", () => { if (!nameTouched) name.value = title.value.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40); });
-  const whereSel = h("div", { class: "seg-pick", role: "radiogroup", "aria-label": "Kept" });
   let where = "project";
-  for (const [w, t] of [["project", "With this project"], ["home", "With all my projects"]]) {
-    const b = h("button", { type: "button", role: "radio", class: "seg-choice", "aria-checked": w === where ? "true" : "false", onClick: () => {
-      where = w; for (const x of whereSel.children) x.setAttribute("aria-checked", x === b ? "true" : "false");
-    } }, t);
-    whereSel.appendChild(b);
-  }
-  const startSel = h("div", { class: "cb-start-pick", role: "radiogroup", "aria-label": "Start" });
+  const whereSel = choice({ label: "Kept", value: where, options: [["project", "With this project"], ["home", "With all my projects"]], onPick: (w) => { where = w; } });
   const STARTS = [["fresh", "Start fresh", "An empty codebook: add codes and groups yourself.", "plus"],
     ["themes", "From the themes", "The themes found in the documents become draft codes: short names made of their names, their descriptions, key terms and best passages. Tick the ones to keep.", "shapes"],
+    ["theory", "From theory documents", "The theory you read your documents through becomes a framework: its concepts in groups, each with the theory’s own words, a definition to code with, and passages of your documents that may show it. You choose and shape them on a page of their own. Without AI at first; the AI reads the theory when you ask.", "book-marked"],
     ["copy", "A copy of a codebook", "The SDG targets or one of yours, to change.", "copy"],
-    ["csv", "From a CSV file", "Columns code and description (and group, group_name, when_to_use, when_not_to_use, keywords, examples).", "upload"]];
+    ["csv", "From a CSV file", "Columns code and description (and group, group_name, when_to_use, when_not_to_use, keywords, examples).", "upload"],
+    // K1 "In and out" (qdc_import.py): a REFI-QDA codebook, or the codebook of a REFI-QDA project
+    ["qdc", "From NVivo, ATLAS.ti or MAXQDA", "A REFI-QDA codebook (.qdc), or a project (.qdpx) whose codebook you want. Top codes with codes under them become groups; deeper levels fold into their top group.", "upload"]];
   let fws = [];
   try { fws = (await api("GET", base)).codebooks; } catch (_) { /* the copy choice lists none */ }
-  const copySel = h("select", { class: "input", "aria-label": "Codebook to copy" }, fws.map((f) => h("option", { value: f.name, selected: f.name === opts.of }, `${f.title || f.name} (${f.codes} codes)`)));
-  const file = h("input", { type: "file", accept: ".csv,text/csv", class: "input", "aria-label": "CSV file" });
+  const copySel = select({ "aria-label": "Codebook to copy" }, fws.map((f) => h("option", { value: f.name, selected: f.name === opts.of }, `${f.title || f.name} (${f.codes} codes)`)));
+  const file = input({ type: "file", accept: ".csv,text/csv", "aria-label": "CSV file" });
+  const qdcFile = input({ type: "file", accept: ".qdc,.qdpx,.xml", "aria-label": "REFI-QDA file" });
+  // a title from the file's name, when none is typed yet
+  qdcFile.addEventListener("change", () => {
+    const f = qdcFile.files && qdcFile.files[0];
+    if (f && !title.value.trim()) { title.value = f.name.replace(/\.(qdc|qdpx|xml)$/i, ""); title.dispatchEvent(new Event("input")); }
+  });
   const extra = h("div", { class: "cb-start-extra" });
-  const drawExtra = () => { replace(extra, start === "copy" ? field("Copy of", copySel) : start === "csv" ? field("CSV file", file) : null); };
-  for (const [k, t, sub, ic] of STARTS) {
-    const b = h("button", { type: "button", role: "radio", class: "cb-start-opt", "aria-checked": k === start ? "true" : "false", onClick: () => {
-      start = k; for (const x of startSel.children) x.setAttribute("aria-checked", x === b ? "true" : "false"); drawExtra();
-      const go = b.closest("dialog") && b.closest("dialog").querySelector(".dialog-actions .btn-primary");
-      if (go) go.textContent = start === "themes" ? "Next" : "Create";   // themes: a second step to tick them
-    } }, icon(ic, { size: 16 }), h("span", {}, h("strong", {}, t), h("span", { class: "muted small" }, sub)));
-    startSel.appendChild(b);
-  }
+  const drawExtra = () => { replace(extra, start === "copy" ? field("Copy of", copySel) : start === "csv" ? field("CSV file", file)
+    : start === "qdc" ? field("File", qdcFile, { help: "In the other program, export the codebook as a REFI-QDA codebook (.qdc)." }) : null); };
+  // how to start: option cards (docs/DESIGN.md 4.7), one under the other
+  const startSel = optionCards({ label: "Start", class: "cb-start-pick", value: start, options: STARTS.map(([k, t, sub, ic]) => ({ value: k, title: t, text: sub, icon: ic })),
+    onPick: (k) => {
+      start = k; drawExtra();
+      const go = startSel.closest("dialog") && startSel.closest("dialog").querySelector(".dialog-actions .btn-primary");
+      if (go) go.textContent = start === "themes" || start === "theory" ? "Next" : "Create";   // themes: a second step to tick them; theory: its documents, then its page
+    } });
   drawExtra();
   const err = h("div", { class: "field-error", role: "alert" });
   const r = await dialog({
@@ -111,7 +134,7 @@ export async function newCodebook(start = "fresh", opts = {}) {
     body: h("div", { class: "stack" }, h("div", { class: "fields-2" }, field("Title", title), field("Short name", name, { help: "letters, digits, - and _ (the file's name)" })),
       h("div", { class: "field" }, h("span", { class: "field-label" }, "Kept"), whereSel, h("div", { class: "field-help" }, "All my projects: every project can use it, and a change shows in each. A project can still take its own copy later.")),
       h("div", { class: "field" }, h("span", { class: "field-label" }, "Start"), startSel, extra), err),
-    actions: [{ text: "Cancel", value: null }, { text: start === "themes" ? "Next" : "Create", value: true, primary: true, onClick: async () => {
+    actions: [{ text: "Cancel", value: null }, { text: start === "themes" || start === "theory" ? "Next" : "Create", value: true, primary: true, onClick: async () => {
       err.textContent = "";
       if (!title.value.trim()) { err.textContent = "Give the codebook a title."; title.focus(); return false; }
       return true;
@@ -124,19 +147,64 @@ export async function newCodebook(start = "fresh", opts = {}) {
   if (start === "csv") {
     const f = file.files && file.files[0];
     if (!f) { toast("Choose a CSV file.", "info"); return; }
-    body.source = { csv: await readCsv(f) };
+    body.source = { csv: await readTextFile(f) };
+  }
+  if (start === "qdc") {
+    const f = qdcFile.files && qdcFile.files[0];
+    if (!f) { toast("Choose a .qdc or .qdpx file.", "info"); return; }
+    if (f.size > 14 * 1024 * 1024) { toast("The file is larger than 14 MB. Export only the codebook (.qdc) and bring that in.", "info"); return; }
+    body.source = { file: await fileBase64(f), filename: f.name };
   }
   if (start === "themes") {
     const picked = await pickThemes(where === "home");
     if (!picked) return;
     body.source = { codes: picked };
   }
+  if (start === "theory") { await startTheoryDraft(body); return; }   // K2: a draft on a page of its own
   try {
-    const res = await api("POST", base, body);
+    let res;
+    try { res = await api("POST", base, body); } catch (e) {
+      // a .qdpx Margin wrote with several codebooks: choose one, and send it again (qdc_import.SeveralCodebooks)
+      const several = start === "qdc" && e.data && Array.isArray(e.data.codebooks) ? e.data.codebooks : null;
+      if (!several) throw e;
+      const one = await pickQdcCodebook(several);
+      if (!one) return;
+      body.source.codebook = one;
+      res = await api("POST", base, body);
+    }
     forgetFrameworks();
-    toast("Codebook made. The research log says so.", "ok");
+    if (res.codebook.imported) await importSummary(res.codebook);
+    else toast("Codebook made. The research log says so.", "ok");
     location.hash = `#/codebooks/${encodeURIComponent(res.codebook.name)}`;
   } catch (e) { showError(e); }
+}
+
+// A file's bytes as base64, for a JSON body (a .qdpx is a zip; a .qdc may be UTF-16, read on the server).
+async function fileBase64(f) {
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+// Which of the codebooks in a project file Margin wrote to bring in (each was a "<title> (codebook)" code).
+async function pickQdcCodebook(titles) {
+  let picked = titles[0];
+  const pick = optionCards({ label: "Codebook", value: picked, options: titles.map((t) => ({ value: t, title: t })), onPick: (t) => { picked = t; } });
+  const r = await dialog({ title: "Which codebook?", body: h("div", { class: "stack" },
+    h("p", {}, `The file holds ${plural(titles.length, "codebook")}. Choose the one to bring in.`), pick),
+    actions: [{ text: "Cancel", value: null }, { text: "Bring it in", value: true, primary: true }] });
+  return r ? picked : null;
+}
+
+// What a REFI-QDA codebook brought in became: codes, groups, and what was folded or left out (qdc_import.py).
+async function importSummary(cb) {
+  const notes = cb.imported.notes || [];
+  await dialog({ title: "Codebook brought in", body: h("div", { class: "stack" },
+    h("p", {}, notes[0] || `${plural(cb.codes.length, "code")} brought in.`),
+    notes.length > 1 ? h("ul", { class: "cb-import-notes" }, notes.slice(1).map((n) => h("li", {}, n))) : null,
+    h("p", { class: "muted small" }, "Check the codes in the editor: each needs a definition the AI can read. The research log says so.")),
+    actions: [{ text: "Open the codebook", value: true, primary: true }] });
 }
 
 // The themes found (this project's, and with `all` every project's) to start from: tick the ones to keep. 0.16.1:
@@ -148,7 +216,7 @@ async function pickThemes(all) {
   try { runs = (await api("GET", `${base}${all ? "?all=1" : ""}`)).runs; } catch (e) { showError(e); return null; }
   if (!runs.length) {
     await dialog({ title: "No themes yet", body: h("div", {}, h("p", {}, "Find the themes of the documents first (Themes, in the sidebar): they take seconds and need no AI."),
-      h("a", { class: "btn btn-sm", href: "#/themes" }, icon("shapes", { size: 14 }), "Go to Themes")) });
+      link({ kind: "next", href: "#/themes" }, "Go to Themes")) });
     return null;
   }
   const boxes = [];
@@ -161,8 +229,8 @@ async function pickThemes(all) {
       const names = t.names && t.names.length ? t.names : [t.code.code];
       let at = Math.min(Math.max(t.pick || 0, 0), names.length - 1);
       const strong = h("strong", { class: "cb-theme-code" });
-      const less = h("button", { class: "btn btn-ghost btn-sm cb-step", type: "button" }, icon("minus", { size: 12 }));
-      const more = h("button", { class: "btn btn-ghost btn-sm cb-step", type: "button" }, icon("plus", { size: 12 }));
+      const less = iconButton({ icon: "minus", size: 12, sm: true, class: "cb-step", label: `${t.name}: less specific name` });
+      const more = iconButton({ icon: "plus", size: 12, sm: true, class: "cb-step", label: `${t.name}: more specific name` });
       const from = h("span", { class: "muted small" });
       const show = () => {
         t.code.code = names[at];
@@ -181,7 +249,7 @@ async function pickThemes(all) {
       more.setAttribute("aria-label", `${t.name}: more specific name`);
       show();
       boxes.push([cb, t, move]);
-      const unsure = t.sure === false ? h("span", { class: "badge cb-unsure", title: "The documents could not show whether this name is specific enough: its words are rare in them, or in another language. Check it." }, "check it") : null;
+      const unsure = t.sure === false ? tag({ kind: "attention", title: "The documents could not show whether this name is specific enough: its words are rare in them, or in another language. Check it." }, "check it") : null;
       fs.appendChild(h("label", { class: "cb-theme" }, cb, h("span", {},
         h("span", { class: "cb-theme-name" }, strong, h("span", { class: "cb-steps" }, less, more), unsure,
           h("span", { class: "muted small" }, ` · ${plural(t.size, "passage")}`), from),
@@ -194,8 +262,8 @@ async function pickThemes(all) {
     body: h("div", {}, h("p", {}, "Each theme you tick becomes a draft code: a short name made of words of its name, its description (where the AI named it), its key terms as the words it is matched by, and its best passages as examples. Removed themes are left out. You edit them next."),
       h("p", { class: "muted small cb-step-help" }, "Each name is as short as the documents allow: a shorter one is used too often outside its theme. ",
         icon("minus", { size: 12 }), " and ", icon("plus", { size: 12 }), " make a name less or more specific. Every ticked theme: ",
-        h("button", { class: "btn btn-sm", type: "button", onClick: () => everyTicked(-1) }, icon("minus", { size: 12 }), "Shorter"),
-        " ", h("button", { class: "btn btn-sm", type: "button", onClick: () => everyTicked(1) }, icon("plus", { size: 12 }), "Longer")),
+        button({ sm: true, onClick: () => everyTicked(-1) }, icon("minus", { size: 12 }), "Shorter"),
+        " ", button({ sm: true, onClick: () => everyTicked(1) }, icon("plus", { size: 12 }), "Longer")),
       list),
     actions: [{ text: "Cancel", value: null }, { text: "Make the codebook", value: true, primary: true }] });
   if (!r) return null;
@@ -210,6 +278,58 @@ async function pickThemes(all) {
     if (n > 1) c.code = `${cutAtWord(c.code, 40 - ` (${n})`.length)} (${n})`;
   }
   return picked;
+}
+
+// K2, rebuilt (2026-11-15): a codebook from theory documents is shaped on a page of its own, as a framework draft
+// (views/theory-draft.js, theoryframe.py). Here only its start: a draft that is there already is continued or started
+// again, then the theory documents are chosen (and, if the researcher likes, what they want to find out), and the
+// draft is made (without AI) and opened. A draft takes minutes of AI reading and many choices, so it is a page, not a
+// dialog (DESIGN.md 4.16).
+async function startTheoryDraft({ title, name, where }) {
+  const base = `/api/projects/${P(App.project)}/codebook-theory`;
+  let got;
+  try { got = await api("GET", `${base}/draft`); } catch (e) { showError(e); return; }
+  const docs = got.documents || [];
+  if (got.draft) {
+    const d = got.draft;
+    const kept = d.concepts.filter((c) => c.keep).length;
+    const r = await dialog({ title: "You have a draft already",
+      body: h("div", {}, h("p", {}, `You have a draft: “${d.title}” (${plural(kept, "concept")} in the codebook).`),
+        h("p", { class: "muted small" }, "Start again removes that draft and what you changed in it. What the AI read is kept, so reading again costs nothing.")),
+      actions: [{ text: "Cancel", value: null }, { text: "Start again", value: "again" }, { text: "Continue the draft", value: "continue", primary: true }] });
+    if (!r) return;
+    if (r === "continue") { location.hash = "#/codebooks/draft/theory"; return; }
+  }
+  const picked = await pickTheory(docs);
+  if (!picked) return;
+  try {
+    await api("POST", `${base}/draft`, { title, name, where, doc_ids: picked.doc_ids, focus: picked.focus });
+    location.hash = "#/codebooks/draft/theory";
+  } catch (e) { showError(e); }
+}
+
+// Which theory documents (theory documents first and ticked), and what the researcher wants to find out (optional)
+async function pickTheory(docs) {
+  if (!docs.length) { toast("Add the theory documents to the project first.", "info"); return null; }
+  const theory = docs.filter((d) => d.theory);
+  const docBoxes = docs.map((d) => [h("input", { type: "checkbox", checked: d.theory }), d]);
+  const focus = textarea({ rows: 2, maxlength: 500, placeholder: "e.g. How do repair cafés make repairing a shared, everyday practice again?" });
+  const err = h("div", { class: "field-error", role: "alert" });
+  const ok = await dialog({ title: "Start from theory documents", body: h("div", { class: "stack" },
+    h("p", {}, theory.length ? "Which theories do you read your documents through? Tick every one: their concepts are put together into one framework."
+      : "No document is marked as theory yet (Documents: a row’s menu, Mark as theory). You can still tick any documents."),
+    h("div", { class: "cb-theme-pick", role: "group", "aria-label": "Theory documents" },
+      docBoxes.map(([cb, d]) => h("label", { class: "cb-theme" }, cb, h("span", {}, d.title, d.theory ? h("span", { class: "muted small" }, " · theory") : null)))),
+    field(["What do you want to find out? ", h("span", { class: "muted" }, "(optional)")], focus,
+      { help: "A sentence or two about your study. When the AI reads the theory, the concepts are put in its words." }),
+    err),
+    actions: [{ text: "Cancel", value: null }, { text: "Start the draft", value: true, primary: true, onClick: () => {
+      if (docBoxes.some(([cb]) => cb.checked)) return true;
+      err.textContent = "Tick at least one document.";
+      return false;
+    } }] });
+  if (!ok) return null;
+  return { doc_ids: docBoxes.filter(([cb]) => cb.checked).map(([, d]) => d.doc_id), focus: focus.value.trim() };
 }
 
 // `text` in at most `n` characters, cut before a word (only a single word longer than `n` is cut inside)
@@ -231,9 +351,15 @@ export async function renderCodebook(view, [name]) {
   let cb;
   try { cb = (await api("GET", base)).codebook; }
   catch (e) {
-    if (e.status === 404) { view.appendChild(emptyState("search-x", "No such codebook", "It was removed, or it belongs to another project.", h("a", { class: "btn", href: "#/codebooks" }, "All codebooks"))); return; }
+    if (e.status === 404) { view.appendChild(emptyState("search-x", "No such codebook", "It was removed, or it belongs to another project.", link({ kind: "back", href: "#/codebooks" }, "All codebooks"))); return; }
     throw e;
   }
+  let trying = false, tryWatch = null;   // the job of Try it, while it runs
+  const defineOffers = new Map();   // K1: whether the AI may draft from these examples, by the examples' quotes
+  const pendingDraft = new Map();   // K1: a draft not taken or put aside yet, by code (its uid; the code itself while unsaved)
+  const definingNow = new Set();    // K1: the codes whose draft is being made (same keys)
+  const savedAs = new WeakMap();    // K1: an unsaved code's key → its uid once saved (a draft asked before the save)
+  const defineBoxes = new Map();    // K1: each open code's define box, by the same keys (refreshed alone)
   let st, merges, dirty = false, tried = null, openCode = session(`cb-open:${key}`) || null;
   // what the codebook was when unsaved edits began: a draft made on another state (restored meanwhile, or changed in
   // another window) is set aside rather than saved over it
@@ -257,27 +383,38 @@ export async function renderCodebook(view, [name]) {
   const ro = !cb.editable;
 
   // ---- the head
+  // DEC-2 (`draftNote`): a line of the head, under the title's line. Among the actions it wrapped them to three rows
+  // and stood the buttons above the back link (the back link sits on the actions' last row)
+  const dlNote = h("p", { class: "muted small cb-dl-note" });
+  function drawDlNote() {
+    const t = draftNote(st.codes);
+    dlNote.textContent = t || "";
+    dlNote.hidden = !t;
+  }
   function drawHead() {
+    drawDlNote();
     const moreItems = [];
     if (!ro) {
       if (cb.where === "project" && !cb.in_home) moreItems.push(["layers", "Keep it with all my projects", () => move("home")]);
       if (cb.where === "home") moreItems.push(["folder", "Keep it with this project only", () => move("project")], ["copy", "This project's own copy (change it here only)", copyHere]);
-      moreItems.push(["trash", "Remove the codebook", removeCodebook]);
+      moreItems.push(["trash", "Remove the codebook", removeCodebook, true]);
     }
-    const more = moreItems.length ? h("details", { class: "menu cb-more" }, h("summary", { class: "btn btn-ghost btn-sm", "aria-label": "More" }, icon("more-horizontal", { size: 15 })),
-      h("div", { class: "menu-list", role: "menu" }, moreItems.map(([ic, t, fn]) => h("button", { class: "menu-item", type: "button", role: "menuitem", onClick: (e) => { e.target.closest("details").open = false; fn(); } }, icon(ic, { size: 14 }), t)))) : null;
+    const more = moreItems.length ? menu({ class: "cb-more", items: moreItems.map(([ic, t, fn, danger]) => ({ icon: ic, text: t, onClick: () => fn(), danger: !!danger })) }) : null;
     replace(head, pageHead(cb.title || cb.name, {
-      eyebrow: h("span", {}, h("a", { href: "#/codebooks", class: "it" }, icon("book-marked", { size: 12 }), "All codebooks")),
+      back: { href: "#/codebooks", text: "All codebooks" },
       sub: h("span", { class: "cb-meta" }, whereBadge(cb.where), `${plural(st.codes.length, "code")} · each is called “${st.label}”`,
         cb.used.labels ? ` · ${plural(cb.used.labels, "label")} in this project` : "", cb.used.checks ? ` · ${plural(cb.used.checks, "check")}` : "",
         cb.shadows_home ? h("span", { class: "muted" }, " · this project's own copy of a codebook kept with all projects") : null),
+      meta: dlNote,
       actions: h("div", { class: "btn-row" },
-        ro ? h("button", { class: "btn btn-primary btn-sm", type: "button", onClick: () => newCodebook("copy", { of: cb.name, title: `${cb.title} (copy)` }) }, icon("copy", { size: 14 }), "Make a copy to change it") : null,
-        h("button", { class: "btn btn-sm", type: "button", title: "Without AI: how many passages and documents the keyword pass would pick for each code", onClick: tryIt }, icon("zap", { size: 14 }), "Try it"),
-        ro ? null : h("button", { class: "btn btn-ghost btn-sm", type: "button", title: "Earlier versions: compare them with now, or restore one",
+        ro ? button({ kind: "main", sm: true, onClick: () => newCodebook("copy", { of: cb.name, title: `${cb.title} (copy)` }) }, icon("copy", { size: 14 }), "Make a copy to change it") : null,
+        button({ sm: true, title: "Without AI: how many passages and documents the keyword pass would pick for each code", disabled: trying, onClick: (e) => tryIt(e.currentTarget) }, icon("zap", { size: 14 }), "Try it"),
+        ro ? null : button({ kind: "quiet", sm: true, title: "Earlier versions: compare them with now, or restore one",
           onClick: () => { if (dirty) { toast("Save or discard your changes first: a restore would replace them.", "info"); return; } showHistory({ kind: "codebook", key: cb.name, onRestored: reload }); } },
           icon("history", { size: 14 }), "History"),
-        h("button", { class: "btn btn-ghost btn-sm", type: "button", onClick: () => download(`${base}.csv`).catch(showError) }, icon("download", { size: 14 }), "CSV"),
+        downloadButton({ onClick: () => download(`${base}.csv`).catch(showError) }, "CSV"),
+        // 0.18.7 (G5): the codebook for NVivo, ATLAS.ti and MAXQDA
+        downloadButton({ title: "A REFI-QDA codebook, for NVivo, ATLAS.ti and MAXQDA: each code with its definition", onClick: () => download(`${base}.qdc`).catch(showError) }, "Download as .qdc"),
         more),
     }));
   }
@@ -285,20 +422,21 @@ export async function renderCodebook(view, [name]) {
   // ---- notices: removed codes whose labels wait, codes labelled with an earlier wording
   function drawNotices() {
     clear(notices);
-    if (saved && dirty) notices.appendChild(h("div", { class: "notice notice-info" }, icon("info"), h("p", {}, "Your unsaved changes from before are kept below: save them or discard them.")));
-    if (setAside) notices.appendChild(h("div", { class: "notice notice-warn" }, icon("alert-triangle"), h("p", {}, "The codebook changed since your unsaved changes (it was restored, or changed elsewhere), so they were discarded rather than saved over it. It is shown as it is now.")));
+    if (saved && dirty) notices.appendChild(notice({ kind: "info" }, h("p", {}, "Your unsaved changes from before are kept below: save them or discard them.")));
+    if (setAside) notices.appendChild(notice({ kind: "attention" }, h("p", {}, "The codebook changed since your unsaved changes (it was restored, or changed elsewhere), so they were discarded rather than saved over it. It is shown as it is now.")));
     const stale = Object.entries(cb.stale || {});
     if (stale.length) {
-      notices.appendChild(h("div", { class: "notice notice-warn cb-stale" }, icon("alert-triangle"), h("div", {},
+      notices.appendChild(notice({ kind: "attention", class: "cb-stale" }, h("div", {},
         h("p", {}, h("strong", {}, "The AI labelled with an earlier wording. "), "These codes changed after the AI used them. Their labels stay as they are until you ask for these passages to be labelled again (only those passages)."),
         h("ul", {}, stale.map(([code, s]) => h("li", {}, h("strong", {}, code), ` · ${plural(s.passages, "passage")} labelled before ${fmt.date(s.since)} `,
-          h("button", { class: "btn btn-sm", type: "button", onClick: () => relabel(code) }, icon("refresh", { size: 13 }), "Label them again")))))));
+          withAI(button({ sm: true, onClick: () => relabel(code) }, icon("refresh", { size: 13 }), "Label them again"))))),
+        readsLine("the passages of these codes again"))));
     }
     if ((cb.removed || []).length) {
-      notices.appendChild(h("details", { class: "card cb-removed" }, h("summary", {}, icon("inbox", { size: 15 }), h("strong", {}, `Removed codes (${cb.removed.length})`), h("span", { class: "muted small" }, " · their labels wait here, not deleted")),
+      notices.appendChild(card({ as: "details", class: "cb-removed" }, h("summary", {}, icon("inbox", { size: 15 }), plural(cb.removed.length, "removed code"), h("span", { class: "muted small" }, " · their labels wait here, not deleted")),
         h("ul", {}, cb.removed.map((r) => h("li", {}, h("strong", {}, r.code), ` · ${plural(r.labels, "label")}`, r.description ? h("span", { class: "muted" }, ` · ${shortTitle(r.description, 90)}`) : null,
           r.definition && r.definition.merged_into ? h("span", { class: "muted small" }, ` · merged into ${r.definition.merged_into}; these passages had both`) : null,
-          !ro && r.uid ? h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => bringBack(r) }, icon("undo", { size: 13 }), "Bring it back") : null)))));
+          !ro && r.uid ? button({ kind: "quiet", sm: true, onClick: () => bringBack(r) }, icon("undo", { size: 13 }), "Bring it back") : null)))));
     }
   }
 
@@ -312,28 +450,31 @@ export async function renderCodebook(view, [name]) {
     drawHead();
     drawNotices();
     clear(body);
+    defineBoxes.clear();
     if (!ro) {
-      body.appendChild(h("details", { class: "card cb-settings" }, h("summary", {}, icon("sliders", { size: 14 }), "Codebook settings"),
+      body.appendChild(card({ as: "details", class: "cb-settings" }, h("summary", {}, icon("sliders", { size: 14 }), "Codebook settings"),
         h("div", { class: "fields-2" },
-          field("Title", input(st.title, (v) => { st.title = v; }, { maxlength: 200 })),
-          field("What one code is called", input(st.label, (v) => { st.label = v || "code"; }, { maxlength: 40 }), { help: "e.g. code, theme, category" })),
+          field("Title", textField(st.title, (v) => { st.title = v; }, { maxlength: 200 })),
+          field("What one code is called", textField(st.label, (v) => { st.label = v || "code"; }, { maxlength: 40 }), { help: "e.g. code, theme, category" })),
         (() => { const sw = switchControl("Its codes are aims a text can help or hinder", st.directional, { help: "Like the SDG targets: the AI's labels then also say whether a passage helps, hinders or does not say." });
           sw.input.addEventListener("change", () => { st.directional = sw.input.checked; touch(); }); return sw; })()));
     }
     if (!st.codes.length) {
-      body.appendChild(h("div", { class: "empty" }, icon("book-marked", { size: 28 }), h("h3", {}, "No codes yet"), h("p", {}, "Add a first code: a short name and a sentence that says what it is about.")));
+      body.appendChild(emptyState("book-marked", "No codes yet", "Add a first code: a short name and a sentence that says what it is about."));
     }
     for (const g of groupsInOrder()) {
       const codes = st.codes.filter((c) => c.group === g.group);
       if (!codes.length && ro) continue;
-      const sec = h("section", { class: "cb-group", dataset: { group: g.group } });
+      // a group is a card; its codes are rows divided by lines (two levels of boxes at most, DESIGN 4.11)
+      const sec = card({ as: "section", class: "cb-group", dataset: { group: g.group } });
       const gName = ro ? h("h2", { class: "cb-group-name" }, g.group_name || g.group || "Codes without a group")
-        : input(g.group_name, (v) => { const x = st.groups.find((y) => y.group === g.group); if (x) x.group_name = v; else st.groups.push({ group: g.group, group_name: v }); },
-          { class: "input cb-group-input", placeholder: g.group ? `Group ${g.group}` : "Codes without a group", "aria-label": "Group name" });
+        : textField(g.group_name, (v) => { const x = st.groups.find((y) => y.group === g.group); if (x) x.group_name = v; else st.groups.push({ group: g.group, group_name: v }); },
+          { class: "cb-group-input", placeholder: g.group ? `Group ${g.group}` : "Codes without a group", "aria-label": "Group name" });
       if (g.group && gName.tagName === "INPUT") gName.title = `Short name in the CSV file: ${g.group}`;
       sec.appendChild(h("div", { class: "cb-group-head" }, gName,
         h("span", { class: "muted small" }, plural(codes.length, "code")),
-        ro ? null : h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => addCode(g.group) }, icon("plus", { size: 13 }), "Add a code")));
+        ro ? null : button({ kind: "quiet", sm: true, onClick: () => addCode(g.group) }, icon("plus", { size: 13 }), "Add a code"),
+        ro || !g.group ? null : button({ kind: "quiet", sm: true, class: "cb-group-remove", onClick: () => removeGroup(g) }, icon("trash", { size: 13 }), "Remove group")));
       const ul = h("ul", { class: "cb-codes" });
       for (const c of codes) ul.appendChild(codeCard(c));
       if (!ro) dropZone(sec, g.group);
@@ -341,18 +482,19 @@ export async function renderCodebook(view, [name]) {
       body.appendChild(sec);
     }
     if (!ro) body.appendChild(h("div", { class: "btn-row cb-foot" },
-      h("button", { class: "btn btn-sm", type: "button", onClick: addGroup }, icon("plus", { size: 13 }), "Add a group"),
-      !st.codes.length ? h("button", { class: "btn btn-sm btn-primary", type: "button", onClick: () => addCode("") }, icon("plus", { size: 13 }), "Add a code") : null));
+      button({ sm: true, onClick: addGroup }, icon("plus", { size: 13 }), "Add a group"),
+      !st.codes.length ? button({ kind: "main", sm: true, onClick: () => addCode("") }, icon("plus", { size: 13 }), "Add a code") : null));
     drawSaveBar();
   }
 
-  function input(value, onChange, attrs = {}) {
-    const el = h("input", { class: "input", type: "text", value: value || "", ...attrs });
+  function textField(value, onChange, attrs = {}) {
+    const el = input({ value: value || "", ...attrs });
     el.addEventListener("input", () => { onChange(el.value); touch(); });
     return el;
   }
   function area(value, onChange, attrs = {}) {
-    const el = h("textarea", { class: "input", rows: 2, ...attrs }, value || "");
+    const el = textarea({ rows: 2, ...attrs });
+    el.value = value || "";
     el.addEventListener("input", () => { onChange(el.value); touch(); });
     return el;
   }
@@ -362,15 +504,16 @@ export async function renderCodebook(view, [name]) {
     const open = openCode === c.uid || (!c.uid && openCode === c.code);
     const stale = (cb.stale || {})[c.code];
     const li = h("li", { class: "cb-code" + (open ? " cb-open" : ""), dataset: { uid: c.uid || "", code: c.code } });
-    const count = t ? h("span", { class: "badge" + (t.note ? " badge-warn" : ""), title: t.note || "" }, `${plural(t.passages, "passage")} · ${plural(t.documents, "doc")}`) : null;
+    const count = t ? (t.note ? tag({ kind: "attention", title: t.note }, `${plural(t.passages, "passage")} · ${plural(t.documents, "doc")}`) : tag({}, `${plural(t.passages, "passage")} · ${plural(t.documents, "doc")}`)) : null;
     const summary = h("button", { class: "cb-code-sum", type: "button", "aria-expanded": open ? "true" : "false", onClick: () => {
       openCode = open ? null : (c.uid || c.code); session(`cb-open:${key}`, openCode); draw();
       if (!open) setTimeout(() => { const x = body.querySelector(`.cb-open input`); if (x) x.focus(); }, 0);
     } },
       h("span", { class: "cb-code-name" }, c.code || h("em", { class: "muted" }, "new code")),
       h("span", { class: "cb-code-desc" }, c.description ? shortTitle(c.description, 140) : h("em", { class: "muted" }, "no definition yet")),
-      h("span", { class: "cb-code-badges" }, stale ? h("span", { class: "badge badge-warn", title: "Labelled by the AI with an earlier wording" }, "earlier wording") : null,
-        (c.examples || []).length ? h("span", { class: "badge" }, icon("quote", { size: 11 }), (c.examples || []).length) : null, count),
+      h("span", { class: "cb-code-badges" }, stale ? tag({ kind: "attention", title: "Labelled by the AI with an earlier wording" }, "earlier wording") : null,
+        draftFields(c).length ? tag({ icon: "sparkles", title: "Words the AI drafted and you have not rewritten yet" }, "AI draft") : null,
+        (c.examples || []).length ? tag({ icon: "quote", title: "Examples" }, plural((c.examples || []).length, "example")) : null, count),
       icon(open ? "chevron-up" : "chevron-down", { size: 15 }));
     const grip = ro ? null : h("span", { class: "cb-grip", title: "Drag to move", "aria-hidden": "true" }, icon("grip", { size: 15 }));
     li.append(h("div", { class: "cb-code-row" }, grip, summary));
@@ -387,9 +530,9 @@ export async function renderCodebook(view, [name]) {
     return li;
   }
   function dropZone(sec, group) {
-    sec.addEventListener("dragover", (e) => { e.preventDefault(); sec.classList.add("cb-drop-group"); });
-    sec.addEventListener("dragleave", (e) => { if (!sec.contains(e.relatedTarget)) sec.classList.remove("cb-drop-group"); });
-    sec.addEventListener("drop", (e) => { e.preventDefault(); sec.classList.remove("cb-drop-group"); moveCode(e.dataTransfer.getData("text/plain"), null, group); });
+    sec.addEventListener("dragover", (e) => { e.preventDefault(); sec.dataset.drop = "true"; });
+    sec.addEventListener("dragleave", (e) => { if (!sec.contains(e.relatedTarget)) delete sec.dataset.drop; });
+    sec.addEventListener("drop", (e) => { e.preventDefault(); delete sec.dataset.drop; moveCode(e.dataTransfer.getData("text/plain"), null, group); });
   }
   const find = (id) => st.codes.find((x) => (x.uid || x.code) === id);
   function moveCode(id, before, group) {
@@ -419,26 +562,35 @@ export async function renderCodebook(view, [name]) {
   }
   function triedExamples(t) {
     if (!t) return null;
-    return h("div", { class: "cb-tried" }, h("p", { class: "small" }, h("strong", {}, "Try it: "), `${plural(t.passages, "passage")} in ${plural(t.documents, "document")}`, t.note ? h("span", { class: "warn-text" }, ` · ${t.note}`) : null),
-      t.examples.length ? h("ul", { class: "cb-tried-list" }, t.examples.map((x) => h("li", {}, h("a", { href: `#/doc/${encodeURIComponent(x.doc_id)}` }, shortTitle(x.title || x.doc_id, 60)), x.page ? h("span", { class: "muted" }, ` p. ${x.page}`) : null, ": ", h("span", { class: "serif" }, `“${x.text}”`)))) : null);
+    return inset({ class: "cb-tried" }, h("p", { class: "small" }, h("strong", {}, "Try it: "), `${plural(t.passages, "passage")} in ${plural(t.documents, "document")}`, t.note ? [" ", tag({ kind: "attention" }, t.note)] : null),
+      t.examples.length ? h("ul", { class: "cb-tried-list" }, t.examples.map((x) => h("li", {}, link({ kind: "title", serif: true, href: `#/doc/${encodeURIComponent(x.doc_id)}` }, shortTitle(x.title || x.doc_id, 60)), x.page ? h("span", { class: "muted" }, ` p. ${x.page}`) : null, ": ", h("span", { class: "serif" }, `“${x.text}”`)))) : null);
   }
 
   function detail(c, t) {
     const groups = groupsInOrder();
-    const groupSel = h("select", { class: "input", "aria-label": "Group" },
+    const groupSel = select({ "aria-label": "Group" },
       groups.map((g) => h("option", { value: g.group, selected: g.group === c.group }, g.group_name || g.group || "No group")));
     groupSel.addEventListener("change", () => moveCode(c.uid || c.code, null, groupSel.value));
-    const kw = input((c.keywords || []).join(", "), (v) => { c.keywords = v.split(/[,;]/).map((x) => x.trim()).filter(Boolean); }, { placeholder: "e.g. commute, commuting, travel to work" });
+    const kw = textField((c.keywords || []).join(", "), (v) => { c.keywords = v.split(/[,;]/).map((x) => x.trim()).filter(Boolean); }, { placeholder: "e.g. commute, commuting, travel to work" });
+    // K1: the words still the AI's draft, said under the three fields until you rewrite them
+    const mark = h("div", { class: "cb-draft-mark", "aria-live": "polite" });
+    const drawMark = () => {
+      const f = draftFields(c);
+      replace(mark, f.length ? h("p", { class: "small" }, tag({ icon: "sparkles" }, "AI draft"), " ",
+        `${capital(listWords(f.map((k) => DRAFT_LABEL[k])))} ${f.length === 1 ? "is" : "are"} still the AI’s words${c.ai_draft.model ? ` (${c.ai_draft.model})` : ""}, drafted from the examples. Rewrite ${f.length === 1 ? "it" : "them"} in your own words; the mark goes when you do.`) : null);
+      drawDlNote();   // the line under the title counts what is on screen
+    };
+    drawMark();
     const exList = h("ul", { class: "cb-examples" });
     const drawExamples = () => {
       clear(exList);
       (c.examples || []).forEach((e, i) => exList.appendChild(h("li", {}, h("span", { class: "serif" }, `“${e.quote}”`),
         h("span", { class: "muted small" }, e.title ? ` · ${shortTitle(e.title, 50)}${e.page ? `, p. ${e.page}` : ""}` : " · not found in this project's documents"),
-        h("button", { class: "link-btn danger-link", type: "button", onClick: () => { c.examples.splice(i, 1); touch(); drawExamples(); } }, "Remove"))));
+        button({ kind: "danger", sm: true, onClick: () => { c.examples.splice(i, 1); touch(); drawExamples(); } }, "Remove"))));
     };
     drawExamples();
-    const exInput = h("textarea", { class: "input", rows: 2, placeholder: "Paste words of a document, exactly as they are there" });
-    const exBtn = h("button", { class: "btn btn-sm", type: "button", onClick: async () => {
+    const exInput = textarea({ rows: 2, placeholder: "Paste words of a document, exactly as they are there" });
+    const exBtn = button({ sm: true, onClick: async () => {
       const q = exInput.value.trim();
       if (!q) { exInput.focus(); return; }
       exBtn.disabled = true;
@@ -450,26 +602,147 @@ export async function renderCodebook(view, [name]) {
       } catch (e) { showError(e); } finally { exBtn.disabled = false; }
     } }, icon("quote", { size: 13 }), "Add the example");
     const others = st.codes.filter((x) => x !== c && x.uid);  // a code saved already (a new one has no labels to take)
-    const mergeSel = h("select", { class: "input cb-merge", "aria-label": `Merge ${c.code} into another code` }, h("option", { value: "" }, "Merge into…"), others.map((x) => h("option", { value: x.uid }, x.code)));
+    const mergeSel = select({ sm: true, class: "cb-merge", "aria-label": `Merge ${c.code} into another code` }, h("option", { value: "" }, "Merge into…"), others.map((x) => h("option", { value: x.uid }, x.code)));
     mergeSel.addEventListener("change", () => mergeInto(c, find(mergeSel.value)));
     return h("div", { class: "cb-detail" },
       h("div", { class: "fields-2" },
-        field("Name", input(c.code, (v) => { c.code = v; }, { maxlength: 40 }), { help: "Short: it is how labels and checks name the code." }),
+        field("Name", textField(c.code, (v) => { c.code = v; }, { maxlength: 40 }), { help: "Short: it is how labels and checks name the code." }),
         field("Group", groupSel)),
-      field("Definition", area(c.description, (v) => { c.description = v; }, { rows: 3, maxlength: 4000 }), { help: "What the code is about, in a sentence or two. The AI reads it when it labels." }),
+      field("Definition", area(c.description, (v) => { c.description = v; drawMark(); }, { rows: 3, maxlength: 4000 }), { help: "What the code is about, in a sentence or two. The AI reads it when it labels." }),
       h("div", { class: "fields-2" },
-        field("When to use it", area(c.include, (v) => { c.include = v; }, { maxlength: 2000 })),
-        field("When not to use it", area(c.exclude, (v) => { c.exclude = v; }, { maxlength: 2000 }))),
+        field("When to use it", area(c.include, (v) => { c.include = v; drawMark(); }, { maxlength: 2000 })),
+        field("When not to use it", area(c.exclude, (v) => { c.exclude = v; drawMark(); }, { maxlength: 2000 }))),
+      mark,
       field("Words it is matched by", kw, { help: "Besides its definition, for the keyword pass. Separate them with commas." }),
       h("div", { class: "field" }, h("span", { class: "field-label" }, "Examples from the documents"), exList, exInput, h("div", { class: "btn-row" }, exBtn,
         h("span", { class: "muted small" }, "Each example is checked: it must be words of a document of this project."))),
+      defineBox(c),
       triedExamples(t),
       h("div", { class: "btn-row cb-code-actions" },
-        h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => step(c, -1), "aria-label": `Move ${c.code} up` }, icon("arrow-up", { size: 13 }), "Up"),
-        h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => step(c, 1), "aria-label": `Move ${c.code} down` }, icon("chevron-down", { size: 13 }), "Down"),
-        h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: () => splitCode(c), title: "A second code made from this one; its labels stay with this one" }, icon("split", { size: 13 }), "Split"),
+        button({ kind: "quiet", sm: true, onClick: () => step(c, -1), "aria-label": `Move ${c.code} up` }, icon("arrow-up", { size: 13 }), "Up"),
+        button({ kind: "quiet", sm: true, onClick: () => step(c, 1), "aria-label": `Move ${c.code} down` }, icon("chevron-down", { size: 13 }), "Down"),
+        button({ kind: "quiet", sm: true, onClick: () => splitCode(c), title: "A second code made from this one; its labels stay with this one" }, icon("split", { size: 13 }), "Split"),
         others.length ? mergeSel : null,
-        h("button", { class: "btn btn-sm btn-ghost danger-link", type: "button", onClick: () => removeCode(c) }, icon("trash", { size: 13 }), "Remove")));
+        button({ kind: "danger", sm: true, onClick: () => removeCode(c) }, icon("trash", { size: 13 }), "Remove")));
+  }
+
+  // ---- K1 (the optional AI part): a code's definition drafted from its examples (codedefine.py) -----------------
+  // Asked only for an open code with two examples or more; the answer waits beside the fields (`pending`) until you
+  // take it or put it aside, and survives a redraw. Taken words are marked as the AI's (`c.ai_draft`), which the save
+  // keeps while the fields still hold them word for word.
+  // an unsaved code is its own key (it keeps it through renames and redraws); at a save its draft moves to its uid
+  function defineKey(c) { return c.uid || c; }
+  function keepPendingThroughSave(before, busy) {
+    const moved = (k) => {
+      if (typeof k === "string") return null;   // a saved code: its uid stays
+      const now = st.codes.find((x) => x.code === k.code);
+      if (now && now.uid) savedAs.set(k, now.uid);
+      return savedAs.get(k) || null;
+    };
+    for (const [k, d] of before) {
+      const uid = moved(k);
+      if (!uid) continue;
+      pendingDraft.delete(k);
+      pendingDraft.set(uid, d);
+    }
+    // a draft still being made stays busy under the code's uid (a second click must not ask it twice)
+    for (const k of busy) { const uid = moved(k); if (uid) { definingNow.delete(k); definingNow.add(uid); } }
+  }
+  // the key a draft asked for an unsaved code has now (the code saved meanwhile: its uid)
+  function keyNow(k) { return typeof k === "string" ? k : savedAs.get(k) || k; }
+  // each example with the place it was saved at, so the draft reads that passage (another document may hold the
+  // same words with another AI setting)
+  function exampleRefs(c) {
+    return (c.examples || []).map((e) => (typeof e === "string" ? { quote: e }
+      : { quote: (e && e.quote) || "", doc_id: e.doc_id, start: e.start, project: e.project })).filter((e) => e.quote);
+  }
+  function defineBox(c) {
+    const box = h("div", { class: "cb-define" });
+    const quotes = exampleRefs(c);
+    const k = defineKey(c);
+    defineBoxes.set(k, box);
+    const pend = pendingDraft.get(k);
+    if (pend) { box.appendChild(draftPanel(c, pend)); return box; }
+    if (quotes.length < 2) {
+      box.appendChild(h("p", { class: "muted small" }, "With two examples or more, the AI can draft a definition, when to use the code and when not, from the passages that hold them."));
+      return box;
+    }
+    const sig = JSON.stringify(quotes);
+    const known = defineOffers.get(sig);
+    const fill = (offer) => {
+      if (!offer) { clear(box); return; }
+      if (!offer.offered) { replace(box, h("p", { class: "muted small" }, offer.why)); return; }
+      const btn = button({ onClick: () => askDraft(c, btn) }, icon("sparkles", { size: 14 }), "Draft from the examples");
+      if (definingNow.has(keyNow(k))) setBusy(btn, true);
+      const what = `the ${offer.passages} passages that hold this code’s examples, and its name`;
+      replace(box, h("div", { class: "btn-row" }, withAI(btn)),
+        offer.reader === "local" ? aiWhere(`The AI on this computer reads ${what}: the text never leaves it.`, "local") : readsLine(what),
+        offer.left_line ? h("p", { class: "muted small" }, offer.left_line) : null,
+        h("p", { class: "muted small" }, "A draft to rewrite: it is shown here first, and nothing changes until you take it."));
+    };
+    if (known) fill(known);
+    else api("POST", `${base}/define/offer`, { examples: quotes }).then((o) => { defineOffers.set(sig, o); fill(o); }).catch(() => fill(null));
+    return box;
+  }
+  // the define box of the code a key names, made again alone: what is typed in the other fields, and the caret, stay
+  function refreshDefineBox(k) {
+    const box = defineBoxes.get(k);
+    const c = typeof k === "string" ? st.codes.find((x) => x.uid === k) : st.codes.includes(k) ? k : null;
+    if (box && box.isConnected && c) box.replaceWith(defineBox(c));
+  }
+  async function askDraft(c, btn) {
+    const k = defineKey(c);
+    if (definingNow.has(keyNow(k))) return;
+    definingNow.add(k);
+    setBusy(btn, true);
+    try {
+      const group = (groupsInOrder().find((g) => g.group === c.group) || {}).group_name || "";
+      const res = await api("POST", `${base}/define`, { code: c.code, group, examples: exampleRefs(c) });
+      const job = await watchJob(res.job.id).promise;
+      if (job.state !== "done") { if (job.error) toast(job.error, "error"); return; }
+      const got = job.result || {};
+      if (got.stopped) return;
+      if (got.withdrawn) { toast(got.why || "The request was taken back before the AI answered. Try again.", "warn"); return; }
+      if (!got.ok || !got.draft) { toast("The AI’s quotes could not be found in the example passages, so nothing was drafted. Try again, or write the definition yourself.", "warn"); return; }
+      // saved meanwhile: the unsaved code it was asked for now goes by its uid
+      pendingDraft.set(keyNow(k), { ...got.draft, at: new Date().toISOString(), reused: got.reused, reader: got.reader });
+    } catch (e) { showError(e); }
+    finally {
+      const now = keyNow(k);
+      definingNow.delete(k);
+      definingNow.delete(now);
+      if (btn.isConnected) setBusy(btn, false);
+      // only this code's define box is made again (the draft, or a button no longer busy): the person may be typing
+      if (body.isConnected) refreshDefineBox(now);
+    }
+  }
+  function takeDraft(c, d, fields) {
+    const took = {};
+    for (const f of fields) if (d[f]) { c[f] = d[f]; took[f] = d[f]; }
+    if (!Object.keys(took).length) return;
+    const keep = {};   // the AI's words of earlier drafts the fields still hold
+    for (const f of draftFields(c)) if (!(f in took)) keep[f] = c.ai_draft[f];
+    c.ai_draft = { model: d.model || "", at: d.at, ...keep, ...took };
+    touch();
+  }
+  function draftPanel(c, d) {
+    const k = defineKey(c);
+    const done = () => { pendingDraft.delete(k); draw(); };
+    const row = (f, label) => d[f] ? h("div", { class: "cb-draft-row" },
+      h("div", { class: "cb-draft-text" }, h("span", { class: "field-label" }, label), h("p", {}, d[f]),
+        d.quotes && d.quotes[f] ? h("p", { class: "muted small" }, "Shown by ", h("span", { class: "serif" }, `“${d.quotes[f].quote}”`),
+          d.quotes[f].title ? ` · ${shortTitle(d.quotes[f].title, 50)}${d.quotes[f].page ? `, p. ${d.quotes[f].page}` : ""}` : "") : null),
+      button({ sm: true, onClick: () => { takeDraft(c, d, [f]); delete d[f]; if (!FIELDS_OF_DRAFT.some((x) => d[x])) done(); else draw(); } },
+        (c[f] || "").trim() ? "Use instead" : "Use")) : null;
+    return inset({ class: "cb-draft", tentative: true },
+      h("p", { class: "small" }, tag({ icon: "sparkles" }, "AI draft"), " ",
+        `Drafted${d.model ? ` by ${d.model}` : ""} from the passages that hold this code’s examples${d.reused ? " (the answer kept from the same request before)" : ""}. Read it, take what fits, and rewrite it in your own words.`),
+      d.note ? h("p", { class: "small" }, h("strong", {}, "The AI notes: "), d.note) : null,
+      d.reader === "local" ? h("p", { class: "muted small" }, "The AI on this computer read these passages. Words you keep go with the code to every later label task, to whichever AI labels your other documents, as every definition does: rewrite them if they give away what these documents say.") : null,
+      row("description", "Definition"), row("include", "When to use it"), row("exclude", "When not to use it"),
+      h("div", { class: "btn-row" },
+        button({ kind: "main", sm: true, onClick: () => { takeDraft(c, d, FIELDS_OF_DRAFT); done(); } }, "Use all of it"),
+        button({ kind: "quiet", sm: true, onClick: done }, "Put it aside")));
   }
 
   function freeName(n) {
@@ -485,6 +758,17 @@ export async function renderCodebook(view, [name]) {
     touch(); draw();
     setTimeout(() => { const x = body.querySelector(".cb-open input"); if (x) { x.focus(); x.select(); } }, 0);
   }
+  // a group goes; its codes stay, without a group (Discard, or History after saving, brings it back)
+  async function removeGroup(g) {
+    const codes = st.codes.filter((c) => c.group === g.group);
+    const name = g.group_name || `Group ${g.group}`;
+    if (codes.length && !(await confirmDialog({ title: `Remove the group “${name}”?`,
+      message: `Its ${plural(codes.length, st.label)} stay in the codebook, under Codes without a group, with their labels. Move them to another group from each one's Group field.`,
+      confirmText: "Remove group" }))) return;
+    for (const c of codes) c.group = "";
+    st.groups = st.groups.filter((x) => x.group !== g.group);
+    touch(); draw();
+  }
   function addGroup() {
     let n = st.groups.length + 1, k = `g${n}`;
     while (st.groups.some((g) => g.group === k) || st.codes.some((c) => c.group === k)) k = `g${++n}`;
@@ -494,7 +778,8 @@ export async function renderCodebook(view, [name]) {
   }
   function splitCode(c) {
     const copy = { uid: "", split_from: c.uid || null, code: freeName(`${c.code.slice(0, 34)} (2)`), description: c.description, group: c.group,
-      include: c.include, exclude: c.exclude, keywords: (c.keywords || []).slice(), examples: [] };
+      include: c.include, exclude: c.exclude, keywords: (c.keywords || []).slice(), examples: [],
+      ...(c.ai_draft ? { ai_draft: { ...c.ai_draft } } : {}) };   // K1: the AI's words keep their mark
     st.codes.splice(st.codes.indexOf(c) + 1, 0, copy);
     openCode = copy.code;
     touch(); draw();
@@ -516,17 +801,18 @@ export async function renderCodebook(view, [name]) {
   function bringBack(r) {
     const d = r.definition || {};
     st.codes.push({ uid: r.uid, code: d.code || r.code, description: d.description || r.description || r.code, group: d.group || "",
-      include: d.include || "", exclude: d.exclude || "", keywords: d.keywords || [], examples: (d.examples || []).map((q) => ({ quote: q })) });
+      include: d.include || "", exclude: d.exclude || "", keywords: d.keywords || [], examples: (d.examples || []).map((q) => ({ quote: q })),
+      ...(r.ai_draft ? { ai_draft: { ...r.ai_draft } } : {}) });   // K1: the AI's words come back marked
     touch(); draw();
     toast(`“${r.code}” is back in the codebook. Save to keep it; its labels count again.`, "info");
   }
 
   // ---- saving
   // the bar is made once, so what is typed in "Why?" stays while other fields change
-  const whyInput = h("input", { class: "input cb-why", type: "text", maxlength: 2000, placeholder: "Why? (optional, for the research log)", "aria-label": "Why" });
-  const saveBtn = h("button", { class: "btn btn-primary btn-sm", type: "button", onClick: () => save(saveBtn, whyInput.value.trim()) }, icon("check", { size: 14 }), "Save");
-  replace(saveBar, h("span", { class: "cb-unsaved" }, icon("alert-circle", { size: 14 }), "Unsaved changes"), whyInput,
-    h("button", { class: "btn btn-ghost btn-sm", type: "button", onClick: discard }, "Discard"), saveBtn);
+  const whyInput = input({ class: "cb-why", maxlength: 2000, placeholder: "Why? (optional, for the research log)", "aria-label": "Why" });
+  const saveBtn = button({ kind: "main", sm: true, onClick: () => save(saveBtn, whyInput.value.trim()) }, icon("check", { size: 14 }), "Save");
+  replace(saveBar, workState("attention", "Unsaved changes"), whyInput,
+    button({ kind: "quiet", sm: true, onClick: discard }, "Discard"), saveBtn);
   function drawSaveBar() {
     saveBar.hidden = !dirty || ro;
   }
@@ -536,7 +822,9 @@ export async function renderCodebook(view, [name]) {
       const r = await api("PUT", base, { codebook: st, merges, why: why || null });
       drafts.delete(key);
       cb = r.codebook;
+      const pend = [...pendingDraft], busy = [...definingNow];
       fresh();
+      keepPendingThroughSave(pend, busy);
       whyInput.value = "";
       setAside = false;
       forgetFrameworks();
@@ -560,11 +848,18 @@ export async function renderCodebook(view, [name]) {
   }
 
   // ---- whole-codebook actions
-  async function tryIt() {
+  // One pass at a time: the button waits while its job runs (also on a page drawn again meanwhile), and the job is
+  // watched only while this page is shown
+  async function tryIt(btn) {
+    if (trying) return;
+    trying = true;
+    if (btn) setBusy(btn, true);
     toast("Trying the codebook on every passage (no AI)…", "info", { small: true, group: "cb-try" });
     try {
       const r = await api("POST", `${base}/try`, { codebook: st });
-      const job = await watchJob(r.job.id).promise;
+      tryWatch = watchJob(r.job.id);
+      const job = await tryWatch.promise;
+      trying = false;
       if (job.state !== "done") { if (job.error) toast(job.error, "error"); return; }
       tried = job.result;
       const none = Object.entries(tried.codes).filter(([, x]) => !x.passages).map(([k]) => k);
@@ -572,6 +867,7 @@ export async function renderCodebook(view, [name]) {
       toast(`Tried on ${plural(tried.passages, "passage")}.${none.length ? ` ${plural(none.length, "code")} match nothing.` : ""}${many.length ? ` ${plural(many.length, "code")} match a large part of the documents.` : ""} Open a code to see what it picks.`, none.length || many.length ? "warn" : "ok", { group: "cb-try" });
       draw();
     } catch (e) { showError(e); }
+    finally { trying = false; tryWatch = null; if (btn) setBusy(btn, false); }
   }
   async function relabel(code) {
     try {
@@ -600,5 +896,5 @@ export async function renderCodebook(view, [name]) {
   const onUnload = (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } };
   window.addEventListener("beforeunload", onUnload);
   draw();
-  return () => window.removeEventListener("beforeunload", onUnload);
+  return () => { window.removeEventListener("beforeunload", onUnload); if (tryWatch) tryWatch.stop(); };
 }

@@ -29,13 +29,21 @@ from .store import Workspace, now
 GROUPS = {
     "entry": "entries",
     "documents-added": "documents", "document-removed": "documents", "ai-access": "documents", "reread": "documents",
-    "check-added": "checks", "check-removed": "checks", "evidence-added": "checks",
+    "check-added": "checks", "check-removed": "checks", "evidence-added": "checks", "verdict-moved": "checks",
+    "check-setting": "checks",  # 0.19.0 (K3): non-scientific documents counted in one check, or not
+    "document-suggestion": "documents",  # 0.19.0 (K3): a suggestion from the bibliography declined
     "themes-found": "themes", "themes-removed": "themes", "theme-removed": "themes", "theme-restored": "themes",
     "theme-renamed": "themes", "theme-merged": "themes", "theme-separated": "themes",
     "codebook-added": "codebooks", "codebook-changed": "codebooks", "codebook-removed": "codebooks",
     "codebook-moved": "codebooks", "codebook-copied": "codebooks",
+    "codebook-drafted": "codebooks",  # 0.18.4 (K2 part 2): the AI drafted a theory document's concepts
+    "glossary-words": "themes",
     "restored": "history",
     "sync": "together",
+    "shared": "together", "unshared": "together",  # 0.18 (sharing.py)
+    # 0.18 L2 (ownership.py): a change proposed to the owner, the owner's word on it, and who the owner is
+    "proposal": "together", "proposal-accepted": "together", "proposal-declined": "together",
+    "proposal-taken-back": "together", "owner": "together",
 }
 GROUP_NAMES = {"entries": "Your own entries", "documents": "Documents", "checks": "Checks", "themes": "Themes",
                "codebooks": "Codebooks", "history": "Restored versions", "together": "Work together"}
@@ -182,9 +190,10 @@ def entry(ws: Workspace, entry_id: str) -> dict:
 
 
 def entries(ws: Workspace, group: str | None = None, q: str | None = None, subject_kind: str | None = None,
-            subject_id: str | None = None, offset: int = 0, limit: int = 200, oldest_first: bool = False) -> dict:
+            subject_id: str | None = None, offset: int = 0, limit: int | None = 200, oldest_first: bool = False) -> dict:
     """The log, newest first: {entries, total, groups: {group: count}}. `group` keeps one group ("entries",
-    "documents", ...), `q` entries whose words, title or reason contain it, `subject_*` those about one thing."""
+    "documents", ...), `q` entries whose words, title or reason contain it, `subject_*` those about one thing.
+    `limit` None: every entry (the downloads; a page asks for at most 2,000 at a time)."""
     from .solo import names
 
     where, args = [], []
@@ -194,11 +203,6 @@ def entries(ws: Workspace, group: str | None = None, q: str | None = None, subje
             raise ValueError(f"Unknown group {group!r}.")
         where.append(f"kind IN ({','.join('?' * len(kinds))})")
         args += kinds
-    if q and q.strip():
-        like = "%" + q.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        where.append("(lower(text) LIKE ? ESCAPE '\\' OR lower(COALESCE(title, '')) LIKE ? ESCAPE '\\' OR "
-                     "lower(COALESCE(why, '')) LIKE ? ESCAPE '\\')")
-        args += [like, like, like]
     if subject_kind:
         where.append("subject_kind=?")
         args.append(subject_kind)
@@ -206,10 +210,21 @@ def entries(ws: Workspace, group: str | None = None, q: str | None = None, subje
         where.append("subject_id=?")
         args.append(subject_id)
     sql_where = ("WHERE " + " AND ".join(where)) if where else ""
-    total = int(ws.scalar(f"SELECT COUNT(*) FROM research_log {sql_where}", args) or 0)
     order = "ASC" if oldest_first else "DESC"
-    rows = ws.query(f"SELECT * FROM research_log {sql_where} ORDER BY at {order}, rowid {order} LIMIT ? OFFSET ?",
-                    (*args, max(1, min(int(limit), 2000)), max(0, int(offset))))
+    first = max(0, int(offset))
+    most = None if limit is None else max(1, min(int(limit), 2000))
+    if q and q.strip():
+        # the words are looked for here, not by the database: its lower() and LIKE know the letters a to z only,
+        # so "Életminőség" was not found by "életminőség"
+        word = q.strip().casefold()
+        rows = [r for r in ws.query(f"SELECT * FROM research_log {sql_where} ORDER BY at {order}, rowid {order}", args)
+                if any(word in (r[c] or "").casefold() for c in ("text", "title", "why"))]
+        total = len(rows)
+        rows = rows[first:] if most is None else rows[first:first + most]
+    else:
+        total = int(ws.scalar(f"SELECT COUNT(*) FROM research_log {sql_where}", args) or 0)
+        rows = ws.query(f"SELECT * FROM research_log {sql_where} ORDER BY at {order}, rowid {order} LIMIT ? OFFSET ?",
+                        (*args, -1 if most is None else most, first))
     counts: dict[str, int] = {}
     for kind, n in ws.query("SELECT kind, COUNT(*) FROM research_log GROUP BY kind"):
         g = GROUPS.get(kind, "other")
@@ -223,7 +238,7 @@ def entries(ws: Workspace, group: str | None = None, q: str | None = None, subje
 def table(ws: Workspace) -> list[dict]:
     """Every entry, oldest first, as rows for a spreadsheet."""
     out = []
-    for e in entries(ws, limit=2000000, oldest_first=True)["entries"]:
+    for e in entries(ws, limit=None, oldest_first=True)["entries"]:  # every entry: 2,000 was all a download held
         out.append({"When (UTC)": e["at"], "Who": e["who"], "What": GROUP_NAMES.get(e["group"], e["group"]),
                     "Entry": e["text"], "About": e["title"] or "", "Why": e["why"] or "",
                     "Margin version": e.get("app_version") or ""})
@@ -234,7 +249,7 @@ def markdown(ws: Workspace, project: str) -> str:
     """The log as a Markdown file, oldest first, a heading per day: for a thesis appendix or an audit."""
     lines = [f"# Research log: {project}", "", f"Written by Margin {__version__} on {now()[:10]}. Times are UTC.", ""]
     day = None
-    for e in entries(ws, limit=2000000, oldest_first=True)["entries"]:
+    for e in entries(ws, limit=None, oldest_first=True)["entries"]:
         d = (e["at"] or "")[:10]
         if d != day:
             day = d
@@ -247,34 +262,3 @@ def markdown(ws: Workspace, project: str) -> str:
     if day is None:
         lines.append("Nothing in the log yet.")
     return "\n".join(lines).rstrip() + "\n"
-
-
-# ---------------------------------------------------------------------------------------------
-# a colleague's entries (sync.py)
-# ---------------------------------------------------------------------------------------------
-def merge(cx: sqlite3.Connection, rows: list[dict], fix) -> int:
-    """Bring in a colleague's entries: those not here come in (unless removed here); one of theirs they changed since
-    (a later `edited_at`) is brought up to date. Yours are never changed. `fix(row) -> row` rewrites the ids of a
-    merge (documents, checks). Returns how many came in or changed."""
-    me = _me()
-    gone = {r[0] for r in cx.execute("SELECT key FROM sync_removed WHERE kind='log'")}
-    cols = [r[1] for r in cx.execute("PRAGMA table_info(research_log)")]
-    n = 0
-    for r in rows:
-        if not isinstance(r.get("entry_id"), str) or not _ID.fullmatch(r["entry_id"]) or r["entry_id"] in gone:
-            continue
-        r = fix(r)
-        if r is None:
-            continue
-        have = cx.execute("SELECT person_id, edited_at FROM research_log WHERE entry_id=?", (r["entry_id"],)).fetchone()
-        use = [c for c in cols if c in r]
-        if have is None:
-            cx.execute(f"INSERT INTO research_log({','.join(use)}) VALUES ({','.join('?' * len(use))})",
-                       [r[c] for c in use])
-            n += 1
-        elif have[0] != me and have[0] == r.get("person_id") and (r.get("edited_at") or "") > (have[1] or ""):
-            sets = [c for c in use if c != "entry_id"]
-            cx.execute(f"UPDATE research_log SET {', '.join(c + '=?' for c in sets)} WHERE entry_id=?",
-                       [*(r[c] for c in sets), r["entry_id"]])
-            n += 1
-    return n

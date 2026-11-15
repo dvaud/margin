@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import time
 
-from test_08_queue import _project
+from test_queue import _project
 from test_app import api, home  # noqa: F401  (fixtures)
 
 DRAFT = ("Remote work raised the productivity of software engineers by about 13 percent, according to recent "

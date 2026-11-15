@@ -1,8 +1,8 @@
 // The live progress panel of a check (also used for batches and "read more"): updated in place from the job's
 // progress every poll, so running spinners do not restart and the page does not flicker.
-import { App, api, h, icon, replace, clear, fmt, cancelJob, showError, queueNotice, startClaude, watchJob, TERMINAL, P } from "../lib.js";
+import { App, api, h, icon, replace, clear, fmt, cancelJob, showError, queueNotice, startClaude, watchJob, TERMINAL, P, button, card, fold, link, notice, stopButton, setBusy } from "../lib.js";
 
-const STEP_ICON = { pending: "circle", running: "loader", done: "circle-check" };
+const STEP_ICON = { pending: "circle", running: "loader", done: "check" };
 const plainPhase = (phase) => ({ waiting: "The AI is getting ready and reading", thinking: "The AI is thinking it over", writing: "The AI is writing down its judgement", done: "The AI has finished" }[phase] || "The AI is working");
 
 export class ProgressPanel {
@@ -18,7 +18,7 @@ export class ProgressPanel {
     this.msg = h("div", { class: "msg" }, "Starting…");
     this.live = h("div", { class: "visually-hidden", "aria-live": "polite", "aria-atomic": "true" });
     this.elapsed = h("span", { class: "elapsed" }, "0 s");
-    this.stopBtn = h("button", { class: "btn btn-sm btn-outline-danger", type: "button", onClick: () => this.stop() }, icon("stop", { size: 13 }), "Stop");
+    this.stopBtn = stopButton({ onClick: () => this.stop() });
     this.head = h("div", { class: "progress-head" }, h("span", { class: "running-dot", "aria-hidden": "true" }), this.msg, this.elapsed, this.stopBtn);
     this.batchBox = h("div", { class: "batch-box", hidden: true });
     this.decompBox = h("div", { class: "decomp-box", hidden: true });
@@ -26,7 +26,7 @@ export class ProgressPanel {
     this.modelBox = h("div", { class: "model-line", hidden: true });
     this.notesBox = h("ul", { class: "progress-notes small", hidden: true });
     this.expect = h("p", { class: "muted small expect" }, App.settings().backend === "claude_code"
-      ? "Claude Code reads it once you press Start Claude Code (or type the command in Claude Code). You can move around the app, or close it: the check waits in the queue, and its answer appears under Results."
+      ? "Claude Code reads it once you press Start Claude Code (or type the command in Claude Code). You can move around the app, or close it: the check waits in the queue, and its answer appears under Hypotheses."
       : "An AI model running on your own computer can take a few minutes. You can move around the app meanwhile; the check keeps running.");
     this.techOpen = false;
     this.body = h("div", { class: "progress-body" }, this.batchBox, this.decompBox, this.partsBox, this.modelBox, this.notesBox, this.expect);
@@ -41,9 +41,8 @@ export class ProgressPanel {
 
   async stop() {
     if (!this.jobId) return;
-    this.stopBtn.disabled = true;
-    replace(this.stopBtn, icon("loader", { size: 13 }), "Stopping…");
-    try { await cancelJob(this.jobId); } catch (e) { showError(e); this.stopBtn.disabled = false; replace(this.stopBtn, icon("stop", { size: 13 }), "Stop"); }
+    setBusy(this.stopBtn, true);
+    try { await cancelJob(this.jobId); } catch (e) { showError(e); setBusy(this.stopBtn, false); }
     if (this.onStop) this.onStop();
   }
 
@@ -59,7 +58,8 @@ export class ProgressPanel {
     const dot = this.head.querySelector(".running-dot");
     if (dot) dot.hidden = !running;
 
-    let message = p.message || (job.state === "queued" ? "Waiting for the AI (another task is using it)" : "Starting");
+    let message = job.waiting_for ? job.waiting_for.message   // 0.18 queued jobs
+      : p.message || (job.state === "queued" ? "Waiting for the AI (another task is using it)" : "Starting");
     if (job.state === "done") message = "Done";
     else if (job.state === "error") message = "Stopped because something went wrong";
     else if (job.state === "cancelled") message = "Stopped";
@@ -85,7 +85,7 @@ export class ProgressPanel {
       const pct = Math.round((doneCount / total) * 100);
       this.partsBox.hidden = finished;
       replace(this.batchBox,
-        h("div", { class: "row", style: { justifyContent: "space-between" } }, h("strong", {}, finished ? `${doneCount} of ${total} ${this.batchWords.done}` : `${doneCount} of ${total} done · ${this.batchWords.doing} ${p.batch.index}`), h("span", { class: "muted small" }, `${pct}%`)),
+        h("div", { class: "row prg-batch-head" }, h("strong", {}, finished ? `${doneCount} of ${total} ${this.batchWords.done}` : `${doneCount} of ${total} done · ${this.batchWords.doing} ${p.batch.index}`), h("span", { class: "muted small" }, `${pct}%`)),
         h("div", { class: "progress-bar", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": total, "aria-valuenow": doneCount }, h("span", { style: { width: `${Math.max(2, pct)}%` } })),
         finished ? null : h("p", { class: "batch-current" }, p.batch.text || ""));
     } else this.batchBox.hidden = true;
@@ -135,9 +135,9 @@ export class ProgressPanel {
     if (m && (running || m.phase === "done")) {
       this.modelBox.hidden = false;
       // 0.13.11: the local model for documents marked Only a local AI shows itself (it read unseen before)
-      const phaseIcon = m.who === "local" && m.phase !== "done" ? "house" : { waiting: "clock", thinking: "sparkles", writing: "type", done: "circle-check", queue: "inbox" }[m.phase] || "cpu";
+      const phaseIcon = m.who === "local" && m.phase !== "done" ? "house" : { waiting: "clock", thinking: "loader", writing: "type", done: "check", queue: "inbox" }[m.phase] || "loader";
       const plain = m.plain || plainPhase(m.phase);
-      const tech = h("details", { class: "fold tech", open: this.techOpen }, h("summary", {}, "Technical details"),
+      const tech = fold({ class: "tech", open: this.techOpen }, "Technical details",
         h("div", { class: "tech-body" }, h("div", { class: "mono small" }, m.line || ""),
           m.tail && m.phase !== "done" ? h("div", { class: "model-tail", "aria-hidden": "true" }, h("span", {}, m.tail)) : null));
       tech.addEventListener("toggle", () => { this.techOpen = tech.open; });
@@ -155,11 +155,11 @@ export class ProgressPanel {
     // errors
     if (job.state === "error") {
       let err = this.body.querySelector(".progress-err");
-      if (!err) { err = h("div", { class: "notice notice-error progress-err", style: { marginTop: "10px" } }); this.body.appendChild(err); }
-      replace(err, icon("alert-circle"), h("div", {},
+      if (!err) { err = notice({ kind: "error", class: "progress-err" }); this.body.appendChild(err); }
+      replace(err.querySelector(".notice-body"),
         h("p", {}, job.error_kind === "backend" ? "The AI model stopped answering, so the check could not finish." : job.error_kind === "internal" ? "Something went wrong inside the app." : (job.error || "The check could not finish.")),
-        job.error_kind === "backend" || job.error_kind === "internal" ? h("details", { class: "fold" }, h("summary", {}, "Technical details"), h("div", { class: "mono small" }, job.error || "")) : null,
-        job.error_kind === "backend" ? h("a", { href: "#/settings" }, "Check the AI model in Settings") : null));
+        job.error_kind === "backend" || job.error_kind === "internal" ? fold({}, "Technical details", h("div", { class: "mono small" }, job.error || "")) : null,
+        job.error_kind === "backend" ? link({ href: "#/settings" }, "Check the AI model in Settings") : null);
     }
 
     // screen readers: announce the message at most every 4 s, and state changes at once
@@ -233,12 +233,12 @@ export class MiniJob {
     this.title = title || "Working";
     this.msg = h("span", { class: "mini-msg" }, this.title, "…");
     this.time = h("span", { class: "mini-time" }, "");
-    this.stopBtn = h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick: async () => {
+    this.stopBtn = stopButton({ onClick: async () => {
       if (!this.jobId) return;
       this.stopBtn.disabled = true;
       try { await cancelJob(this.jobId); } catch (e) { showError(e); this.stopBtn.disabled = false; }
       if (onStop) onStop();
-    } }, icon("stop", { size: 12 }), "Stop");
+    } });
     this.el = h("div", { class: "mini-job", role: "status" }, h("span", { class: "running-dot", "aria-hidden": "true" }), this.msg, this.time, this.stopBtn);
     this.jobId = null;
     this.startEl = null;   // 0.11.3: the Start Claude Code block while the job waits for Claude Code
@@ -255,7 +255,8 @@ export class MiniJob {
     else if (!wq && this.startEl) { this.startEl.remove(); this.startEl = null; }
     const typeIt = (cmd) => (this.startEl ? "" : ` (type ${cmd || "/margin-run"} in Claude Code)`);
     let text = `${this.title}…`;
-    if (job.state === "queued") text = `${this.title}: waiting for the AI (another task is using it)`;
+    if (job.waiting_for) text = `${this.title}: ${job.waiting_for.message.replace(/^Q/, "q")}`;   // 0.18 queued jobs
+    else if (job.state === "queued") text = `${this.title}: waiting for the AI (another task is using it)`;
     else if (running && m && m.phase === "queue") text = `${this.title}: ${m.queue && m.queue.paused ? "paused" : "waiting for Claude Code"}${typeIt(m.queue && m.queue.command)}`;
     else if (running && p.queue) text = `${this.title}: waiting for Claude Code${typeIt(p.queue.command)}`;
     else if (running && m && m.phase && m.phase !== "done") text = `${this.title}: ${(m.plain || plainPhase(m.phase)).replace(/^The AI/, "the AI").replace(/^Your /, "your ")}`;
@@ -277,10 +278,11 @@ export function simpleProgress(job, labelFn) {
   const total = p.total || 0, done = p.done || 0;
   const pct = total ? Math.round((done / total) * 100) : 0;
   const running = job.state === "queued" || job.state === "running";
-  const label = labelFn ? labelFn(p, job) : (p.file ? `${done} of ${total} · ${p.file}` : total ? `${done} of ${total}` : "Starting…");
-  return h("div", { class: "stack", style: { gap: "6px" } },
+  const label = job.waiting_for ? job.waiting_for.message   // 0.18 queued jobs
+    : labelFn ? labelFn(p, job) : (p.file ? `${done} of ${total} · ${p.file}` : total ? `${done} of ${total}` : "Starting…");
+  return h("div", { class: "stack prg-line" },
     running && p.queue ? queueNotice(p.queue) : null,
-    h("div", { class: "row", style: { justifyContent: "space-between" } }, h("span", { class: "it" }, running ? h("span", { class: "running-dot", "aria-hidden": "true" }) : null, h("strong", {}, label)), h("span", { class: "muted small" }, fmt.secs(job.seconds))),
+    h("div", { class: "row prg-line-head" }, h("span", { class: "it" }, running ? h("span", { class: "running-dot", "aria-hidden": "true" }) : null, h("strong", {}, label)), h("span", { class: "muted small" }, fmt.secs(job.seconds))),
     h("div", { class: "progress-bar " + (running && !total ? "indeterminate" : ""), role: "progressbar", "aria-valuemin": 0, "aria-valuemax": total || 100, "aria-valuenow": total ? done : null, "aria-label": label },
       h("span", { style: { width: `${Math.max(2, pct)}%` } })));
 }
@@ -288,19 +290,26 @@ export function simpleProgress(job, labelFn) {
 // A job in a card: a bar with what it is doing, its time and a Stop button. `onEnd(job)` runs when it ends.
 // opts: small (h3), plain (card-plain), stoppedText. Returns the watcher (stop it when the page is left).
 export function jobCard(box, jobId, title, labelFn, onEnd, opts = {}) {
-  const stop = h("button", { class: "btn btn-sm btn-outline-danger", type: "button" }, icon("stop", { size: 13 }), "Stop");
+  // a running job's Stop (stopButton(): small, quiet, the stop icon); a queued one's Cancel (a small quiet button, as
+  // the work state Queued has it: docs/DESIGN.md 4.21). One shows at a time; both cancel the job.
+  const stop = stopButton();
+  const cancel = button({ kind: "quiet", sm: true, hidden: true }, "Cancel");   // 0.18 queued jobs
   const pb = h("div", { "aria-live": "polite" });
-  const head = h(opts.small ? "h3" : "h2", {}, title);
-  const holder = h("div", { class: "card" + (opts.plain ? " card-plain" : "") }, h("div", { class: "card-head" }, head, stop), pb);
-  stop.addEventListener("click", async () => {
-    stop.disabled = true;
-    try { await api("POST", `/api/jobs/${P(jobId)}/cancel`); } catch (e) { showError(e); stop.disabled = false; }
-  });
+  const head = h("span", {}, title);
+  const holder = card({ as: "div", title: head, level: opts.small ? "h3" : "h2", action: h("span", { class: "btn-row" }, stop, cancel) }, pb);
+  for (const b of [stop, cancel]) {
+    b.addEventListener("click", async () => {
+      stop.disabled = cancel.disabled = true;
+      try { await api("POST", `/api/jobs/${P(jobId)}/cancel`); } catch (e) { showError(e); stop.disabled = cancel.disabled = false; }
+    });
+  }
   box.hidden = false;
   replace(box, holder);
   const w = watchJob(jobId, (job) => {
     replace(pb, simpleProgress(job, labelFn));
-    if (TERMINAL.has(job.state)) stop.hidden = true;
+    const queued = !TERMINAL.has(job.state) && !!job.waiting_for;
+    stop.hidden = TERMINAL.has(job.state) || queued;
+    cancel.hidden = !queued;
   });
   w.promise.then((job) => {
     if (job.state === "error") {
@@ -308,7 +317,7 @@ export function jobCard(box, jobId, title, labelFn, onEnd, opts = {}) {
       replace(pb, jobError(job));
     } else if (job.state === "cancelled") {
       head.textContent = "Stopped";
-      replace(pb, h("p", { class: "muted", style: { margin: 0 } }, opts.stoppedText || "Stopped. What was done so far is kept."));
+      replace(pb, h("p", { class: "muted prg-stopped" }, opts.stoppedText || "Stopped. What was done so far is kept."));
     }
     if (onEnd) onEnd(job);
   }).catch(showError);
@@ -317,8 +326,8 @@ export function jobCard(box, jobId, title, labelFn, onEnd, opts = {}) {
 
 // Why a job did not work, in plain words, with the technical message folded away.
 export function jobError(job) {
-  return h("div", { class: "notice notice-error" }, icon("alert-circle"), h("div", {},
+  return notice({ kind: "error" },
     h("p", {}, job.error_kind === "backend" ? "The AI model stopped answering." : job.error_kind === "internal" ? "Something went wrong inside the app." : (job.error || "It could not finish.")),
-    job.error_kind === "backend" || job.error_kind === "internal" ? h("details", { class: "fold" }, h("summary", {}, "Technical details"), h("div", { class: "mono small" }, job.error || "")) : null,
-    job.error_kind === "backend" ? h("a", { href: "#/settings" }, "Check the AI model in Settings") : null));
+    job.error_kind === "backend" || job.error_kind === "internal" ? fold({}, "Technical details", h("div", { class: "mono small" }, job.error || "")) : null,
+    job.error_kind === "backend" ? link({ href: "#/settings" }, "Check the AI model in Settings") : null);
 }

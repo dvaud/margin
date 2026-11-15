@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.testmondata*
 /workspace/
 /build/
 *.egg-info/
@@ -21,3 +22,6 @@ __pycache__/
 /benchmarks.json
 /quicklook.json
 /local_only
+
+# Agent notes, audits and worktrees (local to this computer)
+/.claude/

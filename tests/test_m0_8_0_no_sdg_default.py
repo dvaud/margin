@@ -124,7 +124,7 @@ def test_the_page_offers_no_sdg_default_nor_the_pack():
     assert "flexiconc" not in js["projects.js"].lower()
     assert "sdg:6.4" not in js["search.js"] and "SDG" not in js["features.js"]
     assert "export function codebookChooser" in js["profile.js"]
-    for name in ("sources.js", "themes.js"):
+    for name in ("doc-codes.js", "themes.js"):   # a document's codes were split from sources.js in ENLENS 0.18
         assert "codebookChooser(" in js[name], name
 
 

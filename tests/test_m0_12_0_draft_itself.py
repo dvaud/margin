@@ -237,7 +237,7 @@ def test_the_page_files():
     assert "/consistency" in js and "/notices/" in js and "Your draft against itself" in js
     assert "Not a problem" in js and 'CSS.highlights.set("draft-self"' in js and 'CSS.highlights.delete("draft-self")' in js
     order = sections()
-    assert order.index("self") < order.index("m020")  # Margin's look still comes after it
+    assert order.index("m010") < order.index("self")  # after the draft page's own styles
     css = section("self")
     assert "::highlight(draft-self)" in css and "@media (max-width: 600px)" in css
     assert not any(ch in css for ch in ("rgb(", "#fff", "#000"))

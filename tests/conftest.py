@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(1, str(Path(__file__).parent.parent / "tools"))
+
+# 2026-11-12: bytes written per test, a warning over MARGIN_WRITE_BUDGET_MB, MARGIN_WRITES=15 for the top 15 (writemeter.py)
+import writemeter  # noqa: E402
+from writemeter import pytest_runtest_logreport, pytest_runtest_makereport, pytest_runtest_setup  # noqa: E402,F401
 
 from addon_fixtures import addon, local_addon  # noqa: E402,F401  (0.13.5: add-on fixtures)
 from helpers import PAPER_A_PAGES, REPORT_B_TEXT, UNRELATED_HTML, make_pdf, make_vca_workbook  # noqa: E402
@@ -56,11 +63,28 @@ def _enlens_sdg_default(request, monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_real_claude_code(tmp_path, monkeypatch):
     """0.9: Margin finds and sets up Claude Code by itself. Tests never touch a real Claude Code: the `claude` program
-    is "not found" unless a test points MARGIN_CLAUDE at the stand-in (tests/fake_claude_cli.py)."""
+    is "not found" unless a test points MARGIN_CLAUDE at the stand-in (tests/fake_claude_cli.py).
+
+    The runs started from the app (`claude_setup._RUNS`) live in the process's memory, keyed by project name, and many
+    tests name their project "Q": a run one test stopped was still there for the next test of "Q" in the same worker,
+    whose fresh queue then reported that stopped run (a macOS CI failure, 2026-11-13). Each test starts with none and
+    leaves none behind, stopping any stand-in still at work."""
     monkeypatch.setenv("MARGIN_CLAUDE", str(tmp_path / "no-claude-here"))
     from margin import claude_setup
 
     claude_setup._STATUS.update(at=0.0, value=None)
+    with claude_setup._RUNS_LOCK:
+        claude_setup._RUNS.clear()
+        claude_setup._START_LOCKS.clear()
+    yield
+    with claude_setup._RUNS_LOCK:
+        left = list(claude_setup._RUNS.values())
+        claude_setup._RUNS.clear()
+        claude_setup._START_LOCKS.clear()
+    for r in left:
+        proc = r.get("proc")
+        if proc is not None and proc.poll() is None:
+            claude_setup._end_process(proc.pid, proc, wait=5.0)
 
 
 @pytest.fixture(autouse=True)
@@ -69,11 +93,98 @@ def _no_real_margin_home(tmp_path, monkeypatch):
     MARGIN_HOME read the real settings, so the models recommended for the plan Claude Code found there (Max: Opus)
     replaced the ones the test expects (Pro). A test that sets MARGIN_HOME itself still gets its own."""
     monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "margin-home"))
+    # 0.18.0rc2: secrets (a storage space's keys) go to files in that folder, never the computer's own keychain
+    monkeypatch.setenv("MARGIN_KEYCHAIN", "file")
 
 
 @pytest.fixture(autouse=True)
 def _read_one_file_at_a_time(monkeypatch):
     """0.16: adding documents reads several files at once in reading processes (`ingest.read_workers`). Tests read
     them here, one at a time, so what a test changes in this process (a stand-in for OCR, say) is what reading sees;
-    tests/test_0_16_0_speed.py reads at once on purpose and compares."""
+    tests/test_speed.py reads at once on purpose and compares."""
     monkeypatch.setenv("MARGIN_READ_WORKERS", "1")
+
+
+@pytest.fixture(autouse=True)
+def _queue_looks_often(monkeypatch):
+    """2026-11-12: the app looks at tasks waiting for Claude Code every 1.5 s (`taskqueue.QUEUE_POLL`) and at checks
+    waiting for it every 2 s (`server.FOLLOW_POLL`). The stand-ins of Claude Code in tests answer at once, so each
+    wait cost a test up to two seconds of nothing (13 s of test_queue's every-AI-button test); here they look
+    every 0.1 s."""
+    from margin import taskqueue
+    from margin.gui import server
+
+    monkeypatch.setattr(taskqueue, "QUEUE_POLL", 0.1)
+    monkeypatch.setattr(server, "FOLLOW_POLL", 0.1)
+
+
+RAM_DISK = "/Volumes/Margin-TESTS"
+
+
+def pytest_configure(config):
+    """2026-11-12: test files go to a RAM disk when there is one, so test runs stop wearing the SSD:
+    `MARGIN_TEST_TMP=<folder>`, or a volume named Margin-TESTS (docs/DEVELOPING.md says how to make one). This sets
+    TMPDIR, so pytest's tmp_path and every temporary file Margin makes in a test (scratch projects of a sync round,
+    unpacked zips) land there; pytest-xdist's workers inherit it."""
+    # 2026-11-12: programs a test starts (`python -m margin.gui.launch`, the dev server, reading processes) import
+    # this copy's Margin too. pytest's `pythonpath` reaches only this process, so in a git worktree they imported the
+    # copy the virtual environment was installed from (another version: three launcher tests failed in worktrees).
+    src = str(Path(__file__).resolve().parent.parent / "src")
+    paths = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p and p != src]
+    os.environ["PYTHONPATH"] = os.pathsep.join([src, *paths])
+    tmp = os.environ.get("MARGIN_TEST_TMP") or (RAM_DISK if os.path.isdir(RAM_DISK) else "")
+    if tmp and os.path.isdir(tmp):
+        for name in ("TMPDIR", "TEMP", "TMP"):
+            os.environ[name] = tmp
+        tempfile.tempdir = None
+
+
+def _leaves_out_heavy(config) -> bool:
+    """2026-11-12: a local run of the whole suite (no test file named, no -m) leaves out the tests marked `heavy`; CI
+    (`CI` set) and `MARGIN_ALL_TESTS=1` run them, and naming their file runs them too."""
+    if os.environ.get("CI") or os.environ.get("MARGIN_ALL_TESTS") == "1" or config.option.markexpr:
+        return False
+    here = config.invocation_params.dir
+    return all((here / a.split("::")[0]).is_dir() for a in config.args)
+
+
+@pytest.fixture(autouse=True)
+def _fast_sqlite(request, monkeypatch):
+    """2026-11-12: tests use SQLite without forced flushes or an on-disk rollback journal (store.py reads
+    MARGIN_TEST_FAST_SQLITE), which halves what a test writes. A test marked `durable` gets the real settings."""
+    if request.node.get_closest_marker("durable") is None:
+        monkeypatch.setenv("MARGIN_TEST_FAST_SQLITE", "1")
+
+
+def pytest_collection_modifyitems(config, items):
+    """2026-11-12, CI (tests.yml): MARGIN_TEST_SHARD=k/n keeps every n-th test from the k-th on, so n machines share the
+    suite evenly (Windows, the slowest system, is split in four). Neighbouring tests (the cases of one parametrised
+    test, the tests of one file) go to different machines, and every machine and every pytest-xdist worker collects
+    the same order, so they agree on the split. Unset (as on this computer): every test runs. Before the split, a
+    local run of the whole suite leaves out the tests marked `heavy` (`_leaves_out_heavy`)."""
+    if _leaves_out_heavy(config):
+        heavy = [item for item in items if item.get_closest_marker("heavy") is not None]
+        if heavy:
+            config.hook.pytest_deselected(items=heavy)
+            items[:] = [item for item in items if item.get_closest_marker("heavy") is None]
+    shard = os.environ.get("MARGIN_TEST_SHARD", "").strip()
+    if not shard:
+        return
+    try:
+        k, n = (int(x) for x in shard.split("/"))
+        assert 1 <= k <= n
+    except (ValueError, AssertionError):
+        raise pytest.UsageError(f"MARGIN_TEST_SHARD={shard!r}: expected k/n with 1 <= k <= n, such as 2/3") from None
+    keep = [item for i, item in enumerate(items) if i % n == k - 1]
+    drop = [item for i, item in enumerate(items) if i % n != k - 1]
+    if drop:
+        config.hook.pytest_deselected(items=drop)
+        items[:] = keep
+
+
+
+def pytest_terminal_summary(terminalreporter, config):
+    writemeter.pytest_terminal_summary(terminalreporter)
+    if not hasattr(config, "workerinput") and _leaves_out_heavy(config):
+        terminalreporter.write_line("Tests marked heavy were left out (CI runs them; MARGIN_ALL_TESTS=1, or naming "
+                                    "their file, runs them here).")

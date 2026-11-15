@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .api_common import ApiError, Cancelled, Job, _body_int, _bool, _codebook, _list, _str, benchmark_table
+from .api_common import ONE_START, ApiError, Cancelled, Job, _body_int, _bool, _codebook, _list, _str, benchmark_table
 from .progress import Tracker
 from .. import addons, citations, claimcheck, frameworks, home, literature, runs as runs_mod, taskqueue, tasks as tasks_mod
 from ..claude_setup import setup_info as claude_setup_info
@@ -30,7 +30,11 @@ class QueueMixin:
                         "max_per_helper": taskqueue.MAX_PER_HELPER,
                         "helpers": taskqueue.helper_rows(out["groups"], out["kinds"]),
                         "all_helpers": list(taskqueue.routing.HELPER_MODEL)}
+        # 0.18.1 (N2): how much thought Claude gives the tasks, chosen beside Start Claude Code and kept
+        out["thought"] = {"chosen": self.settings().get("claude_thought") or "balanced",
+                          "options": dict(taskqueue.routing.THOUGHT_TITLES)}
         out["runner"] = claude_setup.run_state(name)
+        out["at_limit"] = self._at_limit(name, ws, out["runner"])  # 0.18.1 (I4)
         if out["route"] == "claude_code" and not home.local_only():
             st = claude_setup.status()
             out["can_start"] = bool(st["found"])
@@ -47,7 +51,7 @@ class QueueMixin:
             except Exception:  # noqa: BLE001 - an older project without the table
                 return 0
 
-        fw = self.settings().get("profile_framework") or ""
+        fw = frameworks.chosen(self.settings().get("profile_framework"), ws)
         runs = n("SELECT COUNT(*) FROM theme_runs")
         run = ws.query("SELECT run_id FROM theme_runs ORDER BY created_at DESC LIMIT 1") if runs else []
         out = {
@@ -140,13 +144,68 @@ class QueueMixin:
         job.scope = hyp_id
         return job
 
+    # -- 0.18.1 (I1, I4): the local model's share of the queue ---------------------------------------------------
+    def _local_queue_job(self, name: str, what: str, kinds: list[str] | None = None, background: bool = False) -> Job:
+        """A job in which the local model (Settings' local model for restricted documents) answers the queue's tasks
+        here: `what` "mix" (the kinds the AI mix gives it first, unsure ones going up to Claude) or "limit" (every
+        waiting task, after Claude Code reached the plan's usage limit)."""
+        from .. import access
+
+        ws = self.ws(name)
+
+        def run(job: Job):
+            job.progress = {"done": 0, "total": 0}
+            prog = lambda d, n: job.progress.update(done=d, total=n)  # noqa: E731
+            readers = access.Readers(None, "", should_stop=job.cancel.is_set)
+            got = readers.local()
+            if got is None:
+                raise ApiError(400, readers.local_problem or "No local model is chosen in Settings → AI.")
+            try:
+                if what == "mix":
+                    return tasks_mod.answer_mix_waiting(ws, got[0], got[1], should_stop=job.cancel.is_set,
+                                                        progress=prog)
+                return taskqueue.run_here(ws, got[0], kinds, should_stop=job.cancel.is_set, progress=prog,
+                                          model=got[1])
+            finally:
+                taskqueue.advance(ws)
+                claimcheck._let_go(readers)
+
+        title = ("Your local model answers its share of the queue" if what == "mix" else
+                 "Your local model answers the queue while Claude Code waits for the plan's limit")
+        return self.jobs.start(f"queue-local-{what}", title, name, run, uses_model=True, unique=True,
+                               background=background)
+
+    def _at_limit(self, name: str, ws, runner: dict) -> dict | None:
+        """0.18.1 (I4): whether Claude Code, started from the app, stopped at the plan's usage limit, and what happens
+        now, as the person chose (Settings' at_limit): the queue waits for the next start, or the local model answers
+        what waits (started once per stop)."""
+        said = taskqueue.limit_reached(runner)
+        if not said:
+            return None
+        s = self.settings()
+        choice = s.get("at_limit") or "wait"
+        local = bool(s.get("restricted_server") and s.get("restricted_model")) and not home.local_only()
+        out = {"said": said, "choice": choice, "local_possible": local, "started": False}
+        key = f"{runner.get('started_at')}"
+        if choice == "local" and local and ws.meta("limit_handled") != key and taskqueue.status(ws, name)["waiting"]:
+            ws.set_meta("limit_handled", key)  # once per stop of Claude Code, even if the job is stopped
+            self._local_queue_job(name, "limit", background=True)
+            out["started"] = True
+        return out
+
     def start_queue_run(self, name: str, body: dict) -> Job:
         """Answer what waits in the queue here, with the AI model of Settings (a local server or the Claude API),
-        kind by kind."""
+        kind by kind. 0.18.1: with Claude Code in Settings, the local model answers here what the AI mix gives it
+        first (`{"local": "mix"}`, the default), or every waiting task it may (`{"local": "all"}`, as at the plan's
+        limit)."""
         ws = self.ws(name)
         if self.queue_mode():
-            raise ApiError(400, "Settings name Claude Code: it answers the queue itself. Choose another AI model to "
-                                "answer it here.")
+            what = "limit" if body.get("local") == "all" else "mix"
+            if what == "mix" and not taskqueue.mix_kinds():
+                raise ApiError(400, "Settings name Claude Code: it answers the queue itself. Choose a mix of local "
+                                    "and Claude in Settings → AI, or another AI model, to answer it here.")
+            kinds = [k for k in (body.get("kinds") or []) if k in taskqueue.KINDS] or None
+            return self._local_queue_job(name, what, kinds)
         kinds = [k for k in (body.get("kinds") or []) if k in taskqueue.KINDS] or None
         return self._model_job("queue-run", "Answering the queue here", name, lambda job, be, model, prog:
                                taskqueue.run_here(ws, be, kinds, should_stop=job.cancel.is_set, progress=prog,
@@ -157,7 +216,7 @@ class QueueMixin:
         from .. import profile
 
         ws = self.ws(name)
-        fw = _codebook(body.get("framework"), self.settings())
+        fw = _codebook(body.get("framework"), self.settings(), ws)
         frameworks.get(fw, ws)
         emb = self._embedder_for(ws)
 
@@ -171,7 +230,7 @@ class QueueMixin:
         from .. import profile, runs
 
         ws = self.ws(name)
-        fw = _codebook(_str(q, "framework"), self.settings())
+        fw = _codebook(_str(q, "framework"), self.settings(), ws)
         frameworks.get(fw, ws)
         docs = _list(q, "docs")
         # 0.9: without "all", the codebook's default (small codebooks: every passage)
@@ -189,7 +248,7 @@ class QueueMixin:
         from .. import profile
 
         ws = self.ws(name)
-        fw = _codebook(body.get("framework"), self.settings())
+        fw = _codebook(body.get("framework"), self.settings(), ws)
         frameworks.get(fw, ws)
         docs = body.get("doc_ids") or None
         if docs is not None and not (isinstance(docs, list) and all(isinstance(d, str) for d in docs)):
@@ -212,7 +271,7 @@ class QueueMixin:
         from .. import profile
 
         ws = self.ws(name)
-        fw = _codebook(body.get("framework"), self.settings())
+        fw = _codebook(body.get("framework"), self.settings(), ws)
         frameworks.get(fw, ws)  # a plain mistake is reported at once, not as a failed job (0.11.1)
         if not ws.scalar("SELECT 1 FROM labels WHERE framework=? AND source='model' LIMIT 1", (fw,)):
             raise ApiError(409, "No passage has AI labels yet in this codebook: there is nothing to compare with.")
@@ -239,7 +298,7 @@ class QueueMixin:
             return terms.build(ws, progress=lambda d, n: job.progress.update(done=d, total=n),
                                should_stop=job.cancel.is_set, embedder=emb)
 
-        return self.jobs.start("terms", "Building the glossary", name, run, uses_model=False)
+        return self.jobs.start("terms", "Building the glossary", name, run, uses_model=False, unique=True)
 
     def start_judge_links(self, name: str, body: dict) -> Job:
         from .. import terms
@@ -323,21 +382,27 @@ class QueueMixin:
             raise ApiError(400, "A new theme is found in place of a removed one: remove this theme first.")
         if ws.scalar("SELECT 1 FROM themes WHERE run_id=? AND replaces=?", (run_id, replaces)):
             raise ApiError(400, "A new theme was found in place of this one already.")
-        if any(j.kind == "theme-new" and j.project == name and j.scope == run_id and j.state in ("queued", "running")
-               for j in self.jobs.all()):   # one at a time: two would take the same passages
-            raise ApiError(409, "A new theme is being found for these themes already. Wait until it is ready.")
-
+        # 0.18 (M6): one at a time per set of themes (two would take the same passages): a second waits its turn
+        # (`serial`) instead of being refused; the same removed theme asked for again gets the job already there
         words = {"vectors": "reading the passages", "search": "looking where a new theme fits",
                  "name": "naming it by its key terms"}
 
         def run(job: Job):
+            if ws.scalar("SELECT 1 FROM themes WHERE run_id=? AND replaces=?", (run_id, replaces)):
+                raise ValueError("A new theme was found in place of this one already.")
             job.progress = {"done": 0, "total": 0, "phase": "vectors", "message": words["vectors"]}
             tid = themes.new_theme(ws, run_id, replaces, progress=lambda phase, d, n: job.progress.update(
                 phase=phase, done=d, total=n, message=words.get(phase, "")), should_stop=job.cancel.is_set)
             return {"theme_id": tid, "replaces": replaces}
 
-        job = self.jobs.start("theme-new", "Finding a new theme", name, run, uses_model=False)
-        job.scope = run_id
+        with ONE_START:
+            same = [j for j in self.jobs.all() if j.kind == "theme-new" and j.project == name and j.scope == run_id
+                    and j.state in ("queued", "running") and getattr(j, "replaces", None) == replaces]
+            if same:
+                return same[0]
+            job = self.jobs.start("theme-new", "Finding a new theme", name, run, uses_model=False, scope=run_id,
+                                  serial=f"theme-new:{run_id}")
+            job.replaces = replaces
         return job
 
     def start_resolve(self, name: str, doc_id: str, body: dict) -> Job:

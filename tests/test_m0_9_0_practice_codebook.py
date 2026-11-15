@@ -373,7 +373,7 @@ def test_api_profile_by_practice_plan_default_and_element_judging(api, home, tmp
 
 def test_the_page_uses_the_codebooks_words():
     profile_js = (STATIC / "views" / "profile.js").read_text()
-    sources_js = (STATIC / "views" / "sources.js").read_text()
+    sources_js = (STATIC / "views" / "doc-codes.js").read_text()   # a document's codes (split from sources.js in ENLENS 0.18)
     concepts_js = (STATIC / "views" / "concepts.js").read_text()
     assert "direction_words" in profile_js and "directionWords(prof)" in sources_js
     assert '"practice"' in profile_js and "practice_and_element" in sources_js

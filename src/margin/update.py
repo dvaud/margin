@@ -91,6 +91,16 @@ def _pending(root: Path) -> list[str] | None:
         return []
 
 
+def _pending_no_deps(root: Path) -> bool | None:
+    """0.18.1: whether the pending reinstall only writes the new version's number (no requirement changed): None when
+    none is pending, or it is from an older Margin (then everything is installed, as before)."""
+    try:
+        v = json.loads(_pending_path(root).read_text("utf-8")).get("no_deps")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return bool(v) if v is not None else None
+
+
 def _git(run: Runner, root: Path, *args: str) -> str:
     r = run(["git", *args], root)
     if r.returncode != 0:
@@ -106,9 +116,32 @@ def _digest(path: Path) -> str:
         return ""
 
 
+def _written_in_source(root: Path) -> bool:
+    """Whether `__init__.py` still writes the version (a copy from before 0.18.1, and the tests' stand-ins)."""
+    try:
+        return bool(re.search(r'^__version__\s*=\s*"', (root / "src" / "margin" / "__init__.py").read_text("utf-8"), re.M))
+    except OSError:
+        return False
+
+
 def version_in(root: Path) -> str:
-    m = re.search(r'__version__\s*=\s*"([^"]+)"', (root / "src" / "margin" / "__init__.py").read_text("utf-8"))
-    return m.group(1) if m else "?"
+    """The Margin version of a git copy. 0.18.1 (J1.3): it comes from the git tag, so no source file holds it: the
+    newest release tag the copy contains (`git describe`). A copy from before that, and the tests' stand-in copies,
+    still write `__version__ = "x"` in `__init__.py`, which is read first."""
+    try:
+        text = (root / "src" / "margin" / "__init__.py").read_text("utf-8")
+    except OSError:
+        text = ""
+    m = re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.M)
+    if m:
+        return m.group(1)
+    try:
+        r = _run(["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"], root)
+        if r.returncode == 0 and r.stdout.strip().lstrip("v"):
+            return r.stdout.strip().lstrip("v")
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "?"
 
 
 def _extras_in(text: str) -> dict[str, list[str]]:
@@ -168,11 +201,13 @@ def installed_extras(pyproject: Path) -> list[str]:
 
 
 def update(check_only: bool = False, root: Path | None = None, run: Runner = _run,
-           python: str | None = None, quick: bool = False, restart: list[str] | None = None) -> dict:
+           python: str | None = None, quick: bool = False, restart: list[str] | None = None,
+           token: str | None = None) -> dict:
     """Bring this Margin up to date, the way it was installed (see the module's notes). Returns what happened.
     `quick` (0.13.6, the app's check every two minutes): a one-line install learns the newest version from GitHub's
     release page, which GitHub's limit of 60 API requests an hour does not count. `restart` (0.15.4, the app on
-    Windows): the command that starts the app again, for the hand-over (update_release)."""
+    Windows): the command that starts the app again, for the hand-over (update_release); 0.17.2: `token`, the app's
+    access token, which the hand-over gives to the copy it starts (start_handover)."""
     if root is None and source_root() is None:
         from . import installation
 
@@ -180,7 +215,8 @@ def update(check_only: bool = False, root: Path | None = None, run: Runner = _ru
         if k == "script":
             if quick and check_only:
                 return update_release(check_only=True, run=run, peek=_peek)
-            return update_release(check_only=check_only, run=run, **({"restart": restart} if restart else {}))
+            return update_release(check_only=check_only, run=run, **({"restart": restart} if restart else {}),
+                                  **({"token": token} if token else {}))
         if k == "package":
             raise UpdateError("This Margin came as a download for this system: download the newest one from "
                               f"https://github.com/{installation.REPO}/releases and install it over this one (your "
@@ -218,6 +254,7 @@ def update_git(check_only: bool = False, root: Path | None = None, run: Runner =
     before = version_in(root)
     waiting = int(_git(run, root, "rev-list", "--count", f"HEAD..{upstream}") or 0)
     pending = _pending(root)
+    no_deps, was_pending = _pending_no_deps(root), pending is not None
     if not waiting and pending is None:
         return {"updated": False, "version": before, "message": f"Margin {before} is up to date."}
     if check_only:
@@ -235,13 +272,20 @@ def update_git(check_only: bool = False, root: Path | None = None, run: Runner =
         deps_before = _digest(py)
         extras = installed_extras(py)  # before the merge (0.11.1): an extra whose packages grew must stay installed
         _git(run, root, "merge", "--ff-only", "--quiet", upstream)
-        if _digest(py) != deps_before:
+        # 0.18.1: the installed package's version is made from the tag when it is installed, so a new release also
+        # reinstalls (the same extras): without it `__version__` would keep the old number until the next reinstall.
+        # (A copy that still writes its version in __init__.py needs no reinstall for a change of code only.)
+        deps_changed = _digest(py) != deps_before
+        if deps_changed or (not _written_in_source(root) and version_in(root) != before):
             # 0.15.1: and the layout reader (pdfminer), which the one-line install has always brought: without it
             # PDFs are read from their text alone (a git copy installed with `pip install -e .` lacked it)
             layout = {"pdfminer"} if "pdfminer" in _extras_in(py.read_text("utf-8")) else set()
             pending = sorted(set(pending or []) | set(extras) | layout)
             try:
-                _pending_path(root).write_text(json.dumps({"extras": pending}), encoding="utf-8")
+                # only the version changed: its number is written again, nothing else is fetched (--no-deps)
+                # a reinstall still pending from before (it failed) installs everything unless it too was the number
+                no_deps = (no_deps is True if was_pending else True) and not deps_changed
+                _pending_path(root).write_text(json.dumps({"extras": pending, "no_deps": no_deps}), encoding="utf-8")
             except OSError:
                 pass
     after = version_in(root)
@@ -249,7 +293,8 @@ def update_git(check_only: bool = False, root: Path | None = None, run: Runner =
     if pending is not None:
         extras = pending
         target = f"{root}[{','.join(extras)}]" if extras else str(root)
-        r = run([python or sys.executable, "-m", "pip", "install", "--quiet", "-e", target], root)
+        r = run([python or sys.executable, "-m", "pip", "install", "--quiet", *(["--no-deps"] if no_deps else []),
+                 "-e", target], root)
         if r.returncode != 0:
             raise UpdateError(f"Margin {after} was fetched, but installing its new requirements failed:\n"
                               f"{(r.stderr or r.stdout or '').strip()[-2000:]}\nRun `margin update` again when online.")
@@ -310,7 +355,7 @@ Fetch = Callable[[str], bytes]
 def _fetch(url: str) -> bytes:
     from urllib.request import Request, urlopen
 
-    # 0.16.2: the API's route to a release file (…/releases/assets/<id>) hands over the file itself only when asked
+    # 0.17.0: the API's route to a release file (…/releases/assets/<id>) hands over the file itself only when asked
     # for it; asked for JSON, it describes the file
     accept = "application/octet-stream" if "/releases/assets/" in url else "application/vnd.github+json"
     req = Request(url, headers={"User-Agent": "margin-update", "Accept": accept})
@@ -318,13 +363,13 @@ def _fetch(url: str) -> bytes:
         return r.read()
 
 
-# 0.16.2: how often each route to a release file is tried, and the pause between rounds (seconds)
+# 0.17.0: how often each route to a release file is tried, and the pause between rounds (seconds)
 DOWNLOAD_ROUNDS = 2
 DOWNLOAD_PAUSE = 3.0
 
 
 def download(fetch: Fetch, urls: list[str]) -> bytes:
-    """0.16.2: a release file from the first of `urls` (its routes) that hands it over: GitHub's download link, then
+    """0.17.0: a release file from the first of `urls` (its routes) that hands it over: GitHub's download link, then
     the API's own route to the same file. On 2026-11-09 the download links answered 504 Gateway Time-out for everyone
     while the API's route worked, and the error showed as "Something went wrong inside the app". Every route is tried
     DOWNLOAD_ROUNDS times, DOWNLOAD_PAUSE seconds apart; when none works, the last route's error is raised."""
@@ -344,7 +389,7 @@ def download(fetch: Fetch, urls: list[str]) -> bytes:
 
 
 def download_problem(e: Exception) -> str:
-    """0.16.2: what went wrong with a download, in a few words ("HTTP 504 Gateway Time-out")."""
+    """0.17.0: what went wrong with a download, in a few words ("HTTP 504 Gateway Time-out")."""
     from urllib.error import HTTPError
 
     if isinstance(e, HTTPError):
@@ -427,7 +472,7 @@ def latest_release(fetch: Fetch = _fetch, repo: str | None = None, channel: str 
     if early:
         data = highest_release(data)
     assets = {a.get("name", ""): a.get("browser_download_url", "") for a in data.get("assets") or []}
-    # 0.16.2: each file's second route, through the API (download())
+    # 0.17.0: each file's second route, through the API (download())
     api = {a.get("name", ""): a.get("url", "") for a in data.get("assets") or []}
     wheel = next((n for n in assets if n.startswith("margin-") and n.endswith(".whl")), "")
     tag = str(data.get("tag_name") or "")
@@ -554,20 +599,27 @@ def handover_job(rel: dict, have: str, folder: Path, install: list[str], restart
             "wait": 120, "free_wait": 60, "tries": 4, "retry_after": 5, "come_back": 90}
 
 
-def start_handover(job: dict) -> None:
-    """Copy handover.py next to the job and start it with outside_python(); it waits for this app to quit."""
+def start_handover(job: dict, token: str | None = None) -> None:
+    """Copy handover.py next to the job and start it with outside_python(); it waits for this app to quit. 0.17.2:
+    `token` goes to it in its environment only (never in the job file, nor in this app's environment, which the
+    programs a job starts meanwhile would inherit); it hands it to the copy it starts."""
     from . import handover
 
     folder = Path(job["folder"])
     script = folder / "handover.py"
     shutil.copyfile(Path(handover.__file__), script)
     (folder / "job.json").write_text(json.dumps(job, indent=1), encoding="utf-8")
-    handover._start([outside_python(), str(script), str(folder / "job.json")], str(folder))
+    args = [outside_python(), str(script), str(folder / "job.json")]
+    if token:
+        handover._start(args, str(folder), {**os.environ, handover.RESTART_TOKEN: token})
+    else:
+        handover._start(args, str(folder))
 
 
 def update_release(check_only: bool = False, run: Runner = _run, fetch: Fetch = _fetch, workdir: Path | None = None,
                    windows: bool | None = None, peek: Peek | None = None, channel: str | None = None,
-                   restart: list[str] | None = None, start: Callable[[dict], None] | None = None) -> dict:
+                   restart: list[str] | None = None, start: Callable[[dict], None] | None = None,
+                   token: str | None = None) -> dict:
     """Install the newest GitHub Release over a one-line install (see the module's notes). With `peek` (0.13.6), a
     check reads the newest version from the release page (`latest_version`), and asks the API only when the page does
     not say. 0.15: `channel` ("stable" or "early", default from the settings) says whether a release candidate counts.
@@ -604,7 +656,7 @@ def update_release(check_only: bool = False, run: Runner = _run, fetch: Fetch = 
     handed = False
     try:
         wheel = tmp / rel["wheel"]
-        try:  # 0.16.2: a second route and a second try; a failure in plain words, not an "unexpected problem"
+        try:  # 0.17.0: a second route and a second try; a failure in plain words, not an "unexpected problem"
             wheel.write_bytes(download(fetch, [rel["wheel_url"], rel.get("wheel_api", "")]))
             sums = download(fetch, [rel["sums_url"], rel.get("sums_api", "")]).decode("utf-8", errors="replace")
         except Exception as e:  # noqa: BLE001 - GitHub busy or offline: nothing was installed
@@ -620,7 +672,7 @@ def update_release(check_only: bool = False, run: Runner = _run, fetch: Fetch = 
         spec = f"margin[{','.join(installation.EXTRAS)}] @ {wheel.resolve().as_uri()}"
         install = [uv, "tool", "install", "--force", "--quiet", "--python", "3.12", spec]
         if windows:  # 0.15.4: handover.py installs it once this app has quit, and starts the app again
-            (start or start_handover)(handover_job(rel, have, tmp, install, restart or []))
+            (start or (lambda job: start_handover(job, token)))(handover_job(rel, have, tmp, install, restart or []))
             handed = True
             return {"updated": True, "from": have, "version": rel["version"], "route": "release", "handover": True,
                     "message": f"Margin {rel['version']} is installed as soon as Margin has quit; it then opens again."}

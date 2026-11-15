@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers_0110 import Cloud, Local, use_local_model
+from helpers_mixed_corpus import Cloud, Local, use_local_model
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "src" / "margin" / "gui" / "static"
@@ -639,7 +639,9 @@ def test_the_page_files():
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     assert 'import { renderCitations } from "./views/citations.js";' in app and '"citations", renderCitations]' in app
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert html.index('data-route="drafts"') < html.index('data-route="citations"') < html.index('data-route="check"')
+    # 0.17.0: the menu is made from features.js (the places), so the order is the order there: Check a draft, then
+    # Check citations
+    assert features.index("\n  drafts: {") < features.index("\n  citations: {")
     registry = (STATIC / "registry.js").read_text(encoding="utf-8")
     assert "citation: {" in registry and 'citations: { icon: "quote"' in registry
     view = (STATIC / "views" / "citations.js").read_text(encoding="utf-8")
@@ -648,8 +650,9 @@ def test_the_page_files():
         assert s in view, s
     result = (STATIC / "views" / "result.js").read_text(encoding="utf-8")
     assert "function citedIn(c)" in result and 'r.origin === "citation"' in result
-    css = (STATIC / "app.css").read_text(encoding="utf-8")
-    block = css[css.index("/* 0.13.7: Check citations"):]
+    from margin_static import section  # Margin: its rules are the sections of margin.css (not ENLENS's app.css)
+
+    block = section("m-shared") + section("citations")
     assert ".cite-card" in block and ".result-cited" in block
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgb\(", block)  # colour tokens only: light and dark both work
     assert "v0137.css" not in html  # no stylesheet of its own: new rules go into app.css

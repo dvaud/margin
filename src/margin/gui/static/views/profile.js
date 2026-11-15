@@ -3,9 +3,18 @@
 // seconds, a provisional profile) and, optionally, the AI reading the passages with a candidate code. Every label
 // says why it is there; a person can agree, change or reject it (in the document viewer, Codes panel).
 // The pieces shared with the document viewer (the AI-labelling card, the keyword pass, wording) are exported from here.
-import { featureEyebrow } from "../features.js";
-import { App, api, h, icon, replace, clear, toast, showError, addDocumentsFirst, fmt, pageHead, P, emptyState, download, switchControl, navigate, plural, shortTitle, cap, runningJob, heatCell, downloadLinks, helpMark, drawInSteps } from "../lib.js";
+import { featureEyebrow, viewTabs, withAI } from "../features.js";
+import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, addDocumentsFirst, fmt, pageHead, P, emptyState, download, switchControl, navigate, plural, shortTitle, cap, runningJob, heatCell, downloadLinks, helpMark, drawInSteps, button, link, notice, card, tag, input, select, fold, choice, readsLine, inset, heatGrid, heatHead } from "../lib.js";
 import { jobCard } from "./progress.js";
+import { roleTag } from "./doc-role.js";   // 0.19.0 (N3): a working document's row in the grid
+
+// The largest count in a grid of rows of cells (at least 1), found by a loop: Math.max(...every cell) throws a
+// RangeError above about 125,000 arguments, which a project of thousands of documents reaches.
+function gridMax(rows) {
+  let max = 1;
+  for (const row of Object.values(rows)) for (const n of Object.values(row)) if (n > max) max = n;
+  return max;
+}
 
 const pct = (x) => `${Math.round((x || 0) * 100)}%`;
 
@@ -75,13 +84,13 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
   const hid = "pf-ai-h-" + Math.random().toString(36).slice(2, 7);
   const el = h("section", { class: "pf-ai" + (compact ? " pf-ai-compact" : " card section"), "aria-labelledby": hid });
   const jobBox = h("div", { hidden: true });
-  const body = h("div", {}, h("p", { class: "muted small", style: { margin: 0 } }, "Looking at what the AI would read…"));
+  const body = h("div", {}, h("p", { class: "muted small pf-looking" }, "Looking at what the AI would read…"));
   let all = null;   // null: the codebook's default (0.9: a small codebook is read passage by passage, all of them)
   let limit = "";
   let compareResult = null;
   let running = false;
   const one = docIds && docIds.length === 1;
-  el.append(h(compact ? "h3" : "h2", { id: hid, class: "pf-ai-title" }, icon("sparkles", { size: compact ? 14 : 16 }), one ? " Let the AI read this document" : " Let the AI read the passages"), body, jobBox);
+  el.append(h(compact ? "h3" : "h2", { id: hid, class: "pf-ai-title" }, one ? "Let the AI read this document" : "Let the AI read the passages"), body, jobBox);
 
   async function load() {
     if (running) return;
@@ -90,7 +99,7 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
     if (all !== null) qs.set("all", all ? "1" : "0");
     let plan;
     try { plan = await api("GET", `${base}/profile/plan?${qs}`); }
-    catch (e) { replace(body, h("div", { class: "notice notice-error" }, icon("alert-circle"), h("p", {}, e.message || "Could not see what the AI would read."))); return; }
+    catch (e) { replace(body, notice({ kind: "error" }, h("p", {}, e.message || "Could not see what the AI would read."))); return; }
     draw(plan);
   }
 
@@ -102,7 +111,7 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
     const lim = Number(limit) > 0 ? Math.min(Number(limit), toRead) : toRead;
     const est = plan.estimate_seconds && toRead ? Math.round((plan.estimate_seconds * lim) / toRead) : null;
     const bits = [];
-    bits.push(h("p", { class: compact ? "small" : "", style: { margin: "6px 0" } },
+    bits.push(h("p", { class: compact ? "small pf-plan-lead" : "pf-plan-lead" },
       toRead === 0 && plan.already_read ? "The AI has read all these passages. " : plan.already_read ? "Passages the AI has not read yet count with their keyword codes (provisional). " : "The keyword profile is provisional. ",
       "The AI reads ", every ? "every passage" : "each passage with a candidate code", plan.whole_codebook ? ` with all ${plan.codes} codes of the codebook` : "", " and says which codes really apply, with a quote and a reason.",
       // 0.13.3: the details are one step away, in a help mark
@@ -110,46 +119,45 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
     const counts = every
       ? `${plural(plan.passages || 0, "passage")}${one ? " in this document" : ""}: ${fmt.num(plan.already_read || 0)} already read, ${fmt.num(toRead)} to read.`
       : `${plural(plan.with_candidates || 0, "passage")} of ${fmt.num(plan.passages || 0)}${one ? " in this document" : ""} ${plan.with_candidates === 1 ? "has" : "have"} a candidate code: ${fmt.num(plan.already_read || 0)} already read, ${fmt.num(toRead)} to read. This can be more than the passages the profile counts: it includes passages with only a weak match by meaning, which count once the AI confirms them.`;
-    bits.push(h("p", { class: "pf-ai-counts", style: { margin: "0 0 6px" } }, counts, est ? ` ${cap(aboutTime(est))} with this model.` : toRead ? " How long it takes is not known yet: it is measured on the first passages." : ""));
-    if (where.where === "cloud") bits.push(h("p", { class: "muted small it", style: { margin: "0 0 6px" } }, icon("cloud", { size: 13 }), ` ${where.sent || "The passages are sent to the Claude API (cloud)."}`));
+    bits.push(h("p", { class: "pf-ai-counts" }, counts, est ? ` ${cap(aboutTime(est))} with this model.` : toRead ? " How long it takes is not known yet: it is measured on the first passages." : ""));
     if (run.error) {
-      bits.push(h("div", { class: "notice notice-warn" }, icon("alert-triangle"), h("div", {}, h("p", {}, "The AI model is not available, so it cannot label passages now."),
-        h("details", { class: "fold" }, h("summary", {}, "Technical details"), h("div", { class: "mono small" }, run.error)), h("a", { href: "#/settings" }, "Check the AI model in Settings"))));
+      bits.push(notice({ kind: "attention" }, h("div", {}, h("p", {}, "The AI model is not available, so it cannot label passages now."),
+        fold({}, "Technical details", h("div", { class: "mono small" }, run.error)), link({ kind: "next", href: "#/settings" }, "Check the AI model in Settings"))));
       replace(body, bits);
       return;
     }
     // options
     const sw = switchControl("Read every passage, not only those with a candidate code", every, { help: plan.whole_codebook ? "On for a small codebook: its codes are rarely in the words of the text. Off is quicker but misses more." : "Slower. Finds codes the keywords missed." });
     sw.input.addEventListener("change", () => { all = sw.input.checked; load(); });
-    const limIn = h("input", { class: "input input-sm pf-limit", type: "number", min: "1", step: "1", inputmode: "numeric", value: limit, placeholder: "all", "aria-describedby": hid + "-lim" });
+    const limIn = input({ sm: true, class: "pf-limit", type: "number", min: "1", step: "1", inputmode: "numeric", value: limit, placeholder: "all", "aria-describedby": hid + "-lim" });
     limIn.addEventListener("change", () => { limit = limIn.value.trim(); draw(plan); const again = el.querySelector(".pf-limit"); if (again) again.focus(); });
     const limRow = h("label", { class: "row pf-limit-row" }, h("span", { class: "small" }, "Read at most"), limIn, h("span", { class: "small" }, "passages this time"));
-    const opts = h("details", { class: "fold pf-ai-opts", open: all !== null || !!limit }, h("summary", {}, "Options"), h("div", { style: { marginTop: "6px" } }, sw, limRow,
+    const opts = fold({ class: "pf-ai-opts", open: all !== null || !!limit }, "Options", h("div", { class: "pf-options-body" }, sw, limRow,
       h("p", { class: "field-help", id: hid + "-lim" }, "To try the AI on a few passages first. Leave it empty to read them all; you can stop at any time.")));
     // what changed since the last run
     const changed = run.changed || [];
-    const startBtn = h("button", { class: "btn btn-primary" + (compact ? " btn-sm" : ""), type: "button", disabled: !lim }, icon("sparkles", { size: 14 }),
-      !toRead ? "Nothing left to read" : changed.length ? `Label ${plural(lim, "passage")} anyway` : `Let the AI label ${plural(lim, "passage")}`);
+    const startBtn = button({ kind: "main", sm: !!compact, disabled: !lim }, !toRead ? "Nothing left to read" : changed.length ? `Label ${plural(lim, "passage")} anyway` : `Let the AI label ${plural(lim, "passage")}`);
     startBtn.addEventListener("click", () => start(startBtn));
     if (changed.length) {
       const last = run.last || {};
       const cmpBox = h("div");
-      const cmpBtn = h("button", { class: "btn btn-sm", type: "button" }, icon("scale", { size: 13 }), "Label a sample (up to 50) again first");
+      const cmpBtn = button({ sm: true }, icon("scale", { size: 13 }), "Label a sample (up to 50) again first");
       cmpBtn.addEventListener("click", () => compare(cmpBtn, cmpBox, plan));
-      bits.push(h("div", { class: "notice notice-warn pf-changed" }, icon("alert-triangle"), h("div", { class: "grow" },
+      bits.push(notice({ kind: "attention", class: "pf-changed" }, h("div", { class: "grow" },
         h("p", {}, h("strong", {}, `Something changed since the last labelling${last.started_at ? ` (${fmt.date(last.started_at)})` : ""}. `), "New labels may differ from the earlier ones for that reason alone:"),
         h("ul", { class: "pf-changed-list" }, changedLines(changed).map((t) => h("li", {}, t))),
         h("p", {}, "Label a sample the AI already labelled again with the new settings, to see how much the labels agree before you go on."),
-        h("div", { class: "btn-row", style: { marginTop: "6px" } }, cmpBtn), cmpBox,
+        h("div", { class: "btn-row pf-compare-actions" }, withAI(cmpBtn)), cmpBox,
         compareResult ? compareNote(compareResult) : null,
-        h("details", { class: "fold" }, h("summary", {}, "Technical details"), h("table", { class: "table pf-tech-table" },
+        fold({}, "Technical details", h("table", { class: "table pf-tech-table" },
           h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Setting"), h("th", { scope: "col" }, "Last run"), h("th", { scope: "col" }, "Now"))),
           h("tbody", {}, changed.map((c) => h("tr", {}, h("td", {}, c.field), h("td", { class: "mono small" }, shown(c.was)), h("td", { class: "mono small" }, shown(c.now))))))))));
     }
-    if (toRead) bits.push(h("div", { class: "btn-row", style: { marginTop: "8px" } }, startBtn));
-    else bits.push(h("p", { class: "it", style: { margin: "4px 0" } }, icon("circle-check", { size: 14 }), every ? " The AI has read every passage." : " The AI has read every passage with a candidate code."));
+    if (toRead) bits.push(h("div", { class: "btn-row pf-start-actions" }, withAI(startBtn)));
+    else bits.push(h("p", { class: "it pf-read-all" }, icon("check", { size: 14 }), every ? " The AI has read every passage." : " The AI has read every passage with a candidate code."));
+    if (toRead || changed.length) bits.push(readsLine("the passages it labels"));
     bits.push(opts);
-    bits.push(h("details", { class: "fold" }, h("summary", {}, "Technical details"), h("dl", { class: "ev-tech-list" },
+    bits.push(fold({}, "Technical details", h("dl", { class: "ev-tech-list" },
       h("div", {}, h("dt", {}, "AI model"), h("dd", {}, shown(run.now && run.now.model))),
       h("div", {}, h("dt", {}, "Exact version"), h("dd", { class: "mono" }, shown(run.now && run.now.digest))),
       h("div", {}, h("dt", {}, "Prompt"), h("dd", {}, shown(run.now && run.now.prompt_version))),
@@ -160,8 +168,8 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
   }
 
   function compareNote(r) {
-    if (!r.compared) return h("p", { class: "small", style: { marginTop: "6px" } }, "The AI could not label the sample again", r.errors ? ` (${plural(r.errors, "answer")} could not be read)` : "", ".");
-    return h("div", { class: "pf-compare", role: "status" },
+    if (!r.compared) return h("p", { class: "small pf-compare-note" }, "The AI could not label the sample again", r.errors ? ` (${plural(r.errors, "answer")} could not be read)` : "", ".");
+    return inset({ class: "pf-compare", role: "status" },
       h("p", {}, h("strong", {}, `The AI labelled ${plural(r.compared, "passage")} again with ${r.model || "the model now set"}. `),
         r.kappa !== null && r.kappa !== undefined ? `Agreement with the earlier labels beyond chance: κ = ${Number(r.kappa).toFixed(2)} (${kappaWord(r.kappa)}). ` : "",
         r.same_codes !== null && r.same_codes !== undefined ? `${pct(r.same_codes)} of the passages got exactly the same codes.` : "",
@@ -218,20 +226,20 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
 // "How often you agreed with the AI" (the settings page's chart, for codebook labels)
 function calibrationBox(c) {
   const bins = c.bins || [];
-  const box = h("div", { class: "cal-box" });
+  const box = inset({ class: "cal-box" });
   box.appendChild(h("h3", { class: "cal-title" }, icon("scale", { size: 14 }), " How often you agreed with the AI, by its certainty"));
   const chart = h("div", { class: "cal-chart", role: "img", "aria-label": `Agreement with the AI's labels by its certainty: ${bins.map((b) => `${pct(b.from)} to ${pct(b.to)}: ${b.judged ? `${b.agreed} of ${b.judged} (${pct(b.rate || 0)})` : "none judged"}`).join("; ")}.` });
   for (const b of bins) {
     const rate = b.judged ? (b.rate ?? b.agreed / b.judged) : null;
     chart.appendChild(h("div", { class: "cal-col cal-counted" },
       h("span", { class: "cal-val" }, rate === null ? "–" : pct(rate)),
-      h("div", { class: "cal-bar-wrap" }, rate === null ? h("div", { class: "cal-bar cal-empty", style: { height: "100%" } }) : h("div", { class: "cal-bar", style: { height: `${Math.max(3, Math.round(rate * 100))}%` } })),
+      h("div", { class: "cal-bar-wrap" }, rate === null ? h("div", { class: "cal-bar cal-empty" }) : h("div", { class: "cal-bar", style: { height: `${Math.max(3, Math.round(rate * 100))}%` } })),
       h("div", { class: "cal-lab" }, `${pct(b.from)}–${pct(b.to)}`),
       h("div", { class: "cal-n" }, b.judged ? `${b.agreed} of ${b.judged}` : "none")));
   }
   box.appendChild(chart);
   box.appendChild(h("p", { class: "muted small cal-foot" }, `From the ${plural(c.total, "label")} of the AI you reviewed: you agreed with ${c.agreed || 0} (${pct(c.total ? (c.agreed || 0) / c.total : 0)}). Changing a label's relevance or direction counts as agreeing that the code applies; rejecting it does not. The number under each bar is how many you agreed with of those you reviewed.`));
-  box.appendChild(h("details", { class: "fold" }, h("summary", {}, "As a table"),
+  box.appendChild(fold({}, "As a table",
     h("table", { class: "table cal-table" }, h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "AI certainty"), h("th", { scope: "col", class: "num" }, "You reviewed"), h("th", { scope: "col", class: "num" }, "You agreed"), h("th", { scope: "col", class: "num" }, "Agreement"))),
       h("tbody", {}, bins.map((b) => h("tr", {}, h("td", {}, `${pct(b.from)} to ${pct(b.to)}`), h("td", { class: "num" }, String(b.judged)), h("td", { class: "num" }, String(b.agreed)), h("td", { class: "num" }, b.judged ? pct(b.rate ?? b.agreed / b.judged) : "–")))))));
   return box;
@@ -240,7 +248,7 @@ function calibrationBox(c) {
 // Margin 0.8: there is no default codebook. Until one is chosen, the Profile page, a document's Codes panel and the
 // themes' code grid show this: pick a codebook (the setting), or add one of your own.
 export function codebookChooser(project, onPick) {
-  const sel = h("select", { class: "select input-sm", "aria-label": "Codebook", style: { width: "auto", maxWidth: "100%", minWidth: "0", flex: "0 1 auto" } }, h("option", { value: "" }, "Choose a codebook…"));
+  const sel = select({ sm: true, class: "pf-choose-fw", "aria-label": "Codebook" }, h("option", { value: "" }, "Choose a codebook…"));
   api("GET", `/api/projects/${P(project)}/frameworks`).then((r) => {
     for (const f of r.frameworks || []) sel.appendChild(h("option", { value: f.name }, f.source === "bundled" ? `${f.title || f.name} (built in)` : f.title || f.name));
   }).catch(showError);
@@ -250,7 +258,7 @@ export function codebookChooser(project, onPick) {
   });
   return emptyState("tag", "Choose a codebook first",
     "A codebook is a list of codes, like in NVivo or Atlas.ti. Margin then finds which codes each document addresses, how much and where. Add your own as a spreadsheet (CSV), or use a built-in one.",
-    h("div", { class: "row", style: { gap: "8px", justifyContent: "center", flexWrap: "wrap" } }, sel, h("a", { class: "btn btn-sm", href: "#/settings/frameworks" }, icon("upload", { size: 13 }), "Add your own codebook (CSV)")));
+    h("div", { class: "row pf-choose-row" }, sel, link({ kind: "next", href: "#/codebooks" }, "Add your own codebook")));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -260,9 +268,9 @@ export async function renderProfile(view, params, query) {
   const project = App.project;
   const base = `/api/projects/${P(project)}`;
   const watchers = [];
-  let framework = query.framework || App.settings().profile_framework || "";
-  if (!framework) {
-    view.append(pageHead("Profile", { eyebrow: featureEyebrow("profile"), sub: "Which codes of a codebook the documents address, how much and where." }),
+  let framework = query.framework || App.framework();
+  if (!framework) {   // Margin 0.8: there is no default codebook; the chooser asks for one
+    view.append(pageHead("Codes", { eyebrow: featureEyebrow("profile"), sub: "Which codes of a codebook the documents address, how much and where." }), viewTabs("codes", "profile"),
       codebookChooser(project, (fw) => navigate(`#/profile?framework=${encodeURIComponent(fw)}`)));
     return () => {};
   }
@@ -278,14 +286,14 @@ export async function renderProfile(view, params, query) {
     if (e.status === 400) {
       // a codebook that was deleted, or one of another project: choose again
       toast(`The codebook “${framework}” is not available in this project.`, "warn");
-      view.append(pageHead("Profile", { eyebrow: featureEyebrow("profile") }), codebookChooser(project, (fw) => navigate(`#/profile?framework=${encodeURIComponent(fw)}`)));
+      view.append(pageHead("Codes", { eyebrow: featureEyebrow("profile") }), viewTabs("codes", "profile"), codebookChooser(project, (fw) => navigate(`#/profile?framework=${encodeURIComponent(fw)}`)));
       return () => {};
     }
     throw e;
   }
   docs = await docsReq;   // both arrive before the page is drawn: one draw, not two
   if (docs && !docs.length) {   // 0.14.3: no documents: the same "Add documents first" as Check
-    view.append(pageHead("Profile", { eyebrow: featureEyebrow("profile"), sub: "Which codes of a codebook the documents address, how much and where." }), addDocumentsFirst("The profile"));
+    view.append(pageHead("Codes", { eyebrow: featureEyebrow("profile"), sub: "Which codes of a codebook each document addresses, how much and where." }), viewTabs("codes", "profile"), addDocumentsFirst("The profile"));
     return;
   }
 
@@ -297,7 +305,7 @@ export async function renderProfile(view, params, query) {
   const topBox = h("div");
   const gridBox = h("section", { class: "section", "aria-labelledby": "pf-grid-h" });
   const calBox = h("div");
-  view.append(head, controls, jobBox, statusBox, aiBox, topBox, gridBox, calBox);
+  view.append(head, viewTabs("codes", "profile"), controls, jobBox, statusBox, aiBox, topBox, gridBox, calBox);   // 0.17.0: Codes › By document
   let ai = null;
 
   const fwInfo = () => (prof.frameworks || []).find((f) => f.name === framework) || { name: framework, title: framework, label: "code" };
@@ -305,7 +313,7 @@ export async function renderProfile(view, params, query) {
 
   function keepUrl() {
     const s = new URLSearchParams();
-    if (framework !== (App.settings().profile_framework || "")) s.set("framework", framework);
+    if (framework !== App.framework()) s.set("framework", framework);
     if (level !== "code") s.set("level", level);
     const qs = s.toString();
     history.replaceState(null, "", "#/profile" + (qs ? "?" + qs : ""));
@@ -322,10 +330,14 @@ export async function renderProfile(view, params, query) {
   function draw() {
     // 0.13.3: the download is a quiet link, shown once there is a profile to download (it was a disabled button)
     const xlsx = prof.pass1.done ? downloadLinks([{ text: "Excel (.xlsx)",
-      onClick: (e) => { const b = e.currentTarget; b.disabled = true; download(`${base}/profile.xlsx?framework=${encodeURIComponent(framework)}&level=${level}`).catch(showError).finally(() => { b.disabled = false; }); } }]) : null;
-    replace(head, pageHead("Profile", { eyebrow: featureEyebrow("profile"),
-      sub: "Which codes of a codebook the documents address, how much and where.",
+      onClick: (e) => { const b = e.currentTarget; b.disabled = true; download(`${base}/profile.xlsx?framework=${encodeURIComponent(framework)}&level=${level}`).catch(showError).finally(() => { b.disabled = false; }); } },
+      // 0.18.7 (G5): the whole project, its labels as codings, for another program of qualitative analysis
+      { text: "NVivo, ATLAS.ti, MAXQDA (.qdpx)", title: "A REFI-QDA project: the documents, the codes, the labels and judgements that count, and your notes as memos",
+        onClick: (e) => { const b = e.currentTarget; b.disabled = true; download(`${base}/export.qdpx`).catch(showError).finally(() => { b.disabled = false; }); } }]) : null;
+    replace(head, pageHead("Codes", { eyebrow: featureEyebrow("profile"),
+      sub: "Which codes of a codebook each document addresses, how much and where.",
       actions: xlsx,
+      facts: [madeWithFact(prof.made_with)],   // 0.18.1 (J4.2): labels an earlier Margin made
     }));
     drawControls();
     drawSummary();
@@ -335,7 +347,7 @@ export async function renderProfile(view, params, query) {
 
   function drawControls() {
     const fws = prof.frameworks || [];
-    const sel = h("select", { class: "select input-sm", id: "pf-fw" }, fws.map((f) => h("option", { value: f.name, selected: f.name === framework }, (f.title && /\(\d+ \w+\)/.test(f.title) ? f.title : `${f.title || f.name} (${plural(f.codes, "code")})`))));
+    const sel = select({ sm: true, id: "pf-fw" }, fws.map((f) => h("option", { value: f.name, selected: f.name === framework }, (f.title && /\(\d+ \w+\)/.test(f.title) ? f.title : `${f.title || f.name} (${plural(f.codes, "code")})`))));
     sel.addEventListener("change", async () => {
       framework = sel.value;
       // the codebook of document profiles is a setting: new documents get its codes when they are added
@@ -344,20 +356,22 @@ export async function renderProfile(view, params, query) {
       await reload();
       const again = document.getElementById("pf-fw"); if (again) again.focus();
     });
-    const seg = (val, label) => h("button", { class: "btn btn-sm seg-btn" + (level === val ? " seg-on" : ""), type: "button", "aria-pressed": level === val ? "true" : "false",
-      onClick: async () => { if (level === val) return; level = val; try { localStorage.setItem("margin.profile.level", val); } catch (_) { /* no storage */ } keepUrl(); await reload(); const b = controls.querySelector(`[data-level="${val}"]`); if (b) b.focus(); }, dataset: { level: val } }, label);
+    // how to count: a choice of two values (docs/DESIGN.md 4.6)
+    const levelChoice = () => choice({ "aria-labelledby": "pf-level-l", class: "pf-seg", value: level,
+      options: [["code", fw.label ? cap(fw.label) : "Code"], fw.groups === 0 ? null : ["group", /^sdg/.test(framework) ? "Goal" : "Group"],
+        fw.practice_and_element ? ["practice", "Practice"] : null].filter(Boolean),
+      onPick: async (val) => { if (level === val) return; level = val; try { localStorage.setItem("margin.profile.level", val); } catch (_) { /* no storage */ } keepUrl(); await reload(); const b = controls.querySelector(`[data-value="${val}"]`); if (b) b.focus(); } });
     const fw = fwInfo();
-    const docSel = docs && docs.length ? h("select", { class: "select input-sm", id: "pf-doc", "aria-label": "Open the profile of one document" },
+    const docSel = docs && docs.length ? select({ sm: true, id: "pf-doc", "aria-label": "Open the profile of one document" },
       h("option", { value: "" }, "Open one document's profile…"), docs.map((d) => h("option", { value: d.doc_id }, shortTitle(d.title || d.file, 80)))) : null;
-    if (docSel) docSel.addEventListener("change", () => { if (docSel.value) navigate(`#/doc/${encodeURIComponent(docSel.value)}?tab=codes${framework !== (App.settings().profile_framework || "") ? `&framework=${encodeURIComponent(framework)}` : ""}`); });
+    if (docSel) docSel.addEventListener("change", () => { if (docSel.value) navigate(`#/doc/${encodeURIComponent(docSel.value)}?tab=codes${framework !== App.framework() ? `&framework=${encodeURIComponent(framework)}` : ""}`); });
     replace(controls,
       h("div", { class: "pf-control" }, h("label", { class: "field-label", for: "pf-fw" }, "Codebook"), sel,
         h("span", { class: "field-help" }, "New documents get this codebook's codes when they are added. ",
           h("a", { href: `#/codebooks/${encodeURIComponent(framework)}` }, fw.source === "bundled" ? "See its codes" : "Edit this codebook"), " · ",
           h("a", { href: "#/codebooks" }, "Your own codebook"))),
       fw.groups === 0 && !fw.practice_and_element ? null : h("div", { class: "pf-control" }, h("span", { class: "field-label", id: "pf-level-l" }, "Count by"),
-        h("div", { class: "btn-row pf-seg", role: "group", "aria-labelledby": "pf-level-l" }, seg("code", fw.label ? cap(fw.label) : "Code"), fw.groups === 0 ? null : seg("group", /^sdg/.test(framework) ? "Goal" : "Group"),
-          fw.practice_and_element ? seg("practice", "Practice") : null)),
+        levelChoice()),
       docSel ? h("div", { class: "pf-control" }, h("label", { class: "field-label", for: "pf-doc" }, "Show the profile of"), docSel) : null);
   }
 
@@ -370,29 +384,29 @@ export async function renderProfile(view, params, query) {
       if (!jobBox.hidden) return;
       statusBox.appendChild(emptyState("tag", "No profile with this codebook yet",
         `First the app finds the ${fw.label || "code"}s of “${fw.title || framework}” in every passage by their keywords${App.settings().embed_backend === "off" ? "" : " and by meaning"}. It takes seconds, runs on this computer, and gives a provisional profile at once. The AI can then read the passages to confirm or correct it.`,
-        h("button", { class: "btn btn-primary", type: "button", onClick: (e) => startKeywordPass(project, framework, jobBox, watchers, keywordsEnded, e.currentTarget) }, icon("tag", { size: 14 }), "Find the codes by keywords")));
+        button({ kind: "main", onClick: (e) => startKeywordPass(project, framework, jobBox, watchers, keywordsEnded, e.currentTarget) }, icon("tag", { size: 14 }), "Find the codes by keywords")));
       return;
     }
     // 0.16 (K1): the codebook changed since its codes were found, a code's wording since the AI labelled with it, or
     // codes were taken out (their labels wait and do not count)
     if (p1.codebook_changed && !p1.stale && jobBox.hidden) {
-      statusBox.appendChild(h("div", { class: "notice notice-warn", style: { marginBottom: "14px" } }, icon("alert-triangle"),
+      statusBox.appendChild(notice({ kind: "attention", class: "pf-status-notice" },
         h("div", { class: "grow" }, h("p", {}, "The codebook changed since the codes were found by keywords: codes or the words they are matched by are new. The keyword labels are those of before until you find them again."),
-          h("button", { class: "btn btn-sm", type: "button", style: { marginTop: "8px" }, onClick: (e) => startKeywordPass(project, framework, jobBox, watchers, keywordsEnded, e.currentTarget) }, icon("refresh", { size: 13 }), "Find the codes again (seconds)"))));
+          button({ sm: true, class: "pf-again-btn", onClick: (e) => startKeywordPass(project, framework, jobBox, watchers, keywordsEnded, e.currentTarget) }, icon("refresh", { size: 13 }), "Find the codes again (seconds)"))));
     }
     const staleCodes = Object.keys(prof.stale_codes || {});
     const removedCodes = prof.removed_codes || [];
     if (staleCodes.length || removedCodes.length) {
-      statusBox.appendChild(h("div", { class: "notice notice-info", style: { marginBottom: "14px" } }, icon("book-marked"),
+      statusBox.appendChild(notice({ kind: "info", icon: "book-marked", class: "pf-status-notice" },
         h("div", { class: "grow" },
           staleCodes.length ? h("p", {}, `${plural(staleCodes.length, "code")} changed wording after the AI labelled with ${staleCodes.length === 1 ? "it" : "them"} (${staleCodes.slice(0, 4).join(", ")}${staleCodes.length > 4 ? "…" : ""}). The labels stay until you ask for those passages to be labelled again.`) : null,
           removedCodes.length ? h("p", {}, `${plural(removedCodes.reduce((a, r) => a + r.labels, 0), "label")} of ${plural(removedCodes.length, "removed code")} wait in the codebook and are not counted here.`) : null,
-          h("a", { class: "btn btn-sm", href: `#/codebooks/${encodeURIComponent(framework)}`, style: { marginTop: "8px" } }, icon("book-marked", { size: 13 }), "Open the codebook"))));
+          link({ kind: "next", href: `#/codebooks/${encodeURIComponent(framework)}`, class: "pf-codebook-link" }, "Open the codebook"))));
     }
     if (p1.stale && jobBox.hidden) {
-      statusBox.appendChild(h("div", { class: "notice notice-warn", style: { marginBottom: "14px" } }, icon("alert-triangle"),
+      statusBox.appendChild(notice({ kind: "attention", class: "pf-status-notice" },
         h("div", { class: "grow" }, h("p", {}, "Documents were added or removed since the codes were found by keywords, so the profile leaves out the changes."),
-          h("button", { class: "btn btn-sm", type: "button", style: { marginTop: "8px" }, onClick: (e) => startKeywordPass(project, framework, jobBox, watchers, keywordsEnded, e.currentTarget) }, icon("refresh", { size: 13 }), "Find the codes again (seconds)"))));
+          button({ sm: true, class: "pf-again-btn", onClick: (e) => startKeywordPass(project, framework, jobBox, watchers, keywordsEnded, e.currentTarget) }, icon("refresh", { size: 13 }), "Find the codes again (seconds)"))));
     }
     const st = prof.stats || {};
     const by = st.by_source || {};
@@ -402,14 +416,14 @@ export async function renderProfile(view, params, query) {
     const provisionalOnly = !by.model && !by.person;
     const sources = [["model", "by the AI"], ["person", "by you"], ["both", "by keywords and meaning together"], ["keywords", "by keywords"], ["meaning", "by meaning"]]
       .filter(([k]) => by[k]).map(([k, t]) => `${fmt.num(by[k])} ${t}`);
-    statusBox.appendChild(h("section", { class: "card pf-summary", "aria-label": "Summary" },
+    statusBox.appendChild(card({ class: "pf-summary", "aria-label": "Summary" },
       h("p", { class: "pf-lead" }, h("strong", {}, `${plural(st.labels || 0, "label")} in ${plural(st.passages || 0, "passage")} of ${plural(st.documents || 0, "document")}`),
         withNone ? ` (${plural(withNone, "document")} without any ${fw.label || "code"})` : "", "."),
-      h("p", { class: "muted small", style: { margin: "2px 0 0" } }, `Labelled ${sources.join(", ") || "by nobody yet"}. `,
-        provisionalOnly ? h("span", { class: "chip chip-weak" }, "provisional") : null,
+      h("p", { class: "muted small pf-labelled-note" }, `Labelled ${sources.join(", ") || "by nobody yet"}. `,
+        provisionalOnly ? tag({ kind: "attention" }, "provisional") : null,
         provisionalOnly ? " The AI has not read any passage yet: the profile rests on keywords" + (p1.meaning_model ? " and meaning" : "") + " alone." : g.provisional ? ` The AI has read ${plural(prof.read_by_model || 0, "passage")}; passages it has not read count with their keyword codes (provisional).` : ` The AI has read ${plural(prof.read_by_model || 0, "passage")}.`),
-      h("details", { class: "fold" }, h("summary", {}, "Technical details"),
-        h("p", { class: "muted small", style: { margin: "4px 0 6px" } }, "A passage is the stretch of text the app reads as one unit, up to about 1,100 characters: a few paragraphs together, or part of a long one. A passage can have several codes, so there are more labels than passages; the AI may confirm fewer codes than the keywords proposed."),
+      fold({}, "Technical details",
+        h("p", { class: "muted small pf-passage-help" }, "A passage is the stretch of text the app reads as one unit, up to about 1,100 characters: a few paragraphs together, or part of a long one. A passage can have several codes, so there are more labels than passages; the AI may confirm fewer codes than the keywords proposed."),
         h("dl", { class: "ev-tech-list" },
         h("div", {}, h("dt", {}, "Codebook"), h("dd", {}, `${fw.title || framework} (${framework})`)),
         h("div", {}, h("dt", {}, "Keyword pass"), h("dd", {}, `${fmt.date(p1.at)} · ${plural(p1.passages || 0, "passage")}`)),
@@ -417,7 +431,8 @@ export async function renderProfile(view, params, query) {
         h("div", {}, h("dt", {}, "Read by the AI"), h("dd", {}, fmt.num(prof.read_by_model || 0)))))));
     if (!ai) { ai = aiLabelCard({ project, framework, watchers, onEnd: () => reload() }); replace(aiBox, ai.el); }
     // the codes addressed most
-    const codes = [...(g.codes || [])].sort((a, b) => b.passages - a.passages || b.documents - a.documents).slice(0, 8);
+    // (0.19.0, N3: a code found only in a working document has no passage of the corpus: not among them)
+    const codes = [...(g.codes || [])].filter((c) => c.passages > 0).sort((a, b) => b.passages - a.passages || b.documents - a.documents).slice(0, 8);
     if (codes.length) {
       const max = Math.max(1, ...codes.map((c) => c.passages));
       topBox.appendChild(h("section", { class: "section", "aria-labelledby": "pf-top-h" },
@@ -454,14 +469,14 @@ export async function renderProfile(view, params, query) {
       gridBox.appendChild(emptyState("tag", "No code found yet", "No passage has a code that counts. The AI can read the passages with a candidate code, or try another codebook."));
       return;
     }
-    const max = Math.max(1, ...Object.values(cells).flatMap((row) => Object.values(row)));
-    const docHref = (d, code) => `#/doc/${encodeURIComponent(d.doc_id)}?tab=codes${framework !== (App.settings().profile_framework || "") ? `&framework=${encodeURIComponent(framework)}` : ""}${code ? `&code=${encodeURIComponent(code)}` : ""}`;
+    const max = gridMax(cells);
+    const docHref = (d, code) => `#/doc/${encodeURIComponent(d.doc_id)}?tab=codes${framework !== App.framework() ? `&framework=${encodeURIComponent(framework)}` : ""}${code ? `&code=${encodeURIComponent(code)}` : ""}`;
     const tbody = h("tbody");
     const table = h("table", { class: "map-table pf-grid" },
       h("caption", { class: "visually-hidden" }, `Documents by ${unit}: the number of passages`),
       h("thead", {}, h("tr", {}, h("th", { scope: "col", class: "map-hyp-head" }, "Document"),
-        codes.map((c) => h("th", { scope: "col", class: "pf-code-head", title: `${cap(unit)} ${c.code}: ${c.description || ""} · ${plural(c.passages, "passage")} in ${plural(c.documents, "document")}` },
-          h("span", { "aria-hidden": "true" }, c.code), h("span", { class: "visually-hidden" }, `${unit} ${c.code}: ${shortTitle(c.description, 60)}`))))),
+        codes.map((c) => heatHead(c.code, { title: `${cap(unit)} ${c.code}: ${c.description || ""} · ${plural(c.passages, "passage")} in ${plural(c.documents, "document")}`,
+          spoken: `${unit} ${c.code}: ${shortTitle(c.description, 60)}` })))),
       tbody);
     // 0.16 (H5): the rows are drawn as the grid scrolls into view (a project of several hundred documents had tens of
     // thousands of cells to draw before the page showed)
@@ -469,15 +484,17 @@ export async function renderProfile(view, params, query) {
       const row = cells[d.doc_id] || {};
       const href = docHref(d);
       return h("tr", { class: "row-link", onClick: (e) => { if (e.target.closest("a, td.pf-cell")) return; location.hash = href; } },
-        h("th", { scope: "row", class: "map-hyp pf-doc" }, h("a", { href, title: d.title }, shortTitle(d.title, 90)), h("div", { class: "map-hyp-meta muted small" }, `${plural(d.passages, "passage")} with a code`)),
+        h("th", { scope: "row", class: "map-hyp pf-doc" }, link({ kind: "title", serif: true, href, title: d.title }, shortTitle(d.title, 90)),
+          // 0.19.0 (N3): a working document's codes are its own, never the corpus's
+          h("div", { class: "map-hyp-meta muted small" }, d.working ? [roleTag("working"), ` ${plural(d.passages, "passage")} with a code · not in the totals`] : `${plural(d.passages, "passage")} with a code`)),
         codes.map((c) => heatCell(row[c.code] || 0, max, `${shortTitle(d.title, 50)}, ${unit} ${c.code}`, "pf", () => { location.hash = docHref(d, c.code); })));
     }, { first: 40, step: 80, more: (left, onClick) => h("tr", { class: "draw-more-row" }, h("th", { scope: "row", class: "map-hyp" },
-      h("button", { class: "btn btn-sm btn-ghost", type: "button", onClick }, icon("chevron-down", { size: 13 }), `Show more documents (${left} more)`))) });
+      button({ kind: "quiet", sm: true, onClick }, icon("chevron-down", { size: 13 }), `Show more documents (${left} more)`))) });
     gridBox.appendChild(h("div", { class: "pf-grid-key muted small" },
-      h("span", {}, g.provisional ? h("span", { class: "chip chip-weak" }, "provisional") : null, g.provisional ? " Includes codes found by keywords that the AI has not checked yet. " : ""),
-      h("span", {}, "The darker the cell, the more passages. Hover over a column for its text; click a cell to see those passages in the document.")));
-    gridBox.appendChild(h("p", { class: "muted small map-scroll-hint", style: { margin: "0 0 6px" } }, icon("arrow-right", { size: 12 }), ` The grid scrolls sideways: drag or swipe it to see every ${unit}.`));
-    gridBox.appendChild(h("div", { class: "map-wrap", tabindex: "0", role: "region", "aria-label": `Documents by ${unit} (scrolls sideways)` }, table));
+      h("span", {}, g.provisional ? tag({ kind: "attention" }, "provisional") : null, g.provisional ? " Includes codes found by keywords that the AI has not checked yet. " : ""),
+      h("span", {}, "The darker the cell, the more passages. Hover over a column for its text; click a cell to see those passages in the document."),
+      gdocs.some((d) => d.working) ? h("span", {}, " Your working documents come last: their codes show what your draft covers, and are never counted with the corpus’s.") : null));
+    gridBox.appendChild(heatGrid(table, { label: `Documents by ${unit}`, unit: unit === "code" ? "codes" : `${unit}s` }));
   }
 
   // 0.9: practices by code, like Shove, Pantzar and Watson's snapshot of car-driving (2012: Fig. 2.2): the practices the
@@ -496,31 +513,32 @@ export async function renderProfile(view, params, query) {
         : "The AI names the practice and the element of each label when it reads the passages with this codebook."));
       return;
     }
-    const max = Math.max(1, ...Object.values(cells).flatMap((row) => Object.values(row)));
+    const max = gridMax(cells);
     const dirText = (d) => [["helps", d && d.helps], ["hinders", d && d.hinders]].filter(([, n]) => n).map(([k, n]) => `${n} ${words[k]}`).join(", ");
+    const tbody = h("tbody");
     const table = h("table", { class: "map-table pf-grid" },
       h("caption", { class: "visually-hidden" }, `Practices by ${unit}: the number of passages`),
       h("thead", {}, h("tr", {}, h("th", { scope: "col", class: "map-hyp-head" }, "Practice"),
-        codes.map((c) => h("th", { scope: "col", class: "pf-code-head", title: `${cap(unit)} ${c.code}: ${c.description || ""} · ${plural(c.passages, "passage")}` },
-          h("span", { "aria-hidden": "true" }, c.code), h("span", { class: "visually-hidden" }, `${unit} ${c.code}: ${shortTitle(c.description, 60)}`))))),
-      h("tbody", {}, rows.map((r) => {
-        const row = cells[r.doc_id] || {};
-        const d = dirs[r.doc_id] || {};
-        return h("tr", {},
-          h("th", { scope: "row", class: "map-hyp pf-doc" }, h("span", { class: "serif" }, shortTitle(r.title, 90)),
-            h("div", { class: "map-hyp-meta muted small" }, `${plural(r.passages, "passage")} · ${plural(r.in_documents || 0, "document")}`,
-              r.elements && r.elements.length ? h("span", { class: "pf-elements" }, ` · Elements: ${r.elements.join(", ")}`) : null)),
-          codes.map((c) => {
-            const extra = dirText(d[c.code]);
-            return heatCell(row[c.code] || 0, max, `${shortTitle(r.title, 50)}, ${unit} ${c.code}${extra ? ` (${extra})` : ""}`, "pf", null);
-          }));
-      })));
+        codes.map((c) => heatHead(c.code, { title: `${cap(unit)} ${c.code}: ${c.description || ""} · ${plural(c.passages, "passage")}`,
+          spoken: `${unit} ${c.code}: ${shortTitle(c.description, 60)}` })))),
+      tbody);
+    for (const r of rows) {
+      const row = cells[r.doc_id] || {};
+      const d = dirs[r.doc_id] || {};
+      tbody.appendChild(h("tr", {},
+        h("th", { scope: "row", class: "map-hyp pf-doc" }, h("span", { class: "serif" }, shortTitle(r.title, 90)),
+          h("div", { class: "map-hyp-meta muted small" }, `${plural(r.passages, "passage")} · ${plural(r.in_documents || 0, "document")}`,
+            r.elements && r.elements.length ? h("span", { class: "pf-elements" }, ` · Elements: ${r.elements.join(", ")}`) : null)),
+        codes.map((c) => {
+          const extra = dirText(d[c.code]);
+          return heatCell(row[c.code] || 0, max, `${shortTitle(r.title, 50)}, ${unit} ${c.code}${extra ? ` (${extra})` : ""}`, "pf", null);
+        })));
+    }
     gridBox.appendChild(h("div", { class: "pf-grid-key muted small" },
-      h("span", {}, g.provisional ? h("span", { class: "chip chip-weak" }, "provisional") : null, g.provisional ? " Includes labels the AI has not checked yet. " : ""),
+      h("span", {}, g.provisional ? tag({ kind: "attention" }, "provisional") : null, g.provisional ? " Includes labels the AI has not checked yet. " : ""),
       h("span", {}, `The darker the cell, the more passages. Hover over a cell to see how many say the practice ${words.helps} or ${words.hinders}. Namings that differ only in capitals or “the” are one row.`),
       g.unnamed ? h("span", {}, ` ${plural(g.unnamed, "label")} ${g.unnamed === 1 ? "names no practice and is" : "name no practice and are"} left out.`) : null));
-    gridBox.appendChild(h("p", { class: "muted small map-scroll-hint", style: { margin: "0 0 6px" } }, icon("arrow-right", { size: 12 }), ` The grid scrolls sideways: drag or swipe it to see every ${unit}.`));
-    gridBox.appendChild(h("div", { class: "map-wrap", tabindex: "0", role: "region", "aria-label": `Practices by ${unit} (scrolls sideways)` }, table));
+    gridBox.appendChild(heatGrid(table, { label: `Practices by ${unit}`, unit: unit === "code" ? "codes" : `${unit}s` }));
   }
 
   async function drawCalibration() {

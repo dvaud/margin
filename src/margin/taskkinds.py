@@ -17,7 +17,7 @@ it, and the task goes through the same guard as every other (`access`, `home.loc
 from __future__ import annotations
 
 from collections.abc import Mapping, MutableMapping, Sequence, Set
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 
@@ -89,10 +89,6 @@ def get(name: str) -> TaskKind | None:
             _loading = False
         k = _REG.get(name)
     return k
-
-
-def all_kinds() -> list[TaskKind]:
-    return list(_REG.values())
 
 
 def register(kind: TaskKind) -> TaskKind:
@@ -274,7 +270,7 @@ def addon_helpers() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------------------------
-# Margin's own kinds, as before 0.13.6 (tests/test_0_13_6_task_kinds.py checks every table against its 0.13.5 value).
+# Margin's own kinds, as before 0.13.6 (tests/test_task_kinds.py checks every table against its 0.13.5 value).
 # Registration order follows Settings' model table.
 # ---------------------------------------------------------------------------------------------
 _core(name="label", prompt_version="label-v2", certainty="labels", claude=("haiku", "sonnet"), local="small", bulk=True,
@@ -300,6 +296,29 @@ _core(name="resolve", prompt_version="resolve-v1", claude=("sonnet", "opus"), lo
       bulk=True, row="resolve", row_title="References in a document", batch=4, order=9,
       noun=("window of references", "windows of references"), short="windows of references",
       title="References in documents", run_name="References in a document", output_cap=2500, corpus=True)
+# 0.18.4 (roadmap K2 part 2, the optional AI part): the concepts of a theory document and their definitions, each
+# quoted from it, drafted for the codebook editor's *From a theory document* (theorycodes.py). One task for each part
+# of the document (theory-codes-v2: the whole document is read; v1 read twelve passages of it in one task).
+_core(name="theory_codes", prompt_version="theory-codes-v2", claude=("sonnet", "opus"), local="large",
+      helper="margin-namer", row="theory_codes", row_title="Codes from a theory document", batch=1, order=6.5,
+      noun=("part of a theory document to draft codes from", "parts of theory documents to draft codes from"),
+      short="parts of theory documents to draft codes from", title="Codes from a theory document",
+      run_name="Codes from a theory document", output_cap=3000)
+# K2, the framework draft (theoryframe.py): the concepts drafted from several theory documents joined into one
+# framework of groups and concepts, each with its meaning, when to use it in the researcher's own documents and their
+# words for it. One task per reading; on Opus, as it judges what five authors share (theory-frame-v1).
+_core(name="theory_frame", prompt_version="theory-frame-v1", claude=("opus", "opus"), local="large",
+      helper="margin-namer", row="theory_codes", batch=1, order=6.6,
+      noun=("framework to put together from a theory's concepts", "frameworks to put together from theories' concepts"),
+      short="frameworks to put together from theories' concepts", title="A framework from theory documents",
+      run_name="A framework from theory documents", output_cap=7000)
+# K1 (the optional AI part): a code's definition, when to use it and when not, drafted from the passages that hold its
+# examples, for the codebook editor (codedefine.py). One task per draft.
+_core(name="code_definition", prompt_version="code-definition-v1", claude=("sonnet", "opus"), local="large",
+      helper="margin-namer", row="code_definition", row_title="Code definitions from examples", batch=1, order=6.6,
+      noun=("code to define from its examples", "codes to define from their examples"),
+      short="codes to define from their examples", title="Code definitions from examples",
+      run_name="A code's definition from its examples", output_cap=1500)
 # checks start on Sonnet (its helper runs at high effort, see agents/margin-checker.md); an unsure or twice rejected
 # judgement goes to the auditor, so the second opinion and the step-up stay on Opus (or Fable)
 _core(name="check", prompt_version="check-v5", certainty="evidence", claude=("sonnet", "auditor"), local="large",
@@ -353,6 +372,21 @@ def quotes_in(obj: Any, fields: tuple[str, ...]) -> list[str]:
         for v in obj:
             out += quotes_in(v, fields)
     return out
+
+
+QUOTE_KEYS = ("quote", "quote_a", "quote_b")  # the keys that hold a quote in Margin's own answers (at any depth)
+
+
+def long_quote_problems(obj: Any, extra_fields: tuple[str, ...] = ()) -> list[str]:
+    """The quotes of an answer that are longer than `textutil.MAX_QUOTE_CHARS` (0.17.2, H11), one problem each."""
+    from .textutil import long_quote_problem
+
+    seen: list[str] = []
+    for q in quotes_in(obj, tuple(dict.fromkeys((*QUOTE_KEYS, *extra_fields)))):
+        p = long_quote_problem(q)
+        if p and p not in seen:
+            seen.append(p)
+    return seen
 
 
 def check_quotes(kind: TaskKind, payload: dict, obj: Any) -> list[str]:

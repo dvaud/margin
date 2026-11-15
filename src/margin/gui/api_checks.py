@@ -11,8 +11,8 @@ import re
 import time
 from pathlib import Path
 
-from .api_common import ApiError, XLSX, _csv, _disposition, _filename, _float, _str, _usable_embedder
-from .. import claimcheck, home, taskqueue
+from .api_common import ApiError, XLSX, _csv, _disposition, _filename, _float, _int, _str, _usable_embedder
+from .. import claimcheck, frameworks, home, taskqueue
 from ..llm import BackendError
 
 
@@ -23,10 +23,11 @@ class ChecksApi:
 
     def get_suggest(self, name, q):
         text = _str(q, "text") or ""
-        fw = _str(q, "framework") or self.app.settings().get("profile_framework") or ""
+        ws = self.app.ws(name)
+        fw = _str(q, "framework") or frameworks.chosen(self.app.settings().get("profile_framework"), ws)  # this project's
         if len(text.strip()) < 10 or not fw:
             return {"codes": []}
-        return {"codes": claimcheck.suggest_targets(text, int(_float(q, "n", 5)), framework=fw, ws=self.app.ws(name))}
+        return {"codes": claimcheck.suggest_targets(text, int(_float(q, "n", 5)), framework=fw, ws=ws)}
 
     def post_check(self, name, q):
         return {"job": self.app.start_check(name, self._body()).view()}
@@ -44,8 +45,29 @@ class ChecksApi:
     def post_batch(self, name, q):
         return {"job": self.app.start_batch(name, self._body()).view()}
 
+    def post_similar(self, name, q):
+        """0.18 (roadmap N1): lines of the box that say nearly the same, and hypotheses checked before that do."""
+        from .. import nearduplicates
+
+        lines = self._body().get("lines")
+        if not isinstance(lines, list) or not all(isinstance(x, str) for x in lines):
+            raise ApiError(400, "lines must be a list of hypotheses.")
+        if len(lines) > 500:
+            raise ApiError(400, "At most 500 hypotheses per batch.")
+        return nearduplicates.similar(self.app.ws(name), [x[:2000] for x in lines])
+
     def get_hypotheses(self, name, q):
-        return self.app.hypotheses(name, q)
+        """The answers of the project. 0.18.1 (H5): with `offset` the rows come a page at a time (`limit` per page,
+        100 when not given) and the answer says `total` (the rows after the filters), `offset` and `limit`; `counts`
+        stay those of every hypothesis. Without `offset` the answer is what it always was (`limit` alone still cuts
+        the list)."""
+        if _str(q, "offset") is None:
+            return self.app.hypotheses(name, q)
+        offset = max(0, int(_float(q, "offset", 0)))
+        limit = max(1, min(int(_float(q, "limit", 100)), 1000))
+        whole = self.app.hypotheses(name, {k: v for k, v in q.items() if k not in ("offset", "limit")})
+        rows = whole["hypotheses"]
+        return {**whole, "hypotheses": rows[offset:offset + limit], "total": len(rows), "offset": offset, "limit": limit}
 
     def _has_hypothesis(self, project, hyp_id):
         try:
@@ -61,6 +83,9 @@ class ChecksApi:
             raise ApiError(404, "No such result.", extra={"in_project": other} if other else None)
         s = self.app.settings()
         res = claimcheck.hypothesis_result(ws, hyp_id, _float(q, "threshold", s["threshold"]))
+        from .. import runs  # 0.18.1 (J4.2): the version that started this check, on its own page
+
+        res["made_with"] = runs.made_with_one(ws.scalar("SELECT app_version FROM hypotheses WHERE hyp_id=?", (hyp_id,)))
         try:  # with smart search every excerpt not read yet can still be found; without it only keyword matches
             semantic = _usable_embedder(ws, home.make_embedder(s)) is not None
         except BackendError:
@@ -161,7 +186,33 @@ class ChecksApi:
 
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def get_project_qdpx(self, name, q):
+        """0.18.7 (G5): the project for NVivo, ATLAS.ti and MAXQDA, as a REFI-QDA project (qdpx.py), built in a
+        temporary file and sent in chunks. `?framework=` keeps one codebook; `?threshold=` the strictness (else
+        Settings')."""
+        import shutil
+        import tempfile
 
+        from .. import qdpx
+
+        ws = self.app.ws(name)
+        fw = _str(q, "framework") or None
+        thr = _float(q, "threshold", self.app.settings()["threshold"])   # the strictness, as the other exports
+        if fw:
+            from .. import frameworks
+
+            try:
+                frameworks.get(fw, ws)
+            except ValueError as e:   # an unknown codebook (checked first: any later error is Margin's, not the request's)
+                raise ApiError(400, str(e)) from e
+        tmp = Path(tempfile.mkdtemp(prefix="margin-qdpx-"))
+        try:
+            out = tmp / "project.qdpx"
+            qdpx.export_project(ws, out, framework=fw, threshold=thr)
+            fname = _filename(f"Margin for NVivo - {name} - {time.strftime('%Y-%m-%d')}", "qdpx")
+            self._stream(out, "application/zip", {"Content-Disposition": _disposition(fname)})
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def post_import(self, q):
         """A project zip (raw body) becomes a new project: `?name=` or the name it had."""
@@ -175,11 +226,13 @@ class ChecksApi:
             path = Path(tmp) / "in.zip"
             self._save_body(path, n)
             if bundle.is_move_zip(path):  # 0.10: everything from another computer
+                # ENLENS roles (§5.5): what it holds is shown first (the settings, the servers' addresses not on this
+                # computer). The upload waits under a token for the answer (`post_move`)
                 try:
-                    moved = bundle.import_all(path)
+                    peek = bundle.peek_move(path)
                 except ValueError as e:
                     raise ApiError(400, str(e)) from e
-                return {"moved": moved, "project": self.app.project_summary(moved["current"]) if moved["current"] else None}
+                return {"move": peek, "token": _MOVES._keep(path)}
             wanted = _str(q, "name")
             if not wanted:
                 try:
@@ -198,10 +251,35 @@ class ChecksApi:
         home.update_settings({"project": name})
         return {"project": self.app.project_summary(name)}
 
+    def post_move(self, q):
+        """The answer to a move zip's question, {token, settings, servers: [setting keys]}. The upload is kept until it
+        is brought in. (Margin: you always move, the same person; ENLENS also asks "moving" or "both computers".)"""
+        from .. import bundle
+
+        body = self._body()
+        token = str(body.get("token") or "")
+        path = _MOVES._get(token)
+        if path is None:
+            raise ApiError(410, "The file is no longer here: choose it again.")
+        servers = body.get("servers") or []
+        if not isinstance(servers, list) or not all(isinstance(x, str) for x in servers):
+            raise ApiError(400, "servers must be a list of setting names.")
+        try:
+            moved = bundle.import_all(path, settings=bool(body.get("settings")), servers=servers)
+        except ValueError as e:
+            raise ApiError(400, str(e)) from e
+        _MOVES._drop(token)
+        return {"moved": moved, "project": self.app.project_summary(moved["current"]) if moved["current"] else None}
+
     def get_map(self, name, q):
         ws = self.app.ws(name)
         thr = _float(q, "threshold", self.app.settings()["threshold"])
         return claimcheck.evidence_map(ws, thr, batch_id=_str(q, "batch"))
+
+    def get_map_documents(self, name, q):
+        """Roadmap N5: how many answers each document is behind (the map's counts, without its leave-one-out)."""
+        ws = self.app.ws(name)
+        return claimcheck.document_answers(ws, _float(q, "threshold", self.app.settings()["threshold"]))
 
     def get_calibration(self, name, q):
         out = claimcheck.calibration(self.app.ws(name))
@@ -213,6 +291,34 @@ class ChecksApi:
         if not ws.scalar("SELECT 1 FROM hypotheses WHERE hyp_id=?", (hyp_id,)):
             raise ApiError(404, "No such hypothesis.")
         return {"job": self.app.start_read_new(name, [hyp_id]).view()}
+
+    def get_unread(self, name, hyp_id, q):
+        """Roadmap N5: the documents this check never read, those with its search words apart (no model reads)."""
+        ws = self.app.ws(name)
+        try:
+            out = claimcheck.unread_documents(ws, hyp_id)
+        except KeyError:
+            raise ApiError(404, "No such hypothesis.") from None
+        out["waits"] = claimcheck.further_round_waits(ws, hyp_id)   # *Read these* waits for the round being judged
+        return out
+
+    def post_read_unread(self, name, hyp_id, q):
+        ws = self.app.ws(name)
+        if not ws.scalar("SELECT 1 FROM hypotheses WHERE hyp_id=?", (hyp_id,)):
+            raise ApiError(404, "No such hypothesis.")
+        with self.app.jobs.lock:   # a second press, or a second tab: the same job, never a second round beside it
+            live = [j for j in self.app.jobs.jobs.values() if j.project == name and j.state in ("queued", "running")]
+        same = [j for j in live if j.kind == "read-unread" and j.scope == hyp_id]
+        if same:
+            return {"job": same[0].view()}
+        if any(j.kind == "read-new" for j in live):
+            raise ApiError(409, "Wait until the new documents have been read, then read these.")
+        wait = claimcheck.further_round_waits(ws, hyp_id)
+        if wait:
+            raise ApiError(409, wait)
+        if not claimcheck.unread_documents(ws, hyp_id)["matching_n"]:
+            raise ApiError(400, "No document with this check's search words is left unread.")
+        return {"job": self.app.start_read_unread(name, hyp_id).view()}
 
     def post_read_new(self, name, q):
         ws = self.app.ws(name)
@@ -237,8 +343,15 @@ class ChecksApi:
         body = self._body()
         verdict = body.get("verdict") or None
         extra = {"quote": body.get("quote")} if "quote" in body else {}
-        claimcheck.set_judgement(self.app.ws(name), claim_id, passage_id, verdict, body.get("note"), **extra)
-        return {"saved": True, "verdict": verdict}
+        if body.get("threshold") is not None:  # 0.18.1: the strictness the page shows, for the sentence of what moved
+            try:
+                extra["threshold"] = min(1.0, max(0.0, float(body["threshold"])))
+            except (TypeError, ValueError):
+                raise ApiError(400, "threshold must be a number from 0 to 1.") from None
+        moved = claimcheck.set_judgement(self.app.ws(name), claim_id, passage_id, verdict, body.get("note"), **extra)
+        # 0.18.1 (N4): the answer before and after, and the sentence naming this judgement when it moved the answer
+        return {"saved": True, "verdict": verdict, "status_before": moved["before"], "status": moved["after"],
+                "moved": moved["moved"]}
 
     def get_jobs(self, q):
         return {"jobs": self.app.job_views()}
@@ -248,7 +361,7 @@ class ChecksApi:
 
     def post_cancel(self, job_id, q):
         job = self.app.jobs.get(job_id)
-        job.cancel.set()
+        self.app.jobs.cancel(job)  # 0.18 (M6): a job waiting for its turn leaves the queue at once
         return {"job": job.view(full=False)}
 
     def post_benchmark(self, q):
@@ -256,6 +369,13 @@ class ChecksApi:
 
     def get_queue(self, name, q):
         return self.app.queue(name)
+
+    def get_queue_preview(self, name, q):
+        """What Claude Code would be sent for the next batch (read only: nothing is claimed or recorded)."""
+        try:
+            return taskqueue.preview(self.app.ws(name), _str(q, "kind"), _int(q, "start", 0, 0, 1_000_000))
+        except ValueError as e:
+            raise ApiError(400, str(e)) from e
 
     def post_queue_order(self, name, q):
         body = self._body()
@@ -271,7 +391,9 @@ class ChecksApi:
         if kind in ("decompose", "expand", "check"):
             # a check waiting for Claude Code is taken back whole, as a stopped check (it leaves nothing behind);
             # 0.13.11: not one Claude Code has finished, whose local excerpts wait for "Read them now"
-            for (hid,) in ws.query("SELECT hyp_id FROM hypotheses WHERE queue='waiting'"):
+            # only the checks that wait for this kind, and none whose task a helper holds now (taskqueue.withdraw
+            # leaves those tasks alone, so the check is left whole too)
+            for hid in taskqueue.checks_waiting_on(ws, kind):
                 if claimcheck.only_local_waits(ws, hid):
                     continue
                 claimcheck.delete_hypothesis(ws, hid, unmade=True)
@@ -335,3 +457,55 @@ class ChecksApi:
             self.app.ws(name)  # 404 for a project that does not exist
             self._release_run_claims(name, before["started_at"])
         return out
+
+
+class _Uploads:
+    """roles (DESIGN-roles §4.11): move zips waiting for the answer to their question, each under a random token, in a
+    folder of their own; one not answered within an hour goes. (Its methods start with "_": an `api_*.py` class's
+    public names are the endpoints' handlers, test_history.)"""
+
+    TTL = 3600
+
+    def __init__(self) -> None:
+        import threading
+
+        self._lock = threading.Lock()
+        self._kept: dict[str, tuple[float, Path]] = {}
+
+    def _keep(self, path: Path) -> str:
+        import secrets
+        import shutil
+        import tempfile
+
+        self._expire()
+        token = secrets.token_urlsafe(16)
+        folder = Path(tempfile.mkdtemp(prefix="enlens-move-wait-"))
+        dest = folder / "move.zip"
+        shutil.copyfile(path, dest)
+        with self._lock:
+            self._kept[token] = (time.time(), dest)
+        return token
+
+    def _get(self, token: str) -> Path | None:
+        self._expire()
+        with self._lock:
+            hit = self._kept.get(token)
+        return hit[1] if hit and hit[1].is_file() else None
+
+    def _drop(self, token: str) -> None:
+        import shutil
+
+        with self._lock:
+            hit = self._kept.pop(token, None)
+        if hit:
+            shutil.rmtree(hit[1].parent, ignore_errors=True)
+
+    def _expire(self) -> None:
+        now = time.time()
+        with self._lock:
+            old = [t for t, (at, _p) in self._kept.items() if now - at > self.TTL]
+        for t in old:
+            self._drop(t)
+
+
+_MOVES = _Uploads()

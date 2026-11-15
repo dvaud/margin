@@ -124,11 +124,6 @@ def set_default(ws: Workspace, value: str) -> str:
     return v
 
 
-def _share_sql() -> str:
-    return ("SELECT COALESCE(SUM(LENGTH(p.text)), 0) FROM passages p WHERE p.doc_id=? AND p.passage_id IN "
-            "(SELECT DISTINCT passage_id FROM ai_sent WHERE doc_id=?)")
-
-
 def shares(cx_or_ws, doc_ids: Iterable[str] | None = None) -> dict[str, dict]:
     """How much of each document Claude has read: {doc_id: {"sent_chars", "chars", "share" (0..1), "passages"}}."""
     q = cx_or_ws.execute if isinstance(cx_or_ws, sqlite3.Connection) else cx_or_ws._conn().execute
@@ -280,6 +275,19 @@ def register_hidden(fn: Callable) -> Callable:
     return fn
 
 
+def _core_hooks() -> None:
+    """0.19.0 (N3): Margin's own floor and hidden rule, by the same hooks: the words of a check started from a
+    document's text (`hypotheses.origin` "document") keep that document's AI setting, and the connector does not
+    show such a check when the document is not `cloud` (docrole.origin_floor, docrole.kept_here)."""
+    from . import docrole
+
+    register_floor(docrole.origin_floor)
+    register_hidden(docrole.kept_here)
+
+
+_core_hooks()
+
+
 def _hooks(kind: list) -> list[Callable]:
     from .addons import load
 
@@ -337,12 +345,13 @@ def hidden_hypotheses(ws: Workspace) -> set[str]:
     return out
 
 
-def label_payload(cx, payload: Any, dflt: str | None = None) -> str:
+def label_payload(cx, payload: Any, dflt: str | None = None, budget: bool = True) -> str:
     """The most restricted setting of the documents a task's payload names (`cloud` for a task without document
     text, such as the search words of a hypothesis). A passage no longer in the project counts as its document.
-    0.13.6: and of the add-ons' floors for it. 0.13.7: and of the text a citation's claim comes from."""
+    0.13.6: and of the add-ons' floors for it. 0.13.7: and of the text a citation's claim comes from. Without
+    `budget`, a document's cap is left out (the setting a person chose for it alone)."""
     fl = text_floor(cx, payload, dflt)
-    out = _label_docs(cx, payload, dflt)
+    out = _label_docs(cx, payload, dflt, budget)
     return most([fl, out]) if fl != "cloud" else out
 
 
@@ -441,26 +450,67 @@ register_floor(lambda cx, payload, dflt: draft_floor(cx, payload, dflt=dflt))
 register_hidden(lambda ws: restricted_hypotheses(ws))
 
 
-def _label_docs(cx, payload: Any, dflt: str | None = None) -> str:
+def _label_docs(cx, payload: Any, dflt: str | None = None, budget: bool = True) -> str:
     pids, dids = ids_in(payload)
     if not pids and not dids:
         return "cloud"
     by_p = doc_of_passages(cx, pids)
     docs = set(dids) | set(by_p.values())
     missing = pids - set(by_p)
-    lv = levels(cx, docs, dflt=dflt) if docs else {}
+    lv = levels(cx, docs, budget=budget, dflt=dflt) if docs else {}
     out = most(lv.values())
     if missing and not docs:
         return "none"  # passages of a removed document, and nothing else to go by: keep them here
     return out
 
 
+class _Known:
+    """`label_payload` for many tasks in one transaction: each document's setting (`levels` of that document alone,
+    as `_label_docs` asks for it) and each passage's document are looked up once, the passages of many tasks in one
+    query (`prefetch`)."""
+
+    def __init__(self, cx, dflt: str):
+        self.cx, self.dflt = cx, dflt
+        self.level: dict[str, str] = {}
+        self.doc_of: dict[str, str | None] = {}
+
+    def prefetch(self, pids: Iterable[str]) -> None:
+        new = [p for p in dict.fromkeys(pids) if p not in self.doc_of]
+        if new:
+            got = doc_of_passages(self.cx, new)
+            self.doc_of.update({p: got.get(p) for p in new})
+
+    def label(self, payload: Any) -> str:
+        fl = floor(self.cx, payload, self.dflt)
+        pids, dids = ids_in(payload)
+        if not pids and not dids:
+            out = "cloud"
+        else:
+            self.prefetch(pids)
+            by_p = {p: self.doc_of[p] for p in pids if self.doc_of[p] is not None}
+            docs = set(dids) | set(by_p.values())
+            if pids - set(by_p) and not docs:
+                out = "none"  # passages of a removed document, and nothing else to go by: keep them here
+            else:
+                for d in docs:
+                    if d not in self.level:
+                        self.level[d] = levels(self.cx, [d], dflt=self.dflt)[d]
+                out = most(self.level[d] for d in docs)
+        return most([fl, out]) if fl != "cloud" else out
+
+
 def relabel(cx, task_ids: Iterable[str] | None = None) -> int:
     """Give the tasks not answered yet the setting of their documents now (after a setting changed). A task that is
     no longer `cloud` is taken out of the queue for Claude Code (a batch already handed out has left). Returns the
-    number of tasks whose setting changed."""
-    sql = ("SELECT task_id, payload_json, access FROM tasks WHERE (status IN ('pending', 'retry') OR "
-           "(status='done' AND again=1))")
+    number of tasks whose setting changed.
+
+    Every open task is worked out again, not only those whose text names a changed document: an add-on's floor may
+    look at any document through its own tables, and a task labelled before its document's cap was reached is
+    corrected here too. What the tasks share is looked up once per call instead (each document's setting, each
+    passage's document): nothing a task's setting depends on changes while this runs."""
+    from .taskqueue import OPEN
+
+    sql = f"SELECT task_id, payload_json, access FROM tasks WHERE {OPEN}"
     args: list = []
     if task_ids is not None:
         ids = list(task_ids)
@@ -470,18 +520,94 @@ def relabel(cx, task_ids: Iterable[str] | None = None) -> int:
         args = ids
     n = 0
     dflt = _default_from_cx(cx)  # once, not per task (0.11.1: a settings change on a big project took seconds)
-    for r in cx.execute(sql, args).fetchall():
-        try:
-            lv = label_payload(cx, json.loads(r["payload_json"] or "{}"), dflt=dflt)
-        except (ValueError, TypeError):
-            lv = "none"
-        if lv != (r["access"] or "cloud"):
-            n += 1
-            cx.execute("UPDATE tasks SET access=? WHERE task_id=?", (lv, r["task_id"]))
-        if lv != "cloud":
-            cx.execute("UPDATE tasks SET queued=0, queued_at=NULL, claimed_by=NULL, claimed_at=NULL WHERE task_id=? "
-                       "AND COALESCE(queued, 0)=1", (r["task_id"],))
+    known = _Known(cx, dflt)
+    rows = cx.execute(sql, args).fetchall()
+    for i in range(0, len(rows), 500):  # a chunk's passages in one query, then its tasks
+        chunk = []
+        for r in rows[i:i + 500]:
+            try:
+                chunk.append((r, json.loads(r["payload_json"] or "{}")))
+            except (ValueError, TypeError):
+                chunk.append((r, None))
+        known.prefetch(p for _r, pl in chunk for p in ids_in(pl)[0])
+        for r, payload in chunk:
+            n += _relabel_one(cx, r, known, payload)
     return n
+
+
+def _relabel_one(cx, r, known: _Known, payload: Any) -> int:
+    try:
+        lv = known.label(payload) if payload is not None else "none"
+    except (ValueError, TypeError):
+        lv = "none"
+    if lv != "cloud":
+        cx.execute("UPDATE tasks SET queued=0, queued_at=NULL, claimed_by=NULL, claimed_at=NULL WHERE task_id=? "
+                   "AND COALESCE(queued, 0)=1", (r["task_id"],))
+    if lv != (r["access"] or "cloud"):
+        cx.execute("UPDATE tasks SET access=? WHERE task_id=?", (lv, r["task_id"]))
+        return 1
+    return 0
+
+
+def _all_sent(cx, payload: Any) -> bool:
+    """Whether Claude has read every passage this payload would show (with the passages shown as their context):
+    sending it again adds nothing to the share a cap counts."""
+    pids, _dids = ids_in(payload)
+    if not pids:
+        return False
+    pids = _with_context(cx, payload, pids)
+    ids = sorted(pids)
+    seen: set[str] = set()
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        seen |= {r[0] for r in cx.execute(f"SELECT DISTINCT passage_id FROM ai_sent WHERE passage_id IN "
+                                          f"({','.join('?' * len(chunk))})", chunk)}
+    return seen >= pids
+
+
+def recheck(cx, task_id: str, dflt: str | None = None, budget: bool = True) -> str | None:
+    """The setting of a task at the moment its text is about to leave, worked out again from its payload instead of
+    trusted from `tasks.access` (a path that brings a task back and forgets to relabel it, or a cap reached by the
+    tasks sent just before it in the same batch). It is never looser than the stored one: only `relabel`, after a
+    person changed a setting, loosens a task. A stricter one is written to the task, which then leaves the queue for
+    Claude Code (as `relabel` does). With `budget`, a document's cap counts too, unless Claude has read all this task
+    would show already (a second attempt, or the stronger model's reading, adds nothing to what it has read).
+    Returns None when the task is gone. Runs in the caller's transaction, per task sent."""
+    row = cx.execute("SELECT access, payload_json FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+    if row is None:
+        return None
+    stored, lv = _level_now(cx, row, dflt, budget)
+    if lv != stored:
+        cx.execute("UPDATE tasks SET access=? WHERE task_id=?", (lv, task_id))
+        if lv != "cloud":
+            cx.execute("UPDATE tasks SET queued=0, queued_at=NULL WHERE task_id=? AND COALESCE(queued, 0)=1",
+                       (task_id,))
+    return lv
+
+
+def would_leave(cx, task_id: str, dflt: str | None = None) -> bool:
+    """Whether the task's text would leave for a cloud model now, as `recheck` would find it, without writing
+    anything (the preview of what Claude Code is sent)."""
+    row = cx.execute("SELECT access, payload_json FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+    return row is not None and _level_now(cx, row, dflt, True)[1] == "cloud"
+
+
+def _level_now(cx, row, dflt: str | None, budget: bool) -> tuple[str, str]:
+    """(the stored setting, the setting worked out again) of a task row (access, payload_json): see `recheck`."""
+    stored = row[0] if row[0] in LEVELS else "cloud"
+    lv = stored
+    if stored != "none":
+        try:
+            payload = json.loads(row[1] or "{}")
+        except (ValueError, TypeError):
+            payload, lv = None, "none"
+        if payload is not None:
+            lv = most([stored, label_payload(cx, payload, dflt=dflt, budget=False)])
+            if budget and lv == "cloud":
+                capped = _label_docs(cx, payload, dflt, budget=True)
+                if capped != "cloud" and not _all_sent(cx, payload):
+                    lv = capped
+    return stored, lv
 
 
 def set_documents(ws: Workspace, doc_ids: list[str], setting: Any = _KEEP, note: Any = _KEEP,
@@ -510,10 +636,11 @@ def set_documents(ws: Workspace, doc_ids: list[str], setting: Any = _KEEP, note:
         unknown = [d for d in doc_ids if d not in found]
         if unknown:
             raise KeyError(unknown[0])
+        held: dict[str, str] = {}  # (ENLENS: a collaborator's looser setting waits for the owner; Margin: none)
         if setting is not _KEEP:  # 0.16: a decision about privacy goes into the research log
             was = {r[0]: r[1] for r in cx.execute(f"SELECT doc_id, ai_access FROM documents WHERE doc_id IN "
                                                   f"({','.join('?' * len(doc_ids))})", list(doc_ids))}
-            moved = [d for d in doc_ids if was.get(d) != lv]
+            moved = [d for d in doc_ids if was.get(d) != lv and d not in held]
             if moved:
                 from . import researchlog
 
@@ -528,14 +655,18 @@ def set_documents(ws: Workspace, doc_ids: list[str], setting: Any = _KEEP, note:
                                    titles.get(moved[0]) if one else None,
                                    data={"documents": moved, "setting": lv})
         for d in doc_ids:
-            if setting is not _KEEP:
+            if d in held:  # no looser than the project's setting until the owner accepts
+                now_lv = levels(cx, [d], budget=False).get(d) or "cloud"
+                if RANK[now_lv] > RANK[held[d]]:
+                    cx.execute("UPDATE documents SET ai_access=? WHERE doc_id=?", (held[d], d))
+            elif setting is not _KEEP:
                 cx.execute("UPDATE documents SET ai_access=? WHERE doc_id=?", (lv, d))
             if note is not _KEEP:
                 cx.execute("UPDATE documents SET ai_note=? WHERE doc_id=?", ((str(note or "").strip()[:300] or None), d))
             if budget is not _KEEP:
                 cx.execute("UPDATE documents SET ai_budget=? WHERE doc_id=?", (budget, d))
         changed = relabel(cx)
-    return {"documents": len(doc_ids), "tasks_changed": changed}
+    return {"documents": len(doc_ids), "tasks_changed": changed, "proposed": sorted(held)}
 
 
 def documents_view(ws: Workspace) -> dict[str, dict]:
@@ -609,12 +740,23 @@ def is_cloud(backend) -> bool:
     return (getattr(backend, "name", "") or "") in OFF_COMPUTER
 
 
-def require(backend, task) -> None:
-    """Refuse to hand a task to a model its setting does not allow (before anything is sent)."""
+def require(backend, task, where=None) -> None:
+    """Refuse to hand a task to a model its setting does not allow (before anything is sent). With `where` (the
+    workspace, or a connection inside the caller's transaction) the setting is worked out again from the task's
+    payload (`recheck`), so a stored setting that went stale cannot let text through. The cap is not counted here:
+    the task was labelled with it when it was made, and the runs that send several tasks in a row count it per task
+    (`recheck` with the cap); a second attempt at the same task must not be refused half-way."""
     try:
         lv = task["access"] or "cloud"
     except (KeyError, IndexError):
         lv = "cloud"
+    if where is not None:
+        if isinstance(where, Workspace):
+            with where.connect() as cx:  # committed before the refusal below: the task stays out of the queue
+                now_lv = recheck(cx, task["task_id"], budget=False)
+        else:
+            now_lv = recheck(where, task["task_id"], budget=False)
+        lv = most([lv, now_lv]) if now_lv is not None else lv
     if lv == "none":
         raise AccessError(f"Task {task['task_id']} holds text of a document marked No AI: no model may read it.")
     if lv not in backend_levels(backend):
@@ -639,10 +781,14 @@ class Readers:
         self.check_memory = check_memory       # False: the person chose "Start it anyway"
         self.memory_short = None               # the MemoryShort that kept the local model from starting
         self.read = 0                          # the parts the local model for restricted documents has read
+        # 0.18.1 (I1, I2): the AI mix's tasks the local model answered itself, and those that went to Claude Code
+        # (no local model, or no answer of it passed)
+        self.mix_read = 0
+        self.to_claude = 0
 
     @property
     def used(self) -> bool:
-        return self.read > 0
+        return self.read > 0 or self.mix_read > 0
 
     @property
     def main_levels(self) -> set[str]:
@@ -817,7 +963,9 @@ def record_passages(ws: Workspace, passage_ids: Iterable[str], route: str, featu
 FEATURES = {"check": "Check", "reread": "Read again", "second": "Second opinion", "label": "Profile (AI pass)",
             "theme": "Theme names", "link": "Concept links", "resolve": "References", "extract": "SDG pack",
             "split": "SDG pack", "verify": "SDG pack", "verify_set": "SDG pack", "expand": "Search words",
-            "decompose": "Parts of a hypothesis", "claims": "Claims in a draft"}
+            "decompose": "Parts of a hypothesis", "theory_codes": "Codes from a theory document",
+            "code_definition": "A code's definition from its examples",
+            "theory_frame": "A framework from theory documents", "claims": "Claims in a draft"}
 
 
 def ledger(ws: Workspace, doc_id: str | None = None) -> list[dict]:

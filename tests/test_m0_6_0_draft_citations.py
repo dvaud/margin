@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers_0110 import Local, use_local_model
+from helpers_mixed_corpus import Local, use_local_model
 from test_0_13_7_citations import DRAFT, PRIVATE_DRAFT, SECRET, Reader, _project
 from test_app import Api, api, home  # noqa: F401  (fixtures)
 
@@ -275,8 +275,8 @@ def test_the_page_files():
         assert s in view, s
     features = (STATIC / "features.js").read_text(encoding="utf-8")
     assert 'section: "write", title: "Check citations"' in features
-    order = sections()  # its section of margin.css: after the APA citations', before Margin's look
-    assert order.index("m050") < order.index("m060") < order.index("m020")
+    order = sections()  # its section of margin.css: after the APA citations'
+    assert order.index("m050") < order.index("m060")
     css = section("m060")
     assert ".dcit-bad" in css and ".dc-cites" in css
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css)  # colour tokens only: light and dark both work

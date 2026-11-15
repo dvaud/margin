@@ -138,10 +138,32 @@ def _main(argv: list[str] | None = None) -> int:
                    "themes by words, and count the AI tasks waiting")
     p.add_argument("--json", action="store_true", help="print the figures as JSON instead of the report")
     p.add_argument("--report", metavar="FILE.md", help="write the report to this file instead of printing it")
+    p = sub.add_parser("validate", help="0.18.4: the AI's answers against known right answers (the validation "
+                                        "report's AI half): prepare a run, score it, report on it")
+    p.add_argument("action", choices=["prepare", "score", "report"])
+    p.add_argument("run_file", nargs="?", help="report: the run file (or use --latest)")
+    p.add_argument("--project", help="prepare: a new project of this name in the data folder (else --ws); score: the "
+                                     "answered project")
+    p.add_argument("--again", metavar="PROJECT", help="score: a second answered project, for repeatability")
+    p.add_argument("--gold", help="the gold set's folder (default: tools/validation of this git copy)")
+    p.add_argument("--decompose", choices=["compound", "all", "none"], default="compound",
+                   help="prepare: split into parts the compound hypotheses (default), all, or none")
+    p.add_argument("--route", help="score: the route's name in the run file's name (default: from the answers)")
+    p.add_argument("--runs", help="score: the folder of run files (default: the gold set's runs/)")
+    p.add_argument("--latest", metavar="FOLDER", help="report: the newest run file in this folder")
+    p.add_argument("--out", metavar="FILE.md", help="report: write the report here instead of printing it")
     p = sub.add_parser("export-project", help="write the whole project (database, uploads, original files) to one zip")
     p.add_argument("zip")
     p = sub.add_parser("import-project", help="unpack a project zip into the folder given by --ws (new or empty)")
     p.add_argument("zip")
+    p = sub.add_parser("import-all", help="bring in the zip of “Move Margin to another computer” (every project and "
+                                          "the settings): you move to this computer and stay the same person")
+    p.add_argument("zip")
+    p.add_argument("--settings", action="store_true", help="take the other computer's settings too (default: only "
+                   "on a computer with no project yet)")
+    p.add_argument("--server", action="append", default=[], metavar="SETTING",
+                   help="with --settings: also take this address that is not on this computer (ollama_url, "
+                        "openai_url, embed_url; repeatable)")
     p = sub.add_parser("load-vca", help="load the VCA supplementary workbook as gold labels")
     p.add_argument("xlsx")
     p = sub.add_parser("ingest", help="add PDFs, HTML or text files (folders and zips are searched)")
@@ -314,6 +336,22 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--concept", help="term id of a concept to highlight (layer concepts)")
     p.add_argument("--no-pdfminer", action="store_true", help="line boxes from pypdf only")
     p.add_argument("--out", required=True)
+    # 0.18.7 (G5): for NVivo, ATLAS.ti and MAXQDA (REFI-QDA, qdpx.py)
+    p = sub.add_parser("export-qdpx", help="write the documents, codes, labels, judgements and notes as a REFI-QDA "
+                                           "project (.qdpx) for NVivo, ATLAS.ti and MAXQDA")
+    p.add_argument("out")
+    p.add_argument("--framework", help="only this codebook (default: every codebook with labels and the project's own)")
+    p = sub.add_parser("export-qdc", help="write one codebook as a REFI-QDA codebook (.qdc)")
+    p.add_argument("framework")
+    p.add_argument("out")
+    p = sub.add_parser("import-qdc", help="bring in a REFI-QDA codebook (.qdc, or the codebook of a .qdpx project) from "
+                                          "NVivo, ATLAS.ti or MAXQDA as a new codebook of this project")
+    p.add_argument("file")
+    p.add_argument("name", nargs="?", help="the new codebook's short name (default: from the file's name)")
+    p.add_argument("--title", help="its title (default: the file's, else the file's name)")
+    p.add_argument("--codebook", default="", help="in a file Margin wrote with several codebooks, the title of the one "
+                                                  "to bring in")
+    p.add_argument("--home", action="store_true", help="keep it with all projects, not this one")
     p = sub.add_parser("export-flexiconc", help="write the project in the Cross-Doc SDG Explorer's FlexiConc SQLite layout")
     p.add_argument("out")
     p.add_argument("--framework", default="sdg")
@@ -417,6 +455,24 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-icon", action="store_true", help="do not make the Margin icon")
     p.add_argument("--open", action="store_true", help="start Margin afterwards (or show the copy already running)")
     p.add_argument("--home", help="data folder built into the icon (default: ~/margin, or MARGIN_HOME)")
+    # 0.18.1 part A (documents, theory, concepts, team copies): its subcommands below this line; name each in _PART_A
+    p = sub.add_parser("concept-map", help="the concept map (D1): concepts mentioned together more often than by "
+                       "chance, in groups, with your links; words or --json")
+    p.add_argument("--n", type=int, default=60, help="concepts on the map (10 to 150, default 60)")
+    p.add_argument("--doc", action="append", help="only this document (an id; repeat for more)")
+    p.add_argument("--theme", help="only the passages of a theme: <run id>:<theme id>")
+    p.add_argument("--framework", help="the codebook of --code")
+    p.add_argument("--code", help="only the passages labelled with this code")
+    p.add_argument("--year-from", type=int)
+    p.add_argument("--year-to", type=int)
+    p.add_argument("--json", action="store_true", help="the whole map as JSON (with its layout)")
+    # end of 0.18.1 part A
+    # 0.18.1 part B (AI mix, checks, retractions): its subcommands below this line; name each in _PART_B
+    p = sub.add_parser("retractions", help="check the DOIs of the bibliography and the documents for retractions and "
+                       "corrections in Crossref (sends DOIs only), or show the last check")
+    p.add_argument("ws")
+    p.add_argument("--check", action="store_true", help="look the DOIs up now (otherwise show what the last check found)")
+    # end of 0.18.1 part B
 
     # Margin 0.8: the SDG pack's commands still run (for a project copied from ENLENS), but are not listed
     sub._choices_actions = [c for c in sub._choices_actions if c.dest not in SDG_PACK_COMMANDS]
@@ -468,6 +524,8 @@ def _main(argv: list[str] | None = None) -> int:
         else:
             print(text)
         return 0
+    if a.cmd == "validate":
+        return _validate(a)
     if a.cmd == "detect":
         from .llm import detect_local
 
@@ -491,6 +549,15 @@ def _main(argv: list[str] | None = None) -> int:
     if a.cmd == "init":
         ws = Workspace.create(a.ws)
         print(f"Workspace ready at {ws.root.resolve()}")
+        return 0
+    if a.cmd == "import-all":
+        from . import bundle
+
+        try:
+            _print(bundle.import_all(a.zip, settings=True if a.settings else None, servers=a.server))
+        except ValueError as e:
+            print(f"Problem: {e}", file=sys.stderr)
+            return 1
         return 0
     if a.cmd == "import-project":
         from . import bundle
@@ -651,10 +718,14 @@ def _main(argv: list[str] | None = None) -> int:
         path = report.build(ws, a.out, a.strict)
         print(f"Report written to {path}")
     elif a.cmd in ("search", "profile", "terms", "concept", "themes", "resolve", "annotate", "export-flexiconc",
-                   "acceptance"):
+                   "acceptance", "export-qdpx", "export-qdc", "import-qdc"):
         return _cmd_07(a, ws)
     elif a.cmd in ("prepare", "queue"):
         return _cmd_08(a, ws)
+    elif a.cmd in _PART_A:
+        return _cmd_part_a(a, ws)
+    elif a.cmd in _PART_B:
+        return _cmd_part_b(a, ws)
     elif a.cmd == "status":
         st = {r[0] + ":" + r[1]: r[2] for r in ws.query("SELECT kind, status, COUNT(*) FROM tasks GROUP BY kind, status")}
         cl = {r[0]: r[1] for r in ws.query("SELECT status, COUNT(*) FROM claims GROUP BY status")}
@@ -671,8 +742,10 @@ def _cmd_07(a, ws) -> int:
                                  all_sections=a.all_sections, code=a.code)
         if a.out:
             rows = []
-            for off in range(0, max(res["total"], 1), 1000):
-                rows += concordance.table(concordance.search(ws, a.query, a.mode, a.docs, a.sort, off, 1000, a.exact,
+            # limit None: up to EXPORT_MAX lines at once. A search is kept between calls only without --code and
+            # under HITS_KEPT hits, so a page of 1,000 lines ran the whole search again for every page otherwise
+            for off in range(0, max(res["total"], 1), concordance.EXPORT_MAX):
+                rows += concordance.table(concordance.search(ws, a.query, a.mode, a.docs, a.sort, off, None, a.exact,
                                                              a.near, all_sections=a.all_sections, code=a.code))
             _write_csv(a.out, rows)
             print(f"{len(rows)} lines written to {a.out}", file=sys.stderr)
@@ -783,6 +856,48 @@ def _cmd_07(a, ws) -> int:
         _print({"written": a.out, "kind": r["content_type"], "quotes": r["marks"], "highlighted": r["placed"],
                 "method": r["method"], "not_placed": r["missing"]})
         return 0
+    if a.cmd in ("export-qdpx", "export-qdc"):
+        from . import frameworks, qdpx
+
+        if a.framework:
+            try:
+                frameworks.get(a.framework, ws)
+            except ValueError as e:   # an unknown codebook: a message, not a traceback
+                print(f"Problem: {e}", file=sys.stderr)
+                return 2
+        _print(qdpx.export_project(ws, a.out, a.framework) if a.cmd == "export-qdpx" else
+               qdpx.export_codebook(ws, a.framework, a.out))
+        from .codebooks import draft_note, drafted_codes  # the audit's DEC-2: the file does not carry the AI draft mark
+
+        names = [a.framework] if a.cmd == "export-qdc" else \
+            [fw.name for fw in qdpx._frameworks_to_export(ws, a.framework)]
+        note = draft_note(sum(drafted_codes(ws, n) for n in names))
+        if note:  # (on stderr, as the commands' other words: what they print on stdout stays JSON)
+            print(note, file=sys.stderr)
+        return 0
+    if a.cmd == "import-qdc":
+        import re
+        import unicodedata
+
+        from . import codebooks, qdc_import
+
+        f = Path(a.file)
+        plain = unicodedata.normalize("NFKD", f.stem.lower()).encode("ascii", "ignore").decode("ascii")   # kódkönyv: kodkonyv
+        name = a.name or re.sub(r"[^a-z0-9_-]+", "_", plain).strip("_")[:40] or "imported"
+        try:
+            prepared = qdc_import.from_path(f, a.codebook)
+            # the title: --title, else the file's own (a project's name, a codebook Margin wrote), else the file's name
+            prepared["title"] = prepared["title"] or " ".join(f.stem.split())[:200]
+            got = codebooks.create(ws, name, a.title or "", "home" if a.home else "project", "qdc", prepared=prepared)
+        except qdc_import.SeveralCodebooks as e:
+            print(f"Problem: {e} Give its title with --codebook.", file=sys.stderr)
+            return 2
+        except ValueError as e:
+            print(f"Problem: {e}", file=sys.stderr)
+            return 2
+        _print({"codebook": got["name"], "title": got["title"], "codes": len(got["codes"]),
+                "groups": len([g for g in got["groups"] if g["group"]]), "notes": got["imported"]["notes"]})
+        return 0
     if a.cmd == "export-flexiconc":
         from . import flexiconc_export
 
@@ -816,6 +931,51 @@ def _cmd_07(a, ws) -> int:
     return 1
 
 
+def _validate(a) -> int:
+    """0.18.4 (J4.3): the validation report's AI half (validation.py)."""
+    from . import home, validation
+
+    def project(name: str | None) -> Workspace:
+        return Workspace.open(home.project_path(name)) if name else Workspace.open(a.ws)
+
+    try:
+        if a.action == "prepare":
+            ws = home.create_project(a.project) if a.project else Workspace.create(a.ws)
+            out = validation.prepare(ws, a.gold, decompose=a.decompose)
+            name = _project_name(ws)
+            _print({**out, "project": name, "next": f'In Claude Code: /margin-run "{name}" (or answer it here with '
+                                                     f'`margin --ws "{ws.root}" queue run --backend ollama`), then '
+                                                     f'`margin validate score --project "{name}"`'})
+            return 0
+        if a.action == "score":
+            gold = validation.load_gold(a.gold)
+            passes = [validation.collect(project(a.project), a.gold)]
+            if a.again:
+                passes.append(validation.collect(project(a.again), a.gold))
+            run = validation.make_run(passes, gold, a.route)
+            path = validation.write_run(run, a.runs or Path(gold["folder"]) / "runs")
+            s = validation.score(run)["passes"][0]
+            _print({"run_file": str(path), "checks_right": s["checks"]["accuracy"], "checks_kappa": s["checks"]["kappa"],
+                    "label_decisions_right": s["labels"]["code_accuracy"], "labels_kappa": s["labels"]["kappa"]})
+            return 0
+        if not a.run_file and not a.latest:
+            a.latest = str(Path(a.gold or validation.default_folder()) / "runs")
+        md, used = validation.report(a.run_file, a.latest, a.out, a.gold)
+    except (ValueError, FileNotFoundError) as e:
+        print(f"Problem: {e}", file=sys.stderr)
+        return 1
+    if md is None:
+        # the release workflow: no recorded run yet is not a failure, it is said
+        print(f"No recorded AI run in {a.latest or '(no folder given)'}: there is no AI half of the validation report "
+              "to write. Record one with `margin validate prepare`, then score it (docs/DEVELOPING.md).")
+        return 0
+    if a.out:
+        print(f"Report written to {a.out} (from {used})")
+    else:
+        print(md)
+    return 0
+
+
 def _project_name(ws) -> str:
     """The name Claude Code reaches this workspace by: a project of the data folder, linked if it is not one yet."""
     from . import home
@@ -831,7 +991,7 @@ def _project_name(ws) -> str:
 
 def _cmd_08(a, ws) -> int:
     """The commands of 0.8: prepare tasks for Claude Code; the queue."""
-    from . import claimcheck, home, profile, routing, taskqueue
+    from . import claimcheck, frameworks, home, profile, routing, taskqueue
     from . import tasks as tk
 
     if a.cmd == "prepare":
@@ -852,8 +1012,8 @@ def _cmd_08(a, ws) -> int:
                     print(f"Problem: {e}", file=sys.stderr)
                     return 1
             elif a.kind == "label":
-                fw = a.framework or home.load_settings().get("profile_framework") or ""
-                if not fw:
+                fw = a.framework or frameworks.chosen(home.load_settings().get("profile_framework"), ws)
+                if not fw:  # Margin has no default codebook
                     print("Problem: choose a codebook with --framework, or on the Profile page.", file=sys.stderr)
                     return 1
                 profile.ensure_pass1(ws, fw)
@@ -1004,14 +1164,73 @@ def _summary(r: dict) -> dict:
 
 
 def _write_csv(path: str, rows: list[dict]) -> None:
-    import csv
-
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
-        if rows:
-            w = csv.DictWriter(f, fieldnames=list(rows[0]))
-            w.writeheader()
-            w.writerows(rows)
+        review.write_csv(f, rows)
 
 
+# 0.18.1 part A (documents, theory, concepts, team copies): its commands, run with the project open
+_PART_A: tuple[str, ...] = ("concept-map",)
+
+
+def _cmd_part_a(a, ws) -> int:
+    if a.cmd == "concept-map":
+        from . import conceptmap
+
+        f = conceptmap.Filters(docs=a.doc, year_from=a.year_from, year_to=a.year_to)
+        if a.theme:
+            run, _, tid = a.theme.rpartition(":")
+            if not run or not tid.isdigit():
+                print("A theme is <run id>:<theme id>.", file=sys.stderr)
+                return 1
+            f.theme = (run, int(tid))
+        if a.code:
+            if not a.framework:
+                print("Say the codebook of the code with --framework.", file=sys.stderr)
+                return 1
+            f.code = (a.framework, a.code)
+        for y in (a.year_from, a.year_to):
+            if y is not None and not 1 <= y <= 9999:
+                print("A year is a number from 1 to 9999.", file=sys.stderr)
+                return 1
+        f.applied = f.describe()
+        try:
+            m = conceptmap.concept_map(ws, f, a.n)
+        except KeyError:
+            print("No such set of themes: see margin themes.", file=sys.stderr)
+            return 1
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 1
+        if a.json:
+            _print(m)
+        else:
+            print(conceptmap.as_text(m))
+        return 0
+    return 1
+# end of 0.18.1 part A
+
+
+# 0.18.1 part B (AI mix, checks, retractions): its commands, run with the project open
+_PART_B: tuple[str, ...] = ("retractions",)
+
+
+def _cmd_part_b(a, ws) -> int:
+    if a.cmd == "retractions":
+        from . import retractions
+
+        if a.check:
+            try:
+                _print(retractions.lookup(ws, progress=lambda **kw: print(f"{kw.get('done', 0)} of {kw.get('total', 0)} "
+                                                                           "DOIs asked", file=sys.stderr)))
+            except retractions.RetractionError as e:
+                print(str(e), file=sys.stderr)
+                return 1
+        _print(retractions.status(ws))
+        return 0
+    return 1
+# end of 0.18.1 part B
+
+
+# last, so every name above exists when it runs (`python -m margin.cli` found no _PART_A)
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
