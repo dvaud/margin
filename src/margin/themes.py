@@ -866,6 +866,11 @@ def view(ws: Workspace, run_id: str, framework: str | None = None, only: int | N
                          if t.get("replaces") in themes else None),
             "replaced_by": [{"theme_id": x, "name": name_of(x)} for x, o in themes.items() if o.get("replaces") == tid],
             "drawn_from": [{"theme_id": x, "name": name_of(x), "passages": n} for x, n in drawn.most_common()]})
+    # 0.19.6: a theme the AI could not name (its answers were rejected) says so, with why; one named since (by you,
+    # or by the AI on a later try) does not
+    failed = naming_problems(ws, run_id)
+    for t in out_themes + removed_themes:
+        t["naming_failed"] = failed.get(t["theme_id"]) if t["name_source"] == "terms" else None
     out_themes.sort(key=lambda t: (-t["size"], t["theme_id"]))
     removed_themes.sort(key=lambda t: (-t["size"], t["theme_id"]))
     # 0.8: numbered 1 to n in the order shown (no gaps after a merge); theme_id stays the stable id for links. A
@@ -1248,6 +1253,52 @@ def store_theme(cx, t, payload: dict, obj: dict, model: str) -> tuple[bool, list
     return True, []
 
 
+_FIELD_WORDS = {"name": "the name", "description": "the description", "name_quote": "the quote for the name",
+                "description_quote": "the quote for the description"}
+
+
+def naming_reason(errors: list[str]) -> str:
+    """Why the AI's last answer to a theme was not used, in plain words (0.19.6), from the problems the checks found."""
+    text = " ".join(errors)
+    if "quote not found" in text:
+        return "its quotes were not found word for word in the passages"
+    if "there is no passage" in text:
+        return "it quoted a passage it was not given"
+    if "Field required" in text:
+        fields = [e.split(":", 1)[0].split(".")[0].strip() for e in errors if "Field required" in e]
+        missing = [_FIELD_WORDS.get(f, f) for f in dict.fromkeys(fields)]
+        return f"its answer left out {' and '.join(missing)}" if missing else "its answer was incomplete"
+    if "at most six words" in text:
+        return "the name it gave was longer than six words"
+    if "cut off" in text:
+        return "its answer was cut off before it was finished"
+    if "stuck" in text:
+        return "it got stuck writing blank space instead of an answer"
+    if "JSON" in text:
+        return "its answer was not in the form asked for"
+    return "its answer did not pass the checks"
+
+
+def naming_problems(ws: Workspace, run_id: str) -> dict[int, dict]:
+    """The themes of a run the AI could not name (0.19.6): its answers were rejected three times. Per theme id: the
+    reason in plain words, the problems as the checks wrote them, the model and when. Shown on the theme's card with
+    a way to try again, so the failure is seen where the naming was asked for."""
+    head = f"theme:{run_id}:"
+    out: dict[int, dict] = {}
+    for r in ws.query("SELECT t.task_id, (SELECT errors_json FROM results x WHERE x.task_id=t.task_id ORDER BY "
+                      "x.attempt DESC LIMIT 1) AS errors, (SELECT model FROM results x WHERE x.task_id=t.task_id ORDER "
+                      "BY x.attempt DESC LIMIT 1) AS model, (SELECT received_at FROM results x WHERE x.task_id="
+                      "t.task_id ORDER BY x.attempt DESC LIMIT 1) AS at FROM tasks t WHERE t.kind='theme' AND "
+                      "substr(t.task_id, 1, ?) = ? AND t.status='failed'", (len(head), head)):
+        try:
+            errors = [str(e) for e in json.loads(r["errors"] or "[]")]
+        except ValueError:
+            errors = []
+        out[int(r["task_id"][len(head):])] = {"reason": naming_reason(errors), "problems": errors[:5],
+                                              "model": r["model"], "at": r["at"]}
+    return out
+
+
 def name_with_model(ws: Workspace, run_id: str, backend, model: str, progress: Callable | None = None,
                     should_stop: Callable[[], bool] | None = None) -> dict:
     from . import access
@@ -1262,8 +1313,14 @@ def name_with_model(ws: Workspace, run_id: str, backend, model: str, progress: C
     made = {r[0] for r in ws.query("SELECT task_id FROM tasks WHERE kind='theme' AND substr(task_id, 1, ?) = ?",
                                    (len(head), head))}
     rest = {t["theme_id"] for t in view(ws, run_id)["themes"] if f"{head}{t['theme_id']}" not in made}
-    if rest and "local" not in readers.main_levels and readers.local_configured():
-        make_name_tasks(ws, run_id, model, {"cloud", "local"}, rest)
+    # 0.19.6: asking again is a new request. A theme whose naming failed (three answers rejected) and that the main
+    # model may not read (only a local AI may) was left failed by the first call, and a failed task is never asked
+    # again: the run ended at once and named nothing. Its task is made again, for the local model, like a new one.
+    stuck = {int(r[0][len(head):]) for r in ws.query(
+        "SELECT task_id FROM tasks WHERE kind='theme' AND substr(task_id, 1, ?) = ? AND status='failed'",
+        (len(head), head))}
+    if (rest or stuck) and "local" not in readers.main_levels and readers.local_configured():
+        make_name_tasks(ws, run_id, model, {"cloud", "local"}, rest | stuck)
     todo = [r["task_id"] for r in ws.query("SELECT task_id FROM tasks WHERE kind='theme' AND substr(task_id, 1, ?) = ? "
                                            "AND status != 'done' ORDER BY task_id", (len(head), head))]
     rid = runs_mod.start(ws, "theme", run_id, backend, model, len(todo))

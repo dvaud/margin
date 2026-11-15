@@ -324,7 +324,7 @@ async function drawStatus() {
   } else if (going.length) {
     const j = going[0], v = jobRow(j);
     const more = going.length - 1;
-    w = { kind: "running", where: j.where || null, main: v.text, time: j.state === "running" ? fmt.secs(j.seconds) : "", href: v.href, tip: v.tooltip, drawer: v.drawer,
+    w = { kind: "running", where: j.where || null, localModel: j.local_model || "", main: v.text, time: j.state === "running" ? fmt.secs(j.seconds) : "", href: v.href, tip: v.tooltip, drawer: v.drawer,
       sub: j.waiting_for ? j.waiting_for.message : j.state === "queued" ? "waiting its turn" : more ? `and ${more} more running` : waiting + answering ? `${(waiting + answering).toLocaleString()} for Claude Code` : "running",
       act: j.waiting_for ? "cancel" : undefined, job: j.id };   // 0.18 queued jobs: what it waits for, with Cancel
   } else if (runner) {
@@ -341,7 +341,7 @@ async function drawStatus() {
     const p = App.privacy();
     const cloud = w.kind === "running" && (w.where === "cloud" || (w.where == null && p.where === "cloud"));
     const cloudTip = w.where === "cloud" ? CLOUD_TIP : p.plain;
-    const key = JSON.stringify([App.project, w.kind, w.where, cloud, w.main, w.sub, w.href, w.act, w.act === "cancel" ? w.job : ""]);
+    const key = JSON.stringify([App.project, w.kind, w.where, w.localModel, cloud, w.main, w.sub, w.href, w.act, w.act === "cancel" ? w.job : ""]);
     if (key === statusKey && box.firstChild) {
       const t = box.querySelector(".work-time"); if (t && w.time) t.textContent = w.time;   // only the seconds changed
     } else {
@@ -350,7 +350,7 @@ async function drawStatus() {
       const chip = WHERE_CHIP[w.where];
       const who = w.kind !== "running" || w.where === "none" ? null   // nothing is sent while it waits; an install reads no document
         : cloud ? h("span", { class: "work-who", title: cloudTip }, "to Claude")   // the rail carries the cloud
-        : chip ? h("span", { class: "work-who", title: chip.tip }, icon(chip.icon, { size: 12 }), chip.label)
+        : chip ? h("span", { class: "work-who", title: w.localModel ? `Your local model, ${w.localModel}, reads on this computer; what it reads is not sent to Anthropic.` : chip.tip }, icon(chip.icon, { size: 12 }), chip.label)   // 0.19.6: the local model at work for a job of Settings' AI
         : h("span", { class: "work-who", title: p.plain }, icon(p.icon, { size: 12 }), (p.label || "").split(",")[0]);
       const rail = cloud ? h("span", { class: "work-rail", title: cloudTip, "aria-hidden": "true" }, icon("cloud", { size: 14 })) : null;
       const main = h("a", { class: "work-main", href: w.href, title: w.tip,   // 0.18: a round opens the Team tab beside the page

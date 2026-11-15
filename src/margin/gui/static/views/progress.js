@@ -6,6 +6,45 @@ const STEP_ICON = { pending: "circle", running: "loader", done: "check" };
 // 0.19.4: the backends of Settings that are a model on this computer (its panel shows while it reads)
 const LOCAL_MAIN = new Set(["ollama", "openai", "auto"]);
 const plainPhase = (phase) => ({ waiting: "The AI is getting ready and reading", thinking: "The AI is thinking it over", writing: "The AI is writing down its judgement", done: "The AI has finished" }[phase] || "The AI is working");
+// 0.19.6: what a named model is doing, after its name ("qwen3.5:9b is thinking it over")
+const MODEL_PHASE = { waiting: "is loading and reading", thinking: "is thinking it over", writing: "is writing its answer", done: "has finished" };
+const QUIET_AFTER = 20;   // seconds without a new token before the detail line says so
+
+// 0.19.6: the line under a short job while a model reads (a model on this computer is slow, so it says, every second,
+// that work goes on): where it runs, what it has written so far and how fast, and how long since its last token.
+// `seen` keeps when the token count last changed, across polls.
+export function modelDetail(m, seen) {
+  if (!m || !m.phase || m.phase === "queue" || m.phase === "done" || m.phase === "refused") return null;
+  const bits = [];
+  const local = m.who === "local" || LOCAL_MAIN.has(App.settings().backend);
+  if (local) bits.push("On this computer");
+  const made = (m.thinking_tokens || 0) + (m.answer_tokens || 0);
+  const now = Date.now();
+  if (made !== seen.made) { seen.made = made; seen.at = now; }
+  if (m.phase === "waiting") {
+    bits.push(m.prompt_tokens ? `reading a prompt of about ${fmt.num(m.prompt_tokens)} tokens` : "reading the prompt");
+    if ((m.seconds || 0) >= 1) bits.push(`${fmt.secs(m.seconds)} so far`);
+    if ((m.seconds || 0) > 60 && local) bits.push("a model on this computer can take a few minutes to start");
+  } else {
+    if (m.thinking_tokens) bits.push(`${fmt.num(m.thinking_tokens)} tokens of reasoning`);
+    if (m.answer_tokens) bits.push(`${fmt.num(m.answer_tokens)} tokens of its answer`);
+    if (m.rate) bits.push(`${Number(m.rate).toFixed(1)} tokens a second`);
+    if (m.budget_reached) bits.push("its reasoning budget is used up, so it answers from its notes now");
+    const quiet = seen.at ? (now - seen.at) / 1000 : 0;
+    if (made && quiet >= QUIET_AFTER) bits.push(`nothing new for ${fmt.secs(quiet)}; it may still be working`);
+  }
+  return bits.join(" · ");
+}
+
+// "about 3 min left": `spent` the seconds the `finished` items took (up to the moment the last one finished), `since`
+// the seconds on the current one; null before the first is done, and once the estimate has run out
+export function timeLeft(spent, finished, total, since = 0) {
+  if (!finished || !spent || finished >= total) return null;
+  const left = (spent / finished) * (total - finished) - since;
+  if (left <= 0) return null;
+  const mins = Math.ceil(left / 60);
+  return left < 60 ? "less than a minute left" : mins < 90 ? `about ${mins} min left` : `about ${Math.floor(mins / 60)} h ${mins % 60} min left`;
+}
 
 export class ProgressPanel {
   // `steps`: the step keys to show (a "look before checking" job only has the "terms" step; the others stay pending)
@@ -234,14 +273,18 @@ export class MiniJob {
   constructor({ title, onStop } = {}) {
     this.title = title || "Working";
     this.msg = h("span", { class: "mini-msg" }, this.title, "…");
-    this.time = h("span", { class: "mini-time" }, "");
+    this.time = h("span", { class: "mini-time", "aria-hidden": "true" }, "");
     this.stopBtn = stopButton({ onClick: async () => {
       if (!this.jobId) return;
       this.stopBtn.disabled = true;
       try { await cancelJob(this.jobId); } catch (e) { showError(e); this.stopBtn.disabled = false; }
       if (onStop) onStop();
     } });
-    this.el = h("div", { class: "mini-job", role: "status" }, h("span", { class: "running-dot", "aria-hidden": "true" }), this.msg, this.time, this.stopBtn);
+    // 0.19.6: what the model is doing, in numbers, and its latest words (seen in the page, not read out)
+    this.detail = h("span", { class: "mini-detail", hidden: true, "aria-hidden": "true" });   // changes every second: not read out
+    this.tail = h("span", { class: "mini-tail", hidden: true, "aria-hidden": "true" }, h("span", {}));
+    this.seen = { made: -1, at: 0 };
+    this.el = h("div", { class: "mini-job", role: "status" }, h("span", { class: "running-dot", "aria-hidden": "true" }), this.msg, this.time, this.stopBtn, this.detail, this.tail);
     this.jobId = null;
     this.startEl = null;   // 0.11.3: the Start Claude Code block while the job waits for Claude Code
   }
@@ -250,9 +293,12 @@ export class MiniJob {
     const p = job.progress || {};
     const running = job.state === "queued" || job.state === "running";
     const m = p.model;
+    // 0.19.6: the queue's report counts only while it is the later one (a job whose themes go to Claude Code and to
+    // the local model in turn said "waiting for Claude Code" while the local model read), as the server's latest_report
+    const pq = p.queue && !(m && m.phase !== "queue" && (m.at || 0) > (p.queue.at || 0)) ? p.queue : null;
     // 0.11.3: a job that waits for Claude Code carries the Start Claude Code button (and the command to type), as
     // every other place where work waits does; built once, it keeps itself current
-    const wq = running && ((m && m.phase === "queue" && (m.queue || {})) || p.queue);
+    const wq = running && ((m && m.phase === "queue" && (m.queue || {})) || pq);
     if (wq && !this.startEl && App.project) this.el.appendChild(this.startEl = startClaude(App.project, { command: wq.command }));
     else if (!wq && this.startEl) { this.startEl.remove(); this.startEl = null; }
     const typeIt = (cmd) => (this.startEl ? "" : ` (type ${cmd || "/margin-run"} in Claude Code)`);
@@ -260,7 +306,8 @@ export class MiniJob {
     if (job.waiting_for) text = `${this.title}: ${job.waiting_for.message.replace(/^Q/, "q")}`;   // 0.18 queued jobs
     else if (job.state === "queued") text = `${this.title}: waiting for the AI (another task is using it)`;
     else if (running && m && m.phase === "queue") text = `${this.title}: ${m.queue && m.queue.paused ? "paused" : "waiting for Claude Code"}${typeIt(m.queue && m.queue.command)}`;
-    else if (running && p.queue) text = `${this.title}: waiting for Claude Code${typeIt(p.queue.command)}`;
+    else if (running && pq) text = `${this.title}: waiting for Claude Code${typeIt(pq.command)}`;
+    else if (running && m && m.phase && m.phase !== "done" && m.who === "local" && MODEL_PHASE[m.phase]) text = `${this.title}: ${m.model || m.name || "your local model"} ${MODEL_PHASE[m.phase]}`;   // 0.19.6: the local model by its name
     else if (running && m && m.phase && m.phase !== "done") text = `${this.title}: ${(m.plain || plainPhase(m.phase)).replace(/^The AI/, "the AI").replace(/^Your /, "your ")}`;
     else if (running && p.message) text = `${this.title}: ${p.message}`;
     if (job.state === "done") text = "Done.";
@@ -268,6 +315,13 @@ export class MiniJob {
     else if (job.state === "cancelled") text = "Stopped.";
     this.msg.textContent = text;
     this.time.textContent = running ? fmt.secs(p.elapsed !== undefined ? p.elapsed : job.seconds || 0) : "";
+    this.waiting = !!wq || job.state === "queued";   // 0.19.6: the page's own counter leaves out the time left then
+    const detail = running && !wq ? modelDetail(m, this.seen) : null;
+    this.detail.hidden = !detail;
+    if (detail && this.detail.textContent !== detail) this.detail.textContent = detail;
+    const words = detail && m.phase === "thinking" ? String(m.tail || "").split(/\s+/).join(" ").trim().slice(-200) : "";
+    this.tail.hidden = !words;
+    if (words && this.tail.firstChild.textContent !== words) this.tail.firstChild.textContent = words;
     this.stopBtn.hidden = !running;
     this.el.classList.toggle("mini-done", !running);
     const dot = this.el.querySelector(".running-dot"); if (dot) dot.hidden = !running;

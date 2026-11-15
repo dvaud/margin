@@ -4,6 +4,7 @@ Split out of server.py in 0.16: `App` takes this class as a base; the public met
 from __future__ import annotations
 
 import json
+import time
 import traceback
 
 from .api_common import ONE_START, ApiError, Job, _usable_embedder
@@ -295,9 +296,9 @@ class LibraryMixin:
         def run(job: Job):
             job.progress = {"done": 0, "total": 0}
             self._wire(job, be)
-            if hasattr(be, "progress"):
-                be.progress = lambda info: job.progress.update(queue=info) if info.get("phase") == "queue" else \
-                    job.progress.update(model=info)
+            if hasattr(be, "progress"):   # 0.19.6: each stamped, so the later of the two is the one at work now
+                be.progress = lambda info: job.progress.update(**{"queue" if info.get("phase") == "queue" else "model":
+                                                                  {**info, "at": time.time()}})
             return fn(job, be, model, lambda d, n: job.progress.update(done=d, total=n))
 
         return self.start_job(kind, title, name, run,

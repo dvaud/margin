@@ -698,6 +698,13 @@ h2 .defined-wrap { font-size: var(--fs-small); font-weight: var(--fw-regular); }
 .mini-job .mini-time { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-xs); }
 .mini-job.mini-done { color: var(--text-2); }
 .mini-job .start-claude { flex: 1 0 100%; margin-top: 2px; color: var(--text); font-weight: var(--fw-regular); }
+/* 0.19.6: what the model is doing, in numbers, and its latest words on one line (the newest at the right edge; the
+   older ones slide out on the left), so slow work on this computer shows it goes on */
+.mini-job .mini-detail { flex: 1 0 100%; color: var(--muted); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.mini-job .mini-tail { flex: 1 0 100%; display: flex; justify-content: flex-end; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-xs); }
+.mini-job .mini-tail > span { flex: 1 0 auto; text-align: left; }   /* short: from the left; long: the start slides out */
+.mini-job .mini-tail > span::after { content: "▍"; color: var(--accent); animation: pulse 1s steps(2) infinite; }
+.mini-job .mini-detail[hidden], .mini-job .mini-tail[hidden] { display: none; }
 
 /* ==== 4.22 Folds */
 /* More here, folded away (More options, Technical details): a line with a chevron before the words, secondary text;

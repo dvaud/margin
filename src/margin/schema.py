@@ -494,14 +494,21 @@ class ResolveOut(BaseModel):
 # JSON schemas for constrained decoding (Ollama's `format`); validation still runs on every answer
 # ---------------------------------------------------------------------------------------------
 def _inline(schema: dict) -> dict:
-    """Resolve $ref/$defs so the schema is one self-contained tree, and drop titles and descriptions."""
+    """Resolve $ref/$defs so the schema is one self-contained tree, and drop titles and descriptions.
+
+    The names under "properties" are the answer's own fields and are always kept: a field called "description" (a
+    theme's) is not a schema's description. Until 0.19.6 it was dropped with them, so a constrained decoder (Ollama's
+    `format`, an OpenAI-compatible server's json_schema) could not write it, and every local answer to a theme was
+    rejected for leaving it out."""
     defs = schema.get("$defs", {})
 
     def walk(node):
         if isinstance(node, dict):
             if "$ref" in node:
                 return walk(defs[node["$ref"].split("/")[-1]])
-            return {k: walk(v) for k, v in node.items() if k not in ("$defs", "title", "description", "default")}
+            return {k: ({name: walk(sub) for name, sub in v.items()} if k == "properties" and isinstance(v, dict)
+                        else walk(v))
+                    for k, v in node.items() if k not in ("$defs", "title", "description", "default")}
         if isinstance(node, list):
             return [walk(x) for x in node]
         return node

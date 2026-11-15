@@ -1005,6 +1005,10 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .th-about { margin-bottom: 16px; }
 .th-quote { margin: 8px 0 0; }
 .th-quote q { color: var(--text); font-style: normal; }
+/* 0.19.6: a theme the AI could not name: the failed work state on its card, its problems folded under it */
+.th-not-named { margin: 8px 0 0; }
+.th-not-named ul { margin: 4px 0 0; padding-left: 18px; }
+.th-not-named-notice ul { margin: 4px 0 0; padding-left: 18px; }
 .th-doclist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px 16px; }
 .th-doclist li { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: var(--fs-small); }
 .th-doclist a { min-width: 0; overflow-wrap: anywhere; }

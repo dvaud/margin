@@ -725,6 +725,7 @@ tag).
 | A button at work | its loader turns, its words stay ([4.1](#41-buttons)) | the verb stays |
 | A job's *Stop* | a small quiet button with the stop icon, after the job's time; never red, as nothing is removed (what is done is kept) | *Stop*; *Stop Claude Code* where the job beside it has its own |
 | A long step-by-step job | the progress panel: steps with icons and times, a bar | step names |
+| A short AI job | one line (`MiniJob`): the running dot, what runs and who reads (*qwen3.5:9b is thinking it over*), the count and time, *Stop*; while a model reads, a muted line of what it has written and how fast (*nothing new for 24 s; it may still be working* when it goes quiet) and, while it reasons, its latest words on one line; neither is read out | *The AI names the themes: …* |
 | Loading a part of a page | the turning loader and a sentence | *Loading the works…* |
 
 A work state is words and an icon, never a pill. The running dot stands still under reduced motion. **Make it:**
@@ -852,7 +853,7 @@ while work runs or waits, the work box in exactly that space. Never a popover.
 | --- | --- |
 | The AI line | the cloud or the house, the AI's name (*Claude, on your plan*), what leaves the computer; on hover or focus a card of details opens upwards (the account, the model, where to change it) |
 | Set-up not finished, no AI model yet, Demo mode | the same card in the attention look: the triangle, amber |
-| Work running | a teal edge; the running dot, what runs, the time; under it how many more, and where the text goes: work that sends passages to Claude also has a grey rail with the cloud on its left edge and says *to Claude*; work on this computer keeps the house and no rail (*This computer*); a DOI lookup says *Crossref* |
+| Work running | a teal edge; the running dot, what runs, the time; under it how many more, and where the text goes: work that sends passages to Claude also has a grey rail with the cloud on its left edge and says *to Claude*; work on this computer keeps the house and no rail (*This computer*), and so does work of the AI of Settings while the local model reads for it (documents marked Only a local AI; the tooltip names the model); a DOI lookup says *Crossref* |
 | Work not running or waiting | amber: a pause mark, *Not running*, *N tasks waiting* (for whom: its tooltip); one action, *Start* (a small main button) |
 
 The box's words are the link to where the work shows; its one button is always an action. The status area is the AI's

@@ -4,8 +4,8 @@
 // A theme that is not relevant can be removed (its passages are left out until it is brought back), and a new theme
 // found in its place, on this computer without AI (POST …/new, job "theme-new").
 import { featureEyebrow, withAI } from "../features.js";
-import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks, button, choice, link, tag, notice, card, input, select, textarea, fold, readsLine, stopButton, menu, inset, searchHref, drawInSteps, heatGrid, heatHead, jobFailed } from "../lib.js";
-import { simpleProgress, MiniJob, jobError } from "./progress.js";
+import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks, button, choice, link, tag, notice, card, input, select, textarea, fold, readsLine, aiWhere, stopButton, menu, inset, searchHref, drawInSteps, heatGrid, heatHead, jobFailed, workState } from "../lib.js";
+import { simpleProgress, MiniJob, jobError, timeLeft } from "./progress.js";
 import { historyButton, askWhy } from "./versions.js";
 import { shareBar } from "./share.js";   // 0.18 (L1)
 
@@ -22,6 +22,13 @@ const runHref = (rid) => `#/themes/${encodeURIComponent(rid)}`;
 const themeHref = (rid, tid) => `#/themes/${encodeURIComponent(rid)}/${encodeURIComponent(tid)}`;
 const modeWords = (m) => (m === "meaning" ? "by meaning" : "by words");
 const NAMED_BY = { terms: "named by its key terms", model: "named by the AI", person: "named by you" };
+// 0.19.6: a theme the AI could not name (its answers were rejected three times), in plain words: on its card, on its
+// page, and once for all of them at the head of the list, with Try again. Never only in a toast that goes away.
+const notNamedWords = (f) => `The AI could not name this theme: ${f.reason}.`;
+function notNamedLine(f) {
+  return h("div", { class: "th-not-named" }, workState("failed", notNamedWords(f)),
+    f.problems && f.problems.length ? fold({ sm: true }, "Technical details", h("ul", { class: "small muted" }, f.problems.map((x) => h("li", {}, x)))) : null);
+}
 const PHASE = { terms: "Updating the glossary of terms…", cluster: "Grouping the passages into themes…", name: "Naming the themes by their key terms…" };
 
 // A sentence to start a hypothesis from: the theme's name when the AI or a person gave it, else its first key term.
@@ -199,6 +206,22 @@ async function renderRun(view, runId, info, query) {
     clear(notes);
     if (r.stale) notes.appendChild(notice({ kind: "attention", class: "th-status-notice" },
       h("p", {}, "Documents were added or removed since these themes were found, so they leave out the changes. Find the themes again to include them; this set is kept, so you can compare.")));
+    // 0.19.6: themes the AI could not name, said where the naming was asked for, with a way to try again
+    const notNamed = v.themes.filter((t) => t.naming_failed);
+    if (notNamed.length) {
+      const reasons = [...new Set(notNamed.map((t) => t.naming_failed.reason))];
+      const models = [...new Set(notNamed.map((t) => t.naming_failed.model).filter(Boolean))];
+      const retry = button({ sm: true, disabled: !!nameJob.firstChild, onClick: (e) => nameThemes(e.currentTarget) }, icon("refresh", { size: 13 }), "Try again");
+      notes.appendChild(notice({ kind: "error", live: false, class: "th-status-notice th-not-named-notice" },
+        h("p", {}, `The AI${models.length === 1 ? ` (${models[0]})` : ""} could not name ${plural(notNamed.length, "theme")} after three tries: `,
+          reasons.length === 1 ? `${reasons[0]}.` : "each says why below.",
+          ` ${notNamed.length === 1 ? "It keeps its" : "They keep their"} key terms as a name. Try again, or rename ${notNamed.length === 1 ? "it" : "them"} yourself.`),
+        withAI(retry),
+        // who reads them again: the local model that tried (documents marked Only a local AI), not always Settings' AI
+        models.length && models.every((x) => !/^(claude|haiku|sonnet|opus|fable)/i.test(x))
+          ? aiWhere(`Your local model (${models.join(", ")}) reads their passages on this computer: they never leave it.`, "local")
+          : readsLine("their passages")));
+    }
     // 0.17: key terms that the glossary now leaves out (each language's common words, the project's own words)
     const leftOut = r.terms_left_out || [];
     if (leftOut.length) notes.appendChild(notice({ kind: "info", class: "th-status-notice" },
@@ -250,6 +273,7 @@ async function renderRun(view, runId, info, query) {
               t.moved_in ? tag({}, `${plural(t.moved_in, "passage")} moved here`) : null,
               t.replaces ? tag({ icon: "shapes", title: "Found in place of a theme you removed" }, `new: found in place of “${shortTitle(t.replaces.name, 40)}”`) : null))),
         t.description ? h("p", { class: "th-desc" }, t.description) : null,
+        t.naming_failed ? notNamedLine(t.naming_failed) : null,
         t.quotes && t.quotes.name && t.quotes.name.quote && t.name_source === "model" ? h("p", { class: "muted small th-quote" }, icon("quote", { size: 12 }), " The AI's name rests on: ", h("q", { class: "serif" }, t.quotes.name.quote)) : null,
         h("div", { class: "th-size" },
           h("div", { class: "th-bar", "aria-hidden": "true" }, h("span", { style: { width: `${Math.max(2, pct)}%` } })),
@@ -467,17 +491,26 @@ async function renderRun(view, runId, info, query) {
     const m = new MiniJob({ title: "The AI names the themes" });
     replace(nameJob, h("div", { class: "th-names-job" }, m.el,
       h("p", { class: "muted small th-names-help" }, "The AI reads the passages that represent each theme and gives it a short name and a description, each with a quote that is checked against the passage. Names you gave yourself are kept.")));
+    let lastAt = 0, atSecs = 0;   // the theme being named, and the job's time when it began
     const w = watchJob(jobId, (job) => {
       m.update(job);
       const p = job.progress || {};
-      if (p.total && (job.state === "running" || job.state === "queued")) m.time.textContent = `theme ${Math.min(p.done || 0, p.total)} of ${p.total} · ${m.time.textContent}`;
+      // the job counts the theme it is naming (the first is theme 1), so the themes finished are one fewer; 0.19.6: the
+      // time left, from the time the finished ones took (not while the work waits for Claude Code)
+      if (p.total && (job.state === "running" || job.state === "queued")) {
+        const at = Math.min(p.done || 0, p.total);
+        if (at !== lastAt) { lastAt = at; atSecs = job.seconds || 0; }
+        const left = m.waiting ? null : timeLeft(atSecs, Math.max(0, at - 1), p.total, (job.seconds || 0) - atSecs);
+        m.time.textContent = `theme ${at} of ${p.total}${left ? ` · ${left}` : ""} · ${m.time.textContent}`;
+      }
     });
     watchers.push(w);
     w.promise.then(async (job) => {
       clear(nameJob);
       if (job.state === "done") {
         const res = job.result || {};
-        toast(`The AI named ${plural(res.named || 0, "theme")}${res.failed ? `; ${res.failed} could not be named (their quotes did not check out)` : ""}.`, res.failed ? "warn" : "ok");
+        // 0.19.6: why each could not be named stays on the page (the notice above the themes, the line on each card)
+        toast(`The AI named ${plural(res.named || 0, "theme")}${res.failed ? `; ${res.failed} could not be named: the page says why, with Try again` : ""}.`, res.failed ? "warn" : "ok");
       } else if (job.state === "error") jobFailed(job, (j) => followNames(j.id), nameJob);   // 0.19.4: a refused local model: its panel
       else toast("Stopped. The themes named so far keep their names.", "info", { small: true });
       await reload();
@@ -604,6 +637,11 @@ export async function renderTheme(view, [runId, themeId], query) {
       body.appendChild(notice({ kind: "info", icon: "shapes", class: "th-new-note" },
         h("div", {}, h("p", {}, "A new theme, found in place of ", h("a", { href: themeHref(runId, t.replaces.theme_id) }, `“${t.replaces.name}”`), ", which you removed. Its passages fitted the themes they were in least well."),
           from.length ? h("p", { class: "small" }, "They come from ", from.map((x, i) => [i ? (i === from.length - 1 ? " and " : ", ") : "", h("a", { href: themeHref(runId, x.theme_id) }, `“${shortTitle(x.name, 50)}”`), ` (${plural(x.passages, "passage")})`]), ".") : null)));
+    }
+    if (t.naming_failed) {
+      body.appendChild(notice({ kind: "error", live: false, class: "th-not-named-notice" },
+        h("p", {}, notNamedWords(t.naming_failed), " It keeps its key terms as a name. ", link({ href: runHref(runId) }, "Try again on the page of all themes"), ", or rename it yourself."),
+        t.naming_failed.problems && t.naming_failed.problems.length ? fold({ sm: true }, "Technical details", h("ul", { class: "small muted" }, t.naming_failed.problems.map((x) => h("li", {}, x)))) : null));
     }
     // the AI's description, with its checked quotes
     if (t.description || (t.name_source === "model" && t.quotes)) {
