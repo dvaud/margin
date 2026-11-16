@@ -336,10 +336,12 @@ export async function renderProfile(view, params, query) {
   function drawControls() {
     const fws = prof.frameworks || [];
     const sel = select({ sm: true, id: "pf-fw" }, fws.map((f) => h("option", { value: f.name, selected: f.name === framework }, (f.title && /\(\d+ \w+\)/.test(f.title) ? f.title : `${f.title || f.name} (${plural(f.codes, "code")})`))));
+    // team codebooks: the project's owner chose a default codebook; this picker then only looks with another one
+    const team = App.state && App.state.profile_framework_team;
     sel.addEventListener("change", async () => {
       framework = sel.value;
       // the codebook of document profiles is a setting: new documents get its codes when they are added
-      try { await api("PUT", "/api/settings", { profile_framework: framework }); await App.refresh(); } catch (_) { /* the page still works */ }
+      if (!team) { try { await api("PUT", "/api/settings", { profile_framework: framework }); await App.refresh(); } catch (_) { /* the page still works */ } }
       keepUrl();
       await reload();
       const again = document.getElementById("pf-fw"); if (again) again.focus();
@@ -354,7 +356,7 @@ export async function renderProfile(view, params, query) {
     if (docSel) docSel.addEventListener("change", () => { if (docSel.value) navigate(`#/doc/${encodeURIComponent(docSel.value)}?tab=codes${framework !== App.framework() ? `&framework=${encodeURIComponent(framework)}` : ""}`); });
     replace(controls,
       h("div", { class: "pf-control" }, h("label", { class: "field-label", for: "pf-fw" }, "Codebook"), sel,
-        h("span", { class: "field-help" }, "New documents get this codebook's codes when they are added. ",
+        h("span", { class: "field-help" }, team ? `The team’s default is “${team.title}” (set by the owner): new documents get its codes. ` : "New documents get this codebook's codes when they are added. ",
           h("a", { href: `#/codebooks/${encodeURIComponent(framework)}` }, /^sdg/.test(framework) ? "See its codes" : "Edit this codebook"), " · ",
           h("a", { href: "#/codebooks" }, "Your own codebook"))),
       fw.groups === 0 ? null : h("div", { class: "pf-control" }, h("span", { class: "field-label", id: "pf-level-l" }, "Count by"),

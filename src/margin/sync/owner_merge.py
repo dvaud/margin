@@ -8,7 +8,8 @@ from .common import _cols, _rows
 
 
 STEP = 2 ** 32  # a row numbered more than this above the highest number held here is not taken (review, H2)
-_NUM_COLS = {"canon": ("n", "state_n", "read_n", "ai_n", "blocks_n"), "decisions": ("n",), "roles": ("n",)}
+_NUM_COLS = {"canon": ("n", "state_n", "read_n", "ai_n", "blocks_n"), "decisions": ("n",), "roles": ("n",),
+             "team_settings": ("n",)}
 
 
 def _n0(v):
@@ -87,6 +88,8 @@ class OwnerRules:
             self._own_rows(cx, "canon", ("doc", "by"), lambda r: (_n1(r.get("n")),), refused)
             if "roles" in there:
                 self._own_rows(cx, "roles", ("person", "by"), lambda r: (_n1(r.get("n")),), refused)
+            if "team_settings" in there:  # the owner's settings about codebooks: as roles (teamcodebooks.py)
+                self._own_rows(cx, "team_settings", ("key", "by"), lambda r: (_n1(r.get("n")),), refused)
             refused += self._events_in_my_name(cx)
             for kind, key, row, n in refused:
                 ownership.record_refused(cx, kind, key, row, via, n)

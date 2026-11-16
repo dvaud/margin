@@ -44,6 +44,13 @@ highlights, the entries you write in the research log, and the links you decide 
   first, with room for why (kept in the research log). The item stops going to your colleagues and leaves the shared
   folder. What they already have stays with them, marked as withdrawn by you, and reaches nobody else through them. You
   can share it again. A shared check or set of themes you remove is treated the same way.
+- **Codebooks of a team are shared as they are made.** In a team project, a codebook you make in the project (fresh,
+  from themes or theory, a copy, a CSV or REFI-QDA file) is shared at once, by the owner's setting *Codebooks made in
+  this project are shared with the team* (on by default; *Team* › *People and settings*, *Codebooks* card); the research
+  log says so. Codebooks you made before stay private: the *Codebooks* page says *2 of your codebooks in this project
+  are private:* with *Share them*, and does nothing by itself. You can still unshare one of your own. When the owner
+  turns the setting off, nothing is taken back and new codebooks are private again. Codebooks kept with all projects
+  are not covered.
 - **Only the person who made an item** can share it or take it back: a colleague's item says whose it is (*By Ben*)
   and has no choice. An item made before Margin 0.16 in a project shared before 0.17.0 says *maker not known*: anyone
   in the team may share it or take it back.

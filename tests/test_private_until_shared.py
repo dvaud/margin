@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from margin import bundle, claimcheck, codebooks, notes, people, researchlog, sharing, sync
+from margin import bundle, claimcheck, codebooks, notes, people, researchlog, sharing, sync, teamcodebooks
 from margin.llm import BaselineBackend
 from margin.store import Workspace
 from test_shared_projects import CLAIM, Person, anna_and_ben  # noqa: F401  (fixture)
@@ -112,6 +112,7 @@ def test_a_zip_for_a_colleague_carries_only_what_is_shared(anna_and_ben, tmp_pat
         n1 = _note(anna.ws, _words(anna.ws), "shared thought")
         n2 = _note(anna.ws, _words(anna.ws, 6), "private thought")
         e1 = researchlog.add(anna.ws, "Private field note.")["entry_id"]
+        teamcodebooks.set_share(anna.ws, False)  # (the team's setting would share new codebooks at once)
         codebooks.create(anna.ws, "mine", "Mine", "project", "csv", {"csv": "code,description\nX,Private code\n"})
         codebooks.create(anna.ws, "ours", "Ours", "project", "csv", {"csv": "code,description\nY,Shared code\n"})
         sharing.share(anna.ws, [{"kind": "check", "key": h2}, {"kind": "note", "key": n1},

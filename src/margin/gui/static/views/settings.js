@@ -768,11 +768,15 @@ function exploreSection(s) {
   const state = h("span", { class: "save-state", "aria-live": "polite" });
   const shortFw = (f) => (f.title && /\(\d+ \w+\)/.test(f.title) ? f.title : `${f.title || f.name} (${f.codes} codes)`);
   const fwSel = selectField({ id: "set-profile-fw" }, h("option", { value: s.profile_framework || "sdg", selected: true }, s.profile_framework || "sdg"));
+  // team codebooks (teamcodebooks.py): the open project's owner chose a default codebook for every copy of it
+  const team = App.project && App.state && App.state.profile_framework_team;
   (async () => {
     if (!App.project) return;
     try {
       const fws = (await api("GET", `/api/projects/${P(App.project)}/frameworks`)).frameworks || [];
-      replace(fwSel, ...fws.map((f) => h("option", { value: f.name, selected: f.name === App.framework() }, shortFw(f))));
+      // team codebooks: with the project's default, the select still shows this computer's own setting
+      const mine = team ? (s.profile_framework || "sdg") : App.framework();
+      replace(fwSel, ...fws.map((f) => h("option", { value: f.name, selected: f.name === mine }, shortFw(f))));
     } catch (_) { /* keep the saved name */ }
   })();
   fwSel.addEventListener("change", async () => { try { await save({ profile_framework: fwSel.value }, state); } catch (_) { /* shown */ } });
@@ -780,7 +784,9 @@ function exploreSection(s) {
   k.input.addEventListener("change", async () => { try { await save({ themes_k: k.input.valueAsNumber }, state); } catch (_) { /* shown */ } });
   return sectionCard("explore", "Exploring the documents", "The defaults of the Profile and Themes pages. You can change both on those pages too.",
     h("div", { class: "stack set-context-form" },
-      field("Codebook of the profiles", fwSel, { help: "Which codes the Profile page and the Codes panel of a document look for, and which codes new documents get when they are added." }),
+      field("Codebook of the profiles", fwSel, { help: team
+        ? `This project uses the team’s default: “${team.title}” (set by the owner). This setting still applies to your other projects.`
+        : "Which codes the Profile page and the Codes panel of a document look for, and which codes new documents get when they are added." }),
       h("div", {}, k, h("p", { class: "field-help" }, "How many themes a new set looks for. A small project gets fewer: about three passages a theme at least."))),
     h("div", { class: "save-row" }, h("span", { class: "muted small" }, "Saved as soon as you change something."), state));
 }

@@ -227,6 +227,36 @@ space](manual/privacy.md#through-a-storage-space-of-your-teams-own-0180rc2)):
   certificate checked; redirects are never followed; an address with a user name or password in it is refused. After
   the drive refuses the app password, Margin asks it nothing until a new one is entered. XML answers with a DOCTYPE are
   refused, and every answer is read up to a limit, at every kind of storage space.
+- *One person's two accounts* (16 November 2026, `sync/selfsync.py`; [Your other
+  account](manual/storage-space.md#your-other-account-your-private-work-on-both-computers)): a person who uses two
+  computers is two accounts in the team. Their **private** work (what they have not shared) goes from one account to
+  the other only while three things hold: the owner marked both accounts as one person, *each* account turned on
+  *Send my private work to my other account* on its own computer, naming the other (a statement in its own part of
+  the space, signed with its own key, which pins the other account's keys), and both are members of the space. On a
+  plain shared folder it is not offered. That private work is sealed with a key made for each file, itself sealed to
+  the other account's own key: other members, who hold the project's key, cannot open it, and the company sees only
+  that the account wrote a file and its size. What arrives stays private and marked as its maker's: it is never sent
+  to colleagues, in the shared folder, the space or a zip. Either account stops it at any time; what already arrived
+  stays. How each risk is met:
+  - the owner's mark alone sends nothing: an owner cannot point a member's private work at an account of the owner's
+    choosing. Before turning it on, the Team page shows the other account's name, when it joined and a *check code*
+    made of both accounts' public keys, each computer using its own real keys for its half, so the codes match only
+    when each sees the other's real keys;
+  - a roster in which the keeper (who signs it) gave an account keys of its own: that account's computer sees that its
+    entry is not its own keys, refuses to pair, sends and takes in nothing and says so; the check codes differ. A
+    roster that later gives the other account other keys stops the sending: the statement pinned the keys it had;
+  - a forged *Share* mark for a private item, written by any member into their own file: a private item of someone
+    else's changes its state only by a mark in its owner's own file, and only the item's maker writes its mark (a
+    *Share* or *Unshare* on the other computer is asked of the maker's copy, which carries it out), so no member can
+    publish someone's private work, and older copies read every mark as the owner's;
+  - a statement or a file written into someone else's part is set aside: every file of a part must be signed by that
+    part's member, as the roster says, for that very place;
+  - an old statement put back after it was withdrawn is ignored (each copy keeps the latest of each account, by its
+    number); sending follows the sender's own switch and taking in the receiver's own;
+  - a removed member gets nothing sealed to their key again, and the sender deletes its private files; an account
+    that joins again is a new account, which no statement names until the person turns it on for it;
+  - a copy of the project folder, or the project after a move to another space, does not treat the two accounts as
+    one until a round there verifies them again.
 
 **Settings across copies.** Anyone may make a document stricter, and it holds in every copy as soon as it reaches
 it. A looser setting

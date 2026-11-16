@@ -261,9 +261,20 @@ class App(LibraryMixin, QueueMixin):
                              "next": claimcheck.STATUS_NEXT.get(k, "")} for k, v in claimcheck.STATUS_TEXT.items()],
                "jobs": self.job_views(active_only=True),
                "queue": self._queue_summary(current),
-               "profile_framework": self._profile_framework(current, s)}
+               "profile_framework": self._profile_framework(current, s),
+               "profile_framework_team": self._team_framework(current)}
         out.update(addons.state(self, set(out)))  # 0.13.6: an add-on's keys, never in place of Margin's
         return out
+
+    def _team_framework(self, name: str | None) -> dict | None:
+        """The project's default codebook, set by its owner, when this copy holds it ({"name", "title"}): it takes the
+        place of the computer's setting in this project (teamcodebooks.py)."""
+        try:
+            from .. import teamcodebooks
+
+            return teamcodebooks.default_info(home.open_project(name)) if name else None
+        except Exception:  # noqa: BLE001 - the pages still work with the computer's setting
+            return None
 
     def _profile_framework(self, name: str | None, s: dict) -> str:
         """The codebook the pages use when none is named, in the current project: the setting when this project has
@@ -1732,6 +1743,8 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("DELETE", rf"/api/projects/{P}/space/members/(m[0-9a-f]{{12}})", "delete_space_member"),
     ("DELETE", rf"/api/projects/{P}/space/notices/(restored|unshare-m[0-9a-f]{{12}})", "delete_space_notice"),
     ("POST", rf"/api/projects/{P}/space/drive-retry", "post_space_drive_retry"),
+    ("PUT", rf"/api/projects/{P}/space/self-sync", "put_space_self_sync"),         # 16 November 2026: one person's
+    ("DELETE", rf"/api/projects/{P}/space/self-sync", "delete_space_self_sync"),   # two accounts (sync/selfsync.py)
     ("POST", rf"/api/projects/{P}/space/move", "post_space_move"),
     ("POST", rf"/api/projects/{P}/space/join", "post_space_join"),
     ("DELETE", rf"/api/projects/{P}/space", "delete_space"),
@@ -1751,6 +1764,8 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", rf"/api/projects/{P}/owner/hand-over", "post_owner_hand_over"),
     ("POST", rf"/api/projects/{P}/owner/take-over", "post_owner_take_over"),
     ("PUT", rf"/api/projects/{P}/owner/settings", "put_owner_settings"),
+    ("GET", rf"/api/projects/{P}/owner/codebooks", "get_owner_codebooks"),    # team codebooks (teamcodebooks.py)
+    ("PUT", rf"/api/projects/{P}/owner/codebooks", "put_owner_codebooks"),
     ("POST", rf"/api/projects/{P}/owner/apply", "post_owner_apply"),
     ("POST", rf"/api/projects/{P}/owner/proposals/{P}/accept", "post_proposal_accept"),
     ("POST", rf"/api/projects/{P}/owner/proposals/{P}/decline", "post_proposal_decline"),

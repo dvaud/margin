@@ -317,6 +317,9 @@ class CodebookRules:
         st = sharing.state(cx, "codebook", name, self.me)
         if st["owner"] is None and (row := sharing.rows(self.icx).get(("codebook", self._theirs_name(name)))):
             st = {**st, "owner": row.get("owner"), "mine": row.get("owner") == self.me}  # it comes in now
+        if getattr(self, "first_hand", False) and sharing._partner(cx, self.me) == sender and \
+                st["owner"] in (sender, self.me):
+            return True  # this person's other account (selfsync.py): their renames are this person's own
         return not st["mine"] and st["owner"] == sender
 
     def _theirs_name(self, name: str) -> str:

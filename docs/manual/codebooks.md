@@ -17,7 +17,10 @@ you can make a copy and change that. A codebook stays a CSV file, so it still op
 
 The page lists *Your codebooks* and those that ship with Margin. Each card says how many codes it has, where it is
 kept, how many labels and checks use it and whether *By document* uses it. A codebook file that cannot be used is listed
-above them, with the reason.
+above them, with the reason. In a team project whose owner chose a *Default codebook for this project*, *By document*
+uses that one here, whatever your own setting ([Roles](roles.md)). While the team's setting shares new codebooks at
+once, a quiet line under *Your codebooks* says how many of the codebooks you made here before are still private, with
+*Share them* ([Private until you share it](together.md#private-until-you-share-it)).
 
 ## Make one
 

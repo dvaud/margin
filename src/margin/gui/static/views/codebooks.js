@@ -86,10 +86,30 @@ export async function renderCodebooks(view) {
       h("div", { class: "btn-row" }, button({ kind: "main", onClick: () => newCodebook("themes") }, icon("shapes", { size: 14 }), "Start from the themes"),
         button({ onClick: () => newCodebook("fresh") }, icon("plus", { size: 14 }), "Start fresh"))));
   } else {
-    box.append(h("h2", { class: "cb-h2" }, "Your codebooks"), h("ul", { class: "cb-cards" }, own.map(cardItem)));
+    box.append(...[h("h2", { class: "cb-h2" }, "Your codebooks"), privateLine(project, data.team), h("ul", { class: "cb-cards" }, own.map(cardItem))].filter(Boolean));
   }
   box.append(h("h2", { class: "cb-h2" }, "Ship with Margin"), h("ul", { class: "cb-cards" }, ships.map(cardItem)),
     h("p", { class: "muted small" }, "To change one of these, open it and make a copy."));
+}
+
+// Team codebooks (teamcodebooks.py): while the team's setting shares codebooks made in the project, the codebooks you
+// made here before it are still private. One quiet line offers to share them, never by itself (no pop-up).
+function privateLine(project, team) {
+  const mine = (team && team.private_mine) || [];
+  if (!team || !team.share_codebooks || !mine.length) return null;
+  const go = button({ sm: true, icon: "users", id: "cb-share-private" }, "Share them");
+  const line = h("p", { class: "muted small cb-private-line" },
+    `${mine.length === 1 ? "One of your codebooks" : `${mine.length} of your codebooks`} in this project ${mine.length === 1 ? "is" : "are"} private: `, go);
+  go.addEventListener("click", async () => {
+    setBusy(go, true);
+    try {
+      const r = await api("POST", `/api/projects/${P(project)}/sharing/share`, { items: mine.map((c) => ({ kind: "codebook", key: c.key })) });
+      const n = (r.shared || []).length + (r.also || []).length;
+      toast(n ? `Shared ${plural(n, "codebook")} with your team.` : "They were shared already.", "ok", { small: true });
+      line.remove();
+    } catch (e) { showError(e); setBusy(go, false); }
+  });
+  return line;
 }
 
 // "New codebook": its name, where it is kept, and how it starts. `start`: preselected way to start.

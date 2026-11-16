@@ -40,6 +40,13 @@ leaves the computer has a row for every item (`materialise`), so a colleague kno
   to colleagues already (`upgrade`, once, when 0.18 first opens the project). A project never sent starts private.
 - An item that reached you inside a colleague's whole project zip (not shared by them) stays theirs and private: you
   see it, you never pass it on.
+- One person with two accounts (two computers), both sending their private work to each other through the storage
+  space (sync/selfsync.py): an item either account made is "mine" in both copies (`_partner`). Only its maker's copy
+  ever writes its mark: *Share* or *Unshare* of an item the other account made is asked of that account's copy, which
+  carries it out as its own mark (`_ask`); *Unshare* also stops sending it here at once. So every copy, an older one
+  too, sees each mark by the item's owner. Their private items stay private: they reach the other account only, marked
+  as theirs, and a private item of someone else's held here changes its state only by a mark in its owner's own file
+  (`receive`, `sender`).
 """
 from __future__ import annotations
 
@@ -162,13 +169,23 @@ def rows(cx: sqlite3.Connection) -> dict[tuple[str, str], dict]:
             for r in cx.execute("SELECT kind, key, state, owner, by, at, title FROM shares")}
 
 
+def _partner(cx: sqlite3.Connection, me: str) -> str | None:
+    """This person's other account, while both send their private work to each other (sync/selfsync.py): an item
+    either made is theirs, in both copies."""
+    from .sync.selfsync import partner
+
+    return partner(cx, me)
+
+
 def state(cx: sqlite3.Connection, kind: str, key: str, me: str | None = None) -> dict:
-    """An item's state here: {"state", "owner", "by", "at", "mine"}. No row: yours, and private."""
+    """An item's state here: {"state", "owner", "by", "at", "mine"}. No row: yours, and private. "mine": made by you,
+    or by your other account (sync/selfsync.py)."""
     m = me or _me()
     r = cx.execute("SELECT state, owner, by, at FROM shares WHERE kind=? AND key=?", (kind, key)).fetchone()
     if r is None:
         return {"state": "private", "owner": m, "by": None, "at": None, "mine": True}
-    return {"state": r[0], "owner": r[1], "by": r[2], "at": r[3], "mine": r[1] == m}
+    return {"state": r[0], "owner": r[1], "by": r[2], "at": r[3],
+            "mine": r[1] == m or (r[1] is not None and r[1] == _partner(cx, m))}
 
 
 def shared_keys(cx: sqlite3.Connection, kind: str) -> set[str]:
@@ -279,7 +296,7 @@ def _set(cx: sqlite3.Connection, kind: str, key: str, st: str, owner: str | None
 def _may(cx: sqlite3.Connection, kind: str, key: str, me: str, title: str) -> dict:
     """The item's state, when `me` may share it or take it back: theirs, or one whose maker nobody knows."""
     s = state(cx, kind, key, me)
-    if s["owner"] not in (None, me):
+    if s["owner"] is not None and not s["mine"]:  # (your other account's counts as yours: sync/selfsync.py)
         who = names_of(cx).get(s["owner"]) or "a colleague"
         raise PermissionError(f"“{title[:80]}” is {who}'s: only they can share it or take it back.")
     return s
@@ -309,12 +326,25 @@ def _log(cx: sqlite3.Connection, verb: str, done: list[tuple[str, str, str]], wh
                        why=why, data={"items": [{"kind": k, "key": key} for k, key, _t in done]})
 
 
+def _ask(cx: sqlite3.Connection, kind: str, key: str, st: str, title: str) -> None:
+    """*Share* or *Unshare* of an item your other account made: asked of that account's copy, which carries it out as
+    its own mark (sync/selfsync.py sends the request with your private work). The research log says so (an entry about
+    this copy only)."""
+    from .sync.selfsync import ask
+    from . import researchlog
+
+    ask(cx, kind, key, st)
+    verb = "share" if st == "shared" else "stop sharing"
+    researchlog.record(cx, "sync", f"Asked your other account to {verb} the {WORDS[kind][0]} "
+                                   f"{researchlog.quoted(title, 120)}: it made it.", data={"self_sync": {"ask": st}})
+
+
 def share(ws, raw_items: Iterable, why: str | None = None) -> dict:
     """Share items (`[{"kind", "key"}]`) and what they need (`needs`). Raises KeyError for an item the project does not
     hold, PermissionError for a colleague's. Returns {"shared": [items], "also": [items shared because another needs
     them], "already": [items shared before, by you or their owner], "cannot": [items needed that are a colleague's and
-    not shared by them: a colleague without them sees the item without them]}; the research log says what was
-    shared."""
+    not shared by them: a colleague without them sees the item without them], "asked": [items your other account made:
+    its copy shares them at its next round]}; the research log says what was shared."""
     me = _me()
     asked = _clean_items(raw_items)
     root = Path(ws.root)
@@ -328,35 +358,44 @@ def share(ws, raw_items: Iterable, why: str | None = None) -> dict:
                 if dep not in todo:
                     todo.append(dep)
                     also.append(dep)
-        done, already, cannot = [], [], []
+        done, already, cannot, asked_other = [], [], [], []
+        mate = _partner(cx, me)
         for kind, key in todo:
             title = titles[kind].get(key) or key
             if (kind, key) in also:  # what a shared item needs: a colleague's is shared by them, or stays theirs
                 s = state(cx, kind, key, me)
-                if s["owner"] not in (None, me):
+                if s["owner"] is not None and not s["mine"]:
                     (already if s["state"] == "shared" else cannot).append({"kind": kind, "key": key, "title": title})
                     continue
             s = _may(cx, kind, key, me, title)
             if s["state"] == "shared":
                 already.append({"kind": kind, "key": key, "title": title})
                 continue
+            if mate is not None and s["owner"] == mate:  # your other account's: its copy shares it, as its maker
+                _ask(cx, kind, key, "shared", title)
+                asked_other.append({"kind": kind, "key": key, "title": title})
+                continue
             _set(cx, kind, key, "shared", s["owner"], me, title)  # no row yet: yours (`state`)
             done.append((kind, key, title))
         _log(cx, "Shared", done, why)
     view = lambda k, key, t: {"kind": k, "key": key, "title": t}  # noqa: E731
     return {"shared": [view(*d) for d in done if (d[0], d[1]) not in also],
-            "also": [view(*d) for d in done if (d[0], d[1]) in also], "already": already, "cannot": cannot}
+            "also": [view(*d) for d in done if (d[0], d[1]) in also], "already": already, "cannot": cannot,
+            "asked": asked_other}
 
 
 def unshare(ws, raw_items: Iterable, why: str | None = None) -> dict:
     """Take shared items back: they stop being sent, and a colleague's copy marks them withdrawn when the mark
-    reaches it (what they have stays with them). Returns {"withdrawn": [items], "not_shared": [items]}."""
+    reaches it (what they have stays with them). An item your other account made stops being sent from here at once,
+    and that account's copy is asked to take it back as its maker (sync/selfsync.py). Returns {"withdrawn": [items],
+    "not_shared": [items], "asked": [items of your other account's]}."""
     me = _me()
     asked = _clean_items(raw_items)
     root = Path(ws.root)
     with ws.connect() as cx:
         titles = items(cx, root)
-        done, not_shared = [], []
+        done, not_shared, asked_other = [], [], []
+        mate = _partner(cx, me)
         for kind, key in asked:
             known = cx.execute("SELECT title FROM shares WHERE kind=? AND key=?", (kind, key)).fetchone()
             if key not in titles[kind] and known is None:
@@ -367,9 +406,13 @@ def unshare(ws, raw_items: Iterable, why: str | None = None) -> dict:
                 not_shared.append({"kind": kind, "key": key, "title": title})
                 continue
             _set(cx, kind, key, "withdrawn", s["owner"], me, title)
+            if mate is not None and s["owner"] == mate:  # stops going from here now; its maker's copy takes it back
+                _ask(cx, kind, key, "withdrawn", title)
+                asked_other.append({"kind": kind, "key": key, "title": title})
             done.append((kind, key, title))
         _log(cx, "Unshared", done, why)
-    return {"withdrawn": [{"kind": k, "key": key, "title": t} for k, key, t in done], "not_shared": not_shared}
+    return {"withdrawn": [{"kind": k, "key": key, "title": t} for k, key, t in done], "not_shared": not_shared,
+            "asked": asked_other}
 
 
 def listing(ws, kind: str | None = None, state_: str | None = None) -> dict:
@@ -395,6 +438,7 @@ def listing(ws, kind: str | None = None, state_: str | None = None) -> dict:
     have = rows(cx)
     out, counts = [], {k: {s: 0 for s in STATES} for k in KINDS}
     keys = {(k, key) for k, ks in titles.items() for key in ks} | set(have)
+    yours = {me, _partner(cx, me) or me}  # your other account's items count as yours (sync/selfsync.py)
     for k, key in sorted(keys):
         r = have.get((k, key))
         st = r["state"] if r else "private"
@@ -404,8 +448,8 @@ def listing(ws, kind: str | None = None, state_: str | None = None) -> dict:
             continue
         here = key in titles[k]
         out.append({"kind": k, "key": key, "title": titles[k].get(key) or (r or {}).get("title") or key, "state": st,
-                    "mine": owner == me, "owner": {"id": owner, "name": who.get(owner, "a colleague")} if owner else None,
-                    "can_change": owner in (None, me) and here, "at": (r or {}).get("at"),
+                    "mine": owner in yours, "owner": {"id": owner, "name": who.get(owner, "a colleague")} if owner else None,
+                    "can_change": (owner is None or owner in yours) and here, "at": (r or {}).get("at"),
                     "by": who.get(r["by"], "a colleague") if r and r.get("by") else None, "here": here,
                     "needs": [{"kind": a, "key": b} for a, b in needs(cx, root, k, key)] if here else []})
     return {"items": out, "counts": counts}
@@ -423,25 +467,31 @@ def one(ws, kind: str, key: str) -> dict:
 # a colleague's marks (sync/share_merge.py)
 # ---------------------------------------------------------------------------------------------
 def receive(cx: sqlite3.Connection, kind: str, key: str, r: dict, me: str, present: bool,
-            had: bool | None = None) -> str | None:
+            had: bool | None = None, sender: str | None = None) -> str | None:
     """A colleague's mark of an item (their row, `r`). Only an item's owner decides about it: a mark about your own item
     changes nothing here, nor one by someone else than its owner; of two marks the later counts. A withdrawal is noted
     also for an item this copy does not hold (`present`), so a third person's copy does not bring it here later.
     `had`: whether this copy held the item before the merge (an item without a row is then this copy's own; one that
-    just came in has no row yet); None: as `present`. Returns the new state here, or None when nothing changed."""
+    just came in has no row yet); None: as `present`. `sender`: whose file the mark came in (a mark is data in a file,
+    relayed by design): a private item of someone else's held here (a whole project zip of theirs, or their private
+    work from their other account, sync/selfsync.py) changes its state only by a mark in its owner's own file, so no
+    third person's file can publish it. Returns the new state here, or None when nothing changed."""
     if kind not in KINDS or r.get("state") not in STATES:
         return None
     here = cx.execute("SELECT state, owner, by, at FROM shares WHERE kind=? AND key=?", (kind, key)).fetchone()
     had = present if had is None else had
+    by = r.get("by")
     if (here is None and had) or (here is not None and here[1] == me):
         return None  # yours: only you decide
     if not present and here is None and r["state"] != "withdrawn":
         return None  # not here (it did not come in): nothing to note
-    if here is not None and r.get("by") is None:
+    if here is not None and by is None:
         return None  # a guess (a project from before 0.18) never counts over a mark this copy has
     owner = here[1] if here is not None else r.get("owner")  # a mark never makes anyone the owner of an item here
-    if owner and r.get("by") not in (None, owner):
+    if owner and by not in (None, owner):
         return None  # a mark only its owner can make
+    if here is not None and here[0] == "private" and (sender is None or by != sender):
+        return None  # someone else's private item here: only its owner's own file says it is shared now
     if here is not None and (r.get("at") or "") <= (here[3] or ""):
         return None
     cx.execute("INSERT INTO shares(kind, key, state, owner, by, at, title) VALUES (?,?,?,?,?,?,?) ON CONFLICT(kind, key) "
@@ -692,7 +742,7 @@ ITEM_TASK_KINDS = ("check", "expand", "decompose", "reread", "second", "theme")
 # tables without words of a document in them: a document kept out of the shared folder does not keep these rows out
 _NO_TEXT = {"ai_sent", "people", "bib_items", "bib_links", "research_log", "sync_removed", "runs", "meta",
             "ownership", "proposals", "decisions", "canon",  # 0.18 L2: they name documents, and hold none of their words
-            "roles"}  # roles: who is a Co-owner
+            "roles", "team_settings"}  # roles: who is a Co-owner; the owner's settings about codebooks
 # a task's columns that say what became of it (its payload, the passages handed to the AI, is read only when a document
 # is kept out of the shared folder, to see which documents it names)
 _TASK_COLS = "task_id, kind, status, attempts, model, again, step"
@@ -882,7 +932,8 @@ class ProjectRows:
                ("meta", "key='bibliography'", "*"),
                # 0.18 L2 (ownership.py): who the owner is, proposals, decisions, the documents as accepted
                ("ownership", "1", "*"), ("proposals", "1", "*"), ("decisions", "1", "*"), ("canon", "1", "*"),
-               ("roles", "1", "*")]  # roles (DESIGN-roles §3.1): who is a Co-owner, by the Owner's word
+               ("roles", "1", "*"),  # roles (DESIGN-roles §3.1): who is a Co-owner, by the Owner's word
+               ("team_settings", "1", "*")]  # the owner's settings about codebooks (teamcodebooks.py)
         present = {r[0] for r in self.cx.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         other = sorted(t for t in present if t not in LOCAL_ONLY and t not in OWN_RULES and not t.startswith("sqlite_")
                        and t not in ("meta", "verifications"))

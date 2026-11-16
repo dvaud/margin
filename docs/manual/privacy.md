@@ -243,6 +243,15 @@ A storage space (at Backblaze, Cloudflare, or a folder in your institution's dri
 - The drive's **administrators** see the folder's name, which holds the project's name (*Margin - <project>*), and the
   accounts it is shared with. At Backblaze and Cloudflare they see random member identifiers instead.
 
+**Your other account** (one person on two computers, [Your other
+account](storage-space.md#your-other-account-your-private-work-on-both-computers)): your private work goes from one of
+your accounts to the other only when the owner marked both as you **and** each account turned it on, on its own
+computer. It is locked with a key made for each file, which only your other account's own key opens: colleagues, who
+hold the project's key, cannot read it, and the company sees only that a file was written and how large it is. What
+arrives stays private and is never sent to colleagues. Compare the check code on both computers before you turn it on:
+it shows that the account you send to is really your other one, and not one someone else made in your name. Either
+account stops it at any time; it stops by itself when either leaves the team or the owner no longer marks both as you.
+
 The keys (the project's, your own, the space's) are kept in this computer's keychain (on a computer without one, in a
 file in Margin's folder that only you can read), never in the project, a zip or the space. The space is never the
 only copy of anything: every copy holds the whole project, so a space lost or deleted loses nothing (*Move to another

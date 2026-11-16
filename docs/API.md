@@ -150,7 +150,10 @@ New in 0.7:
   temperature 0, so the same input gives the same answer where the server honours it (`POST /api/servers/repeatable`
   tests that). Recorded with every answer.
 - `profile_framework` (default `"sdg"`, the 169 targets; `"sdg_goals"` for the 17 goals, or a codebook of the
-  project): the codebook of the Profile page, the Codes panel and the keyword pass run when documents are added.
+  project): the codebook of the Profile page, the Codes panel and the keyword pass run when documents are added. In a
+  project whose owner set a default codebook (`PUT …/owner/codebooks`), that one holds there when the copy has it:
+  `GET /api/state` → `profile_framework` is what the open project uses, and `profile_framework_team` is `{"name",
+  "title"}` of the team's default (null when none is set or the codebook is not in this copy).
 - `themes_k` (default 20; 2–60): how many themes a new set looks for.
 - Adding documents (`POST …/ingest`) now ends with two phases, `glossary` and `codes`: the term index and the keyword
   pass of `profile_framework`. Their results are in the job's `result.glossary` and `result.codes`.
@@ -526,6 +529,24 @@ computer has not got the space's keys: a project copied from elsewhere; ask for 
   project's folder before it is kept; the rounds ask the drive again. 400 in plain words when the drive refuses it.
 - `POST /api/projects/<p>/space/drive-retry` → the folder's state: after a refused app password, the next round asks
   the drive once more (*Try the same one again*).
+- One person's two accounts (16 November 2026, `sync/selfsync.py`): `GET …/shared-folder` has `"self_sync": null |
+  {"needs_space": true, "linked": [{"person", "name"}]}` (a shared folder: the owner marked another account as this
+  person, and the option needs a storage space) `| {"needs_space": false, "candidates": [{"person", "name", "part",
+  "since", "code"}] (accounts the owner marked as this person, members of the space now; "code": the check code of
+  both accounts' keys), "on": null | {"person", "name", "since", "at"} (this account sends its private work to that
+  one), "theirs" (the other account turned it on too, naming this one), "active" (both, the owner's link and the
+  roster hold: private work goes both ways), "why" (in words, when it is on and not active), "code", "sent_at",
+  "received_at", "sent", "received" (items), "keys_differ", "warning" (the roster, signed by the keeper, gives this
+account other keys than this copy's own: nothing is sent or taken in)}`; the check codes use this copy's own keys.
+`POST …/share` with an item the other account made answers it under `"asked"` (that account's copy shares it at its
+next round, as its maker); `POST …/unshare` stops it going from here at once and lists it under `"asked"` too. A round's `result` has `"private": {"sent", "received"}`; its problems
+  may have kind `self_sync` (the private exchange failed this round; the shared work went on).
+- `PUT /api/projects/<p>/space/self-sync {"with": person id}` → the folder's state: *Send my private work to my other
+  account*, this account's own word (the other account must say it too). 400 in words, kind `no_space` (a shared
+  folder), `not_linked` (the owner has not marked that account as this person), `not_member` (not in the space now),
+`keys_differ` (the roster gives this account other keys than its own).
+  The research log says so (kind `sync`, never sent).
+- `DELETE /api/projects/<p>/space/self-sync` → the folder's state: stops it; what already arrived stays.
 - `DELETE /api/projects/<p>/space/notices/<id>` → the folder's state: a standing notice is dealt with: `unshare-<part>`
   (the person stopped sharing the folder in the drive's website; said in the research log) or `restored`. 400 for one
   that is not there.
@@ -670,6 +691,18 @@ question or document), 409 (a proposal that no longer waits; nothing to make her
 - `PUT owner/settings {"accept_adds": bool}` → the view. Only the owner (403); not a boolean → 400. Turned on, the
   additions that wait are accepted at once. It is this copy's own and holds for one time as the owner: a new owner,
   and an owner who has the project back, start at the default (on).
+- `GET owner/codebooks` → the team's codebooks (`teamcodebooks.view`): `{"team", "can_set" (this person is the owner),
+  "share_codebooks": {"on", "set" (the owner said so; else the default: on in a team project), "by": person | null,
+  "at"}, "default": {"name", "title", "here" (this copy has it), "by", "at"} | null, "choices": [{"name", "title",
+  "source": "bundled" | "project", "state", "mine"}] (what the owner may pick: the codebooks that ship with Margin, the
+  project's shared codebooks, and this person's own private ones), "private_mine": [{"key", "title"}]}`. Everyone in
+  the team may read it.
+- `PUT owner/codebooks {"share"?: bool, "default"?: name | null}` → the same. Only the owner (403); neither key, or a
+  value of the wrong type → 400; an unknown codebook → 404; one that cannot be the team's (a colleague's private one,
+  one kept with all projects) → 409. `share`: *Codebooks made in this project are shared with the team* (nothing made
+  before changes either way). `default`: the project's default codebook (null: none); the owner's own private
+  codebook is shared first. Both are rows of `team_settings`, which travel to every copy and count only when their
+  writer owned the project when they wrote them (`teamcodebooks.py`); each change is in the research log.
 - `POST owner/proposals/<id>/accept {"reason"?}` and `…/decline {"reason"?}` → the view. Only the owner or a Co-owner (403); an
   unknown id → 404; one that no longer waits → 409. Accepted, the change is made in the owner's copy at once (a
   document not here is fetched from the shared folder; a new reading is made by a job, below) and reaches every copy
@@ -1753,7 +1786,11 @@ with a side file for what a spreadsheet cannot hold: a stable id for each code, 
 codes, where each example was found, the groups and their order. The old routes under `…/frameworks` still work.
 
 - `GET /api/projects/<p>/codebooks` → `{"codebooks": [info + {"where": "project" | "home" | "bundled", "labels",
-  "checks", "profile_default"}], "problems": [...]}`. Labels first follow renames and merges.
+  "checks", "profile_default"}], "problems": [...], "team": {"team", "share_codebooks", "private_mine": [{"key",
+  "title"}]} | null}`. Labels first follow renames and merges. `team`: whether the project is a team's, whether the
+  team's setting shares new codebooks, and (only while it does) this person's codebooks of the project still private.
+  While the team's setting is on, a codebook made in the project (`POST …/codebooks`, `copy-here`, `POST
+  …/frameworks` for a new name) is shared at once by its maker's copy, with a research-log entry giving the reason.
 - `GET /api/projects/<p>/codebooks/<name>` → `{"codebook": {"title", "label", "directional", "groups": [{"group",
   "group_name"}], "codes": [{"code", "uid", "description", "group", "include", "exclude", "keywords", "examples":
   [{"quote", "doc_id", "title", "page"}]}], "where", "editable", "shadows_home", "in_home", "used": {"labels",

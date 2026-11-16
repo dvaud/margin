@@ -170,6 +170,27 @@ class SpaceApi:
             raise _problem(e) from e
         return self._space_status(name)
 
+    def put_space_self_sync(self, name, q):
+        """*Send my private work to my other account*: {"with": the other account's person id} (one the owner marked as
+        this person, a member of the storage space now). 400 in words otherwise (no storage space, not linked, not a
+        member). Answers the folder's state, with "self_sync" (`selfsync.status`)."""
+        from ..sync import selfsync
+
+        body = self._body()
+        try:
+            selfsync.turn_on(self.app.ws(name), str(body.get("with") or ""))
+        except space.SpaceProblem as e:
+            raise _problem(e) from e
+        return self._space_status(name)
+
+    def delete_space_self_sync(self, name, q):
+        """Stop sending private work to the other account (what arrived stays). Answers the folder's state."""
+        from ..sync import selfsync
+
+        self._body()
+        selfsync.turn_off(self.app.ws(name))
+        return self._space_status(name)
+
     def post_space_drive_retry(self, name, q):
         """*Try again* after the drive refused the app password: the next round asks the drive once more."""
         self._body()

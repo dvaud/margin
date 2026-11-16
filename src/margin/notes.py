@@ -126,7 +126,10 @@ def _own(cx: sqlite3.Connection, note_id: str) -> sqlite3.Row:
     if row is None:
         raise KeyError(note_id)
     if row["person_id"] != _me():
-        raise PermissionError("This note is a colleague's: only they can change it.")
+        from .sharing import _partner
+
+        if row["person_id"] is None or row["person_id"] != _partner(cx, _me()):  # (your other account's: yours too)
+            raise PermissionError("This note is a colleague's: only they can change it.")
     return row
 
 
@@ -165,7 +168,10 @@ def remove(ws: Workspace, note_id: str) -> None:
 def _placed(cx: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[dict]:
     """Notes as views, each checked against its document's text as it reads now: words that moved (the document was
     read again) are found again and their place written down; words that cannot be found are marked `lost`."""
+    from .sharing import _partner
+
     me = _me()
+    yours = {me, _partner(cx, me) or me}  # your other account's notes are yours too (sync/selfsync.py)
     texts: dict[str, tuple] = {}
     out = []
     for r in rows:
@@ -189,7 +195,7 @@ def _placed(cx: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[dict]:
                     cx.execute("UPDATE notes SET start=?, end=?, page=? WHERE note_id=?", (*got, page, d["note_id"]))
                 d["start"], d["end"] = got
                 d["page"] = page
-        d["mine"] = d["person_id"] == me
+        d["mine"] = d["person_id"] in yours
         out.append(d)
     if out:
         nm = None
@@ -374,7 +380,8 @@ def move(cx: sqlite3.Connection, doc_id: str, new_text: str, page_spans: list | 
     return {"moved": moved, "lost": lost}
 
 
-def merge(cx: sqlite3.Connection, rows: list[dict], fix, sender: str | None = None, report: dict | None = None) -> int:
+def merge(cx: sqlite3.Connection, rows: list[dict], fix, sender: str | None = None, report: dict | None = None,
+          first_hand: bool = False) -> int:
     """A colleague's notes (sync.py): those not here come in (unless removed here, or their document did not come in);
     one of theirs they changed since is brought up to date. Yours are never changed.
 
@@ -390,6 +397,9 @@ def merge(cx: sqlite3.Connection, rows: list[dict], fix, sender: str | None = No
         from .people import first_hand, note_via, relayed
 
         via_here = relayed(cx, "note")
+    from .sharing import _partner
+
+    pair = first_hand and bool(sender) and _partner(cx, me) == sender  # (your other account's own file)
     n = 0
     for r in rows:
         if not isinstance(r.get("note_id"), str) or not _ID.fullmatch(r["note_id"]) or r["note_id"] in gone:
@@ -410,6 +420,12 @@ def merge(cx: sqlite3.Connection, rows: list[dict], fix, sender: str | None = No
                 if report is not None:
                     report["via"] = report.get("via", 0) + 1
             cx.execute(f"INSERT INTO notes({','.join(use)}) VALUES ({','.join('?' * len(use))})", [r[c] for c in use])
+            n += 1
+        elif pair and have[0] == me and r.get("person_id") == me and (r.get("edited_at") or "") > (have[1] or ""):
+            # your other account changed one of yours (both send their private work: sync/selfsync.py)
+            sets = [c for c in use if c != "note_id"]
+            cx.execute(f"UPDATE notes SET {', '.join(c + '=?' for c in sets)} WHERE note_id=?",
+                       [*(r[c] for c in sets), r["note_id"]])
             n += 1
         elif have[0] != me and have[0] == r.get("person_id") and (
                 (r.get("edited_at") or "") > (have[1] or "") or (sender and not third and r["note_id"] in via_here)):

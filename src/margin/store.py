@@ -271,6 +271,11 @@ CREATE TABLE IF NOT EXISTS ai_cache(key TEXT PRIMARY KEY, kind TEXT, prompt_vers
 -- source}, empty when nothing updates the work
 CREATE TABLE IF NOT EXISTS retractions(doi TEXT PRIMARY KEY, checked_at TEXT, notices_json TEXT);
 -- end of 0.18.1 part B
+-- Team codebooks (teamcodebooks.py): the owner's settings about codebooks (shared at once; the project's default
+-- codebook), one row per setting and writer, merged like `roles` (sync/owner_merge.py); a row counts when its writer
+-- owned the place it names. `sig`: NULL for now, as in `roles`
+CREATE TABLE IF NOT EXISTS team_settings(key TEXT, by TEXT, owner_seq INT, n INT, value_json TEXT, at TEXT, sig TEXT,
+  PRIMARY KEY(key, by));
 """
 SCHEMA = SCHEMA.replace("{PLACES_TABLE}", PLACES_TABLE)
 

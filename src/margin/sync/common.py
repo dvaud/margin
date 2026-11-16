@@ -41,7 +41,8 @@ OWN_RULES = {"documents", "pages", "paragraphs", "headings", "passages", "blocks
              # 0.18 L2 (ownership.py, sync/owner_merge.py): who the owner is, proposals, decisions and the documents as
              # accepted; a person's Leave out / Restore no longer travels row by row (it is a proposal)
              "ownership", "proposals", "decisions", "canon", "block_choices",
-             "roles"}  # roles (DESIGN-roles §3.1): the Owner's word on who is a Co-owner (ownership.py, owner_merge.py)
+             "roles",  # roles (DESIGN-roles §3.1): the Owner's word on who is a Co-owner (ownership.py, owner_merge.py)
+             "team_settings"}  # the owner's settings about codebooks, merged like roles (teamcodebooks.py)
 # the columns that hold ids of documents, passages, tasks, checks, runs (rewritten when an id changes in a merge)
 ID_COLS = {"doc_id", "passage_id", "task_id", "claim_id", "subject_id", "ver_id", "hyp_id", "run_id", "item_id",
            "label_id", "window", "payload_json", "options_json", "parts_json", "key", "of_key", "origin_id"}

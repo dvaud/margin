@@ -82,7 +82,8 @@ def test_the_sections_come_in_order_with_room_for_the_owner():
             < TEAM.index('addTeamSection(REMOVED_SECTION, { before: "shared" });'))
     assert "export function teamPanel" in TEAM and "show()" in TEAM and "hide()" in TEAM
     # People and settings is the team itself: the people, where it is, the owner, the settings, leaving
-    assert [a or b for a, b in _keys("TEAM_SETTINGS_SECTIONS")] == ["people", "SPACE_SECTION", "folder", "ROLES_SECTION", "keep-out",
+    assert [a or b for a, b in _keys("TEAM_SETTINGS_SECTIONS")] == ["people", "SELF_SYNC_SECTION", "SPACE_SECTION", "folder", "ROLES_SECTION", "CODEBOOKS_SECTION",
+                                                                     "keep-out",
                                                                      "often", "downloads", "leave"]
     # the set-up is its own file's list (views/team-setup.js, tests/test_team_setup.py), offered from here too
     assert 'import { TEAM_SETUP_SECTIONS } from "./team-setup.js";' in TEAM and "export { TEAM_SETUP_SECTIONS };" in TEAM

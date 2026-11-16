@@ -2053,6 +2053,8 @@ def _merge_bundles(ws: Workspace, team: Path, pid: str, who_name: str, person: d
         version = person.get("app_version") or take[-1][2].get("version")
         info = {"from": {"id": pid, "name": who_name}, "name": Path(ws.root).name, "version": version,
                 "sync_format": max(formats.of(m)[0] for _s, _f, m in take), "stubs": only_stub,
+                # in a storage space each file was checked to be signed by its part's member (space._pull_part)
+                "first_hand": _in_space(ws),
                 "canon_ai": {d: s.get("canon_ai") for d, s in stubs.items()}}  # 0.18 L2
         _stop_here(should_stop)
         (backup or (lambda: _backup(ws)))()
@@ -2071,6 +2073,12 @@ def _merge_bundles(ws: Workspace, team: Path, pid: str, who_name: str, person: d
         if scratch is not None:
             scratch.close_all()
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _in_space(ws: Workspace) -> bool:
+    from . import space
+
+    return space.configured(ws) is not None
 
 
 def _not_again(ws: Workspace, cx: sqlite3.Connection, merge, scratch: Workspace,
@@ -2136,7 +2144,7 @@ def _withdrawals_first(ws: Workspace, team: Path, me: str, opened: _Opened, shou
     uid = ws.project_uid()
     with ws.connect() as cx:
         read_upto = _read_upto(cx)
-    said: list[dict] = []
+    said: list[tuple[dict, str]] = []
     for pdir in _people_dirs(team):
         if pdir.name == me:
             continue
@@ -2158,15 +2166,15 @@ def _withdrawals_first(ws: Workspace, team: Path, me: str, opened: _Opened, shou
                     bcx.close()
             except (_Stop, OSError, sqlite3.Error):
                 break  # (said again, in its words, when this colleague's work is read)
-        said += [r for r in marks.values() if r.get("state") == "withdrawn"]
+        said += [(r, pdir.name) for r in marks.values() if r.get("state") == "withdrawn"]
     if not said:
         return
     root = Path(ws.root)
     with ws.connect() as cx:
-        for r in said:
+        for r, sender in said:
             kind, key = r.get("kind"), r.get("key")
             if kind in sharing.KINDS and isinstance(key, str) and key and not sharing.exists(cx, root, kind, key):
-                sharing.receive(cx, kind, key, r, me, False, had=False)
+                sharing.receive(cx, kind, key, r, me, False, had=False, sender=sender)
 
 
 def _once(ws: Workspace) -> Callable[[], None]:

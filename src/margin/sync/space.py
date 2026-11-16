@@ -29,9 +29,11 @@ So the storage only ever holds sealed files, and the folder's rules are not writ
     space/project.json     the folder's project.json, sealed by the keeper
     space/keeper.json      the keeper's keys, sealed to the next keeper (when the owner changed)
     space/moved.json       where the team moved to, each member's new keys sealed to them (`move`)
-    parts/<part>/m/...     a member's person.json, head.json, read.json, waiting.json, and key.json (their public keys)
+    parts/<part>/m/...     a member's person.json, head.json, read.json, waiting.json, and key.json (their public keys);
+                           pair.json: whom they send their private work to (one person's two accounts, selfsync.py)
     parts/<part>/b/NNNNNN  their bundles
     parts/<part>/d/<hash>  readings of documents, f/<hash> original files, under a keyed hash of their names
+    parts/<part>/p/<s>.<n> their private work for their other account, sealed to that account's own key (selfsync.py)
 
 Each member writes only in their own part: on Backblaze the storage itself enforces it (each colleague's key is
 limited to their part); everywhere (Cloudflare, a WebDAV drive) the signatures do. The *keeper* (the owner who set
@@ -72,7 +74,8 @@ WALK_EVERY = 86400                      # each copy lists what it wrote in the s
 LEFT_CHECK_EVERY = 60 * 60              # the keeper looks whether a share left to stop is gone this seldom
 _PART = re.compile(r"m[0-9a-f]{12}")
 _SPACE = re.compile(r"[0-9a-f]{16}")
-_M_FILES = ("person.json", "head.json", "read.json", "waiting.json")
+_M_FILES = ("person.json", "head.json", "read.json", "waiting.json",
+            "pair.json")   # 16 November 2026: a statement about private work between one person's accounts (selfsync.py)
 # the most of a file read from the space, by kind (a colleague's file never fills this computer's memory)
 _CAP = {"m": 64 * 1024 ** 2, "b": 1024 ** 3, "d": 320 * 1024 ** 2, "f": seal.MAX_SEALED + 64 * 1024,
         "space": 16 * 1024 ** 2}
@@ -1783,6 +1786,9 @@ def _leave_unlocked(ws: Workspace) -> dict:
         return status(ws)
     _forget_secrets(desc["id"], [i.get("part") for i in desc.get("invites") or []])
     folder._set_config(ws, **{CONFIG: None})
+    from . import selfsync
+
+    selfsync.forget(ws)   # (no pair of one person's accounts holds outside a storage space)
     _note(ws, "space-left", f"Stopped working together through the storage space ({describe(desc)}).")
     return status(ws)
 
@@ -1843,6 +1849,7 @@ def _sync_now_unlocked(ws: Workspace, progress: Progress | None = None, should_s
     if moved is not None:
         out["moved"] = describe(moved)
         return out
+    _self_sync(ctx, "note")   # the pairs of one person's two accounts, before anything is merged (selfsync.py)
     ctx.save()
     res = folder._sync_now(ws, progress, should_stop)
     for k in ("wrote", "read", "files", "stopped", "moves_due"):
@@ -1856,6 +1863,7 @@ def _sync_now_unlocked(ws: Workspace, progress: Progress | None = None, should_s
             if ctx.keeper and ctx.missing & {"space/project.json"} and ctx.state.get("project_sent"):
                 ctx.state.pop("project_sent", None)   # (written again by `_push`)
                 back.append("space/project.json")
+            out["private"] = _self_sync(ctx, "exchange")
             out["sent"] = _push(ctx)
             back += _put_back_roster(ctx)
             if back:
@@ -1869,6 +1877,28 @@ def _sync_now_unlocked(ws: Workspace, progress: Progress | None = None, should_s
         ctx.save()
     out["problems"] += [p for p in ctx.problems if p not in out["problems"]]
     return out
+
+
+def _self_sync(ctx: _Ctx, step: str) -> dict | None:
+    """One person's private work between their two accounts (selfsync.py): "note" (the pairs this copy verified) or
+    "exchange" (take in, send, the statement). A fault there never stops the round's shared work; a storage that
+    cannot be reached does (as in `_push`)."""
+    from . import selfsync
+
+    try:
+        if step == "note":
+            selfsync.note_pairs(ctx)
+            return None
+        return selfsync.exchange(ctx)
+    except StorageProblem:
+        raise
+    except Exception as e:  # noqa: BLE001
+        import traceback
+
+        traceback.print_exc()
+        ctx.problem("self_sync", f"Your private work could not be exchanged with your other account this round "
+                                 f"({type(e).__name__}: {str(e)[:200]}). It is tried again at the next round.")
+        return None
 
 
 def _clean_temporaries(ctx: _Ctx) -> None:

@@ -192,4 +192,35 @@ never comes into your project, and the card says so (more under *Technical detai
 **Stop using the storage space here** (the last card of *People and settings*) stops this copy and
 forgets its keys; nothing in the space is removed. To come back, ask the owner for a new invite.
 
+## Your other account: your private work on both computers
+
+If you use two computers, each is an account of its own in the team ([A second computer is a second
+person](roles.md#a-second-computer-is-a-second-person)), and the owner can mark both as you (*More* › *Same person
+as…*). Your shared work is on both computers anyway. Your **private** work (what you have not shared: checks, sets of
+themes, codebooks, notes, research log entries, links between terms) can be too, through the storage space:
+
+1. On one computer, open *Team* › *People and settings*. The card **Your other account** lists the account the owner
+   marked as you, with when it joined the team and a **check code** (three groups of four letters and digits).
+   Press **Send my private work…**. The dialog shows the check code again.
+2. On the other computer, do the same. Compare the check codes first: they are the same on both computers only when
+   each sees the other's real account. A different code means it is not your other account: do not turn it on.
+3. From the next rounds, your private work goes both ways. The row says *your private work goes both ways*, with when
+   work was last sent and received.
+
+Nothing goes before **both** accounts have turned it on, each on its own computer: the owner's mark alone sends
+nothing. What arrives stays private on the other computer too, marked as made by you: it is never sent to colleagues.
+Either computer can then share or take back what the other made: *Share* there asks the computer that made it, which
+shares it at its next round (so your colleagues see it shared by you, as its maker); *Unshare* stops it going from
+there at once and asks the other computer to take it back too. You can edit your notes and research log entries from
+either. When both computers changed the same check, both versions are kept (as when a colleague's version clashes
+with yours, [How two copies of a project come together](how-two-copies-come-together.md)). Removing a check, a set of
+themes, a note or an entry removes it on the other computer too, unless it changed there meanwhile; a codebook or a
+link between terms you remove stays on the other computer until you remove it there.
+
+**Stop…** on the row stops it, from either computer, at any time; what already arrived stays on both. It stops by
+itself when either account leaves or is removed from the team, or the owner no longer marks both as you; the row then
+says why. On a plain shared folder it is not offered: the card says it needs a storage space. If the card says *The
+team's list of members gives this account other keys than this computer's own*, nothing is sent or taken in: tell the
+owner (the list is signed by the owner's copy); you may need a new invite.
+
 The same rules as with a shared folder decide how your copies come together: [How two copies of a project come together](how-two-copies-come-together.md).

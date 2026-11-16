@@ -130,7 +130,10 @@ def _own(cx: sqlite3.Connection, entry_id: str) -> sqlite3.Row:
     if row is None:
         raise KeyError(entry_id)
     if row["person_id"] != _me():
-        raise PermissionError("This entry is a colleague's: only they can change it.")
+        from .sharing import _partner
+
+        if row["person_id"] is None or row["person_id"] != _partner(cx, _me()):  # (your other account's: yours too)
+            raise PermissionError("This entry is a colleague's: only they can change it.")
     return row
 
 
@@ -171,11 +174,11 @@ def remove(ws: Workspace, entry_id: str) -> None:
 # ---------------------------------------------------------------------------------------------
 # reading the log
 # ---------------------------------------------------------------------------------------------
-def _view(r: sqlite3.Row | dict, names: dict[str, str], me: str, versions: set[str]) -> dict:
+def _view(r: sqlite3.Row | dict, names: dict[str, str], me: str, versions: set[str], also: str | None = None) -> dict:
     d = dict(r)
     data = d.pop("data_json", None)
     d["data"] = json.loads(data) if data else None
-    d["mine"] = d["person_id"] == me
+    d["mine"] = d["person_id"] == me or (also is not None and d["person_id"] == also)  # (also: your other account's)
     d["group"] = _group(d["kind"], d["mine"])
     d["who"] = names.get(d["person_id"] or "", "a colleague")
     d["can_edit"] = d["mine"] and d["kind"] == "entry"
@@ -201,7 +204,10 @@ def entry(ws: Workspace, entry_id: str) -> dict:
     rows = ws.query("SELECT * FROM research_log WHERE entry_id=?", (entry_id,))
     if not rows:
         raise KeyError(entry_id)
-    return _view(rows[0], names(ws), _me(), _versions_present(ws, [rows[0]["version_id"] or ""]))
+    from .sharing import _partner
+
+    return _view(rows[0], names(ws), _me(), _versions_present(ws, [rows[0]["version_id"] or ""]),
+                 _partner(ws._conn(), _me()))
 
 
 def entries(ws: Workspace, group: str | None = None, q: str | None = None, subject_kind: str | None = None,
@@ -255,7 +261,10 @@ def entries(ws: Workspace, group: str | None = None, q: str | None = None, subje
         counts[g] = counts.get(g, 0) + n
     versions = _versions_present(ws, [r["version_id"] for r in rows if r["version_id"]])
     nm = names(ws)
-    return {"entries": [_view(r, nm, me, versions) for r in rows], "total": total, "groups": counts,
+    from .sharing import _partner
+
+    also = _partner(ws._conn(), me)
+    return {"entries": [_view(r, nm, me, versions, also) for r in rows], "total": total, "groups": counts,
             "group_names": GROUP_NAMES}
 
 
@@ -291,7 +300,8 @@ def markdown(ws: Workspace, project: str) -> str:
 # ---------------------------------------------------------------------------------------------
 # a colleague's entries (sync.py)
 # ---------------------------------------------------------------------------------------------
-def merge(cx: sqlite3.Connection, rows: list[dict], fix, sender: str | None = None, report: dict | None = None) -> int:
+def merge(cx: sqlite3.Connection, rows: list[dict], fix, sender: str | None = None, report: dict | None = None,
+          first_hand: bool = False) -> int:
     """Bring in a colleague's entries: those not here come in (unless removed here); one of theirs they changed since
     (a later `edited_at`) is brought up to date. Yours are never changed. `fix(row) -> row` rewrites the ids of a
     merge (documents, checks). Returns how many came in or changed.
@@ -307,6 +317,9 @@ def merge(cx: sqlite3.Connection, rows: list[dict], fix, sender: str | None = No
         from .people import first_hand, note_via, relayed
 
         via_here = relayed(cx, "log")
+    from .sharing import _partner
+
+    pair = first_hand and bool(sender) and _partner(cx, me) == sender  # (your other account's own file)
     n = 0
     for r in rows:
         if not isinstance(r.get("entry_id"), str) or not _ID.fullmatch(r["entry_id"]) or r["entry_id"] in gone:
@@ -328,6 +341,12 @@ def merge(cx: sqlite3.Connection, rows: list[dict], fix, sender: str | None = No
                     report["via"] = report.get("via", 0) + 1
             cx.execute(f"INSERT INTO research_log({','.join(use)}) VALUES ({','.join('?' * len(use))})",
                        [r[c] for c in use])
+            n += 1
+        elif pair and have[0] == me and r.get("person_id") == me and (r.get("edited_at") or "") > (have[1] or ""):
+            # your other account changed one of yours (both send their private work: sync/selfsync.py)
+            sets = [c for c in use if c != "entry_id"]
+            cx.execute(f"UPDATE research_log SET {', '.join(c + '=?' for c in sets)} WHERE entry_id=?",
+                       [*(r[c] for c in sets), r["entry_id"]])
             n += 1
         elif have[0] != me and have[0] == r.get("person_id") and (
                 (r.get("edited_at") or "") > (have[1] or "") or (sender and not third and r["entry_id"] in via_here)):

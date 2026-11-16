@@ -65,6 +65,7 @@ export async function shareItem(item, opts = {}) {
     const name = shortTitle(item.title || item.key, 60);
     const parts = [];
     if ((r.shared || []).length) parts.push(`Shared “${name}”: your colleagues get it with your work from now on.`);
+    else if ((r.asked || []).length) parts.push(`“${name}” was made on your other computer: it shares it at its next round.`);
     else if ((r.already || []).some((x) => x.kind === item.kind && x.key === item.key)) parts.push(`“${name}” was shared already.`);
     for (const x of r.also || []) parts.push(`Its ${KIND_WORDS[x.kind]} “${shortTitle(x.title || x.key, 50)}” is shared with it, so colleagues can read its codes.`);
     for (const x of r.cannot || []) parts.push(`Its ${KIND_WORDS[x.kind]} “${shortTitle(x.title || x.key, 50)}” is a colleague’s and not shared by them: colleagues without it see the ${KIND_WORDS[item.kind]} without its codes’ descriptions.`);

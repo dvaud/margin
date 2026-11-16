@@ -1876,6 +1876,9 @@ def settle(ws: Workspace, apply: bool = True, moves: bool = False, leaving: bool
         if ctx.owner is None:
             return ctx.report
         _answer_refused(ctx)
+        from . import teamcodebooks  # the owner's settings about codebooks: answered and restamped as roles are
+
+        teamcodebooks.settle(cx, me, ctx.chain)
         if ctx.is_owner:
             ctx.restamp_decisions()
             ctx.restamp()
@@ -2288,7 +2291,8 @@ def _fetch(ws: Workspace, docs: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------------------------
 # rows a file brought in this copy's own name (§4.10), clashes and role changes in the research log
 # ---------------------------------------------------------------------------------------------
-REFUSED_KINDS = ("ownership", "roles", "proposals", "decisions", "canon", "event", "removal", "judgement")
+REFUSED_KINDS = ("ownership", "roles", "proposals", "decisions", "canon", "event", "removal", "judgement",
+                 "team_settings")
 
 
 def record_refused(cx: sqlite3.Connection, kind: str, key: str, row: dict, via: str | None, n: int | None) -> bool:
@@ -2322,6 +2326,9 @@ def _refused_text(kind: str, r: dict, who: str, names: dict[str, str]) -> str:
                "was not taken."
     if kind == "decisions":
         return f"{who}'s file held an answer to a proposal in your name. It was not taken."
+    if kind == "team_settings":  # teamcodebooks.py
+        return f"{who}'s file held a setting of the project's codebooks in your name. It was not taken, and your own " \
+               "word was sent again."
     if kind == "event":
         return f"{who}'s file said a change to {_q(r.get('title'))} was yours. It is not taken for your own word here."
     if kind == "removal":

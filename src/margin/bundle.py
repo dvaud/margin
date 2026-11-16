@@ -151,9 +151,12 @@ def _config_for_zip(ws: Workspace) -> str:
         cfg = json.loads(raw)
     except ValueError:
         return raw
-    if not isinstance(cfg, dict) or "shared_folder" not in cfg:
+    space = cfg.get("shared_space") if isinstance(cfg, dict) else None
+    if not isinstance(cfg, dict) or ("shared_folder" not in cfg and not (isinstance(space, dict) and "self_sync" in space)):
         return raw
     cfg.pop("shared_folder", None)
+    if isinstance(space, dict):  # (16 November 2026: whom this person sends their private work to stays here)
+        cfg["shared_space"] = {k: v for k, v in space.items() if k != "self_sync"}
     return json.dumps(cfg, indent=2)
 
 

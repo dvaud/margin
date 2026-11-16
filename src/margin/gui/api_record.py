@@ -109,7 +109,15 @@ class RecordApi:
 
     # -- codebooks ------------------------------------------------------------------------------
     def get_codebooks(self, name, q):
-        return codebooks.list_all(self.app.ws(name))
+        from .. import teamcodebooks
+
+        ws = self.app.ws(name)
+        out = codebooks.list_all(ws)
+        try:  # team codebooks: this person's private codebooks while the team's setting shares new ones
+            out["team"] = teamcodebooks.codebooks_line(ws)
+        except Exception:  # noqa: BLE001 - the list stands without the line
+            out["team"] = None
+        return out
 
     def post_codebook(self, name, q):
         body = self._body()

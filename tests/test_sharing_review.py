@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from margin import bundle, claimcheck, codebooks, frameworks, notes, profile, reread, researchlog, sharing
+from margin import teamcodebooks
 from margin.llm import BaselineBackend
 from margin.store import Workspace
 from test_shared_projects import Person, anna_and_ben  # noqa: F401  (fixture)
@@ -267,6 +268,7 @@ def test_a_zip_for_a_colleague_keeps_none_of_this_copys_own_settings(anna_and_be
     with anna:
         terms.build(anna.ws)
         anna.ws.set_meta("evaluation", {"folder": "/Users/anna/private/eval"})
+        teamcodebooks.set_share(anna.ws, False)  # (the team's setting would share new codebooks at once)
         codebooks.create(anna.ws, "mine", "Mine", "project", "csv", {"csv": "code,description\nX,Private code\n"})
         with anna.ws.connect() as cx:
             cx.execute("INSERT INTO runs(run_id, kind, scope, model) VALUES ('u1', 'label', 'mine', 'm')")

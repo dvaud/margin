@@ -165,6 +165,38 @@ class OwnerApi:
             ownership.settle(ws)  # what waits is accepted now
         return self._owner_view(name)
 
+    def get_owner_codebooks(self, name, q):
+        """Team codebooks (teamcodebooks.py): the owner's two settings about codebooks, for everyone in the team."""
+        from .. import teamcodebooks
+
+        return teamcodebooks.view(self.app.ws(name))
+
+    def put_owner_codebooks(self, name, q):
+        """{"share": bool} and/or {"default": a codebook's short name | null}: only the owner (403). An unknown
+        codebook 404; one that cannot be the team's (a colleague's private one, one kept with all projects) 409."""
+        from .. import teamcodebooks
+
+        body = self._body()
+        if "share" not in body and "default" not in body:
+            raise ApiError(400, "Send {\"share\": true | false} or {\"default\": a codebook's name | null}.")
+        if "share" in body and not isinstance(body["share"], bool):
+            raise ApiError(400, "Send {\"share\": true} or {\"share\": false}.")
+        if "default" in body and body["default"] is not None and not isinstance(body["default"], str):
+            raise ApiError(400, "Send {\"default\": a codebook's short name} or {\"default\": null}.")
+        ws = self.app.ws(name)
+        if "share" in body:
+            _guard(teamcodebooks.set_share, ws, body["share"])
+        if "default" in body:
+            try:
+                teamcodebooks.set_default(ws, body["default"] or None)
+            except ownership.NotAllowed as e:
+                raise ApiError(403, str(e)) from e
+            except KeyError:
+                raise ApiError(404, "No such codebook in this project.") from None
+            except ValueError as e:
+                raise ApiError(409, str(e)) from e
+        return teamcodebooks.view(ws)
+
     def post_proposal_accept(self, name, pid, q):
         body = self._body()
         _guard(ownership.accept, self.app.ws(name), pid, str(body.get("reason") or "") or None)

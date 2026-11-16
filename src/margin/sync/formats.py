@@ -41,6 +41,11 @@ The formats so far:
    at the update. Known limit (the owner's decision, 2026-11-12): Margin 0.17.0 and 0.17.1 open a zip of format 4
    *as a new project* without a warning (they check no format there); bringing it into a project, and the shared
    folder, do say "update Margin first".
+
+Not a new format (16 November 2026, sync/selfsync.py): in a storage space, a member's `m/pair.json` (whom they send
+their private work to) and their private bundles in `p/` (format `margin-private`, stamped like the folder's bundles,
+needing format 4). A copy before this one leaves both aside without harm: it reads only the small files it knows
+(`space._M_FILES`) and lists only `m/`, `b/`, `d/` and `f/`; only a copy that turned the option on reads them.
 """
 from __future__ import annotations
 

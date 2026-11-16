@@ -84,9 +84,18 @@ class ShareRules:
         for (kind, key), r in sorted(there.items()):
             local = self._local_key(kind, key)
             present = sharing.exists(cx, root, kind, local) or (kind == "codebook" and local in coming)
-            got = sharing.receive(cx, kind, local, r, self.me, present, had=(kind, local) in self.items_before)
+            had = (kind, local) in self.items_before
+            got = sharing.receive(cx, kind, local, r, self.me, present, had=had, sender=sender)
             if got in ("shared", "withdrawn") and present:
                 self.r["shares"][got].append(self._title_here(cx, kind, local, r.get("title")))
+            elif got is None and present and not had and r.get("owner") != self.me:
+                # 16 November 2026: an item that came in now under a mark this copy did not take (one not made by its
+                # owner) is still not this copy's own: noted as its maker's (or the sender's) and private, never passed
+                # on, until its owner's own mark says otherwise
+                owner = r.get("owner") or (sender if sender != self.me else None)
+                if owner:
+                    cx.execute("INSERT OR IGNORE INTO shares(kind, key, state, owner, by, at, title) VALUES "
+                               "(?,?,?,?,?,?,?)", (kind, local, "private", owner, None, None, r.get("title")))
         self._removed_by_owner(cx, there)
 
     def _title_here(self, cx: sqlite3.Connection, kind: str, local: str, given: str | None = None) -> str:
@@ -123,6 +132,7 @@ class ShareRules:
             # (a removal is timed to the second, a mark to the microsecond: one in the same second as the mark is later)
             when = at.replace("+00:00", ".999999+00:00") if "." not in at else at
             mark = {"state": "withdrawn", "owner": owner, "by": by, "at": when, "title": None}
-            if sharing.receive(cx, kind, local, mark, self.me, True, had=(kind, local) in self.items_before) == \
+            if sharing.receive(cx, kind, local, mark, self.me, True, had=(kind, local) in self.items_before,
+                               sender=self.sender["id"]) == \
                     "withdrawn":
                 self.r["shares"]["withdrawn"].append(self._title_here(cx, kind, local))

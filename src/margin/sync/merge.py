@@ -45,6 +45,10 @@ class _Merge(CodebookRules, ReadingRules, ShareRules, OwnerRules):
         self.hyps_before: set[str] = set()          # 0.16: the checks this copy had before the merge
         self.before_move: dict[tuple[str, str], tuple[str, str]] = {}  # 0.18: their units' states before readings.py
         self.format_in = int(info.get("sync_format") or 1)  # 0.18: the sync format of their file (formats.py)
+        # 16 November 2026: the file is known to be the sender's own (a storage space checks each file's signature
+        # against its part's member; a private bundle, sync/selfsync.py): only then may this person's other account
+        # replace their own work here. A zip, or a plain shared folder, says who sent it without proof
+        self.first_hand = bool(info.get("first_hand"))
         self.items_before: set[tuple[str, str]] = set()     # 0.18: the items this copy held before (share_merge.py)
         self.placed_there: dict[tuple[str, str], dict[str, str]] = {}  # 0.18: their `placed:` states (readings.py)
         self.lossy_move = False  # 0.18: a result of theirs found no place on your reading (readings.py)
@@ -638,6 +642,8 @@ class _Merge(CodebookRules, ReadingRules, ShareRules, OwnerRules):
 
         if not sharing.state(cx, kind, key, self.me)["mine"]:
             return True
+        if self.first_hand and sharing._partner(cx, self.me) == self.sender["id"]:
+            return True  # this person's other account (both send their private work: selfsync.py): one person's work
         taken = cx.execute("SELECT fp, person FROM sync_from WHERE kind=? AND key=?", (kind, key)).fetchone()
         return bool(taken) and taken[1] == self.sender["id"] and _known(fp_here, {taken[0]})
 
@@ -920,9 +926,10 @@ class _Merge(CodebookRules, ReadingRules, ShareRules, OwnerRules):
         there = {r[0] for r in self.icx.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if "research_log" in there and "research_log" in here:
             self.r["log"] = researchlog.merge(cx, _rows(self.icx, "SELECT * FROM research_log ORDER BY at"), fix,
-                                              self.sender["id"], self.r)
+                                              self.sender["id"], self.r, first_hand=self.first_hand)
         if "notes" in there and "notes" in here:
-            self.r["notes"] = notes.merge(cx, _rows(self.icx, "SELECT * FROM notes"), fix, self.sender["id"], self.r)
+            self.r["notes"] = notes.merge(cx, _rows(self.icx, "SELECT * FROM notes"), fix, self.sender["id"], self.r,
+                                          first_hand=self.first_hand)
         # a note or an entry its own author removed in their copy goes here too (and stays gone). Roles (§4.8): only
         # from the author's own file; relayed, the removal is held back (and counted when it would have removed a row)
         for r in _rows(self.icx, "SELECT * FROM sync_removed WHERE kind IN ('note', 'log')"):

@@ -26,8 +26,15 @@ class FolderApi:
         return running, last
 
     def _folder_status(self, name: str) -> dict:
-        out = folder.status(self.app.ws(name))
+        from ..sync import selfsync
+
+        ws = self.app.ws(name)
+        out = folder.status(ws)
         out["job"], out["last_round"] = self._folder_jobs(name)
+        try:
+            out["self_sync"] = selfsync.status(ws)   # one person's two accounts (16 November 2026)
+        except Exception:  # noqa: BLE001  (the Team page shows the rest)
+            out["self_sync"] = None
         return out
 
     def get_shared_folder(self, name, q):

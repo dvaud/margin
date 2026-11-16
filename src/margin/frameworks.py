@@ -401,10 +401,18 @@ def get(name: str | None, ws=None) -> Framework | None:
 
 
 def chosen(name: str | None, ws=None) -> str:
-    """The codebook to use when none is named: `name` (the profile codebook setting, one for the whole app) when this
-    project has it, otherwise the SDG targets. A codebook made in one project is not in the others, so the choice made
+    """The codebook to use when none is named: the project's default codebook, when its owner set one and this copy
+    holds it (teamcodebooks.py); otherwise `name` (the profile codebook setting, one for the whole computer) when this
+    project has it; otherwise the SDG targets. A codebook made in one project is not in the others, so the choice made
     there must not leave every other project without a codebook."""
-    return name if name and name in available(ws) else "sdg"
+    have = available(ws)
+    if ws is not None:
+        from .teamcodebooks import default_name
+
+        team = default_name(ws)
+        if team and team in have:
+            return team
+    return name if name and name in have else "sdg"
 
 
 BUNDLED = ("sdg", "sdg_goals")
@@ -420,6 +428,7 @@ def save(ws, name: str, csv_text: str, title: str | None = None, label: str | No
     parse_csv(csv_text)  # validate before writing
     folder = Path(ws.root) / "frameworks"
     folder.mkdir(exist_ok=True)
+    new = not (folder / f"{n}.csv").exists()
     (folder / f"{n}.csv").write_text(csv_text.lstrip("﻿"), encoding="utf-8")
     meta = {k: v for k, v in (("title", title), ("label", label), ("directional", bool(directional) or None)) if v}
     side = folder / f"{n}.json"
@@ -429,6 +438,10 @@ def save(ws, name: str, csv_text: str, title: str | None = None, label: str | No
         side.unlink()
     fw = _load_file(folder / f"{n}.csv", "project")
     assert fw is not None
+    if new:  # a codebook made in this project: shared at once when the team's setting says so (teamcodebooks.py)
+        from .teamcodebooks import made
+
+        made(ws, n)
     return fw
 
 

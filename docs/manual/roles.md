@@ -41,6 +41,15 @@ leaves a passage of it out), each card says so.
 - The owner's switch **Accept documents collaborators add, at once** (*People and settings*, *Owner* card) stays the
   owner's. Off, each added document waits for a click. Removing a document and letting more AI read one always wait for
   an answer.
+- The *Codebooks* card under it holds two more settings of the owner, which reach every copy: **Codebooks made in this
+  project are shared with the team** (on by default: a new codebook is shared as soon as it is made; [Private until you
+  share it](together.md#private-until-you-share-it)), and **Default codebook for this project**: the codebook *By
+  document*, a document's *Codes* panel and the codes of new documents use when none is chosen, in every copy, in place
+  of each computer's own setting (*Settings* › *Exploring*). The choices are the codebooks that ship with Margin and the
+  project's shared codebooks; the owner's own private codebook may be chosen, and is then shared (the line under the
+  list says so). A copy that does not have the codebook yet uses its own setting until it comes. *None* leaves it to
+  each computer. Co-owners and Members see both settings and who set them; only the owner of the time can change them,
+  and a copy counts only what that owner wrote.
 
 The number on *Waiting for your word* counts what waits for your word, and a colleague's declined proposals you have not
 seen yet.
@@ -221,7 +230,9 @@ computer's.
 
 In the owner's copy the new person then appears under *People* on *People and settings* (which also offers *Use both
 computers…*). Use *More → Same person as…* there to mark your two computers as one person: they stand together, and a
-judgement of yours counts once.
+judgement of yours counts once. With a storage space, each of your two accounts can then send its private work to the
+other, once both turn it on ([Your other account](storage-space.md#your-other-account-your-private-work-on-both-computers)).
+The owner's mark alone sends nothing.
 
 ## When a Co-owner becomes a Member again
 
