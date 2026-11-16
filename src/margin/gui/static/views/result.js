@@ -89,6 +89,22 @@ export function originalLink(project, docId, page, kind, opts = {}) {
   return holder;
 }
 
+// 0.19.12: where words selected in an excerpt are in its text, as string indices [start, end), or null: found
+// whatever spaces or line ends the text has between the words (a selection gives them as spaces), and widened to
+// whole words, as the server keeps a selection that cuts a word (textutil.find_selection).
+export function selectionPlace(text, q) {
+  const words = String(q || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const re = new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "u");
+  const m = re.exec(String(text || ""));
+  if (!m) return null;
+  let [start, end] = [m.index, m.index + m[0].length];
+  const inWord = (ch) => !!ch && /[\p{L}\p{N}]/u.test(ch);
+  while (start > 0 && inWord(text[start - 1]) && inWord(text[start])) start -= 1;
+  while (end < text.length && inWord(text[end]) && inWord(text[end - 1])) end += 1;
+  return [start, end];
+}
+
 // Sentences of an excerpt, for "mark the sentence you mean": split after . ! ? but not after an initial ("M."),
 // a number ("2.") or a common abbreviation (e.g., et al., Dr., p., Fig. …). Frontend only; the app's own splitter
 // is not touched.
@@ -1351,7 +1367,10 @@ export async function renderResult(view, [hypId], query) {
         card.appendChild(h("div", { class: "evidence-head" }, h("h3", {}, `Awaiting manual review: ${forYou.length} ${forYou.length === 1 ? "excerpt" : "excerpts"}`),
           h("span", { class: "muted small" }, chosen === forYou.length ? `You chose to judge ${chosen === 1 ? "this one" : "these"} yourself rather than start the local model. Your judgement counts like any other.`
             : chosen ? `You chose to judge ${chosen} of these yourself rather than start the local model; no AI may read the others (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other.`
-            : "No AI may read these (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other.")));
+            : "No AI may read these (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other."),
+          // 0.19.12: changed your mind: the local model reads them after all (what you judged meanwhile still counts)
+          chosen ? [h("div", { class: "btn-row local-again" }, withAI(button({ sm: true, title: "They wait for your local model again, and it starts reading them on this computer. Judgements you gave meanwhile stay and still count.",
+            onClick: (e) => localAgain(e.currentTarget, chosen) }, chosen === 1 ? "Let the local model read it" : "Let the local model read them"))), aiWhere(localReads(), "local")] : null));
         card.append(...evList(forYou, part));
       }
       if (rest.length) {
@@ -1491,6 +1510,18 @@ export async function renderResult(view, [hypId], query) {
     await load();
   }
 
+  // 0.19.12: the way back from "Judge it myself": the excerpts wait for the local model again, and it starts at once
+  // (with too little memory free, the dialog of Start offers Start it anyway; the panel offers Judge it myself again)
+  async function localAgain(btn, n) {
+    btn.disabled = true;
+    try {
+      await api("POST", `/api/projects/${P(project)}/hypotheses/${P(current.hyp_id)}/local-again`, {});
+      toast(`${n === 1 ? "The excerpt goes" : `The ${n} excerpts go`} back to your local model.`, "ok", { small: true });
+      await load();
+      await startReadLocal(false);
+    } catch (e) { showError(e); btn.disabled = false; }
+  }
+
   // 0.13.11: the local model was not started, as the computer has too little memory free: the person decides
   async function memoryShort(job) {
     if (job.error_kind !== "memory") { showError({ message: job.error, kind: job.error_kind }); return; }
@@ -1583,7 +1614,7 @@ export async function renderResult(view, [hypId], query) {
     if (yours && p.changed) {
       append(top, [nonsciBadge(p) || gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact", title: who ? `You have not judged this excerpt: ${who}’s judgement counts in your copy until you do.` : null }, who ? personMark([who]) : icon("user", { size: 12 }), `${who ? `${who}’s` : "Your"} judgement${p.read_by === "you" ? "" : ` (the AI said ${aiSaid})`}`)]);
     } else if (yours) {
-      append(top, [nonsciBadge(p) || gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact", title: who ? `You have not judged this excerpt: ${who}’s judgement counts in your copy until you do.` : null }, who ? personMark([who]) : icon("user", { size: 12 }), `${who || "You"} agreed with the AI`)]);
+      append(top, [nonsciBadge(p) || gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact", title: who ? `You have not judged this excerpt: ${who}’s judgement counts in your copy until you do.` : null }, who ? personMark([who]) : icon("user", { size: 12 }), p.read_by === "you" ? `${who ? `${who}’s` : "Your"} judgement` : `${who || "You"} agreed with the AI`)]);   // 0.19.12: no AI read it, so nobody agreed with one
     } else if (p.waiting_for_you) {
       // 0.19.8: the tag "Awaiting manual review", and why no model read it (you chose to, or no model may)
       append(top, [tag({ kind: "attention", icon: "user" }, "Awaiting manual review"),
@@ -1699,14 +1730,14 @@ export async function renderResult(view, [hypId], query) {
     if (pending) {
       // a message about what you just did: a notice (the sentence itself keeps the quote's look, dashed: DESIGN 4.23)
       card.appendChild(notice({ kind: "info", icon: "highlighter", class: "pending-quote", live: "status" },
-        h("p", {}, "Sentence marked", Number.isInteger(pending.start) ? "" : [": ", h("q", {}, pending.text)], ". Choose your judgement below to save it. ",
-          button({ kind: "quiet", sm: true, onClick: () => { pendingQuote.delete(pendingKey(p, part)); draw(current); } }, "Forget this sentence"))));
+        h("p", {}, p.read_by === "you" ? "Words highlighted" : "Sentence marked", Number.isInteger(pending.start) ? "" : [": ", h("q", {}, pending.text)], ". Choose your judgement below to save it. ",
+          button({ kind: "quiet", sm: true, onClick: () => { pendingQuote.delete(pendingKey(p, part)); draw(current); } }, p.read_by === "you" ? "Remove the highlight" : "Forget this sentence"))));
     }
     const hasQuoteNow = Number.isInteger(p.quote_start) && Number.isInteger(p.quote_end) && p.quote_end > p.quote_start;
     if ((hasQuoteNow && p.quote_by === "you" || showSecond) && !pending) {
       const aiDiffers = p.quote_by === "you" && p.ai_quote && p.ai_quote !== p.quote;
       card.appendChild(h("div", { class: "quote-by muted small" }, icon("highlighter", { size: 12 }),
-        h("span", {}, showSecond ? `Sentence highlighted by the second opinion${p.second.model ? ` (${p.second.model})` : ""}` : "Sentence highlighted by you",
+        h("span", {}, showSecond ? `Sentence highlighted by the second opinion${p.second.model ? ` (${p.second.model})` : ""}` : p.read_by === "you" ? "Highlighted by you" : "Sentence highlighted by you",
           aiDiffers ? [" · The AI pointed to: ", h("q", {}, p.ai_quote)] : null)));
     }
     if (p.user_note) card.appendChild(h("p", { class: "ev-comment small" }, h("span", { class: "muted" }, "Your comment: "), h("span", { class: "serif" }, p.user_note)));
@@ -1948,14 +1979,18 @@ export async function renderResult(view, [hypId], query) {
     function markSentence() {
       const msg = h("span", { class: "muted small mark-msg", "aria-live": "polite" });
       const saveQuote = (text) => {
-        const q = (text || "").replace(/…/g, " ").replace(/\s+/g, " ").trim();
+        let q = (text || "").replace(/…/g, " ").replace(/\s+/g, " ").trim();
         if (!q) { msg.textContent = "Select a sentence in the excerpt first."; return; }
-        if (!(p.text || "").replace(/\s+/g, " ").includes(q)) { msg.textContent = "The selection must be text from this excerpt."; return; }
+        // 0.19.12: found whatever spaces or line ends the excerpt has there, and widened to whole words (as the
+        // server does), so the highlight shows what is saved
+        const place = selectionPlace(p.text || "", q);
+        if (!place) { msg.textContent = "The selection must be text from this excerpt."; return; }
+        q = (p.text || "").slice(place[0], place[1]).replace(/\s+/g, " ").trim();
         msg.textContent = "";
         if (current) { put(current, undefined, "Saved: your sentence is highlighted.", { quote: q, onError: (e) => { msg.textContent = e.message || "Could not save the sentence."; } }); return; }
         // no judgement yet: the sentence is kept on the card (not saved) until a judgement is chosen for it
-        const at = (p.text || "").indexOf(q);   // a string index; kept as the app counts, like the quote’s own place
-        pendingQuote.set(pendingKey(p, part), { text: q, start: at >= 0 ? indexToCp(p.text, at) : null, end: at >= 0 ? indexToCp(p.text, at + q.length) : null });
+        // string indices, kept as the app counts, like the quote’s own place
+        pendingQuote.set(pendingKey(p, part), { text: q, start: indexToCp(p.text, place[0]), end: indexToCp(p.text, place[1]) });
         focusAfter = { passage_id: p.passage_id, claim_id: part.claim_id, ...placeOf(p.passage_id, part.claim_id), anchor: ".judge", anchorTop: wrap.getBoundingClientRect().top, noNote: true };
         redraw();
         const card = findCard(part.claim_id, p.passage_id);
@@ -1972,11 +2007,31 @@ export async function renderResult(view, [hypId], query) {
       const pick = selectField({ sm: true, "aria-label": "Or choose a sentence from the excerpt" },
         h("option", { value: "" }, "…or choose a sentence from the list"), sentences.map((x, i) => h("option", { value: String(i) }, x.length > 90 ? x.slice(0, 88) + "…" : x)));
       const usePick = button({ sm: true, onClick: () => { if (pick.value === "") { msg.textContent = "Choose a sentence from the list first."; pick.focus(); return; } saveQuote(sentences[Number(pick.value)]); } }, "Use this sentence");
-      const remove = p.quote_by === "you" && current ? button({ kind: "quiet", sm: true, onClick: () => put(current, undefined, "Your sentence was removed.", { quote: "" }) }, "Remove my sentence") : null;
+      const remove = p.quote_by === "you" && current ? button({ kind: "quiet", sm: true, onClick: () => put(current, undefined, "Your sentence was removed.", { quote: "" }) }, p.read_by === "you" ? "Remove the highlight" : "Remove my sentence") : null;
       // 0.12: one way at first (select, then the button); the list of sentences (for the keyboard) opens on demand
       const list = h("span", { class: "mark-list", hidden: true }, pick, usePick);
       const listBtn = button({ kind: "quiet", sm: true, toggle: true, class: "judge-list", "aria-expanded": "false", onMousedown: (e) => e.preventDefault(), onClick: () => { list.hidden = !list.hidden; listBtn.setAttribute("aria-expanded", list.hidden ? "false" : "true"); if (!list.hidden) pick.focus(); } }, "Pick from a list");
       useSel.title = `Another sentence than the one highlighted: select it in the excerpt, then press this.${current ? "" : " It is saved with the judgement you choose."}`;
+      // 0.19.12: an excerpt you judge yourself has no AI's highlight to replace: selecting words in it highlights them
+      // at once, as the AI's quote is highlighted (kept with the judgement you choose, or saved with the one you gave)
+      if (p.read_by === "you") {
+        const fromSelection = () => {
+          const sel = window.getSelection();
+          if (!sel || !sel.rangeCount || sel.isCollapsed || !passageEl.contains(sel.anchorNode) || !passageEl.contains(sel.focusNode)) return;
+          const text = sel.toString();
+          if (text.replace(/\s+/g, "").length < 2) return;   // a click, or one letter: not a highlight
+          sel.removeAllRanges();
+          saveQuote(text);
+        };
+        passageEl.addEventListener("mouseup", () => setTimeout(fromSelection, 0));
+        passageEl.addEventListener("touchend", () => setTimeout(fromSelection, 0));
+        passageEl.addEventListener("keyup", (e) => { if (e.shiftKey) fromSelection(); });
+        passageEl.classList.add("passage-markable");
+        passageEl.title = "Select the words that show your judgement: they are highlighted";
+        return h("div", { class: "mark-sentence" },
+          h("div", { class: "row" }, h("span", { class: "judge-caption" }, p.quote_by === "you" ? "Highlight other words: select them in the excerpt, or" : "Highlight the words that show it: select them in the excerpt, or"), listBtn, list, remove),
+          msg);
+      }
       return h("div", { class: "mark-sentence" },
         h("div", { class: "row" }, h("span", { class: "judge-caption" }, "Quote another sentence: select it in the excerpt, then"), useSel, listBtn, list, remove),
         msg);

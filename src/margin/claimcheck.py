@@ -335,6 +335,37 @@ def judge_local_yourself(ws: Workspace, hyp_id: str) -> int:
     return sum(r["passages"] for r in rows)
 
 
+def local_again(ws: Workspace, hyp_id: str) -> int:
+    """0.19.12: the way back from `judge_local_yourself` ("I changed my mind"): the parts the person chose to judge
+    instead of starting the local model wait for the local model again. An excerpt the person judged or commented on
+    keeps its row, so the judgement stays and still counts over the model's; the others lose their empty row, as
+    before they were handed over. Returns the number of excerpts handed back (0 when none were by choice)."""
+    claims = [r["claim_id"] for r in ws.query("SELECT claim_id FROM user_claims WHERE hyp_id=?", (hyp_id,))]
+    n = 0
+    with ws.connect() as cx:
+        for cid in claims:
+            for t in _check_tasks(ws, cid):
+                if not (t["task_id"].endswith(":local") and _is_person(t)):
+                    continue
+                rows = cx.execute("SELECT ver_id, passage_id, prompt_version, user_verdict, user_note FROM "
+                                  "verifications WHERE subject_kind='user_claim' AND subject_id=? AND model=?",
+                                  (cid, PERSON)).fetchall()
+                ids = {p["passage_id"] for p in json.loads(t["payload_json"])["passages"]}
+                mine = [r for r in rows if r["passage_id"] in ids]
+                if not mine or any(r["prompt_version"] != BY_CHOICE for r in mine):
+                    continue  # no model may read these (or a part from before 0.19.8): not the person's choice
+                for r in mine:
+                    judged = r["user_verdict"] or r["user_note"] or cx.execute(
+                        "SELECT 1 FROM judgements WHERE claim_id=? AND passage_id=?", (cid, r["passage_id"])).fetchone()
+                    if not judged:
+                        cx.execute("DELETE FROM verifications WHERE ver_id=?", (r["ver_id"],))
+                main = cx.execute("SELECT model FROM tasks WHERE task_id=?", (t["task_id"][:-len(":local")],)).fetchone()
+                cx.execute("UPDATE tasks SET status='pending', model=?, attempts=0, queued=0, claimed_by=NULL "
+                           "WHERE task_id=?", (main[0] if main and main[0] != PERSON else "local", t["task_id"]))
+                n += len(ids)
+    return n
+
+
 def _part_counts(ws: Workspace, parts: dict[str, str]) -> dict[str, int]:
     out = {}
     for key, tid in parts.items():

@@ -81,7 +81,7 @@ def test_the_source_line_and_the_selection():
     # your judgement in the other part is in the tooltip, not in the line
     assert "In part ${x.part} you judged it" in JS
     # a selection that crosses the "…" the window adds is still text of the excerpt
-    assert 'const q = (text || "").replace(/…/g, " ").replace(/\\s+/g, " ").trim();' in JS
+    assert 'let q = (text || "").replace(/…/g, " ").replace(/\\s+/g, " ").trim();' in JS
     assert '"Use it"' in JS and "Quote another sentence: select it in the excerpt, then" in JS
 
 

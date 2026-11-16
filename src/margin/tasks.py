@@ -847,9 +847,12 @@ def _store_verify_set(cx, t, payload, obj, model, schema=VerifySetOut) -> tuple[
 def _keep_person_and_history(cx, vid: str, before, why: str) -> None:
     """After an excerpt's judgement is stored again (a stronger model read it): a person's own judgement stays, and
     the AI's earlier judgement joins its history (shown on the result, as for an excerpt read again)."""
+    from .verdicts import PERSON
+
     b = dict(before)
     hist = json.loads(b.get("ai_history_json") or "[]")
-    hist.append(_history_entry(b, why=why))
+    if b.get("model") != PERSON:  # 0.19.12: a row that waited for a person is no earlier reading by the AI
+        hist.append(_history_entry(b, why=why))
     cx.execute("UPDATE verifications SET user_verdict=?, user_note=?, user_at=?, user_quote=?, user_start=?, user_end=?, "
                "user_by=?, ai_history_json=?, reread_json=? WHERE ver_id=?",
                (b.get("user_verdict"), b.get("user_note"), b.get("user_at"), b.get("user_quote"), b.get("user_start"),

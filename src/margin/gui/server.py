@@ -1172,6 +1172,17 @@ class App(LibraryMixin, QueueMixin):
         taskqueue.advance(ws, [hyp_id])
         return {"hyp_id": hyp_id, "excerpts": n}
 
+    def local_again(self, name: str, hyp_id: str) -> dict:
+        """0.19.12: the way back from "Judge it myself": the excerpts the person chose to judge wait for the local
+        model again (those already judged keep the person's judgement). The page then starts the model."""
+        ws = self.ws(name)
+        if not ws.scalar("SELECT 1 FROM hypotheses WHERE hyp_id=?", (hyp_id,)):
+            raise ApiError(404, "No such hypothesis.")
+        if not home.restricted_choice(self.settings()):
+            raise ApiError(400, "No local model is chosen: choose one under Settings → AI first.")
+        n = claimcheck.local_again(ws, hyp_id)
+        return {"hyp_id": hyp_id, "excerpts": n}
+
     def start_batch(self, name: str, body: dict) -> Job:
         ws = self.ws(name)
         s = self.settings()
@@ -1561,6 +1572,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", rf"/api/projects/{P}/documents/{P}/ai-sent", "get_document_sent"),
     ("POST", rf"/api/projects/{P}/hypotheses/{P}/read-local", "post_read_local"),
     ("POST", rf"/api/projects/{P}/hypotheses/{P}/judge-local", "post_judge_local"),
+    ("POST", rf"/api/projects/{P}/hypotheses/{P}/local-again", "post_local_again"),
     ("GET", rf"/api/projects/{P}/documents/{P}", "get_document"),
     ("DELETE", rf"/api/projects/{P}/documents/{P}", "delete_document"),
     ("GET", rf"/api/projects/{P}/documents/{P}/file", "get_document_file"),

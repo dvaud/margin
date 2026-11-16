@@ -772,6 +772,8 @@ mark.dv-hit-cur, mark.dv-focus { outline: 2px solid var(--focus); outline-offset
 /* the quote a person has still to confirm, and the second model's quote (an attention tag says whose it is) */
 .note-lost .note-quote { opacity: .7; }
 .passage-pending mark.quote { outline: 2px dashed var(--mark-line); }
+/* 0.19.12: an excerpt you judge yourself: selecting words in it highlights them */
+.passage-markable { cursor: text; }
 
 /* ==== 4.24 Concordance lines */
 /* Every place words occur, one line each, the words found centred (Search, Concepts, a document's Search panel). The

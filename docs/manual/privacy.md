@@ -129,7 +129,9 @@ computer*, or choose a smaller local model in *Settings → AI*. If it still say
 starts it regardless.
 
 You need not start the model at all: *Judge it myself* (before *Start*) hands those excerpts to you. They wait under
-*Awaiting manual review*, no model reads them, and your judgement counts like any other.
+*Awaiting manual review*, no model reads them, and your judgement counts like any other. Changed your mind? *Let the
+local model read them*, above those excerpts, hands back the ones you have not judged yet and starts the model; what
+you judged meanwhile stays and counts.
 
 A model that takes more than a third of this computer's memory is let go as soon as it has read, instead of being
 kept for 15 minutes. A local model you chose as the **main** AI is not checked this way: you start it yourself and see

@@ -25,6 +25,10 @@ class ChecksApi:
         """0.19.8: the excerpts that wait for the local model wait for the person instead ("Judge it myself")."""
         return self.app.judge_local_yourself(name, hyp_id)
 
+    def post_local_again(self, name, hyp_id, q):
+        """0.19.12: "Let the local model read them": the way back from Judge it myself."""
+        return self.app.local_again(name, hyp_id)
+
     def get_suggest(self, name, q):
         text = _str(q, "text") or ""
         fw = _str(q, "framework") or "sdg"

@@ -995,6 +995,11 @@ project's default. The setting is enforced where tasks are made and run (see `ac
   check that wait for the local model wait for the person instead, and no model reads them (the page's *Judge it
   myself*). Each then has `read_by: "you"`, `waiting_for_you` until judged, and `by_choice: true` (the result says
   *Awaiting manual review*, as for excerpts no model may read). 409 while the local model reads this check's excerpts.
+- `POST /api/projects/<p>/hypotheses/<hyp_id>/local-again` (0.19.12) → `{"hyp_id", "excerpts"}`: the way back from
+  `judge-local` (the page's *Let the local model read them*): those excerpts wait for the local model again; the ones
+  the person judged or commented on keep the judgement, which still counts over the model's. Excerpts no model may
+  read are not handed back. It does not start the model: `read-local` does (the page calls it next). 400 when no local
+  model is chosen.
 - `/api/state` adds `restricted` (as `restricted_model` above). Settings: `restricted_server` (`""`, `ollama`,
   `openai`), `restricted_model`, `account_type` (`""`, `personal`, `commercial`).
 - The result of a check: each excerpt has `read_by` (`claude`, `local`, `ai`, `you`, `waiting`), `access` (its
