@@ -92,7 +92,7 @@ def test_a_component_is_styled_in_one_section_only():
 
 # every helper of lib.js that draws a component and takes a page's class (docs/DESIGN.md 4: "a page's own class for
 # placement"); a page may import one under another name (card as cardBox)
-COMPONENT_HELPERS = {"button", "iconButton", "downloadButton", "fileButton", "link", "tag", "notice", "card", "fold",
+COMPONENT_HELPERS = {"button", "aiButton", "iconButton", "downloadButton", "fileButton", "link", "tag", "notice", "card", "fold",
                      "choice", "optionCards", "input", "select", "textarea", "searchField", "menu", "drawer", "statusBadge",
                      "personMark", "listRow", "listGroup", "inset", "stopButton", "switchControl", "absentDocument", "guidedSteps",
                      "field", "helpMark", "downloadLinks", "pageHead", "tabs", "strongerMark",
@@ -390,7 +390,8 @@ def test_every_token_of_the_last_release_is_still_defined():
     missing = [t for t in RC4_TOKENS if t not in defined]
     assert not missing, missing
     used = set(re.findall(r"var\((--[a-z0-9-]+)", all_css()))
-    assert used <= defined | {"--swatch"}, used - defined
+    # --ar-sync: set at run time by inStep() (lib.js), the AI run panel's motion in step with the clock
+    assert used <= defined | {"--swatch", "--ar-sync"}, used - defined
 
 
 def test_no_inline_visual_styles():
@@ -1104,6 +1105,8 @@ DASHED = {
     ".dv-pbox-out": "a part left out of the reading",
     ".cal-bar.cal-empty": "no excerpts in this band yet",
     ".m-nonsci .map-sym": "not in force: what a non-scientific document says on the evidence map, read and not counted",
+    ".ab-seat > .ar-tile": "not there: the AI run panel's empty seat, the engine this job gives no work",
+    ".ab-rowseat > .ar-tile": "not there: the sidebar row's empty seat, the engine this work gives no work",
 }
 
 

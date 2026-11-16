@@ -1099,7 +1099,8 @@ Check job `progress` (poll it to draw the live panel):
 `parts` grows as the check moves on (one entry per claim checked so far; `part` 0 = the hypothesis as written).
 The `terms` step is absent when `expand` is false. `model` is filled by local servers while they stream.
 
-`POST /api/jobs/<id>/cancel` → stops the job (a stopped check leaves nothing in the history).
+`POST /api/jobs/<id>/cancel` → stops the job (a stopped check leaves nothing in the history; 0.19.13: except a check by
+queue whose Claude Code part is done, kept with its excerpts waiting for the local model).
 
 The check prompt is `check-v3`: for each excerpt the AI may add a `scope_note`, a short phrase such as "about
 fully remote workers, not hybrid", when the excerpt is about another group, setting, place or period than the
@@ -1498,7 +1499,13 @@ that no session has taken yet out of the queue; a check by queue is removed whol
 - `POST /api/projects/<p>/queue/order` `{"kind", "action": "first" | "hold" | "go" | "reset"}` → `{"order", "held"}`.
 - `POST /api/projects/<p>/queue/withdraw` `{"kind"}` → `{"withdrawn", "checks_removed"}`.
 - `POST /api/projects/<p>/queue/run` `{"kinds"?: [...]}` → job (kind `queue-run`): the AI model of Settings answers
-  the queue here, kind by kind (400 when Settings name Claude Code).
+  the queue here, kind by kind. With Claude Code in Settings (0.18.1) the local model answers here instead:
+  `{"local": "mix"}` (default; job kind `queue-local-mix`) the AI mix's share, `{"local": "all"}` or (0.19.13)
+  `{"local": "limit"}` (job kind `queue-local-limit`) every waiting task it may.
+- `GET …/queue` `at_limit` (0.18.1, I4): null, or `{"said", "choice": "wait" | "local", "local_possible", "started",
+  "offer_local"}` once Claude Code stopped at the plan's usage limit. 0.19.13: with `"local"` the local model no longer
+  starts by itself: `offer_local` is true (until the person presses the Start, `{"local": "limit"}` above), and
+  `started` says whether that job runs.
 - `POST /api/projects/<p>/tasks/<task_id>/stronger` → job (kind `stronger`): "Ask a stronger model": the task (a
   round of a check: `rounds_info[].task_id`) is read once more by the model it steps up to; 400 when it already was,
   or when this route has no stronger model.
@@ -2111,10 +2118,30 @@ and `threshold`) answers one page of the list: `hypotheses` holds at most `limit
  "error": null | "message", "error_kind": null | "backend" | "memory" | "request" | "internal",
  "waiting_for": null | {"id", "kind", "title", "message": "Queued: starts when “…” has finished"},
  "background": false,
+ "local": null | {"gate": "wait" | "go" | "force", "waiting": 12, "noun": "excerpt" | "passage" | "theme" | "pair" |
+                  "task" | "document", "model": "qwen3.5:9b" | null,
+                  "memory": null | {"need": 8700000000, "free": 2900000000, "short": true}, "problem": null | "…"},
  "progress": {…kind-specific…}, "result": {…} | null}
 ```
 Summaries (in lists) omit `progress` and `result`. Jobs live until the app is closed. `background`: started by the app
 itself (a round of the shared folder by the poller), not by the person.
+
+**The local part of a job (0.19.13, `localgate.py`).** Starting Claude and starting the local model (Settings' model for
+documents marked Only a local AI, and the AI mix's share) are two separate clicks. `local` is null for a job with no
+work for the local model; otherwise its gate says whether the local model may read: `wait` (it waits for its own Start:
+the default of a job that also has work for Claude, and the state after a memory refusal, with `memory.short`), `go`
+(Start was pressed, or the job is all local and was started by its own button, such as `read-local` or *Answer the N for
+your local model now*), `force` (*Start it anyway*: whatever memory is free). `waiting` counts what waits for the local
+model, in `noun`s; `model`, `memory` and `problem` (why no local model can be used: then there is no Start) come from
+the model server without starting it. While the gate waits and something waits, `progress.model` is `{"who": "local",
+"phase": "ready", "model"}` unless Claude's report is newer, and nothing loads the model.
+- `POST /api/jobs/<id>/local/start` `{"force"?: bool}` → `{"job": Job}`: opens the gate; one Start covers the whole
+  job. The local items are then read beside Claude's. A memory refusal puts the gate back to `wait` with the numbers.
+- `POST /api/jobs/<id>/local/stop` → `{"job": Job}`: back to `wait` after the item in hand; the job's own
+  `POST /api/jobs/<id>/cancel` still stops everything, and what waits for the local model keeps waiting (a check by
+  queue whose Claude Code part is done is kept, its excerpts waiting for *Read them now*).
+- Both: 409 when the job has no local part, or has ended.
+Outside the app (the command line, the connector) there is no gate: the local model reads at once, as before.
 
 **Jobs wait their turn (0.17.0, roadmap M6: `api_common.Jobs`, `LANES`).** Jobs of one project that change the same
 things never run at the same time: the later one stays `queued`, with `waiting_for` naming the job it waits for (the

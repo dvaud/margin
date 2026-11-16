@@ -1,7 +1,7 @@
 // The answers: every hypothesis checked in the project, newest first, with the checks still running or waiting their
 // turn at the top. 0.17.0: no page of its own any more (it was Results): the Hypotheses page shows it under the box
 // where hypotheses are written. Counts come from the API at the current strictness.
-import { App, api, h, icon, replace, clear, showError, failedLoad, toast, fmt, statusBadge, P, debounce, emptyState, watchJob, latest, norm, TERMINAL, STATUS_SHORT, strictness, auditorName, strongerMark, helpMark, judgementIcon, onJobsChanged, button, link, input, workState , choice, lazyList, searchField, readsLine, notice, card, tag, jobFailed } from "../lib.js";
+import { App, api, h, icon, replace, clear, showError, failedLoad, toast, fmt, statusBadge, P, debounce, emptyState, watchJob, latest, norm, TERMINAL, STATUS_SHORT, strictness, auditorName, strongerMark, helpMark, judgementIcon, onJobsChanged, button, link, input, workState , choice, lazyList, searchField, readsLine, notice, card, tag, jobFailed, aiButton } from "../lib.js";
 import { ProgressPanel } from "./progress.js";
 import { withAI } from "../features.js";
 
@@ -9,6 +9,8 @@ const ORDER = ["supported", "partially_supported", "contested", "contradicted", 
 const ONE_MODEL_NOTE = "Only one AI model is kept in memory at a time, so this takes a while.";
 const CHECK_KINDS = ["check", "batch"];   // the jobs shown as rows at the top: a check, and a list being checked
 const LOOK_AGAIN = 3000;                  // how often the running checks are looked at while there are any (ms)
+// the filter chip of the answers that wait, by what they wait for: Claude Code, the local model, or both
+const waitingWords = (n, local) => (!local ? STATUS_SHORT.waiting : local >= n ? "Waiting for your local model" : "Waiting to be read");
 const UNFINISHED = new Set(["not_checked", "waiting"]);   // a check being made has its answer row from the start
 
 // Draws the answers into `box` and returns { refresh, showBatch(id), stop }.
@@ -49,12 +51,12 @@ export async function answersList(box, query, opts = {}) {
     const n = rows.length;
     const bits = [];
     if (withNew.length) {
-      const btn = button({ kind: "main", sm: true }, icon("book-open", { size: 13 }), `Read the new documents for ${withNew.length === n ? `all ${n}` : `${withNew.length} of these ${n}`}`);
+      const btn = aiButton({ kind: "main", sm: true }, `Read the new documents for ${withNew.length === n ? `all ${n}` : `${withNew.length} of these ${n}`}`);
       btn.addEventListener("click", () => runJob(btn, "read-new", `/api/projects/${P(project)}/read-new`, batch ? { batch } : (q || status) ? { hyp_ids: withNew.map((x) => x.hyp_id) } : {}, "Reading the new documents"));
       bits.push(h("div", { class: "hist-action" }, withAI(btn), h("span", { class: "muted small" }, `Documents were added since ${withNew.length === 1 ? "this check was" : "these checks were"} run. The AI reads only the new documents; the checks are not run again, so your reviews are kept.`)));
     }
     if (n) {
-      const btn = button({ sm: true, disabled: !secondSet || secondSet === main }, `Get a second opinion for ${shown}${batch || q || status ? ` (${n})` : ""}`);
+      const btn = aiButton({ sm: true, disabled: !secondSet || secondSet === main }, `Get a second opinion for ${shown}${batch || q || status ? ` (${n})` : ""}`);
       btn.addEventListener("click", () => runJob(btn, "second-opinion", `/api/projects/${P(project)}/second-opinion`, batch ? { batch } : { hyp_ids: rows.map((x) => x.hyp_id) }, "A second opinion: another model reads the excerpts"));
       // 0.13.3: one short line beside the button; the whole explanation is in its help mark
       const ready = secondSet && secondSet !== main;
@@ -134,7 +136,7 @@ export async function answersList(box, query, opts = {}) {
     running = now;
     rowsNow = r.hypotheses || [];
     countsNow = r.counts || {};
-    drawChips(countsNow);
+    drawChips(countsNow, r.waiting_local || 0);
     drawBatch(rowsNow);
     drawActions(rowsNow);
     drawTable();
@@ -160,14 +162,15 @@ export async function answersList(box, query, opts = {}) {
   }
   const offJobs = onJobsChanged(() => { lookAtRunning(); });
 
-  function drawChips(counts) {
+  // `local`: how many of the answers that wait wait for the local model (the chip says who they wait for)
+  function drawChips(counts, local = 0) {
     clear(chips);
     chips.hidden = !!batch;   // the counts cover the whole project, not one set
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     // a filter of the list: a choice (docs/DESIGN.md, Choices), each answer with its icon and the rows it would show;
     // the chosen one pressed again shows all
     const options = [["", "All", total], ...ORDER.filter((k) => counts[k] || status === k)
-      .map((k) => [k, [judgementIcon(k, 12), h("span", {}, STATUS_SHORT[k] || k)], counts[k] || 0])];
+      .map((k) => [k, [judgementIcon(k, 12), h("span", {}, k === "waiting" ? waitingWords(counts[k] || 0, local) : STATUS_SHORT[k] || k)], counts[k] || 0])];
     chips.appendChild(choice({ label: "Show the answers that are", filter: true, value: status, options,
       onPick: (k) => { status = status === k ? "" : k; steps = null; refresh(); } }));
   }

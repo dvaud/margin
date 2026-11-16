@@ -392,38 +392,69 @@ def _run_round(ws: Workspace, parts: dict[str, str], backend, model: str, reader
     """Answer the parts of a round: the main one with the main model, the local one with the local model (or, when
     it cannot be reached, it waits for a person). Returns whether the main part's answer was accepted (True when
     there is none). Backend errors of the main model propagate."""
-    from .llm import BackendError, MemoryShort
-
     ok = True
     if "main" in parts:
         ok, _errs = tasks.run_one(ws, parts["main"], backend, model)
     if "local" in parts:
-        got = readers.local() if readers is not None else None
-        if got is not None and readers.memory_short:
-            pass  # 0.13.11: no room for the local model earlier in this check: these excerpts wait as well
-        elif got is None:
-            _to_person(ws, parts["local"])
-            if readers is not None and readers.local_problem:
-                say("note", f"The local model could not be used ({readers.local_problem}); those excerpts wait for "
-                            "your judgement", {})
+        if readers is not None and readers.defers():
+            # 0.19.13: in a job of the app the local part waits for the local model's own Start, and is read beside
+            # Claude's once it is pressed (the job waits for it at its end: `_local_after`). A check under Claude is
+            # Claude's work too, so its local part never starts by itself.
+            tid = parts["local"]
+            readers.later(lambda: _read_local_part(ws, tid, readers, say),
+                          n=_part_counts(ws, {"local": tid})["local"], noun="excerpt", mixed=True, ws=ws)
         else:
-            n = _part_counts(ws, {"local": parts["local"]})["local"]
-            try:
-                lok, _errs = tasks.run_one(ws, parts["local"], got[0], got[1])
-                readers.read += 1
-                if not lok:  # 0.11.1: said on the progress and the result, instead of passing in silence
-                    say("note", "The local model's answers for the excerpts of documents marked Only a local AI could "
-                                "not be used; they are shown without a judgement", {})
-            except MemoryShort as e:
-                # 0.13.11: not loaded on a computer without room for it; the excerpts wait ("Read them now")
-                readers.memory_short = e
-                say("note", f"{e} {_waiting_words(n)}", {"keep": True})
-            except BackendError as e:
-                if readers.stopped():
-                    raise
-                _to_person(ws, parts["local"])
-                say("note", f"The local model could not be reached ({e}); those excerpts wait for your judgement", {})
+            _read_local_part(ws, parts["local"], readers, say)
     return ok
+
+
+def _shared_in_job(backend, model: str):
+    """0.19.13: one Readers for every part of a further round in a job of the app (its local parts wait for one Start
+    and are read after Claude's); None outside the app, where each part has its own, as before."""
+    from .localgate import GATE
+
+    return access.Readers(backend, model) if GATE.get() is not None else None
+
+
+def _local_after(readers) -> None:
+    """0.19.13: wait for the local parts a check handed to the job's local gate (read once the person starts the local
+    model). Stopped meanwhile, they keep waiting for the local model, and the check keeps what Claude read."""
+    if readers is not None:
+        readers.drain()
+
+
+def _read_local_part(ws: Workspace, task_id: str, readers, say=lambda *a, **k: None) -> None:
+    """The local part of a round, with the local model (or, when it cannot be reached, it waits for a person)."""
+    from .llm import BackendError, MemoryShort
+
+    if ws.scalar("SELECT status FROM tasks WHERE task_id=?", (task_id,)) in (None, "done"):
+        return  # removed with its check (stopped by a problem), or read meanwhile ("Read them now")
+    got = readers.local() if readers is not None else None
+    if got is not None and readers.memory_short:
+        return  # 0.13.11: no room for the local model earlier in this check: these excerpts wait as well
+    if got is None:
+        _to_person(ws, task_id)
+        if readers is not None and readers.local_problem:
+            say("note", f"The local model could not be used ({readers.local_problem}); those excerpts wait for "
+                        "your judgement", {})
+        return
+    n = _part_counts(ws, {"local": task_id})["local"]
+    try:
+        lok, _errs = tasks.run_one(ws, task_id, got[0], got[1])
+        readers.read += 1
+        if not lok:  # 0.11.1: said on the progress and the result, instead of passing in silence
+            say("note", "The local model's answers for the excerpts of documents marked Only a local AI could "
+                        "not be used; they are shown without a judgement", {})
+    except MemoryShort as e:
+        # 0.13.11: not loaded on a computer without room for it; the excerpts wait ("Read them now"; 0.19.13: or
+        # the local side's Start it anyway, in a job of the app)
+        readers.memory_short = e
+        say("note", f"{e} {_waiting_words(n)}", {"keep": True})
+    except BackendError as e:
+        if readers.stopped():
+            raise
+        _to_person(ws, task_id)
+        say("note", f"The local model could not be reached ({e}); those excerpts wait for your judgement", {})
 
 
 def _waiting_words(n: int) -> str:
@@ -498,7 +529,22 @@ def run_local_parts(ws: Workspace, hyp_ids: list[str] | None = None, readers=Non
         if on_start is not None:
             on_start(got[1], sum(r["passages"] for r in rows))
     n = 0
+    gate = getattr(readers, "gate", None)
+    # 0.19.13: the job's local side counts down what is left as it is read (excerpts, or tasks of the AI mix), so a
+    # finished read says none wait any more
+    left = sum(1 if r.get("mix") else r["passages"] for r in rows)
+    if gate is not None and got is not None:
+        gate.involve(waiting=left, noun="task" if all(r.get("mix") for r in rows) else "excerpt")
+
+    def counted(r) -> None:
+        nonlocal left
+        left = max(0, left - (1 if r.get("mix") else r["passages"]))
+        if gate is not None and got is not None:
+            gate.involve(waiting=left)
+
     for r in rows:
+        if got is not None and gate is not None and not gate.is_open and gate.state != "auto":
+            break  # 0.19.13: the local side's Stop: the rest waits for its Start again
         if r.get("mix"):  # 0.18.1 (I1, I2): the local model first; Claude when it is unsure, or when there is none
             if got is None:
                 with ws.connect() as cx:
@@ -516,6 +562,7 @@ def run_local_parts(ws: Workspace, hyp_ids: list[str] | None = None, readers=Non
                     readers.memory_short = e
                     return n
             n += 1
+            counted(r)
             continue
         with ws.connect() as cx:
             if r["status"] == "failed":
@@ -540,6 +587,7 @@ def run_local_parts(ws: Workspace, hyp_ids: list[str] | None = None, readers=Non
                 readers.local_problem = str(e)  # said on the progress
                 _to_person(ws, r["task_id"])
         n += 1
+        counted(r)
     return n
 
 
@@ -666,6 +714,8 @@ def check_hypothesis(ws: Workspace, text: str, backend, model: str, framework: s
     readers = access.Readers(backend, model) if own else readers
     try:
         words_by = _own_reader(ws, hid, readers)  # 0.19.0 (N3): who may read the hypothesis's own words
+        if words_by is not None and words_by[0] is not backend:
+            readers.mixed()  # 0.19.13: the local model reads its words, Claude its excerpts: two Starts
         plan = [{"text": text, "role": None, "part": 0}]
         if given is not None:
             plan = given
@@ -701,7 +751,12 @@ def check_hypothesis(ws: Workspace, text: str, backend, model: str, framework: s
             cx.execute("UPDATE hypotheses SET model=? WHERE hyp_id=?", (used, hid))
     except BaseException:
         delete_hypothesis(ws, hid, unmade=True)  # a check stopped by a connection or key problem should not linger in the history
+        if own:
+            _let_go(readers)
         raise
+    try:
+        if own:
+            _local_after(readers)  # 0.19.13: after Claude's part, outside the clean-up: a stop now keeps the check
     finally:
         if own:
             _let_go(readers)
@@ -1110,6 +1165,7 @@ def continue_check(ws: Workspace, cid: str, backend, model: str, k: int = 8, ter
     _stopper(should_stop)()
     used = _used(backend, model)
     say("rank", "Looking for further excerpts not read yet", {})
+    own = readers is None
     readers = _readers(backend, model, readers)
     r = more_passages(ws, cid, k=k, model=used, terms=terms, embedder=embedder, doc_ids=doc_ids,
                       main_levels=tuple(readers.main_levels), local_reader=readers.local_configured())
@@ -1130,6 +1186,8 @@ def continue_check(ws: Workspace, cid: str, backend, model: str, k: int = 8, ter
                 cx.execute("DELETE FROM results WHERE task_id=?", (tid,))
                 cx.execute("DELETE FROM tasks WHERE task_id=?", (tid,))
         raise
+    if own:
+        _local_after(readers)  # 0.19.13: its local part, once the local model is started
     say("grade_done", "Read; every quote was checked against the document" if ok else "The AI's answers could not be used, even after three tries", {"ok": ok})
     return {**r, "ok": ok}
 
@@ -1279,12 +1337,18 @@ def read_new_documents(ws: Workspace, hyp_id: str, backend, model: str, k: int =
     docs = [d["doc_id"] for d in new if d["matching"]]
     total, rounds = 0, []
     if docs:
-        for c in ws.query("SELECT claim_id FROM user_claims WHERE hyp_id=? ORDER BY part, rowid", (hyp_id,)):
-            r = continue_check(ws, c["claim_id"], backend, model, k=k, embedder=embedder, should_stop=should_stop,
-                               doc_ids=docs, progress=lambda s, m, i=None: say(s, m, i or {}))
-            total += len(r["passages"])
-            rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
-                           "ok": r.get("ok")})
+        readers = _shared_in_job(backend, model)  # 0.19.13: in the app, every part's local part at one Start
+        try:
+            for c in ws.query("SELECT claim_id FROM user_claims WHERE hyp_id=? ORDER BY part, rowid", (hyp_id,)):
+                r = continue_check(ws, c["claim_id"], backend, model, k=k, embedder=embedder, should_stop=should_stop,
+                                   doc_ids=docs, progress=lambda s, m, i=None: say(s, m, i or {}), readers=readers)
+                total += len(r["passages"])
+                rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
+                               "ok": r.get("ok")})
+            _local_after(readers)
+        finally:
+            if readers is not None:
+                _let_go(readers)
     with ws.connect() as cx:
         cx.execute("UPDATE hypotheses SET docs_checked_at=? WHERE hyp_id=?", (now(), hyp_id))
     return {"hyp_id": hyp_id, "documents": len(new), "matching": len(docs), "passages": total, "rounds": rounds}
@@ -1325,22 +1389,28 @@ def read_unread_documents(ws: Workspace, hyp_id: str, backend, model: str, k: in
     hyp_limit = set(json.loads(ws.scalar("SELECT options_json FROM hypotheses WHERE hyp_id=?", (hyp_id,)) or "{}")
                     .get("doc_ids") or [])
     total, rounds = 0, []
-    for c in ws.query("SELECT claim_id, text, terms_json, options_json FROM user_claims WHERE hyp_id=? "
-                      "ORDER BY part, rowid", (hyp_id,)) if docs else []:
-        limit = set(json.loads(c["options_json"] or "{}").get("doc_ids") or []) or hyp_limit
-        # each part reads the documents that hold its own words, within its limit
-        mine = sorted(docs_matching(ws, c["text"], json.loads(c["terms_json"] or "[]"), docs & limit if limit else docs,
-                                    min_words=UNREAD_MIN_WORDS))
-        if not mine:   # never an empty list: that would mean every document
-            continue
-        # one excerpt per document if need be (up to UNREAD_ROUND_MAX), not only the check's usual k: the button
-        # says "Read these"; what is left over stays on the card for the next press
-        r = continue_check(ws, c["claim_id"], backend, model, k=max(k, min(len(mine), UNREAD_ROUND_MAX)),
-                           embedder=embedder, should_stop=should_stop, doc_ids=mine,
-                           progress=lambda s, m, i=None: say(s, m, i or {}))
-        total += len(r["passages"])
-        rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
-                       "ok": r.get("ok")})
+    readers = _shared_in_job(backend, model)  # 0.19.13: in the app, every part's local part at one Start
+    try:
+        for c in ws.query("SELECT claim_id, text, terms_json, options_json FROM user_claims WHERE hyp_id=? "
+                          "ORDER BY part, rowid", (hyp_id,)) if docs else []:
+            limit = set(json.loads(c["options_json"] or "{}").get("doc_ids") or []) or hyp_limit
+            # each part reads the documents that hold its own words, within its limit
+            mine = sorted(docs_matching(ws, c["text"], json.loads(c["terms_json"] or "[]"),
+                                        docs & limit if limit else docs, min_words=UNREAD_MIN_WORDS))
+            if not mine:   # never an empty list: that would mean every document
+                continue
+            # one excerpt per document if need be (up to UNREAD_ROUND_MAX), not only the check's usual k: the button
+            # says "Read these"; what is left over stays on the card for the next press
+            r = continue_check(ws, c["claim_id"], backend, model, k=max(k, min(len(mine), UNREAD_ROUND_MAX)),
+                               embedder=embedder, should_stop=should_stop, doc_ids=mine,
+                               progress=lambda s, m, i=None: say(s, m, i or {}), readers=readers)
+            total += len(r["passages"])
+            rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
+                           "ok": r.get("ok")})
+        _local_after(readers)
+    finally:
+        if readers is not None:
+            _let_go(readers)
     after = _unread_split(ws, hyp_id) if rounds else None
     left = after[1] if after else docs
     return {"hyp_id": hyp_id, "documents": len(docs), "documents_read": len(docs - left), "left": len(left & docs),
@@ -1650,7 +1720,9 @@ def check_batch(ws: Workspace, items: list[dict], backend, model: str, progress:
     problem with the model service stops the batch (what was done is kept)."""
     readers = access.Readers(backend, model)  # 0.13.11: one local model for the whole batch, let go at its end
     try:
-        return _check_each(ws, items, backend, model, _adapt(progress), should_stop, readers, options)
+        out = _check_each(ws, items, backend, model, _adapt(progress), should_stop, readers, options)
+        _local_after(readers)  # 0.19.13: the local parts of every check, once the local model is started
+        return out
     finally:
         _let_go(readers)
 

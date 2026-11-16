@@ -1,39 +1,28 @@
-// The live progress panel of a check (also used for batches and "read more"): updated in place from the job's
-// progress every poll, so running spinners do not restart and the page does not flicker.
-import { App, api, h, icon, replace, clear, fmt, cancelJob, showError, queueNotice, localPanel, memoryRefused, startClaude, watchJob, TERMINAL, P, button, card, fold, link, notice, stopButton, setBusy } from "../lib.js";
+// The AI run panel (docs/DESIGN.md 4.21): one panel for every place where AI runs, at three sizes. Full: a job's
+// panel (a check, a batch, reading more, a theory), its head, its steps, and the two sides under the step they work on.
+// Compact: the two sides alone in a card under what started them (reading one excerpt again, naming themes, a label
+// run). The row: the sidebar's work box (app.js). Updated in place from the job every poll, so nothing under the
+// pointer is replaced, a running spinner does not restart and the page does not flicker. The pieces (the sides, the
+// split bar, the start row) are in lib.js.
+import { App, api, h, icon, replace, clear, fmt, cancelJob, showError, memoryRefused, watchJob, TERMINAL, P, button, card, fold, link, notice, stopButton,
+  setBusy, plural, inStep, aiSide, aiSides, placeSide, redrawSide, sideFigures, setHalf, sidePct, modelFigures, readsLine, aiWhere, aiLead } from "../lib.js";
 
-const STEP_ICON = { pending: "circle", running: "loader", done: "check" };
-// 0.19.4: the backends of Settings that are a model on this computer (its panel shows while it reads)
+const STEP_ICON = { pending: "circle", running: "loader", done: "check", waiting: "clock" };
+// 0.19.4: the backends of Settings that are a model on this computer
 const LOCAL_MAIN = new Set(["ollama", "openai", "auto"]);
 const plainPhase = (phase) => ({ waiting: "The AI is getting ready and reading", thinking: "The AI is thinking it over", writing: "The AI is writing down its judgement", done: "The AI has finished" }[phase] || "The AI is working");
-// 0.19.6: what a named model is doing, after its name ("qwen3.5:9b is thinking it over")
-const MODEL_PHASE = { waiting: "is loading and reading", thinking: "is thinking it over", writing: "is writing its answer", done: "has finished" };
-const QUIET_AFTER = 20;   // seconds without a new token before the detail line says so
+// what Claude's side draws from the queue's words: not when they were said (a poll's own clock)
+const queueKey = (q) => JSON.stringify(q ? Object.fromEntries(Object.entries(q).filter(([k]) => !["at", "seconds"].includes(k))) : null);
+const MIXED_FOOT = "Two parts, two starts: each begins when you press its own Start, in either order, and they run side by side. Nothing is sent to Anthropic from the documents marked Only a local AI.";
 
-// 0.19.6: the line under a short job while a model reads (a model on this computer is slow, so it says, every second,
-// that work goes on): where it runs, what it has written so far and how fast, and how long since its last token.
-// `seen` keeps when the token count last changed, across polls.
+// 0.19.6: the line under a short job while a model reads, in words: what it has written so far and how fast, and how
+// long since its last token. `seen` keeps when the token count last changed, across polls. The panel shows the same
+// figures as one muted line (modelFigures(), lib.js); this is that line as text.
 export function modelDetail(m, seen) {
-  if (!m || !m.phase || m.phase === "queue" || m.phase === "done" || m.phase === "refused") return null;
-  const bits = [];
+  const f = modelFigures(m, seen);
+  if (!f) return null;
   const local = m.who === "local" || LOCAL_MAIN.has(App.settings().backend);
-  if (local) bits.push("On this computer");
-  const made = (m.thinking_tokens || 0) + (m.answer_tokens || 0);
-  const now = Date.now();
-  if (made !== seen.made) { seen.made = made; seen.at = now; }
-  if (m.phase === "waiting") {
-    bits.push(m.prompt_tokens ? `reading a prompt of about ${fmt.num(m.prompt_tokens)} tokens` : "reading the prompt");
-    if ((m.seconds || 0) >= 1) bits.push(`${fmt.secs(m.seconds)} so far`);
-    if ((m.seconds || 0) > 60 && local) bits.push("a model on this computer can take a few minutes to start");
-  } else {
-    if (m.thinking_tokens) bits.push(`${fmt.num(m.thinking_tokens)} tokens of reasoning`);
-    if (m.answer_tokens) bits.push(`${fmt.num(m.answer_tokens)} tokens of its answer`);
-    if (m.rate) bits.push(`${Number(m.rate).toFixed(1)} tokens a second`);
-    if (m.budget_reached) bits.push("its reasoning budget is used up, so it answers from its notes now");
-    const quiet = seen.at ? (now - seen.at) / 1000 : 0;
-    if (made && quiet >= QUIET_AFTER) bits.push(`nothing new for ${fmt.secs(quiet)}; it may still be working`);
-  }
-  return bits.join(" · ");
+  return [local ? "On this computer" : null, ...f.bits, f.quiet ? f.quiet.replace(/\.$/, "").replace(/^N/, "n") : null].filter(Boolean).join(" · ");
 }
 
 // "about 3 min left": `spent` the seconds the `finished` items took (up to the moment the last one finished), `since`
@@ -46,38 +35,58 @@ export function timeLeft(spent, finished, total, since = 0) {
   return left < 60 ? "less than a minute left" : mins < 90 ? `about ${mins} min left` : `about ${Math.floor(mins / 60)} h ${mins % 60} min left`;
 }
 
-export class ProgressPanel {
-  // `steps`: the step keys to show (a "look before checking" job only has the "terms" step; the others stay pending)
-  // `batchWords`: how the position in a set is worded ({doing: "checking hypothesis", done: "hypotheses checked"})
-  constructor({ onStop, title, steps, batchWords } = {}) {
-    this.onStop = onStop;
-    this.steps = steps ? new Set(steps) : null;
-    this.batchWords = batchWords || { doing: "checking hypothesis", done: "hypotheses checked" };
-    this.rows = new Map();     // key -> row element
+
+// The panel. opts: size ("full" | "compact"), title (full: the panel's name; compact: what runs, "The AI names the
+// themes"), steps (full: the step keys to show), batchWords ({ doing, done }), noun (what the local model reads:
+// "passage", "excerpt", "theme"), engines (["local", "cloud"]: which seats have work; by default read from the job and
+// kept once seen), onStop (after the job's Stop), stop (false: no Stop of its own, the card around it has one),
+// label(job) (compact: the line's words, in place of the title's), onLocalStart (after this computer's Start).
+export class AiRun {
+  constructor(o = {}) {
+    this.o = o;
+    this.size = o.size || "full";
+    this.onStop = o.onStop;
+    this.title = o.title || "Working";
+    this.steps = o.steps ? new Set(o.steps) : null;
+    this.batchWords = o.batchWords || { doing: "checking hypothesis", done: "hypotheses checked" };
+    this.engines = new Set(o.engines || []);
+    this.fixed = !!o.engines;
+    this.rows = new Map();     // key -> step row
     this.partEls = new Map();  // part number -> block
-    this.el = h("div", { class: "progress progress-running", "aria-label": title || "Progress" });
-    this.msg = h("div", { class: "msg" }, "Starting…");
-    this.live = h("div", { class: "visually-hidden", "aria-live": "polite", "aria-atomic": "true" });
-    this.elapsed = h("span", { class: "elapsed" }, "0 s");
-    this.stopBtn = stopButton({ onClick: () => this.stop() });
-    this.head = h("div", { class: "progress-head" }, h("span", { class: "running-dot", "aria-hidden": "true" }), this.msg, this.elapsed, this.stopBtn);
-    this.batchBox = h("div", { class: "batch-box", hidden: true });
-    this.decompBox = h("div", { class: "decomp-box", hidden: true });
-    this.partsBox = h("div", { class: "parts-box" });
-    this.modelBox = h("div", { class: "model-line", hidden: true });
-    this.notesBox = h("ul", { class: "progress-notes small", hidden: true });
-    this.expect = h("p", { class: "muted small expect" }, App.settings().backend === "claude_code"
-      ? "Claude Code reads it once you press Start Claude Code (or type the command in Claude Code). You can move around the app, or close it: the check waits in the queue, and its answer appears under Hypotheses."
-      : "An AI model running on your own computer can take a few minutes. You can move around the app meanwhile; the check keeps running.");
-    this.techOpen = false;
-    this.body = h("div", { class: "progress-body" }, this.batchBox, this.decompBox, this.partsBox, this.modelBox, this.notesBox, this.expect);
-    this.el.append(this.head, this.body, this.live);
+    this.sides = { local: null, cloud: null };
+    this.sideKey = { local: "", cloud: "" };
+    this.sideState = { local: null, cloud: null };
+    this.seen = {};            // the running model's figures, across polls
+    this.localTotal = 0;
+    this.active = { local: false, cloud: false };   // each engine has been at work in this job
     this.jobId = null;
-    this.batchIndex = null;
+    this.job = null;
+    this.headKind = "";
     this.lastLive = "";
     this.liveAt = 0;
-    this.queueEl = null;       // the queue notice, kept across polls so its buttons keep focus and state
-    this.queueKey = "";
+    this.waiting = false;
+    this.live = h("div", { class: "visually-hidden", "aria-live": "polite", "aria-atomic": "true" });
+    this.lead = h("span", { class: "ar-lead" });
+    this.msg = h(this.size === "full" ? "div" : "span", { class: "msg" }, this.size === "full" ? "Starting…" : `${this.title}…`);
+    this.elapsed = h("span", { class: "elapsed" }, this.size === "full" ? "0 s" : "");
+    this.stopBtn = o.stop === false ? null : stopButton({ onClick: () => this.stop() });
+    this.block = aiSides(null, null);   // filled once the job says which engines it has
+    this.block.hidden = true;
+    if (this.size === "full") {
+      this.head = h("div", { class: "progress-head" }, this.lead, this.msg, this.elapsed, this.stopBtn);
+      this.batchBox = h("div", { class: "batch-box", hidden: true });
+      this.decompBox = h("div", { class: "decomp-box", hidden: true });
+      this.partsBox = h("div", { class: "parts-box" });
+      this.li = h("li", { class: "step-sides", role: "presentation" });
+      this.notesBox = h("ul", { class: "progress-notes small", hidden: true });
+      this.expect = h("p", { class: "ar-foot" }, "");
+      this.body = h("div", { class: "progress-body" }, this.batchBox, this.decompBox, this.partsBox, this.block, this.notesBox, this.expect);
+      this.el = inStep(h("div", { class: "progress ar-full ab ar-running", "aria-label": o.title || "Progress" }, this.head, this.body, this.live));
+    } else {
+      this.head = h("p", { class: "ab-line" }, this.lead, this.msg, this.elapsed, this.stopBtn);
+      this.el = inStep(h("div", { class: "ab ab-compact ab-run ar-running" }, this.head, this.block, this.live));
+    }
+    this.setHead("running");
   }
 
   async stop() {
@@ -87,39 +96,128 @@ export class ProgressPanel {
     if (this.onStop) this.onStop();
   }
 
+  destroy() { this.el.remove(); }
+
+  // the head: waiting for you (a clock, the slow breath), at work (the running dot, the flow), needs you (the amber
+  // pause), done, stopped, did not work
+  setHead(kind) {
+    if (kind === this.headKind) return;
+    this.headKind = kind;
+    for (const k of ["waiting", "running", "attention", "done", "error", "stopped"]) this.el.classList.toggle(`ar-${k}`, k === kind);
+    this.el.classList.toggle("progress-error", kind === "error");
+    replace(this.lead, aiLead(kind));
+  }
+
+  headFromSides() {
+    const job = this.job;
+    if (!job) return;
+    const running = job.state === "queued" || job.state === "running";
+    const st = [this.sideState.local, this.sideState.cloud].filter(Boolean);
+    let kind;
+    if (!running) kind = job.state === "done" ? "done" : job.state === "error" ? "error" : "stopped";
+    else if (job.state === "queued" || job.waiting_for) kind = "waiting";
+    else if (st.includes("run")) kind = "running";
+    else if (st.includes("need") || st.includes("paused")) kind = "attention";
+    else if (st.includes("wait")) kind = "waiting";
+    else kind = "running";
+    this.setHead(kind);
+    if (this.size === "full" && this.expect) {
+      this.expect.textContent = running ? this.foot() : "";
+      this.expect.hidden = !this.expect.textContent;
+    }
+    // the steps that wait for a Start show a clock, not the turning loader (nothing runs until it is pressed); once
+    // the job has ended, a step it was on shows that it stopped there
+    if (this.size === "full") {
+      for (const li of this.rows.values()) {
+        const on = li.dataset.state === "running";
+        const look = !on ? "" : !running ? "stopped" : kind === "waiting" || kind === "attention" ? "waiting" : "";
+        if ((li.dataset.look || "") === look) continue;
+        li.dataset.look = look;
+        li.classList.toggle("step-waiting", look === "waiting");
+        replace(li.querySelector(".st-icon"), icon(look === "waiting" ? "clock" : look === "stopped" ? "minus" : STEP_ICON[li.dataset.state] || "circle", { size: 16 }));
+      }
+    }
+  }
+
+  // The foot: one sentence on what happens next, chosen by the sides' states (who waits for a Start, who works)
+  foot() {
+    const L = this.sideState.local, C = this.sideState.cloud;
+    const has = (w) => this.engines.has(w);
+    const waits = (k) => k === "wait" || k === "need" || k === "paused";
+    if (has("local") && has("cloud") && waits(L) && waits(C)) return MIXED_FOOT;
+    if (has("cloud") && waits(C) && App.settings().backend === "claude_code") {
+      return L === "run" ? "Your local model reads its part meanwhile. Claude Code reads the rest once you press Start Claude Code (or type the command in Claude Code); the work waits in the queue meanwhile, and you can move around the app."
+        : "Claude Code reads it once you press Start Claude Code (or type the command in Claude Code). You can move around the app, or close it: the work waits in the queue, and its answer appears where you started it.";
+    }
+    if (has("local") && waits(L)) {
+      return C === "run" ? "Claude reads its part meanwhile. The work ends only once your local model has read its part too: press its Start, or stop the work."
+        : "The work goes on once your local model has read what waits for it: press its Start, or stop the work. You can move around the app meanwhile.";
+    }
+    if (L === "run") return "A model on this computer can take a few minutes. You can move around the app meanwhile; the work keeps running.";
+    return "You can move around the app meanwhile; the work keeps running.";
+  }
+
   // Draw the job (state + progress).
   update(job) {
+    this.job = job;
     this.jobId = job.id;
     const p = job.progress || {};
     const running = job.state === "queued" || job.state === "running";
-    this.el.classList.toggle("progress-running", running);
     this.el.classList.toggle("progress-done", job.state === "done");
-    this.el.classList.toggle("progress-error", job.state === "error" || job.state === "cancelled");
-    this.stopBtn.hidden = !running;
-    const dot = this.head.querySelector(".running-dot");
-    if (dot) dot.hidden = !running;
-
-    let message = job.waiting_for ? job.waiting_for.message   // 0.18 queued jobs
-      : p.message || (job.state === "queued" ? "Waiting for the AI (another task is using it)" : "Starting");
-    if (job.state === "done") message = "Done";
-    else if (job.state === "error") message = "Stopped because something went wrong";
-    else if (job.state === "cancelled") message = "Stopped";
-    this.expect.hidden = !running;
-    this.msg.textContent = message;
+    if (this.stopBtn) this.stopBtn.hidden = !running;
+    const m = p.model;
+    let message;
+    if (this.size === "full") {
+      message = this.o.label ? this.o.label(job) : job.waiting_for ? job.waiting_for.message   // 0.18 queued jobs
+        : p.message || (job.state === "queued" ? "Waiting for the AI (another task is using it)" : "Starting");
+      if (job.state === "done") message = "Done";
+      else if (job.state === "error") message = "Stopped because something went wrong";
+      else if (job.state === "cancelled") message = "Stopped";
+    } else {
+      message = this.o.label ? this.o.label(job) : `${this.title}…`;
+      if (!this.o.label) {
+        if (job.waiting_for) message = `${this.title}: ${job.waiting_for.message.replace(/^Q/, "q")}`;
+        else if (job.state === "queued") message = `${this.title}: waiting for the AI (another task is using it)`;
+        else if (running && p.message) message = `${this.title}: ${p.message}`;
+        else if (running && m && m.phase && !["queue", "done", "ready", "refused"].includes(m.phase) && m.who !== "local") message = `${this.title}: ${(m.plain || plainPhase(m.phase)).replace(/^The AI/, "the AI").replace(/^Your /, "your ")}`;
+      }
+      if (job.state === "done") message = "Done.";
+      else if (job.state === "error") message = "Stopped because something went wrong.";
+      else if (job.state === "cancelled") message = "Stopped.";
+    }
+    if (this.msg.textContent !== message) this.msg.textContent = message;
     const secs = p.elapsed !== undefined ? p.elapsed : job.seconds;
-    this.elapsed.textContent = fmt.secs(secs || 0);
+    const t = running || this.size === "full" ? fmt.secs(secs || 0) : "";
+    if (this.elapsed.textContent !== t) this.elapsed.textContent = t;
 
+    if (this.size === "full") this.drawSteps(job, running);
+    this.drawSides(job, running);
+    if (this.size === "full") this.drawEnd(job);
+    this.headFromSides();
+    if (this.size === "full") this.placeBlock();
+
+    // screen readers: the message at most every 4 s, and state changes at once
+    const announce = `${message.replace(/[.…]$/, "")}${running ? "" : "."}`;
+    const now = Date.now();
+    if (announce !== this.lastLive && (!running || now - this.liveAt > 4000)) {
+      this.live.textContent = announce + (running ? ` (${fmt.secs(secs || 0)})` : "");
+      this.lastLive = announce;
+      this.liveAt = now;
+    }
+  }
+
+  drawSteps(job, running) {
+    const p = job.progress || {};
     // a batch moved on to its next hypothesis: the steps start over
     if (p.batch && p.batch.index !== this.batchIndex) {
       this.batchIndex = p.batch.index;
       clear(this.partsBox); this.partEls.clear(); this.rows.clear();
     }
-    // batch position
     if (p.batch && p.batch.total) {
       this.batchBox.hidden = false;
       const finished = !running;
       // 0.14.3: once the job has ended the count is the job's own (the same "N of M" as the summary under it), and the
-      // steps of the last hypothesis are not shown any more (a spinner on "Waiting for Claude Code" after "Done")
+      // steps of the last hypothesis are not shown any more
       const res = job.result || {};
       const total = finished && Number.isInteger(res.total) ? res.total : p.batch.total;
       const doneCount = finished ? (Array.isArray(res.checked) ? res.checked.length : p.batch.index) : p.batch.index - 1;
@@ -131,20 +229,15 @@ export class ProgressPanel {
         finished ? null : h("p", { class: "batch-current" }, p.batch.text || ""));
     } else this.batchBox.hidden = true;
 
-    // decomposition
     if (p.decompose) {
       this.decompBox.hidden = false;
       const d = p.decompose;
       const row = this.row("decompose", d.label, d.state, d.detail, d.seconds);
-      const list = h("ol", { class: "decomp-parts" }, (d.parts || []).map((t) => h("li", {}, t)));
+      const list = h("ol", { class: "decomp-parts" }, (d.parts || []).map((x) => h("li", {}, x)));
       replace(this.decompBox, row, d.parts && d.parts.length ? list : null);
     } else this.decompBox.hidden = true;
 
-    // parts and their steps
-    const parts = p.parts || [];
-    const seen = new Set();
-    for (const part of parts) {
-      seen.add(part.part);
+    for (const part of p.parts || []) {
       let block = this.partEls.get(part.part);
       if (block && block.dataset.text !== (part.text || "")) {
         const t = block.querySelector(".part-title");
@@ -154,7 +247,7 @@ export class ProgressPanel {
       if (!block) {
         block = h("div", { class: "part-block" });
         block.dataset.text = part.text || "";
-        if (parts.length > 1 || part.part > 0) {
+        if ((p.parts || []).length > 1 || part.part > 0) {
           block.appendChild(h("p", { class: "part-title" }, h("span", { class: "pn" }, part.part ? `Part ${part.part}` : "Hypothesis"), part.text || ""));
         }
         block.appendChild(h("ul", { class: "step-list" }));
@@ -170,66 +263,155 @@ export class ProgressPanel {
         else this.setRow(row, s.state, s.detail, s.seconds);
       }
     }
+  }
 
-    // model activity: one plain sentence; tokens, speed and the raw text behind "technical details"
-    const m = p.model;
-    if (m && (running || m.phase === "done")) {
-      this.modelBox.hidden = false;
-      // 0.13.11: the local model for documents marked Only a local AI shows itself (it read unseen before)
-      const phaseIcon = m.who === "local" && m.phase !== "done" ? "house" : { waiting: "clock", thinking: "loader", writing: "type", done: "check", queue: "inbox" }[m.phase] || "loader";
-      const plain = m.plain || plainPhase(m.phase);
-      const tech = fold({ class: "tech", open: this.techOpen }, "Technical details",
-        h("div", { class: "tech-body" }, h("div", { class: "mono small" }, m.line || ""),
-          m.tail && m.phase !== "done" ? h("div", { class: "model-tail", "aria-hidden": "true" }, h("span", {}, m.tail)) : null));
-      tech.addEventListener("toggle", () => { this.techOpen = tech.open; });
-      if (m.phase === "queue") this.drawQueue({ ...(m.queue || {}), text: plain });
-      else { this.queueEl = null; replace(this.modelBox,
-        h("div", { class: "ml-head" }, icon(phaseIcon, { size: 14 }), h("span", {}, running && (m.seconds || 0) >= 1 ? `${plain} · ${fmt.secs(m.seconds)}` : plain)),
-        tech); }
-    } else { this.modelBox.hidden = true; this.queueEl = null; }
-
-    // 0.11: what happened to the excerpts of restricted documents (read here by the local model, or waiting for you)
-    const notes = p.notes || [];
+  // notes on restricted documents, and why it did not work
+  drawEnd(job) {
+    const notes = (job.progress || {}).notes || [];
     this.notesBox.hidden = notes.length === 0;
     if (notes.length !== this.notesBox.childElementCount) replace(this.notesBox, ...notes.map((n) => h("li", {}, n)));
-
-    // errors
     if (job.state === "error") {
       let err = this.body.querySelector(".progress-err");
       if (!err) { err = notice({ kind: "error", class: "progress-err" }); this.body.appendChild(err); }
-      replace(err.querySelector(".notice-body"),
-        h("p", {}, job.error_kind === "backend" ? "The AI model stopped answering, so the check could not finish." : job.error_kind === "internal" ? "Something went wrong inside the app." : (job.error || "The check could not finish.")),
-        job.error_kind === "backend" || job.error_kind === "internal" ? fold({}, "Technical details", h("div", { class: "mono small" }, job.error || "")) : null,
-        job.error_kind === "backend" ? link({ href: "#/settings" }, "Check the AI model in Settings") : null);
-    }
-
-    // screen readers: announce the message at most every 4 s, and state changes at once
-    const announce = `${message}${running ? "" : "."}`;
-    const now = Date.now();
-    if (announce !== this.lastLive && (!running || now - this.liveAt > 4000)) {
-      this.live.textContent = announce + (running ? ` (${fmt.secs(secs || 0)})` : "");
-      this.lastLive = announce;
-      this.liveAt = now;
+      replace(err.querySelector(".notice-body"), ...jobErrorParts(job, "The check could not finish."));
     }
   }
 
-  // The queue notice is built once and kept while the queue's state is the same: a poll every half second must not
-  // replace its Start Claude Code button under the person's pointer or focus (or let a second start through).
-  // Only the count being answered is written in place; the Start Claude Code element keeps itself current.
-  drawQueue(q) {
-    const key = JSON.stringify([q.text, !!q.paused, q.paused_text || "", q.command || "", q.privacy || "", q.estimate || ""]);
-    if (!this.queueEl || !this.queueEl.isConnected || key !== this.queueKey) {
-      this.queueKey = key;
-      this.queueEl = queueNotice(q);
-      replace(this.modelBox, this.queueEl);
-      return;
+  // the two sides stand directly under the step they work on (the first that is not done); with no steps, under the head
+  placeBlock() {
+    const rows = this.partsBox.hidden ? [] : [...this.partsBox.querySelectorAll("li.step")];
+    const active = rows.find((r) => r.dataset.state !== "done") || rows[rows.length - 1];
+    if (active) {
+      if (this.block.parentNode !== this.li) this.li.append(this.block);
+      if (this.li.previousElementSibling !== active) active.after(this.li);
+    } else if (this.block.parentNode !== this.body) {
+      this.li.remove();
+      this.notesBox.before(this.block);
     }
-    const head = this.queueEl.querySelector(".qn-head");
-    let n = head.querySelector(".qn-answered");
-    if (q.being_answered) {
-      if (!n) { n = h("span", { class: "muted small qn-answered" }); head.appendChild(n); }
-      n.textContent = ` · ${q.being_answered} being answered now`;
-    } else if (n) n.remove();
+  }
+
+  // Which engines the job has, and the state of each side. Read from what the server sends: Claude's when its work
+  // waits in the queue (progress.queue, the model's phase "queue", job.queue) or the Claude API is Settings' AI; this
+  // computer's when the local model reports (progress.model.who "local"), job.local_model, job.local (its gate), or
+  // a refusal for memory. Once seen, an engine keeps its seat.
+  drawSides(job, running) {
+    const p = job.progress || {}, m = p.model || null, L = job.local || null;
+    const s = App.settings();
+    const mainLocal = LOCAL_MAIN.has(s.backend);
+    // 0.19.6: the queue's report counts only while it is the later one (as the server's latest_report)
+    const pq = p.queue && !(m && m.phase !== "queue" && (m.at || 0) > (p.queue.at || 0)) ? p.queue : null;
+    const wq = running ? ((m && m.phase === "queue" && m.queue) || pq || null) : null;
+    const localNow = running && !!(m && m.phase && !["queue", "done", "refused", "ready"].includes(m.phase) && (m.who === "local" || (mainLocal && m.who !== "cloud")));
+    if (!this.fixed) {
+      if (L || localNow || job.local_model || job.error_kind === "memory" || (m && (m.who === "local" || m.phase === "refused")) || (mainLocal && !job.queue && job.where !== "cloud") || (job.kind === "read-local")) this.engines.add("local");
+      if (wq || job.where === "cloud" || (job.where !== "here" && (job.queue || (s.backend === "anthropic" && job.where == null && !job.local_model)))) this.engines.add("cloud");
+    }
+    this.block.hidden = !this.engines.size;
+    if (!this.engines.size) return;
+    if (localNow) this.active.local = true;
+    if (wq || (s.backend === "anthropic" && running && !localNow && this.engines.has("cloud"))) this.active.cloud = true;
+    const compact = this.size !== "full";
+    const onState = (where) => (key) => { this.sideState[where] = key; if (this.job) this.headFromSides(); };
+
+    // ---- this computer
+    if (this.engines.has("local")) {
+      const model = (L && L.model) || (m && m.who === "local" && (m.model || m.name)) || job.local_model
+        || (mainLocal ? String(App.privacy().detail || "").split(" · ").pop() : s.restricted_model) || "";
+      // what it reads: the server's word, unless it is only the generic "task" and the page knows better
+      const noun = (L && L.noun && L.noun !== "task" ? L.noun : null) || this.o.noun || (L && L.noun) || (job.kind === "read-local" ? "excerpt" : "passage");
+      // how many it has to read: the most that waited at once (the server counts what is left, the item in hand
+      // too); none when the job never said
+      if (L && L.waiting) this.localTotal = Math.max(this.localTotal, L.waiting);
+      const counts = (waiting) => (this.localTotal ? { done: Math.max(0, this.localTotal - waiting), total: this.localTotal } : {});
+      const cloudBusy = this.engines.has("cloud") && !["done", "stopped", "later"].includes(this.sideState.cloud || "");
+      // Stop <model> (job.local's gate open): back to waiting after the item in hand; the job's own Stop ends it all
+      const stopLocal = L && L.gate !== "wait" ? async () => { const r = await api("POST", `/api/jobs/${P(job.id)}/local/stop`, {}); if (r && r.job) this.update(r.job); } : null;
+      let o;
+      if (!running) {
+        o = job.state === "done" ? (this.active.local ? { done: { text: `${model || "Your local model"} has read its part` } } : { plain: { key: "done", what: "Nothing was left for it to read" } })
+          : { plain: { key: "stopped", what: "Stopped" } };
+      } else if (localNow) {
+        // Stop <model> pressed: it reads on to the end of what it has in hand, and says so where its Stop was
+        const stopping = L && L.gate === "wait" ? `Stops after the ${["excerpt", "passage"].includes(noun) ? `${noun}s` : noun} in hand` : null;
+        o = { running: { phase: m.phase, seconds: m.seconds, ...(L ? counts(L.waiting || 0) : {}) }, onStop: stopLocal, stopping };
+      } else if (m && m.phase === "refused" && m.who === "local") {
+        o = { memory: m.memory || null, refused: m.memory ? true : (m.error || true), count: L ? L.waiting : 0,
+          note: L ? null : "When this run has finished, you can start it from here.", sub: this.engines.has("cloud") ? "Claude Code reads the rest meanwhile." : null };
+      } else if (L && L.problem) {
+        o = { problem: L.problem };
+      } else if (L && L.gate === "wait" && (L.waiting || 0) > 0) {
+        o = { count: L.waiting, memory: L.memory || null, since: this.localSince || (this.localSince = Date.now()),
+          // all that is left of the job: a model that cannot start (memory short) needs you
+          blocking: !cloudBusy,
+          // the job goes on only once these are read (or Stop): said once Claude's side is done or absent
+          sub: cloudBusy ? null : `The work goes on once ${L.waiting === 1 ? "it is" : "they are"} read: press Start, or stop the work.` };
+      } else if (L && (L.waiting || 0) > 0) {   // its Start was pressed: the model is on its way
+        o = { running: { phase: "waiting", ...counts(L.waiting) }, count: L.waiting, onStop: stopLocal };
+      } else {
+        o = this.active.local ? { done: { text: `${model || "Your local model"} has read its part` } }
+          : { plain: { key: "later", what: mainLocal ? "Its part comes with the steps above" : "Nothing waits for it yet" } };
+      }
+      o = { model, noun, compact, ...o };
+      const key = JSON.stringify(o.running ? ["run", model, !!o.onStop, o.stopping || null] : o);
+      let side = this.sides.local;
+      if (o.count && !o.running && !o.problem && !o.plain && !o.done) o.onStart = async (force) => { const r = await api("POST", `/api/jobs/${P(job.id)}/local/start`, { force: !!force }); if (r && r.job) this.update(r.job); if (this.o.onLocalStart) this.o.onLocalStart(); };
+      if (!side) {
+        side = this.sides.local = aiSide({ where: "local", ...o, onState: onState("local") });
+        placeSide(this.block, "local", side);
+        this.sideKey.local = key;
+      } else if (key !== this.sideKey.local) {
+        this.sideKey.local = key;
+        redrawSide(side, { ...o, onState: onState("local") });
+      } else if (o.running) {   // written in place: what it does and how far, never a new Stop under the pointer
+        const what = side.querySelector(".ab-what strong");
+        const words = `${model || "Your local model"} ${{ waiting: "is loading and reading", thinking: "is thinking it over", writing: "is writing its answer" }[o.running.phase] || "is reading"}`;
+        if (what && what.textContent !== words) what.textContent = words;
+        const c = side.querySelector(".ab-count");
+        const r = o.running;
+        const cw = [r.total ? `${fmt.num(r.done || 0)} of ${plural(r.total, noun)} done` : "", r.seconds ? fmt.secs(r.seconds) : ""].filter(Boolean).join(" · ");
+        if (c && c.textContent !== cw) c.textContent = cw;
+        sidePct(side, r.total ? 100 * (r.done || 0) / r.total : null);
+      }
+      sideFigures(side, localNow ? modelFigures(m, this.seen) : null);
+    }
+
+    // ---- Claude
+    if (this.engines.has("cloud")) {
+      const pct = p.batch && p.batch.total ? 100 * Math.max(0, p.batch.index - 1) / p.batch.total : p.total && !localNow ? 100 * (p.done || 0) / p.total : null;
+      let side = this.sides.cloud;
+      // a Claude Code job keeps Claude's live side once it was there: the project's queue says whether its part still
+      // waits, works or is answered (the local model's report may be the newer one meanwhile)
+      if (wq) this.lastQ = wq;
+      // the last words it had, whole, while the local model's report is the newer one: flipping between two would
+      // draw Claude's side again (and its Stop under the pointer) every poll
+      const jqNow = wq || this.lastQ || null;
+      if (App.project && (wq || (running && job.queue && this.lastQ))) {
+        const key = "live";
+        if (this.sideKey.cloud !== key || !side) {
+          this.sideKey.cloud = key;
+          const fresh = aiSide({ where: "cloud", live: true, q: jqNow, compact, pct, onState: onState("cloud") });
+          fresh.dataset.qk = queueKey(jqNow);
+          placeSide(this.block, "cloud", fresh);
+          side = this.sides.cloud = fresh;
+        } else {
+          const qk = queueKey(jqNow);
+          if (side.dataset.qk !== qk) { side.dataset.qk = qk; side.arSetQueue(jqNow); }
+          sidePct(side, pct);
+        }
+      } else {
+        let o;
+        if (!running) o = job.state === "done" ? { state: "done", what: this.active.cloud ? "Claude has answered its part" : "Nothing was sent to Claude" } : { state: "stopped" };
+        else if (s.backend === "anthropic" && !localNow) o = { state: "run", what: "Claude reads the excerpts", line: compact ? null : readsLine("the excerpts it needs"), pct };
+        else if (this.active.cloud) o = { state: "done", what: "Claude has answered its part" };
+        else o = { state: "later", what: s.backend === "claude_code" ? "Nothing waits for Claude Code yet" : "Its part comes after the steps above" };
+        const key = JSON.stringify({ ...o, line: !!o.line, pct: null });
+        if (!side || this.sideKey.cloud !== key) {
+          this.sideKey.cloud = key;
+          if (side && !side.arSetQueue) redrawSide(side, { ...o, onState: onState("cloud") });
+          else { side = this.sides.cloud = aiSide({ where: "cloud", ...o, onState: onState("cloud") }); placeSide(this.block, "cloud", side); }
+        } else if (o.state === "run") sidePct(side, pct);
+      }
+    }
   }
 
   row(key, label, state, detail, seconds) {
@@ -267,68 +449,26 @@ export class ProgressPanel {
   }
 }
 
-// One line for a short job inside a card (reading one excerpt again, reading the new documents): what the AI is
-// doing, the time, and a Stop button. `update(job)` redraws it from the job.
-export class MiniJob {
-  constructor({ title, onStop } = {}) {
-    this.title = title || "Working";
-    this.msg = h("span", { class: "mini-msg" }, this.title, "…");
-    this.time = h("span", { class: "mini-time", "aria-hidden": "true" }, "");
-    this.stopBtn = stopButton({ onClick: async () => {
-      if (!this.jobId) return;
-      this.stopBtn.disabled = true;
-      try { await cancelJob(this.jobId); } catch (e) { showError(e); this.stopBtn.disabled = false; }
-      if (onStop) onStop();
-    } });
-    // 0.19.6: what the model is doing, in numbers, and its latest words (seen in the page, not read out)
-    this.detail = h("span", { class: "mini-detail", hidden: true, "aria-hidden": "true" });   // changes every second: not read out
-    this.tail = h("span", { class: "mini-tail", hidden: true, "aria-hidden": "true" }, h("span", {}));
-    this.seen = { made: -1, at: 0 };
-    this.el = h("div", { class: "mini-job", role: "status" }, h("span", { class: "running-dot", "aria-hidden": "true" }), this.msg, this.time, this.stopBtn, this.detail, this.tail);
-    this.jobId = null;
-    this.startEl = null;   // 0.11.3: the Start Claude Code block while the job waits for Claude Code
-  }
+// The panel at either size: aiRun({ size, … }) → { el, update(job), destroy() }
+export function aiRun(opts = {}) { return new AiRun(opts); }
+
+// The full panel of a check (also batches and "read more"), by its old name: aiRun({ size: "full" }).
+export class ProgressPanel extends AiRun {
+  constructor(opts = {}) { super({ ...opts, size: "full" }); }
+}
+
+// A short AI job inside a card (reading one excerpt again, naming the themes), by its old name: aiRun({ size:
+// "compact" }) with what runs as its line. `.waiting`: it waits for a Start or its turn (the page's own counter leaves
+// out the time left then).
+export class MiniJob extends AiRun {
+  constructor(opts = {}) { super({ ...opts, size: "compact" }); }
   update(job) {
-    this.jobId = job.id;
-    const p = job.progress || {};
-    const running = job.state === "queued" || job.state === "running";
-    const m = p.model;
-    // 0.19.6: the queue's report counts only while it is the later one (a job whose themes go to Claude Code and to
-    // the local model in turn said "waiting for Claude Code" while the local model read), as the server's latest_report
-    const pq = p.queue && !(m && m.phase !== "queue" && (m.at || 0) > (p.queue.at || 0)) ? p.queue : null;
-    // 0.11.3: a job that waits for Claude Code carries the Start Claude Code button (and the command to type), as
-    // every other place where work waits does; built once, it keeps itself current
-    const wq = running && ((m && m.phase === "queue" && (m.queue || {})) || pq);
-    if (wq && !this.startEl && App.project) this.el.appendChild(this.startEl = startClaude(App.project, { command: wq.command }));
-    else if (!wq && this.startEl) { this.startEl.remove(); this.startEl = null; }
-    const typeIt = (cmd) => (this.startEl ? "" : ` (type ${cmd || "/margin-run"} in Claude Code)`);
-    let text = `${this.title}…`;
-    if (job.waiting_for) text = `${this.title}: ${job.waiting_for.message.replace(/^Q/, "q")}`;   // 0.18 queued jobs
-    else if (job.state === "queued") text = `${this.title}: waiting for the AI (another task is using it)`;
-    else if (running && m && m.phase === "queue") text = `${this.title}: ${m.queue && m.queue.paused ? "paused" : "waiting for Claude Code"}${typeIt(m.queue && m.queue.command)}`;
-    else if (running && pq) text = `${this.title}: waiting for Claude Code${typeIt(pq.command)}`;
-    else if (running && m && m.phase && m.phase !== "done" && m.who === "local" && MODEL_PHASE[m.phase]) text = `${this.title}: ${m.model || m.name || "your local model"} ${MODEL_PHASE[m.phase]}`;   // 0.19.6: the local model by its name
-    else if (running && m && m.phase && m.phase !== "done") text = `${this.title}: ${(m.plain || plainPhase(m.phase)).replace(/^The AI/, "the AI").replace(/^Your /, "your ")}`;
-    else if (running && p.message) text = `${this.title}: ${p.message}`;
-    if (job.state === "done") text = "Done.";
-    else if (job.state === "error") text = "Stopped because something went wrong.";
-    else if (job.state === "cancelled") text = "Stopped.";
-    this.msg.textContent = text;
-    this.time.textContent = running ? fmt.secs(p.elapsed !== undefined ? p.elapsed : job.seconds || 0) : "";
-    this.waiting = !!wq || job.state === "queued";   // 0.19.6: the page's own counter leaves out the time left then
-    const detail = running && !wq ? modelDetail(m, this.seen) : null;
-    this.detail.hidden = !detail;
-    if (detail && this.detail.textContent !== detail) this.detail.textContent = detail;
-    const words = detail && m.phase === "thinking" ? String(m.tail || "").split(/\s+/).join(" ").trim().slice(-200) : "";
-    this.tail.hidden = !words;
-    if (words && this.tail.firstChild.textContent !== words) this.tail.firstChild.textContent = words;
-    this.stopBtn.hidden = !running;
-    this.el.classList.toggle("mini-done", !running);
-    const dot = this.el.querySelector(".running-dot"); if (dot) dot.hidden = !running;
+    super.update(job);
+    this.waiting = job.state === "queued" || this.headKind === "waiting" || this.headKind === "attention";
   }
 }
 
-// A simple bar for ingest / index jobs.
+// A simple bar for work that is not the AI's (adding documents, search by meaning, the glossary).
 export function simpleProgress(job, labelFn) {
   const p = job.progress || {};
   const total = p.total || 0, done = p.done || 0;
@@ -336,27 +476,21 @@ export function simpleProgress(job, labelFn) {
   const running = job.state === "queued" || job.state === "running";
   const label = job.waiting_for ? job.waiting_for.message   // 0.18 queued jobs
     : labelFn ? labelFn(p, job) : (p.file ? `${done} of ${total} · ${p.file}` : total ? `${done} of ${total}` : "Starting…");
-  // 0.19.4: a local model at work has its own panel, beside Claude Code's when both read (the local one reads first)
-  const m = p.model;
-  const localNow = running && m && m.phase && m.phase !== "done" && (m.who === "local" || LOCAL_MAIN.has(App.settings().backend));
   return h("div", { class: "stack prg-line" },
-    localNow ? localPanel(m.phase === "refused"
-      ? { model: m.model, memory: m.memory, refused: m.memory ? null : m.error, head: "Your local model was not started: its passages wait", note: "When this run has finished, you can start it from this card." }
-      : { model: m.model, running: { phase: m.phase } }) : null,
-    running && p.queue ? queueNotice(p.queue) : null,
     h("div", { class: "row prg-line-head" }, h("span", { class: "it" }, running ? h("span", { class: "running-dot", "aria-hidden": "true" }) : null, h("strong", {}, label)), h("span", { class: "muted small" }, fmt.secs(job.seconds))),
     h("div", { class: "progress-bar " + (running && !total ? "indeterminate" : ""), role: "progressbar", "aria-valuemin": 0, "aria-valuemax": total || 100, "aria-valuenow": total ? done : null, "aria-label": label },
       h("span", { style: { width: `${Math.max(2, pct)}%` } })));
 }
 
-// A job in a card: a bar with what it is doing, its time and a Stop button. `onEnd(job)` runs when it ends.
-// opts: small (h3), plain (card-plain), stoppedText. Returns the watcher (stop it when the page is left).
+// A job in a card: what it is doing, its time and a Stop button. `onEnd(job)` runs when it ends. opts: small (h3),
+// stoppedText, ai (the AI does this work: the AI run panel in the card, its two sides under the line; noun, engines
+// as aiRun's). Returns the watcher (stop it when the page is left).
 export function jobCard(box, jobId, title, labelFn, onEnd, opts = {}) {
   // a running job's Stop (stopButton(): small, quiet, the stop icon); a queued one's Cancel (a small quiet button, as
   // the work state Queued has it: docs/DESIGN.md 4.21). One shows at a time; both cancel the job.
   const stop = stopButton();
   const cancel = button({ kind: "quiet", sm: true, hidden: true }, "Cancel");   // 0.18 queued jobs
-  const pb = h("div", { "aria-live": "polite" });
+  const pb = h("div", { "aria-live": opts.ai ? null : "polite" });
   const head = h("span", {}, title);
   const holder = card({ as: "div", title: head, level: opts.small ? "h3" : "h2", action: h("span", { class: "btn-row" }, stop, cancel) }, pb);
   for (const b of [stop, cancel]) {
@@ -367,15 +501,18 @@ export function jobCard(box, jobId, title, labelFn, onEnd, opts = {}) {
   }
   box.hidden = false;
   replace(box, holder);
+  const run = opts.ai ? aiRun({ size: "compact", stop: false, noun: opts.noun, engines: opts.engines,
+    label: (job) => (job.waiting_for ? job.waiting_for.message : labelFn ? labelFn(job.progress || {}, job) : title) }) : null;
+  if (run) replace(pb, run.el);
   const w = watchJob(jobId, (job) => {
-    replace(pb, simpleProgress(job, labelFn));
+    if (run) run.update(job); else replace(pb, simpleProgress(job, labelFn));
     const queued = !TERMINAL.has(job.state) && !!job.waiting_for;
     stop.hidden = TERMINAL.has(job.state) || queued;
     cancel.hidden = !queued;
   });
   w.promise.then((job) => {
     if (job.state === "error" && job.error_kind === "memory" && job.can_run_again) {
-      // 0.19.4: the local model was not started: its panel, whose Start runs the job again in this card
+      // 0.19.4: the local model was not started: its side, whose Start runs the job again in this card
       head.textContent = "Waiting for your local model";
       stop.hidden = cancel.hidden = true;
       replace(pb, memoryRefused(job, (j) => jobCard(box, j.id, title, labelFn, onEnd, opts)));
@@ -391,10 +528,13 @@ export function jobCard(box, jobId, title, labelFn, onEnd, opts = {}) {
   return w;
 }
 
+function jobErrorParts(job, fallback) {
+  return [h("p", {}, job.error_kind === "backend" ? "The AI model stopped answering." : job.error_kind === "internal" ? "Something went wrong inside the app." : (job.error || fallback)),
+    job.error_kind === "backend" || job.error_kind === "internal" ? fold({}, "Technical details", h("div", { class: "mono small" }, job.error || "")) : null,
+    job.error_kind === "backend" ? link({ href: "#/settings" }, "Check the AI model in Settings") : null];
+}
+
 // Why a job did not work, in plain words, with the technical message folded away.
 export function jobError(job) {
-  return notice({ kind: "error" },
-    h("p", {}, job.error_kind === "backend" ? "The AI model stopped answering." : job.error_kind === "internal" ? "Something went wrong inside the app." : (job.error || "It could not finish.")),
-    job.error_kind === "backend" || job.error_kind === "internal" ? fold({}, "Technical details", h("div", { class: "mono small" }, job.error || "")) : null,
-    job.error_kind === "backend" ? link({ href: "#/settings" }, "Check the AI model in Settings") : null);
+  return notice({ kind: "error" }, ...jobErrorParts(job, "It could not finish."));
 }

@@ -41,7 +41,7 @@ from .. import llm, modeladvice, ollama_setup
 from ..llm import BackendError, detect_local
 from ..store import now as _now
 from ..sources import document_overview
-from .progress import Tracker
+from .progress import LOCAL_PHASE, Tracker
 from .api_checks import ChecksApi
 from .api_documents import DocumentsApi
 from .api_explore import ExploreApi
@@ -88,6 +88,8 @@ from .api_common import (  # noqa: F401 - the names are importable from here as 
 )
 
 STATIC = Path(__file__).with_name("static")
+# 0.19.13: the head of a job whose local model was refused for memory (its side has the numbers and the Starts)
+LOCAL_SHORT = "Your local model was not started: too little memory is free"
 FOLLOW_POLL = 2.0  # seconds between two looks at checks that wait for Claude Code (`follow_queued`; tests shorten it)
 
 
@@ -858,8 +860,10 @@ class App(LibraryMixin, QueueMixin):
         text, status, batch = (_str(q, "q") or "").lower().strip(), _str(q, "status"), _str(q, "batch")
         rows = claimcheck.history(ws, thr)
         counts: dict[str, int] = {}
+        waiting_local = 0   # 0.19.13: the "waiting" answers whose last part waits for the local model, not Claude Code
         for r in rows:
             counts[r["status"]] = counts.get(r["status"], 0) + 1
+            waiting_local += r["status"] == "waiting" and r.get("status_text") == claimcheck.WAITING_LOCAL
         if text or status or batch:
             rows = [r for r in rows if (not text or text in (r["text"] or "").lower())
                     and (not status or r["status"] == status) and (not batch or r["batch_id"] == batch)]
@@ -870,7 +874,7 @@ class App(LibraryMixin, QueueMixin):
         clash = sync.copies_of(ws, "check")  # 0.14: a colleague's version of a check you both changed
         for r in rows:
             r["clash"] = clash.get(r["hyp_id"])
-        return {"hypotheses": rows, "counts": counts, "threshold": thr}
+        return {"hypotheses": rows, "counts": counts, "waiting_local": waiting_local, "threshold": thr}
 
     # -- jobs ------------------------------------------------------------------------------------
     def wire(self, job: Job, be, tracker: Tracker | None = None) -> None:
@@ -967,23 +971,32 @@ class App(LibraryMixin, QueueMixin):
 
     def _read_local_now(self, ws, hyp_ids: list[str], tracker: Tracker, readers) -> bool:
         """0.13.11: read the excerpts that wait for the local model, saying so (they were read in silence, under
-        "Waiting for Claude Code")."""
+        "Waiting for Claude Code"). 0.19.13: only once the person has started the local model (the job's local
+        gate): until then they wait, and the job says how many."""
         if readers.memory_short:
-            return False  # said once; they wait for "Read them now"
+            return False  # said once; they wait for Start (Start it anyway), or "Read them now"
         waiting = claimcheck.local_waiting(ws, hyp_ids)
+        gate = readers.gate
         if not waiting:
+            if gate is not None and gate.involved:
+                gate.involve(waiting=0)
             return False
 
         # 0.18.1: besides the excerpts of documents marked Only a local AI, the AI mix's share of a check (I1, I2):
         # search words, splitting, judging excerpts. Each is said apart, as each ends apart
         n = sum(w["passages"] for w in waiting if not w.get("mix"))
         n_mix = sum(1 for w in waiting if w.get("mix"))
+        if gate is not None and not gate.is_open and readers.local() is not None:
+            gate.mixed()  # a check by queue is Claude Code's work too: the local part waits for its own Start
+            gate.involve(waiting=n + n_mix, noun="excerpt" if n else "task", look=readers.look,
+                         report=tracker.model_report)
+            return False
         what = " and ".join(x for x in (f"{n} {'excerpt' if n == 1 else 'excerpts'}" if n else "",
                                          f"{n_mix} {'task' if n_mix == 1 else 'tasks'} of the AI mix" if n_mix else "")
                             if x)
 
         def started(model: str, _n: int) -> None:
-            tracker.say(f"Your local model ({model}) is reading {what} on this computer")
+            tracker.say(f"Your local model ({model}) is reading {what} on this computer", step="grade")
 
         before, mix_before, claude_before = readers.read, readers.mix_read, readers.to_claude
         try:
@@ -994,6 +1007,9 @@ class App(LibraryMixin, QueueMixin):
             raise
         mixed, to_claude = readers.mix_read - mix_before, readers.to_claude - claude_before
         if readers.memory_short:
+            if gate is not None:   # 0.19.13: the local side says why and carries Start / Start it anyway: a short head
+                tracker.say(LOCAL_SHORT, step="grade")
+                return True
             tracker.step("note", f"{readers.memory_short} {claimcheck._waiting_words(max(n, n_mix))}", {"keep": True})
             return True
         if done and readers.read > before:
@@ -1015,6 +1031,7 @@ class App(LibraryMixin, QueueMixin):
 
     def _follow_loop(self, job: Job, ws, hyp_ids: list[str], tracker: Tracker, readers, shown: dict, t0: float,
                      poll: float) -> None:
+        gate = readers.gate
         while True:
             left = taskqueue.advance(ws, hyp_ids)
             self._show_stages(ws, hyp_ids, tracker, shown)
@@ -1024,15 +1041,27 @@ class App(LibraryMixin, QueueMixin):
                 self._show_stages(ws, hyp_ids, tracker, shown)
             if not left:
                 return
+            look = job.cancel.is_set() or readers.memory_short or (gate is not None and gate.involved)
+            only_local = [hid for hid in left if claimcheck.only_local_waits(ws, hid)] if look else []
             if job.cancel.is_set():
                 for hid in left:
-                    claimcheck.delete_hypothesis(ws, hid, unmade=True)  # a stopped check leaves nothing behind, as in 0.7
+                    if hid not in only_local:  # 0.19.13: Claude's part done, the local part waits (kept, as before)
+                        claimcheck.delete_hypothesis(ws, hid, unmade=True)  # a stopped check leaves nothing behind
+                if only_local:   # the page says what was kept (it said "Nothing was saved")
+                    job.result = {"kept": only_local, "waiting_local": sum(
+                        w["passages"] for w in claimcheck.local_waiting(ws, only_local) if not w.get("mix"))}
                 raise Cancelled()
-            if readers.memory_short and all(claimcheck.only_local_waits(ws, hid) for hid in left):
+            if readers.memory_short and gate is None and len(only_local) == len(left):
                 return  # 0.13.11: Claude Code is done; the local excerpts wait for "Read them now" on the result
-            kind = {"decompose": "decompose", "terms": "expand"}.get(claimcheck.queue_stage(ws, left[0]).get("step"),
-                                                                      "check")
-            tracker.model_report({"phase": "queue", "seconds": time.time() - t0, **taskqueue.queue_info(ws, kind)})
+            if gate is not None and not gate.is_open and gate.involved and len(only_local) == len(left):
+                gate.say_ready()  # 0.19.13: Claude Code is done; the local part waits for its Start
+                # the head and the step say so, not "Waiting for Claude Code" (short: the side says the rest)
+                tracker.say(LOCAL_SHORT if (gate.memory or {}).get("short") else LOCAL_PHASE["ready"], step="grade")
+            else:
+                kind = {"decompose": "decompose", "terms": "expand"}.get(
+                    claimcheck.queue_stage(ws, left[0]).get("step"), "check")
+                tracker.model_report({"phase": "queue", "seconds": time.time() - t0,
+                                      **taskqueue.queue_info(ws, kind)})
             time.sleep(poll)
 
     def _show_stages(self, ws, hyp_ids: list[str], tracker: Tracker, shown: dict) -> None:
@@ -1153,7 +1182,9 @@ class App(LibraryMixin, QueueMixin):
             return {"hyp_id": hyp_id, "parts": n,
                     "status": claimcheck.hypothesis_result(ws, hyp_id, self.settings()["threshold"])["status"]}
 
-        job = self.jobs.start("read-local", "Reading excerpts with the local model", name, run, uses_model=True)
+        # 0.19.13: its own button, all the local model's work: no second Start ("force": Start it anyway)
+        job = self.jobs.start("read-local", "Reading excerpts with the local model", name, run, uses_model=True,
+                              local_start="force" if force else "go")
         job.scope = hyp_id  # 0.13.11: the result page that started it follows it again after a reload
         return job
 
@@ -1625,6 +1656,8 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", rf"/api/jobs/{P}", "get_job"),
     ("POST", rf"/api/jobs/{P}/cancel", "post_cancel"),
     ("POST", rf"/api/jobs/{P}/again", "post_job_again"),
+    ("POST", rf"/api/jobs/{P}/local/start", "post_local_start"),   # 0.19.13: the local model's own Start and Stop
+    ("POST", rf"/api/jobs/{P}/local/stop", "post_local_stop"),
     ("POST", r"/api/benchmark", "post_benchmark"),
     # 0.7
     ("POST", r"/api/servers/repeatable", "post_repeatable"),

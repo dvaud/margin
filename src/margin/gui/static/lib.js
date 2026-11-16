@@ -568,6 +568,7 @@ export function dialog({ title, body, actions, danger, onOpen, wide, lock, onDis
       button({
         kind: a.primary ? (danger ? "confirm" : "main") : "quiet",
         id: a.id,
+        icon: a.icon,
         disabled: a.disabled,
         onClick: async () => {
           if (a.onClick) { const r = await a.onClick(dlg); if (r === false) return; }
@@ -588,10 +589,10 @@ export function dialog({ title, body, actions, danger, onOpen, wide, lock, onDis
   });
 }
 
-export function confirmDialog({ title, message, confirmText = "Confirm", typeToConfirm, danger = true }) {
+export function confirmDialog({ title, message, confirmText = "Confirm", typeToConfirm, danger = true, confirmIcon }) {
   let input = null;
   const body = h("div", {}, typeof message === "string" ? h("p", {}, message) : message);
-  const actions = [{ text: "Cancel", value: false }, { text: confirmText, value: true, primary: true, id: "dlg-confirm", disabled: !!typeToConfirm }];
+  const actions = [{ text: "Cancel", value: false }, { text: confirmText, value: true, primary: true, id: "dlg-confirm", disabled: !!typeToConfirm, icon: confirmIcon }];
   if (typeToConfirm) {
     input = h("input", withClass(UI.input, { type: "text", autocomplete: "off", "aria-label": `Type ${typeToConfirm} to confirm` }));
     append(body, [h("label", { class: "field" }, h("span", { class: "field-label" }, "Type ", h("code", {}, typeToConfirm), " to confirm"), input)]);
@@ -918,8 +919,8 @@ export const UI = {
   iconButton: "icon-btn", iconButtonSm: "icon-btn icon-btn-sm",
   link: { plain: "", title: "link-title", back: "link-back", next: "link-next", external: "link-external", jump: "link-jump" },
   tag: { neutral: "chip", code: "chip chip-code", attention: "warn-chip", count: "chip chip-count" },
-  notice: { info: "notice notice-info", done: "notice notice-ok", attention: "notice notice-warn", error: "notice notice-error", local: "notice notice-local" },
-  noticeIcon: { info: "info", done: "check", attention: "alert-triangle", error: "alert-circle", local: "house" },
+  notice: { info: "notice notice-info", done: "notice notice-ok", attention: "notice notice-warn", error: "notice notice-error" },
+  noticeIcon: { info: "info", done: "check", attention: "alert-triangle", error: "alert-circle" },
   card: "card", cardSm: "card-sm", fold: "fold", foldSm: "fold-sm", choice: "seg", choiceButton: "seg-btn", option: "option-card",
   input: "input", select: "select", textarea: "textarea", search: "search-field",
   menu: "menu-list", menuItem: "menu-item", menuSep: "menu-sep",
@@ -2135,21 +2136,6 @@ export function copyLine(text, label = "Copy", where = "Claude Code", lead = "te
   return h("div", { class: "copy-line" }, icon(lead, { size: 13 }), code, btn);
 }
 
-// What waits for Claude Code, for a page that waits on it: the line, the estimate, a button that starts Claude Code
-// (0.9), the command to type instead (opts.foldType: in a fold, 0.12), and the privacy note.
-export function queueNotice(q, opts = {}) {
-  if (!q) return null;
-  const est = q.estimate || "";
-  // a notice (attention while nothing answers it), its one action Start Claude Code, and the AI line once, at its foot
-  return notice({ kind: q.paused ? "attention" : "info", icon: q.paused ? "pause" : "inbox", class: `queue-notice${q.paused ? " queue-paused" : ""}`, role: "status" },
-    h("p", { class: "qn-head" }, h("strong", {}, q.text || "Waiting for Claude Code"),
-      q.being_answered ? h("span", { class: "muted small qn-answered" }, ` · ${q.being_answered} being answered now`) : null),
-    est && !q.paused ? h("p", { class: "muted small" }, est.charAt(0).toUpperCase() + est.slice(1) + ".") : null,
-    q.paused && q.paused_text ? h("p", { class: "small" }, q.paused_text) : null,
-    App.project ? startClaude(App.project, { command: q.command, foldType: opts.foldType, kind: q.kind }) : null,
-    opts.privacy === false || opts.foldType ? null : queueAiLine(q.privacy, App.project, q.kind));
-}
-
 // The AI line of the queue (Claude Code), with "See what is sent" after its sentence: a dialog with the next batch of
 // `kind` (the first kind that waits when none) exactly as Claude Code receives it. Nothing is claimed or recorded.
 export function queueAiLine(text, project, kind) {
@@ -2199,234 +2185,555 @@ function sentParts(r) {
   ];
 }
 
-// 0.9: "Start Claude Code": Margin starts Claude Code (signed in with its own login, on the researcher's plan) for
-// the project's queue, and shows while it works. The command to type in Claude Code yourself stays one line below.
-// The element keeps itself current while it is on the page.
-export function startClaude(project, opts = {}) {
-  const box = h("div", { class: "start-claude", dataset: { project } });
-  let timer = null;
-  let busy = false;
-  const ago = (s) => (s < 60 ? "just now" : `${Math.round(s / 60)} min ago`);
-  // 0.11.3: an unpressed button asks for attention: the step above it spins, which reads as if work were under way.
-  // A few seconds after work starts waiting with nothing answering it, the button pulses and its line says that
-  // nothing runs until it is pressed. Changed in place, so the button never moves under the pointer.
-  function nudge(b, hint) {
-    if (b.classList.contains("sc-nudge")) return;
-    b.classList.add("sc-nudge");
-    b.style.animationDelay = `-${Date.now() % NUDGE_PULSE}ms`;  // in step with the other buttons, and across redraws
-    hint.classList.add("sc-wake");
-    if (!opts.foldType) replace(hint, h("strong", {}, "Nothing runs until you press it."), " Then it works on your Claude plan, in the background, and stops by itself when nothing waits.");
+// ---------------------------------------------------------------------------------------------
+// 0.19.13: the AI run panel (docs/DESIGN.md 4.21). Every place where AI runs shows two seats, this computer on the LEFT
+// and Claude on the RIGHT, at every size. A seat whose engine has no work in this job is an empty, dashed seat. One
+// split bar runs above the two: its left half is this computer's progress, its right half Claude's (an empty track:
+// waits for you; teal: at work, as far as it has got; amber: needs you; grey: done; no track: not in this job). Each
+// side says its state once, in its head, with an icon and words. aiRun() (views/progress.js) is the whole panel; these
+// are its pieces, and queueNotice(), localPanel() and memoryRefused() draw them alone, in a card.
+// ---------------------------------------------------------------------------------------------
+const AR_PERIOD = 15000;   // ms: a common multiple of the head's breath (5 s) and its flow (once in 15 s)
+// In step across redraws: every period starts from the clock, not from when the element was made. One custom property
+// on the element; the animations of it and of what it holds read it as their delay, so a panel drawn again goes on
+// where the old one was, and two on one page breathe together.
+export function inStep(el) {
+  if (el) el.style.setProperty("--ar-sync", `-${Date.now() % AR_PERIOD}ms`);
+  return el;
+}
+
+// An ask button: a button that asks the AI for work (Check, Name the themes, Draft from the examples). The play icon
+// first, a verb and what it works on, never who does it; withAI() after it, as every AI button has. Only a panel's own
+// Start Claude Code / Start <model> names an engine (aiStart()).
+export function aiButton(opts = {}, ...children) {
+  return button({ ...opts, icon: "play" }, ...children);
+}
+
+const AR_WHO = { local: "On this computer", cloud: "To Claude" };
+const AR_NONE = { local: "No model on this computer works in this job", cloud: "Nothing in this job goes to Claude" };
+// a side's state, said once in its head: [its icon (null: the running dot), its words, the split bar's state]
+const AR_STATE = {
+  wait: ["clock", "Waits for you", "wait"], run: [null, "At work", "run"], need: ["alert-triangle", "Needs you", "need"],
+  paused: ["pause", "Paused", "need"], done: ["check", "Done", "done"], later: ["clock", "Not yet", "wait"],
+  stopped: ["minus", "Stopped", "wait"],
+};
+const arSep = () => h("span", { class: "ar-sep", "aria-hidden": "true" }, "·");
+const arWhat = (strong, muted) => h("p", { class: "ab-what" }, h("strong", {}, strong), muted ? h("span", { class: "muted" }, ` · ${muted}`) : null);
+const arHint = (first, rest, wake) => h("p", { class: "ar-hint" }, h("span", { class: wake ? "ar-wake" : null }, first), rest ? ` ${rest}` : null);
+
+// one half of the split bar (aria-hidden: the side's words say the same)
+function arHalf(where) {
+  const half = h("span", { class: "ab-half ab-s-none", "aria-hidden": "true" }, h("i"));
+  half.dataset.where = where;
+  return half;
+}
+// key: wait | run | need | done | none; pct: how far, 0–100 (null while at work with no count: the sliding bar)
+function setHalf(half, key, pct = null) {
+  const slide = key === "run" && (pct === null || pct === undefined);
+  half.className = `ab-half ab-s-${key}${slide ? " ab-indet" : ""}`;
+  half.firstChild.style.width = key === "run" && !slide ? `${Math.max(2, Math.min(100, Math.round(pct)))}%` : "";
+}
+
+// the side's head: the tile at the OUTER edge (the house far left, the cloud far right), its name, its state
+function arHead(where, key) {
+  const [ic, words] = AR_STATE[key] || AR_STATE.wait;
+  const st = h("span", { class: "ab-state" }, ic ? icon(ic, { size: 13 }) : h("span", { class: "running-dot", "aria-hidden": "true" }), words);
+  const tile = h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 15 }));
+  const who = h("span", { class: "ab-who" }, AR_WHO[where]);
+  return h("div", { class: "ab-sh" }, ...(where === "cloud" ? [st, who, tile] : [tile, who, st]));
+}
+
+// (re)fill a side in place: the element stays, so the block and the page keep their hold of it
+function fillSide(el, key, lines) {
+  const bar = (AR_STATE[key] || AR_STATE.wait)[2];
+  const attn = key === "need" || key === "paused";
+  el.className = `ab-side ar-${el.dataset.where} ab-s-${bar}${attn ? " ar-attn" : ""}`;
+  el.dataset.state = key;
+  replace(el, arHead(el.dataset.where, key), ...lines.flat().filter(Boolean));
+  if (el.arHalf && (key !== "run" || !el.arHalf.classList.contains("ab-s-run"))) setHalf(el.arHalf, bar, key === "run" ? el.arPct ?? null : null);
+  if (el.arOnState) el.arOnState(key);
+}
+function sideShell(where, half, onState) {
+  const el = h("div", { class: `ab-side ar-${where}`, role: "group", "aria-label": AR_WHO[where] });
+  el.dataset.where = where;
+  el.arHalf = half || arHalf(where);
+  el.arOnState = onState || null;
+  return el;
+}
+// how far the side has got, written into its half of the bar (null: at work, no count)
+function sidePct(el, pct) {
+  el.arPct = pct;
+  if (el.arHalf && el.dataset.state === "run") setHalf(el.arHalf, "run", pct);
+}
+
+// The lead of a panel's head: waiting for you (a clock), at work (the running dot), needs you (the amber pause), done,
+// stopped, did not work
+const AR_LEAD = { waiting: "clock", attention: "pause", done: "check", error: "alert-circle", stopped: "minus" };
+export function aiLead(kind) {
+  return kind === "running" ? h("span", { class: "running-dot", "aria-hidden": "true" }) : icon(AR_LEAD[kind] || "clock", { size: 15 });
+}
+
+// The empty seat: the place of the engine this job gives no work (a dashed tile, nothing else; said in words to a
+// screen reader and in its tooltip).
+export function aiSeat(where) {
+  const el = h("div", { class: `ab-seat ar-${where}`, title: AR_NONE[where] },
+    h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 14 })),
+    h("span", { class: "visually-hidden" }, `${AR_NONE[where]}.`));
+  el.dataset.where = where;
+  el.arHalf = arHalf(where);
+  return el;
+}
+
+// The two seats under one split bar, this computer first (the order seen is the order read). local / cloud: a side
+// (aiSide()) or null for its empty seat. opts.compact: the block alone, in a card.
+export function aiSides(local, cloud, opts = {}) {
+  const l = local || aiSeat("local"), c = cloud || aiSeat("cloud");
+  const block = h("div", { class: `ab-sides ${local && cloud ? "ab-both" : local ? "ab-only-local" : "ab-only-cloud"}` }, l.arHalf, c.arHalf, l, c);
+  return opts.compact ? inStep(h("div", { class: "ab ab-compact" }, block)) : block;
+}
+// put a side (or an empty seat) in its place in a block, with its half of the bar
+export function placeSide(block, where, el) {
+  const sides = block.classList.contains("ab-sides") ? block : block.querySelector(".ab-sides");
+  const old = [...sides.children].find((c) => !c.classList.contains("ab-half") && c.dataset.where === where);
+  if (old === el) return;
+  if (old) { old.arHalf.replaceWith(el.arHalf); old.replaceWith(el); }
+  const has = (w) => [...sides.children].some((c) => c.dataset.where === w && c.classList.contains("ab-side"));
+  sides.classList.remove("ab-both", "ab-only-local", "ab-only-cloud");
+  sides.classList.add(has("local") && has("cloud") ? "ab-both" : has("local") ? "ab-only-local" : "ab-only-cloud");
+}
+
+// The start row alone: Start Claude Code (where "cloud") or Start <model> (where "local"), the AI mark after it (and
+// after o.also, the buttons beside it), and its hint under it. After a few seconds with nothing answering, the button
+// takes the head's slow breath and the hint says that nothing runs until it is pressed (o.nudge: when the wait began,
+// a time in ms; true: now). o.compact: the hint's first sentence only. Returns the row; .start is its button.
+export function aiStart(o = {}) {
+  const name = o.where === "cloud" ? "Claude Code" : (o.model || "your local model");
+  const b = button({ kind: o.kind || "main", sm: true, icon: "play", onClick: o.onClick }, `Start ${name}`);
+  const rest = o.compact ? "" : o.where === "cloud" ? "It then works on your Claude plan, in the background, and stops by itself when nothing waits."
+    : "It then runs here, in this app, and stops by itself when nothing waits.";
+  const hint = o.hint === false ? null : typeof o.hint === "string" ? arHint(o.hint) : arHint("Nothing runs until you press it.", rest);
+  const box = h("div", { class: "ar-start" }, h("div", { class: "ar-row" }, o.before || null, withAI(b, ...(o.also || []).filter(Boolean))), hint);
+  box.start = b;
+  box.nudge = () => {
+    if (b.classList.contains("ar-nudge") || b.disabled) return;
+    inStep(b);
+    b.classList.add("ar-nudge");
+    const w = hint && hint.querySelector("span");
+    if (w) w.classList.add("ar-wake");
+  };
+  if (o.nudge) {
+    const left = NUDGE_AFTER - (Date.now() - (o.nudge === true ? Date.now() : o.nudge));
+    if (left <= 0) box.nudge(); else setTimeout(() => { if (box.isConnected) box.nudge(); }, left);
   }
-  function watchIdle(b, hint) {
+  return box;
+}
+
+// ---- this computer's side ------------------------------------------------------------------------------------------
+const GiB = 1 << 30;
+const gb = (n) => `${(n / GiB).toFixed(1)} GB`;
+const LOCAL_PHASE = { waiting: "is loading and reading", thinking: "is thinking it over", writing: "is writing its answer", done: "has finished" };
+const LOCAL_WAIT_SINCE = new Map();   // when each job's local part began to wait for its Start (the nudge)
+
+// the memory line: what the model needs against what is free, a small bar and the words (amber with the triangle when short)
+function arMemory(mem, short) {
+  const pct = mem.need ? Math.round(100 * Math.min(1, mem.free / mem.need)) : 100;
+  const bar = h("span", { class: "ar-mem-bar", "aria-hidden": "true" }, h("span", { style: { width: `${pct}%` } }));
+  if (!short) return h("p", { class: "ar-mem" }, bar, h("span", { class: "ar-mem-words" }, `Needs about ${gb(mem.need)} of memory · ${gb(mem.free)} free now`));
+  return h("p", { class: "ar-mem ar-mem-short" }, icon("alert-triangle", { size: 14 }), bar,
+    h("span", { class: "ar-mem-words" }, `Needs about ${gb(mem.need)} of memory · ${gb(mem.free)} free now · `, h("strong", {}, `${gb(Math.max(0, mem.need - mem.free))} short`)),
+    h("span", { class: "ar-mem-help" }, "Close other programs, or choose a smaller model in Settings › AI."));
+}
+
+// What a running model has written and how fast, from its report (`m`, progress.model) and what the page kept since
+// the last poll (`seen`: when the count last changed, and the tokens a second of the last 30 s for the small graph).
+// → { bits: [the figures], quiet: words when nothing new came for a while, spark: 30 heights (0–100), words: its latest words }
+const QUIET_AFTER = 20;   // seconds without a new token before it says so
+export function modelFigures(m, seen = {}) {
+  if (!m || !m.phase || m.phase === "queue" || m.phase === "done" || m.phase === "refused" || m.phase === "ready") return null;
+  const now = Date.now();
+  const made = (m.thinking_tokens || 0) + (m.answer_tokens || 0);
+  if (made !== seen.made) { seen.made = made; seen.at = now; }
+  const sec = Math.floor(now / 1000);
+  seen.rates = (seen.rates || []).filter((r) => r[0] > sec - 30);
+  if (m.rate && m.phase !== "waiting" && seen.at === now) {
+    const last = seen.rates[seen.rates.length - 1];
+    if (last && last[0] === sec) last[1] = Number(m.rate); else seen.rates.push([sec, Number(m.rate)]);
+  }
+  const bits = [];
+  let quiet = null;
+  if (m.phase === "waiting") {
+    bits.push(m.prompt_tokens ? `reading a prompt of about ${fmt.num(m.prompt_tokens)} tokens` : "reading the prompt");
+    if ((m.seconds || 0) >= 1) bits.push(`${fmt.secs(m.seconds)} so far`);
+    if ((m.seconds || 0) > 60 && m.who === "local") bits.push("a model on this computer can take a few minutes to start");
+  } else {
+    if (m.thinking_tokens) bits.push(`${fmt.num(m.thinking_tokens)} tokens of reasoning`);
+    if (m.answer_tokens) bits.push(`${fmt.num(m.answer_tokens)} ${m.thinking_tokens ? "of its answer" : "tokens of its answer"}`);
+    if (m.rate) bits.push(`${Number(m.rate).toFixed(1)} a second`);
+    if (m.budget_reached) bits.push("its reasoning budget is used up, so it answers from its notes now");
+    const still = seen.at ? (now - seen.at) / 1000 : 0;
+    if (made && still >= QUIET_AFTER) quiet = `Nothing new for ${fmt.secs(still)}; it may still be working.`;
+  }
+  const top = Math.max(1, ...seen.rates.map((r) => r[1]));
+  const spark = Array.from({ length: 30 }, (_, i) => { const r = seen.rates.find((x) => x[0] === sec - 29 + i); return r ? Math.round(100 * r[1] / top) : 0; });
+  const words = m.phase === "thinking" || m.phase === "writing" ? String(m.tail || "").split(/\s+/).join(" ").trim().slice(-200) : "";
+  return { bits, quiet, spark, words };
+}
+// the latest words on one line, then the figures as one muted line with the small graph; written in place each poll
+function writeFine(el, fig) {
+  let tail = el.querySelector(":scope > .ar-tail"), fine = el.querySelector(":scope > .ar-fine");
+  if (!fig) { if (tail) tail.remove(); if (fine) fine.remove(); return; }
+  const anchor = el.querySelector(":scope > .ab-count") || el.querySelector(":scope > .ab-run-row");
+  if (!fine) { fine = h("p", { class: "ar-fine" }); (anchor || el.firstChild).after(fine); }
+  if (fig.words) {
+    if (!tail) { tail = h("p", { class: "ar-tail", "aria-hidden": "true" }, h("span")); fine.before(tail); }
+    if (tail.firstChild.textContent !== `…${fig.words}▍`) tail.firstChild.textContent = `…${fig.words}▍`;
+  } else if (tail) tail.remove();
+  const key = JSON.stringify([fig.bits, fig.quiet, fig.spark]);
+  if (fine.dataset.key === key) return;
+  fine.dataset.key = key;
+  const parts = [];
+  fig.bits.forEach((b, i) => { if (i) parts.push(arSep()); parts.push(h("span", {}, b)); });
+  const lastOn = fig.spark.reduce((a, v, i) => (v ? i : a), -1);
+  const spark = fig.spark.some(Boolean) ? h("span", { class: "ar-spark", "aria-hidden": "true", title: "Tokens a second, the last 30 seconds" },
+    fig.spark.map((v, i) => h("i", { class: i === lastOn ? "ar-now" : null, style: { height: `${v}%` } }))) : null;
+  replace(fine, fig.quiet ? h("span", { class: "ar-quiet" }, fig.quiet) : null, ...parts, spark);
+}
+
+// The model's row and the house line (in a compact side, folded away under "The model")
+function localTail(o, nouns) {
+  const row = h("p", { class: "ab-modelrow" }, "Model ", h("span", { class: "mono" }, o.model || "none chosen"), " · ",
+    link({ href: "#/settings/model" }, o.problem && !o.model ? "Choose one in Settings › AI" : "Change it in Settings › AI"));
+  const line = aiWhere(o.done ? `The ${nouns} it read never left this computer.` : `The ${nouns} it reads never leave this computer.`, "local");
+  if (o.done || o.running) return o.compact ? null : line;
+  return o.compact ? fold({ sm: true }, "The model", row, line) : [row, line];
+}
+
+// This computer's side. opts (the local panel's, kept): model (its name), memory ({ loaded } or { need, free, short }
+// in bytes, from /api/local-status or job.local.memory), problem (why no local model can be used: then no Start),
+// count + noun (what waits: 33, "passage"), head (the side's first line in other words), sub (one more line under
+// it: "Claude Code reads the other 28 meanwhile."), refused (a start was refused for memory: these words, when there
+// are no numbers), blocking (its work is all that is left, so a model that cannot start needs you), running ({ phase,
+// seconds, done, total }: the model reads), done ({ text }), onStart(force) (the start row; force: Start it anyway),
+// onStop (Stop <model>, while it reads), onYourself + yourselfText + yourselfNote (Judge it myself, the main button,
+// first), anywayText (only Start it anyway, in these words), status (what came of the last press), note (a line where
+// the buttons would be), confirm (false: Start it anyway asks nothing), since (when the wait began: the nudge),
+// compact (in a card: the model's row folded away), half (its half of the split bar, when a block holds it).
+function localSide(o, el) {
+  el = el || sideShell("local", o.half, o.onState);
+  const name = o.model || "your local model";
+  const noun = o.noun || "passage";
+  const nouns = `${noun}s`;
+  const mem = o.memory;
+  const short = !!(mem && mem.short) || !!o.refused;
+  const lines = [];
+  let key = "wait";
+  if (o.plain) {   // one line and a state (not yet, stopped): nothing to press
+    fillSide(el, o.plain.key, [arWhat(o.plain.what, o.plain.muted), o.plain.line || null]);
+    return el;
+  }
+  if (o.done) {
+    key = "done";
+    lines.push(arWhat(o.done.text || `${o.model || "Your local model"} has read its part`, o.done.muted), localTail(o, nouns));
+    fillSide(el, key, lines);
+    return el;
+  }
+  if (o.running) {
+    key = "run";
+    const stop = o.onStop ? stopButton({ text: `Stop ${o.model || "the local model"}`, onClick: async () => {
+      setBusy(stop, true);
+      try { await o.onStop(); } catch (e) { showError(e); setBusy(stop, false); }
+    } }) : null;
+    // Stop <model> was pressed: it puts down nothing it has in hand, so it says when it stops
+    const stopping = !stop && o.stopping ? h("span", { class: "muted small ab-stopping", role: "note" }, o.stopping) : null;
+    lines.push(h("div", { class: "ab-run-row" }, arWhat(`${o.model || "Your local model"} ${LOCAL_PHASE[o.running.phase] || "is reading"}`), stop || stopping));
+    const r = o.running;
+    lines.push(h("p", { class: "ab-count" }, r.total ? `${fmt.num(r.done || 0)} of ${plural(r.total, noun)} done` : (o.count ? `${plural(o.count, noun)} ${o.count === 1 ? "waits" : "wait"} for it` : ""),
+      r.seconds ? `${r.total || o.count ? " · " : ""}${fmt.secs(r.seconds)}` : ""));
+    if (o.sub) lines.push(h("p", { class: "muted" }, o.sub));
+    lines.push(localTail(o, nouns));
+    fillSide(el, key, lines);
+    sidePct(el, r.total ? 100 * (r.done || 0) / r.total : null);
+    return el;
+  }
+  const alarm = !!o.problem || (short && (o.blocking || o.refused));
+  key = alarm ? "need" : "wait";
+  const waits = o.count ? `${plural(o.count, noun)} ${o.count === 1 ? "waits" : "wait"} for ${name}` : `Waiting for ${name}`;
+  lines.push(o.refused || (short && o.blocking) ? arWhat(o.head || `${name} was not started: too little memory is free`, o.count && !o.head ? `${plural(o.count, noun)} ${o.count === 1 ? "waits" : "wait"} for it` : "")
+    : arWhat(o.head || waits));
+  if (o.sub) lines.push(h("p", { class: "muted" }, o.sub));
+  if (o.problem) lines.push(h("p", {}, o.problem));
+  else if (mem && mem.need) lines.push(arMemory(mem, short));
+  else if (o.refused && typeof o.refused === "string") lines.push(h("p", {}, o.refused));
+  else if (mem && mem.loaded) lines.push(h("p", { class: "muted" }, `${o.model || "Your local model"} is in memory already: it starts at once.`));
+  // Judge it myself (0.19.8): the person may judge what waits instead; with it, it is the main button and comes first
+  const them = o.count === 1 ? "it" : "them";
+  const yourself = o.onYourself ? button({ kind: "main", sm: true, icon: "user", onClick: async () => {
+    yourself.disabled = true;
+    try { await o.onYourself(); } catch (e) { showError(e); yourself.disabled = false; }
+  } }, o.yourselfText || "Judge it myself") : null;
+  if (!o.problem && o.onStart) {
+    const go = async (b, force) => {
+      setBusy(b, true);
+      try { await o.onStart(force); } catch (e) { showError(e); setBusy(b, false); }
+    };
+    const anyway = short && !yourself ? button({ kind: o.anywayText ? "standard" : "quiet", sm: true, icon: "play", onClick: async () => {
+      const ok = o.confirm === false || await confirmDialog({ title: `Start ${name} anyway?`, danger: false, confirmText: "Start it anyway", confirmIcon: "play",
+        message: h("div", {}, h("p", {}, "The computer may become very slow, or stop answering for a while, until the model has finished. What you have open is kept."),
+          aiWhere(`The ${nouns} it reads never leave this computer.`, "local")) });
+      if (ok) go(anyway, true);
+    } }, o.anywayText || "Start it anyway") : null;
+    if (o.anywayText) {
+      if (anyway) lines.push(h("div", { class: "ar-row" }, withAI(anyway)));
+    } else {
+      // beside Judge it myself there is no Start it anyway: with too little memory free, Start itself asks first
+      const asks = !!yourself && short && o.confirm !== false;
+      const hint = yourself ? `Judge ${them} yourself and the model is not needed.${asks ? " Starting it now asks first: the computer may become very slow." : ""}`
+        : anyway ? "Start it once memory is free; it is checked again then. Start it anyway asks first: the computer may become very slow." : null;
+      const row = aiStart({ where: "local", model: o.model, kind: yourself ? "standard" : "main", compact: o.compact, before: yourself,
+        also: [anyway], hint: hint || undefined, nudge: !yourself && !anyway && !short ? (o.since || true) : false,
+        onClick: async () => {
+          if (!(yourself && short)) return go(row.start, false);
+          const ok = o.confirm === false || await confirmDialog({ title: `Start ${name} anyway?`, danger: false, confirmText: "Start it anyway", confirmIcon: "play",
+            message: h("div", {}, h("p", {}, "The computer may become very slow, or stop answering for a while, until the model has finished. What you have open is kept."),
+              aiWhere(`The ${nouns} it reads never leave this computer.`, "local")) });
+          if (ok) go(row.start, true);
+        } });
+      lines.push(row);
+    }
+  } else if (yourself) lines.push(h("div", { class: "ar-row" }, yourself));
+  else if (o.note) lines.push(h("p", { class: "muted" }, o.note));
+  if (yourself && o.yourselfNote) lines.push(h("p", { class: "muted" }, o.yourselfNote));
+  if (o.status) lines.push(h("p", {}, o.status));
+  lines.push(localTail(o, nouns));
+  fillSide(el, key, lines);
+  return el;
+}
+
+// ---- Claude's side ----------------------------------------------------------------------------------------------
+// Claude's side for work that waits for Claude Code: the live part. It asks the project's queue itself (one request
+// at a time per project, the answer shared) and keeps itself current while it is on the page: Start Claude Code while
+// work waits, Claude Code at work (Stop Claude Code), paused at the plan's limit, not found, not signed in. opts:
+// project, q (the job's own words for what waits: text, estimate, paused, paused_text, command, kind, being_answered),
+// compact (the choices and the cloud line in one fold, Options and what is sent), privacy (false: no cloud line),
+// always (Start even when nothing waits: the queue page), onDone (when a run it showed has ended), half.
+const AR_FOLD_OPEN = new Map();   // per project: Claude's choices left open, kept across redraws
+function thoughtWord(q) {
+  const v = (q.thought && q.thought.chosen) || "balanced";
+  return `${(THOUGHT_CHOICES.find((c) => c[0] === v) || [, "Balanced"])[1]} thought`;
+}
+function cloudSide(o) {
+  const project = o.project || App.project;
+  const el = sideShell("cloud", o.half, o.onState);
+  el.dataset.project = project;
+  let jq = o.q || {};
+  let timer = null, busy = false, drawn = "";
+  const ago = (s) => (s < 60 ? "just now" : `${Math.round(s / 60)} min ago`);
+  function watchIdle(start) {
     if (!WAIT_SINCE.has(project)) WAIT_SINCE.set(project, Date.now());
     const left = NUDGE_AFTER - (Date.now() - WAIT_SINCE.get(project));
-    if (left <= 0) nudge(b, hint);
+    if (left <= 0) start.nudge();
     // look again when the nudge is due, then every 5 s: once something answers, draw the new state
     timer = setTimeout(async () => {
-      if (!b.isConnected || busy) return;
+      if (!el.isConnected || busy) return;
       let q;
       const c = QUEUE_CACHE.get(project);
       try { q = c && c.q && Date.now() - c.at < 3000 ? c.q : await queueFetch(project); } catch (_) { return; }
-      if (!b.isConnected || busy) return;
-      if (idleQueue(q)) watchIdle(b, hint); else draw(true);
+      if (!el.isConnected || busy) return;
+      if (idleQueue(q)) watchIdle(start); else draw(true);
     }, Math.max(left, 0) || 5000);
+  }
+  function choices(q, cmd, attn) {
+    const rows = [];
+    if (q.thought && !attn) rows.push(["Thought", thoughtPicker(q.thought.chosen, saveThought, { label: null, onSaved: () => { QUEUE_CACHE.delete(project); choiceChanged(project, el); } })]);
+    if (q.speed && !attn) {
+      const custom = customRun(RUN_CHOICE.get(project));
+      const chosen = q.speed.chosen || "normal";
+      const speed = h("span", { class: `sc-speed-line${custom ? " sc-speed-off" : ""}` }, `${(q.speed.options || {})[chosen] || 2} at a time`);
+      rows.push(["Helpers", [speed, arSep(), link({ href: "#/settings/speed" }, "Change in Settings"), helpersFold(project, q, () => {
+        speed.classList.toggle("sc-speed-off", customRun(RUN_CHOICE.get(project)));
+        choiceChanged(project, el);
+      })]]);
+    }
+    rows.push(["By hand", [copyLine(cmd), h("span", { class: "muted" }, q.can_start ? "typed in Claude Code does the same." : "typed in Claude Code (opened in any folder) answers it.")]]);
+    const r = q.runner || {};
+    if (r.exit_code !== undefined && r.exit_code !== null && r.exit_code !== 0 && !r.stopped) {
+      rows.push(["Last run", fold({ sm: true }, workState("failed", "It stopped with a problem"), inset({ as: "pre", class: "mono small sc-report" }, r.report || "(no report)"))]);
+    }
+    return h("dl", { class: "ar-opts" }, rows.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]));
+  }
+  function optionsFold(q, cmd, attn, summary) {
+    const line = o.privacy === false ? null : queueAiLine(jq.privacy || q.privacy, project, jq.kind || o.kind);
+    const f = fold({ sm: true, open: !!AR_FOLD_OPEN.get(project) }, o.compact ? "Options and what is sent" : summary, choices(q, cmd, attn), o.compact ? line : null);
+    f.addEventListener("toggle", () => AR_FOLD_OPEN.set(project, f.open));
+    return o.compact ? f : [f, line];
   }
   async function draw(useCache) {
     clearTimeout(timer);
-    if (!box.isConnected && box.dataset.drawn) return;  // the page moved on
+    if (!el.isConnected && el.dataset.drawn) return;  // the page moved on
     let q;
     const cached = QUEUE_CACHE.get(project);
     if (useCache && cached && cached.q) {
       q = cached.q;  // draw at once from the last answer (a page that redraws often never waits)
-      if (Date.now() - cached.at > 3000) queueFetch(project).then(() => { if (box.isConnected) draw(true); }).catch(() => {});
+      if (Date.now() - cached.at > 3000) queueFetch(project).then(() => { if (el.isConnected) draw(true); }).catch(() => {});
     } else {
       try { q = await queueFetch(project); } catch (_) { return; }
     }
-    box.dataset.drawn = "1";
-    const cmd = opts.command || q.command || `/margin-run ${project}`;
-    const typeIt = h("div", { class: "sc-type" }, h("span", { class: "muted small" }, q.can_start ? "Or type this in Claude Code yourself:" : "In Claude Code (opened in any folder), type:"), copyLine(cmd));
-    // 0.12, opts.foldType (the result page's waiting card): one line under the button; how it works, the command to
-    // type and what is sent sit in a fold
-    const typeBlock = opts.foldType && q.can_start ? fold({ sm: true, class: "sc-type-fold" }, "How it works",
-      h("p", { class: "small" }, "It works on your Claude plan, in the background, and stops by itself when nothing waits."),
-      h("div", { class: "sc-type" }, h("span", { class: "muted small" }, "Or type this in Claude Code yourself:"), copyLine(cmd)),
-      queueAiLine(q.privacy, project, opts.kind)) : typeIt;
+    el.dataset.drawn = "1";
+    const cmd = jq.command || o.command || q.command || `/margin-run ${project}`;
     const r = q.runner || {};
-    const parts = [];
     const idle = idleQueue(q);
     if (!idle) WAIT_SINCE.delete(project);
-    if (q.route !== "claude_code") { replace(box, typeIt); return; }
-    if (r.running) {
-      parts.push(h("div", { class: "sc-running" }, h("span", { class: "running-dot", "aria-hidden": "true" }),
-        h("span", {}, h("strong", {}, "Claude Code is working on it"), h("span", { class: "muted small" }, ` · started ${ago(r.seconds || 0)} from ${appName()}${planText(r) ? ` · ${planText(r)}` : ""}`)),
-        stopButton({ text: "Stop Claude Code", onClick: async () => {
-          try { await api("POST", `/api/projects/${P(project)}/queue/claude-code/stop`, {}); toast("Claude Code stopped. What it had not answered waits again.", "ok"); QUEUE_CACHE.delete(project); draw(false); } catch (e) { showError(e); }
-        } })));  // 0.11.3: not just "Stop": the job beside it has its own
-    } else if (q.can_start && (q.waiting || q.being_answered || opts.always)) {
-      const b = button({ kind: "main", sm: true, onClick: async () => {
-        if (busy) return;
-        busy = true; b.disabled = true; b.classList.remove("sc-nudge");
-        const body = runBody(project, q);
-        const listed = (q.speed && q.speed.helpers) || [];
-        if (body.helpers && listed.length && !listed.some((r) => body.helpers[r.helper] > 0)) {
-          busy = false; b.disabled = false;
-          showError(new Error("Every helper is set to 0 under “Choose the helpers for this run”: give at least one helper 1 or more."));
-          return;
-        }
-        try {
-          await api("POST", `/api/projects/${P(project)}/queue/claude-code`, body);
-          RUN_CHOICE.delete(project);  // the helpers chosen were for this run only
-          toast("Claude Code started. You can keep working; the results appear as they come in.", "ok");
-        } catch (e) { showError(e); }
-        busy = false; QUEUE_CACHE.delete(project); await draw(false);
-        choiceChanged(project, box);
-      } }, icon("play", { size: 13 }), "Start Claude Code");
-      const hint = h("span", { class: "muted small" }, opts.foldType ? "Nothing runs until you press it." : "Runs on your Claude plan, in the background. It stops by itself when nothing waits.");
-      parts.push(h("div", { class: "sc-start" }, withAI(b), hint));
-      if (idle) watchIdle(b, hint);
-      // 0.18.1 (N2): how much thought Claude gives the tasks, chosen here and kept (Settings' claude_thought); how many
-      // helpers run at once is said, and chosen under Settings › AI only. The helpers for this run stay folded away.
-      if (q.thought) parts.push(thoughtPicker(q.thought.chosen, saveThought, { onSaved: () => { QUEUE_CACHE.delete(project); choiceChanged(project, box); } }));
-      if (q.speed) {
-        const custom = customRun(RUN_CHOICE.get(project));
-        const chosen = q.speed.chosen || "normal";
-        const speed = h("p", { class: "sc-speed small" }, h("span", { class: "sc-speed-line muted" },
-          `${helpersText((q.speed.options || {})[chosen] || 2)} at a time. `),
-          link({ href: "#/settings/speed" }, "Change in Settings"));
-        if (custom) speed.classList.add("sc-speed-off");
-        parts.push(speed, helpersFold(project, q, () => {
-          speed.classList.toggle("sc-speed-off", customRun(RUN_CHOICE.get(project)));
-          choiceChanged(project, box);
-        }));
-      }
-      if (r.exit_code !== undefined && r.exit_code !== null && r.exit_code !== 0 && !r.stopped) {
-        parts.push(fold({ sm: true }, workState("failed", "The last run stopped with a problem"), inset({ as: "pre", class: "mono small sc-report" }, r.report || "(no report)")));
-      }
-    } else if (!q.can_start && q.claude && !q.claude.found) {
-      parts.push(h("p", { class: "small sc-missing" }, icon("info", { size: 12 }), " Claude Code was not found on this computer. ", h("a", { href: "#/settings/model" }, "Set it up"), " to start it from here."));
+    const paused = !!(jq.paused || (q.paused && !jq.text));
+    const waiting = jq.waiting ?? q.waiting;
+    const being = jq.being_answered ?? q.being_answered;
+    const state = q.route !== "claude_code" ? "other" : r.running ? "run" : paused ? "paused" : q.can_start ? ((waiting || being || o.always) ? "wait" : "idle")
+      : q.claude && !q.claude.found ? "missing" : "wait";
+    // the words of the job are drawn only while it waits: at work, a new count of the job's never redraws its Stop
+    const says = state === "wait" || state === "other" || state === "missing";
+    const key = JSON.stringify([state, says && jq.text, says && jq.estimate, paused && (jq.paused_text || q.paused_text), cmd, q.thought && q.thought.chosen, q.speed && q.speed.chosen,
+      // the helpers listed (one per kind of work that waits) are shown only while it waits: at work, the list
+      // shrinking as the queue empties must not draw its Stop again
+      state === "wait" && (q.speed && q.speed.helpers || []).length, q.claude && q.claude.signed_in, r.exit_code, r.stopped, r.parallel, !!r.helpers]);
+    if (key === drawn) {   // nothing to redraw: only the counts in place
+      const c = el.querySelector(":scope > .ab-count");
+      if (c && state === "run") c.textContent = runCount(q, r);
+      if (r.running) timer = setTimeout(() => { if (el.isConnected) queueFetch(project).then(() => draw(true)).catch(() => {}); }, 4000);
+      else if (idle) watchIdle(el.querySelector(".ar-start"));
+      return;
     }
-    if (q.claude && q.claude.signed_in === false) parts.push(h("p", { class: "small" }, icon("info", { size: 12 }), " Sign in to Claude Code once: open a terminal, type ", h("code", {}, "claude"), " and sign in with your Claude plan."));
-    replace(box, ...parts, r.running ? null : typeBlock);
-    // the page may have moved on (or re-drawn its panel) by then: a detached box fetches nothing
-    if (r.running) timer = setTimeout(() => { if (box.isConnected) queueFetch(project).then(() => draw(true)).catch(() => {}); }, 4000);
-    else if (r.seconds !== undefined && opts.onDone && box.dataset.wasRunning === "1") opts.onDone();
-    box.dataset.wasRunning = r.running ? "1" : "0";
+    drawn = key;
+    const lines = [];
+    let side = "wait";
+    const signIn = q.claude && q.claude.signed_in === false ? h("p", {}, icon("info", { size: 12 }), " Sign in to Claude Code once: open a terminal, type ", h("code", {}, "claude"), " and sign in with your Claude plan.") : null;
+    const est = jq.estimate || "";
+    const aiLine = () => (o.privacy === false ? null : queueAiLine(jq.privacy || q.privacy, project, jq.kind || o.kind));
+    if (state === "other") {
+      lines.push(arWhat(jq.text || "Waiting for Claude Code"), h("p", { class: "muted" }, "In Claude Code (opened in any folder), type:"), copyLine(cmd), aiLine());
+    } else if (state === "run") {
+      side = "run";
+      const stop = stopButton({ text: "Stop Claude Code", onClick: async () => {
+        setBusy(stop, true);
+        try { await api("POST", `/api/projects/${P(project)}/queue/claude-code/stop`, {}); toast("Claude Code stopped. What it had not answered waits again.", "ok"); QUEUE_CACHE.delete(project); draw(false); }
+        catch (e) { showError(e); setBusy(stop, false); }
+      } });  // 0.11.3: not just "Stop": the job beside it has its own
+      // compact: what is sent and typing it by hand stay in their fold while it works
+      lines.push(h("div", { class: "ab-run-row" }, arWhat("Claude Code is working on it", `started ${ago(r.seconds || 0)} from ${appName()}`), stop),
+        h("p", { class: "ab-count" }, runCount(q, r)), o.compact ? optionsFold(q, cmd, true, "") : aiLine());
+    } else if (state === "paused") {
+      side = "paused";
+      lines.push(arWhat("Paused at your plan’s limit"), jq.paused_text || q.paused_text ? h("p", {}, jq.paused_text || q.paused_text) : null);
+      if (q.can_start) lines.push(startRow(q, "Runs on your Claude plan, in the background, and stops by itself when nothing waits."));
+      lines.push(optionsFold(q, cmd, true, "The last run, and typing it by hand"));
+    } else if (state === "missing") {
+      side = "need";
+      lines.push(arWhat(jq.text || "Waiting for Claude Code"),
+        h("p", {}, "Claude Code was not found on this computer. ", h("a", { href: "#/settings/model" }, "Set it up"), " to start it from here, or type this in Claude Code:"), copyLine(cmd), aiLine());
+    } else if (state === "idle") {
+      side = "done";
+      lines.push(arWhat(el.dataset.ran ? "Claude Code has answered what waited for it" : "Nothing waits for Claude Code"), o.compact || o.privacy === false ? null : queueAiLine(jq.privacy || q.privacy, project, jq.kind || o.kind));
+    } else {
+      const n = waiting || 0;
+      lines.push(arWhat(jq.text || (n ? `${plural(n, "task")} ${n === 1 ? "waits" : "wait"} for Claude Code` : "Waiting for Claude Code"), being ? `${fmt.num(being)} being answered now` : ""));
+      if (est && !o.compact) lines.push(h("p", { class: "muted" }, est.charAt(0).toUpperCase() + est.slice(1) + "."));
+      if (q.can_start) lines.push(startRow(q));
+      const helpers = q.speed ? (customRun(RUN_CHOICE.get(project)) ? "helpers chosen for this run" : `${helpersText((q.speed.options || {})[q.speed.chosen || "normal"] || 2)} at a time`) : "";
+      lines.push(optionsFold(q, cmd, false, [q.thought ? thoughtWord(q) : "", helpers, "or type it by hand"].filter(Boolean).join(" · ")));
+    }
+    lines.push(signIn);
+    if (r.running) el.dataset.ran = "1";
+    fillSide(el, side, lines);
+    if (side === "run") sidePct(el, o.pct ?? null);
+    const start = el.querySelector(".ar-start");
+    if (start && idle) watchIdle(start);
+    // the page may have moved on (or drawn its panel again) by then: a detached side fetches nothing
+    if (r.running) timer = setTimeout(() => { if (el.isConnected) queueFetch(project).then(() => draw(true)).catch(() => {}); }, 4000);
+    else if (r.seconds !== undefined && o.onDone && el.dataset.wasRunning === "1") o.onDone();
+    el.dataset.wasRunning = r.running ? "1" : "0";
   }
+  const runCount = (q, r) => [q.being_answered ? `${fmt.num(q.being_answered)} being answered now` : "", q.waiting ? `${fmt.num(q.waiting)} still waiting` : "", planText(r)].filter(Boolean).join(" · ");
+  function startRow(q, hint) {
+    const row = aiStart({ where: "cloud", compact: o.compact, hint, onClick: async () => {
+      const b = row.start;
+      if (busy) return;
+      busy = true; setBusy(b, true); b.classList.remove("ar-nudge");
+      const body = runBody(project, q);
+      const listed = (q.speed && q.speed.helpers) || [];
+      if (body.helpers && listed.length && !listed.some((x) => body.helpers[x.helper] > 0)) {
+        busy = false; setBusy(b, false);
+        showError(new Error("Every helper is set to 0 under “Choose the helpers for this run”: give at least one helper 1 or more."));
+        return;
+      }
+      try {
+        await api("POST", `/api/projects/${P(project)}/queue/claude-code`, body);
+        RUN_CHOICE.delete(project);  // the helpers chosen were for this run only
+        toast("Claude Code started. You can keep working; the results appear as they come in.", "ok");
+      } catch (e) { showError(e); }
+      busy = false; QUEUE_CACHE.delete(project); drawn = ""; await draw(false);
+      choiceChanged(project, el);
+    } });
+    return row;
+  }
+  // the job's own words changed (a poll of the job): drawn again only if they differ
+  el.arSetQueue = (q) => { jq = q || {}; draw(true); };
   // 0.13.10: two of these for one project can be on the page at once (the sidebar's job and queue panels): a choice
   // made in one shows in the other
   for (const e of [...SC_LIVE]) if (e.box.dataset.drawn && !e.box.isConnected) SC_LIVE.delete(e);
-  SC_LIVE.add({ project, box, redraw: () => draw(true) });
+  SC_LIVE.add({ project, box: el, redraw: () => { drawn = ""; draw(true); } });
+  fillSide(el, "wait", [arWhat(jq.text || "Waiting for Claude Code")]);
   draw(true);
-  return box;
-}
-const QUEUE_CACHE = new Map();
-const SC_LIVE = new Set();  // the Start Claude Code elements made, until they have left the page
-function choiceChanged(project, from) {
-  for (const e of [...SC_LIVE]) {
-    if (e.box === from || e.project !== project) continue;
-    if (e.box.isConnected) e.redraw(); else if (e.box.dataset.drawn) SC_LIVE.delete(e);
-  }
+  return el;
 }
 
-// ---------------------------------------------------------------------------------------------
-// 0.19.4: the local model's panel, the twin of the Claude Code panel (queueNotice + startClaude) for a model on this
-// computer. The same order (what waits, the start row, the model's own row, the AI line at its foot) and the same
-// buttons, so the two read as one family; told apart by its box (docs/DESIGN.md 4.12, the local notice: the page's own
-// ground, a stronger edge, "On this computer" over its head) and the house wherever Claude's panel has the inbox and
-// the cloud. It shows what Claude Code's panel cannot know: the model's memory against what this computer has free.
-//
-// opts: model (its name), memory ({ loaded } or { need, free, short } in bytes, from /api/local-status), problem (why
-// it cannot be used), count + noun (what waits: 33, "passage"), running ({ phase, seconds, done, total }: the model
-// is reading; the card around it holds Stop), refused (the job's MemoryShort words: it was not started), onStart(force)
-// (the start row; force: "Start it anyway").
-const GiB = 1 << 30;
-const gb = (n) => `${(n / GiB).toFixed(1)} GB`;
-const LOCAL_PHASE = { waiting: "is loading and reading", thinking: "is thinking it over", writing: "is writing its answer", done: "has finished" };
+// Claude's side when it needs no live queue: the Claude API reading (state "run"), its part done, not yet, stopped.
+// opts: state, what, muted, line (an AI line under it), pct (how far: its half of the bar).
+function cloudStatic(o, el) {
+  el = el || sideShell("cloud", o.half, o.onState);
+  fillSide(el, o.state, [arWhat(o.what || { run: "Claude reads the excerpts", done: "Claude has read its part", later: "Its part comes after the steps above", stopped: "Stopped" }[o.state] || "", o.muted), o.line || null]);
+  if (o.state === "run") sidePct(el, o.pct ?? null);
+  return el;
+}
 
+// One engine's side. where: "local" | "cloud". A cloud side with work for Claude Code (opts.live, or a project's
+// queue words in opts.q) keeps itself current from the queue; any other side is drawn from its opts (see localSide()
+// and cloudStatic()), and drawn again by its caller when they change. opts.onState(key): told each time its state
+// changes (wait, run, need, paused, done, later, stopped), for the panel's head.
+export function aiSide(opts = {}) {
+  if (opts.where === "cloud") return opts.live || opts.q ? cloudSide(opts) : cloudStatic(opts);
+  return localSide(opts);
+}
+// draw a local side again in place from new opts (the element and its half stay)
+export function redrawSide(el, opts) { return el.dataset.where === "cloud" ? cloudStatic(opts, el) : localSide(opts, el); }
+// a running model's figures, written in place (the side is not drawn again, so its Stop stays under the pointer)
+export function sideFigures(el, fig) { writeFine(el, fig); }
+export { setHalf, sidePct };
+
+// What waits for Claude Code, for a page that waits on it: Claude's side alone in a card (with the empty seat of this
+// computer). opts.foldType (0.12, a card that already says where text goes): its choices and the cloud line in one
+// fold; opts.privacy false: no cloud line.
+export function queueNotice(q, opts = {}) {
+  if (!q) return null;
+  if (!App.project) return aiSides(null, cloudStatic({ state: "wait", what: q.text || "Waiting for Claude Code", muted: q.estimate || "" }), { compact: true });
+  return aiSides(null, cloudSide({ project: App.project, q, compact: true, privacy: opts.privacy, kind: q.kind }), { compact: true });
+}
+
+// 0.19.4: the local model's panel: this computer's side alone in a card, with Claude's empty seat. opts: as
+// localSide(); opts.load: it asks /api/local-status for the model and its memory itself, and fills them in when they come.
 export function localPanel(opts = {}) {
-  // opts.load: the panel asks /api/local-status for the model and its memory itself, and fills them in when they come
-  const box = h("div", { class: "local-panel" });
-  let st = { ...opts };
-  const draw = () => replace(box, localPanelBody(st));
-  draw();
+  let st = { compact: true, ...opts };
+  const side = localSide(st);
+  const block = aiSides(side, null, { compact: true });
   if (opts.load) api("GET", "/api/local-status").then((r) => {
     if (!r || r.same_as_main) return;
     st = { ...st, model: st.model || r.model, memory: st.memory || r.memory, problem: st.problem || r.problem };
-    draw();
+    localSide(st, side);
   }).catch(() => {});
-  return box;
+  return block;
 }
 
-let LP_SEQ = 0;   // each local panel's own ids
-// opts beyond localPanel's: blocking (the local model's work is all that is left, so a model that cannot start needs
-// you: the attention notice, and Start is the panel's main button), sub (one more line under the head: "Claude labels
-// the other 2 meanwhile."), anywayText (only the Start it anyway button, with these words: the card's own main button
-// starts the rest), status (what came of the last press, said once), note (a line where the buttons would be),
-// onYourself + yourselfText + yourselfNote (0.19.8: "Judge it myself", first and the main button, in place of Start it
-// anyway, and a line under it).
-function localPanelBody(o) {
-  const name = o.model || "your local model";
-  const noun = o.noun || "passage";
-  const mem = o.memory;
-  const short = !!(mem && mem.short) || !!o.refused;
-  const alarm = (short && o.blocking) || !!o.problem;
-  const id = `lp-${++LP_SEQ}`;
-  // the house in every state: the eyebrow says whose panel this is, whatever its tone
-  const parts = [h("p", { class: "lp-eyebrow small", id }, icon("house", { size: 13 }), "On this computer")];
-  if (o.running) {
-    parts.push(h("p", { class: "lp-head" }, h("span", { class: "running-dot", "aria-hidden": "true" }),
-      h("strong", {}, `${o.model || "Your local model"} ${LOCAL_PHASE[o.running.phase] || "is reading"}`)));
-  } else {
-    parts.push(h("p", { class: "lp-head" }, h("strong", {}, o.head || (o.count ? `${plural(o.count, noun)} ${o.count === 1 ? "waits" : "wait"} for your local model` : "Waiting for your local model"))));
-  }
-  if (o.sub) parts.push(h("p", { class: "muted small" }, o.sub));
-  // the memory line, one sentence from the numbers: what Claude Code's panel has no need of
-  if (o.problem) parts.push(h("p", { class: "small" }, o.problem));
-  else if (mem && mem.need) {
-    const words = `Needs about ${gb(mem.need)} of memory; ${gb(mem.free)} is free now.${short ? " Close other programs, or choose a smaller model in Settings › AI." : ""}`;
-    parts.push(short && !alarm ? h("p", { class: "lp-mem small" }, workState("attention", words)) : h("p", { class: `lp-mem small${short ? "" : " muted"}` }, words));
-  } else if (o.refused) parts.push(h("p", { class: "lp-mem small" }, o.refused));
-  else if (mem && mem.loaded && !o.running) parts.push(h("p", { class: "lp-mem muted small" }, `${o.model || "Your local model"} is in memory already: it starts at once.`));
-  // 0.19.8: onYourself: the person may judge what waits instead of starting the model ("Judge it myself"). It takes
-  // the place of Start it anyway beside Start (two Starts side by side read oddly); with too little memory free it is
-  // the main button, and comes first (Start the model second). Start it anyway is still offered when the start is
-  // refused for memory (memoryShort, result.js).
-  const yourself = o.onYourself && !o.running ? button({ kind: "main", sm: true, icon: "user", onClick: async () => {
-    yourself.disabled = true;
-    try { await o.onYourself(); } catch (e) { showError(e); yourself.disabled = false; }
-  } }, o.yourselfText || "Judge it myself") : null;
-  if (!o.running && !o.problem && o.onStart) {
-    const go = async (b, force) => {
-      b.disabled = true;
-      try { await o.onStart(force); } catch (e) { showError(e); b.disabled = false; }
-    };
-    const anyway = short && !yourself ? button({ kind: o.anywayText ? "standard" : "quiet", sm: true, onClick: async () => {
-      const ok = o.confirm === false || await confirmDialog({ title: `Start ${name} anyway?`, danger: false, confirmText: "Start it anyway",
-        message: h("p", {}, "The computer may become very slow, or stop answering for a while, until the model has finished. What you have open is kept.") });
-      if (ok) go(anyway, true);
-    } }, o.anywayText || "Start it anyway") : null;
-    if (o.anywayText) {
-      if (anyway) parts.push(h("div", { class: "lp-start" }, withAI(anyway)));
-    } else {
-      const start = button({ kind: yourself ? "standard" : "main", sm: true, icon: "play", onClick: () => go(start, false) }, `Start ${name}`);
-      parts.push(h("div", { class: "lp-start" }, yourself, anyway ? withAI(start, anyway) : withAI(start),
-        anyway || yourself ? null : h("span", { class: "muted small" }, "Runs here, in this app, and stops by itself when nothing waits.")));
-    }
-  } else if (yourself) parts.push(h("div", { class: "lp-start" }, yourself));
-  else if (o.note) parts.push(h("p", { class: "muted small" }, o.note));
-  if (yourself && o.yourselfNote) parts.push(h("p", { class: "muted small" }, o.yourselfNote));
-  if (o.status) parts.push(h("p", { class: "small", role: "status" }, o.status));
-  // the model's own row, where Claude's panel has Thought and its helpers (not while it reads: nothing to change then)
-  if (!o.running) parts.push(h("p", { class: "lp-model small" }, h("span", { class: "lp-model-label" }, "Model"), " ",
-    h("span", { class: "mono" }, o.model || "none chosen"), " · ", link({ href: "#/settings/model" }, o.problem && !o.model ? "Choose one in Settings › AI" : "Change it in Settings › AI")));
-  parts.push(aiWhere(`The ${noun}s it reads never leave this computer.`, "local"));
-  return notice({ kind: alarm ? "attention" : "local", icon: alarm ? undefined : false, class: "local-notice", role: "group", "aria-labelledby": id }, ...parts);
-}
-
-// 0.19.4: a job the local model was not started in (too little memory free: job.error_kind "memory"). Its panel, in
+// 0.19.4: a job the local model was not started in (too little memory free: job.error_kind "memory"). Its side, in
 // place of an error: the memory against what is free, Start <model> (the job runs again, and the model is checked
 // again) and Start it anyway (the job runs again whatever memory is free), POST /api/jobs/<id>/again. `onStarted(job)`
-// follows the new job. Without `box`, a dialog holds the panel.
+// follows the new job. Without `box`, a dialog holds it.
 export function memoryRefused(job, onStarted, opts = {}) {
   const mem = job.memory || {};
   const again = async (force) => {
@@ -2434,12 +2741,12 @@ export function memoryRefused(job, onStarted, opts = {}) {
     if (opts.close) opts.close();
     if (onStarted) onStarted(r.job);
   };
-  return localPanel({ model: mem.model, memory: mem.need ? mem : null, refused: mem.need ? null : job.error, blocking: true,
+  return localPanel({ model: mem.model, memory: mem.need ? mem : null, refused: mem.need ? true : (job.error || true), blocking: true,
     head: opts.head || `${mem.model || "Your local model"} was not started, so “${job.title || "this work"}” waits for it`,
     noun: opts.noun || "passage", confirm: opts.confirm, onStart: job.can_run_again ? again : null, load: true });
 }
 
-// What a page does with a job that did not work: a local model refused for memory gets its panel (in `box`, or a
+// What a page does with a job that did not work: a local model refused for memory gets its side (in `box`, or a
 // dialog), anything else the usual error toast.
 export function jobFailed(job, onStarted, box) {
   onStarted = onStarted || ((j) => toast(`Started again: ${j.title}. It shows in the status area.`, "ok"));
@@ -2451,6 +2758,15 @@ export function jobFailed(job, onStarted, box) {
     return;
   }
   showError({ message: job.error, kind: job.error_kind });
+}
+
+const QUEUE_CACHE = new Map();
+const SC_LIVE = new Set();  // Claude's live sides made, until they have left the page
+function choiceChanged(project, from) {
+  for (const e of [...SC_LIVE]) {
+    if (e.box === from || e.project !== project) continue;
+    if (e.box.isConnected) e.redraw(); else if (e.box.dataset.drawn) SC_LIVE.delete(e);
+  }
 }
 
 // 0.13.10: how fast Claude Code works: how many helpers it starts at once (one, two or four). Faster is done sooner
@@ -2597,7 +2913,6 @@ function helpersFold(project, q, onChange) {
 // 0.11.3, the Start Claude Code nudge: when a project's work first waited with nothing answering it (kept per project, as
 // the sidebar draws its button again every 5 s and the progress panel whenever the queue's line changes).
 const NUDGE_AFTER = 5000;
-const NUDGE_PULSE = 1600;  // the length of one pulse of .btn.sc-nudge (components.css, 4.1)
 const WAIT_SINCE = new Map();
 const idleQueue = (q) => !!(q && q.route === "claude_code" && q.can_start && !(q.runner || {}).running && q.waiting && !q.being_answered);
 // one request at a time per project; the answer is kept for the next element that draws

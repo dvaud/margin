@@ -149,7 +149,8 @@ def test_the_result_page_reads_in_one_order():
     assert "queueNotice(" in waiting and "modelsCard" not in waiting and "downloadsCard" not in waiting
     assert "{ foldType: true }" in waiting and "deleteHyp(r)" in waiting and "techCard(r, parts)" in waiting
     lib = (STATIC / "lib.js").read_text()
-    assert "opts.foldType && q.can_start ?" in lib and "foldType: opts.foldType" in lib
+    # 0.19.13: Claude's side in a card: its choices and the cloud line in one fold (Options and what is sent)
+    assert 'o.compact ? "Options and what is sent" : summary' in lib and "compact: true, privacy: opts.privacy" in lib
 
 
 def test_an_excerpt_card_is_compact_and_can_be_dismissed():

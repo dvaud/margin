@@ -3,7 +3,7 @@
 // the same `passages` the cards are drawn from, so sections and numbers always agree. A person's judgement
 // replaces the AI's; it is protected (no silent overwrite) and every save can be undone.
 import { App, api, h, icon, madeWithFact, readsLine, aiWhere, judgementIcon, pageHead, replace, clear, append, toast, showError, fmt, statusBadge, gradeBadge, codeChip, passageNode, cpToIndex, indexToCp, cpLength, breaksToIndex, latest, popNote, gradeWords, navigate, watchJob, P, TOKEN, TERMINAL, confirmDialog, dialog, download, debounce, store, GRADE_TEXT, STATUS_SHORT, strictness, docsCountSentence, queueNotice, localPanel, auditorName, strongerMark,
-  button, iconButton, link, tag, notice, card as cardBox, fold as foldBox, choice, helpMark, downloadButton, textarea, input as fieldInput, select as selectField, reviewedMark, emptyState, personMark, lazyList, switchControl, jobFailed } from "../lib.js";
+  button, iconButton, link, tag, notice, card as cardBox, fold as foldBox, choice, helpMark, downloadButton, textarea, input as fieldInput, select as selectField, reviewedMark, emptyState, personMark, lazyList, switchControl, jobFailed, aiButton, setBusy } from "../lib.js";
 import { withAI } from "../features.js";
 import { ProgressPanel, MiniJob } from "./progress.js";
 import { originLink } from "../registry.js";
@@ -900,7 +900,7 @@ export async function renderResult(view, [hypId], query) {
     const btn = button({ sm: true, disabled: busy.length > 0,
       title: m ? `The AI reads only ${m === 1 ? "that document" : "those documents"}, as a further search for ${r.decomposed ? "every part" : "this hypothesis"}. The check is not run again, so your reviews are kept.${m === n ? "" : " The others are marked as looked at."}`
         : "Nothing in them shares a word with the hypothesis. Marking them as looked at stops this notice; the check is not run again." },
-      icon(m ? "book-open" : "check", { size: 13 }), m ? (m === 1 ? "Read it" : "Read them") : "Mark as looked at");
+      icon(m ? "play" : "check", { size: 13 }), m ? (m === 1 ? "Read it" : "Read them") : "Mark as looked at");
     btn.addEventListener("click", () => runReadNew(btn));
     const list = keptFold("added", { sm: true, class: "added-list-fold" }, n === 1 ? "Which one" : "Which ones",
       h("ul", { class: "added-list" }, added.map((d) => h("li", {}, h("a", { href: `#/doc/${encodeURIComponent(d.doc_id)}?from=${encodeURIComponent(hypId)}` }, d.title || "untitled"),
@@ -943,7 +943,7 @@ export async function renderResult(view, [hypId], query) {
       const busy = [...running.values()].filter((x) => x.kind === "read-unread");
       const btn = button({ sm: true, disabled: busy.length > 0 || !!u.waits,
         title: u.waits || `The AI reads the best excerpts of ${m === 1 ? "that document" : "those documents"} (up to one excerpt a document, at most 40 at a time), as a further search for ${current && current.decomposed ? "every part" : "this hypothesis"}. The check is not run again, so your reviews are kept.` },
-        icon("book-open", { size: 13 }), m === 1 ? "Read it" : "Read these");
+        icon("play", { size: 13 }), m === 1 ? "Read it" : "Read these");
       btn.addEventListener("click", () => runReadUnread(btn));
       parts.push(h("div", { class: "unread-group" },
         h("p", {}, `${docs(m)} with the search words ${m === 1 ? "was" : "were"} never read in this check.`),
@@ -1055,7 +1055,7 @@ export async function renderResult(view, [hypId], query) {
     } else if ((current.stronger_model && canStep) || stepped || stepping) {
       let strongBtn = null;
       if (current.stronger_model && canStep) {
-        strongBtn = button({ sm: true, disabled: busy.some((x) => x.kind === "stronger") }, stepped ? `Ask it for the ${canStep === 1 ? "new search" : `${canStep} new searches`}` : "Ask a stronger model");
+        strongBtn = aiButton({ sm: true, disabled: busy.some((x) => x.kind === "stronger") }, stepped ? `Ask it for the ${canStep === 1 ? "new search" : `${canStep} new searches`}` : "Ask a stronger model");
         strongBtn.title = `The stronger model: ${current.stronger_model}`;
         strongBtn.addEventListener("click", () => runStronger(strongBtn));
       }
@@ -1070,7 +1070,7 @@ export async function renderResult(view, [hypId], query) {
     if (secondUsable && !changingSecond) {
       let secBtn = null;
       if (!allSecond) {
-        secBtn = button({ sm: true, disabled: busy.some((x) => x.kind === "second-opinion"), title: auditor ? null : ONE_MODEL_NOTE }, secondRead ? "Second opinion on the rest" : "Get a second opinion");
+        secBtn = aiButton({ sm: true, disabled: busy.some((x) => x.kind === "second-opinion"), title: auditor ? null : ONE_MODEL_NOTE }, secondRead ? "Second opinion on the rest" : "Get a second opinion");
         secBtn.addEventListener("click", () => runSecondOpinion(secBtn));
       }
       row(secBtn, secState);
@@ -1098,7 +1098,7 @@ export async function renderResult(view, [hypId], query) {
   function secondModelPicker(mainModel, currentChoice, busy) {
     const sel = selectField({ sm: true, "aria-label": "Model for second opinions", disabled: true,
       title: "The number before “b” in a model's name is its size, in billions of parameters: a larger model is usually better, but slower." }, h("option", { value: "" }, "Looking for other models…"));
-    const ask = button({ sm: true, disabled: true, title: ONE_MODEL_NOTE }, "Get a second opinion");
+    const ask = aiButton({ sm: true, disabled: true, title: ONE_MODEL_NOTE }, "Get a second opinion");
     const state = h("span", { class: "muted small", "aria-live": "polite" });
     const box = h("div", { class: "second-pick" },
       h("p", { class: "ask-state muted" }, h("span", {}, currentChoice ? "Choose another model on this computer " : "Choose a model on this computer ", "(", h("a", { href: "#/settings/second" }, "Settings"), "):")),
@@ -1127,7 +1127,7 @@ export async function renderResult(view, [hypId], query) {
   // Watches a follow-up job of this result; `onDone(job, fresh)` runs when it finished well, with the result as
   // fetched once for the re-draw (one request, not two). The page redraws either way.
   function followJob(jobId, kind, title, onDone, extra = {}) {
-    const mini = new MiniJob({ title });
+    const mini = new MiniJob({ title, noun: "excerpt", engines: kind === "read-local" ? ["local"] : undefined });
     running.set(jobId, { kind, mini, ...extra });
     const w = watchJob(jobId, (job) => mini.update(job));
     watchers.push(w);
@@ -1346,7 +1346,7 @@ export async function renderResult(view, [hypId], query) {
     if (part.local_failed) {
       const n = part.local_failed.passages;
       card.appendChild(notice({ kind: "attention", icon: "house" }, h("p", {}, `The local model's answers for ${n} ${n === 1 ? "excerpt" : "excerpts"} from documents marked Only a local AI could not be used, even after three tries; ${n === 1 ? "it is" : "they are"} shown without a judgement. Try again (perhaps with another local model, Settings → AI), or judge ${n === 1 ? "it" : "them"} yourself.`),
-        h("div", { class: "btn-row" }, readLocalButton("Read them again on this computer")), aiWhere(localReads(), "local"),
+        h("div", { class: "btn-row" }, readLocalButton("Read them again")), aiWhere(localReads(), "local"),
         part.local_failed.errors.length ? foldBox({}, "Technical details", h("ul", { class: "errors-list" }, part.local_failed.errors.map((e) => h("li", {}, e)))) : null));
     }
     if (part.status === "no_passages") {
@@ -1369,8 +1369,8 @@ export async function renderResult(view, [hypId], query) {
             : chosen ? `You chose to judge ${chosen} of these yourself rather than start the local model; no AI may read the others (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other.`
             : "No AI may read these (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other."),
           // 0.19.12: changed your mind: the local model reads them after all (what you judged meanwhile still counts)
-          chosen ? [h("div", { class: "btn-row local-again" }, withAI(button({ sm: true, title: "They wait for your local model again, and it starts reading them on this computer. Judgements you gave meanwhile stay and still count.",
-            onClick: (e) => localAgain(e.currentTarget, chosen) }, chosen === 1 ? "Let the local model read it" : "Let the local model read them"))), aiWhere(localReads(), "local")] : null));
+          chosen ? [h("div", { class: "btn-row local-again" }, withAI(aiButton({ sm: true, title: "They wait for your local model again, and it starts reading them on this computer. Judgements you gave meanwhile stay and still count.",
+            onClick: (e) => localAgain(e.currentTarget, chosen) }, chosen === 1 ? "Read it again" : "Read them again"))), aiWhere(localReads(), "local")] : null));
         card.append(...evList(forYou, part));
       }
       if (rest.length) {
@@ -1474,7 +1474,7 @@ export async function renderResult(view, [hypId], query) {
           isNew ? tag({}, "new") : null),
         (rd.parts || []).length > 1 ? h("p", { class: "round-readers" }, icon("house", { size: 12 }), " ", rd.parts.map((x) => READ_BY_ROUND[x.read_by] ? READ_BY_ROUND[x.read_by](x.passages) : `${x.passages}`).join(" · ")) : null,
         rd.ai_note ? h("p", { class: "ai-note" }, icon("quote", { size: 13 }), h("span", {}, corrected ? "The AI's note, before your corrections: " : "The AI's note: ", rd.ai_note)) : null,
-        strongerLine(rd)));
+        strongerLine(rd, r)));
     }
     const tried = triedTerms.get(part.claim_id) || [];
     if (tried.length) box.appendChild(h("div", { class: "round-row" }, h("p", { class: "round-head" }, icon("search-x", { size: 13 }), h("span", {}, `You also tried ${tried.join(", ")}: nothing new was found.`))));
@@ -1487,15 +1487,15 @@ export async function renderResult(view, [hypId], query) {
     const job = [...running.values()].find((x) => x.kind === "read-local");
     if (job && !localJobShown) { localJobShown = true; return job.mini.el; }
     if (job) return h("span", { class: "muted small" }, "Your local model reads these too (see above).");
-    const btn = button({ kind: "main", sm: true }, label);
+    const btn = aiButton({ kind: "main", sm: true }, label);
     btn.addEventListener("click", async () => {
-      btn.disabled = true;
-      try { await startReadLocal(false); } catch (e) { showError(e); btn.disabled = false; }
+      setBusy(btn, true);
+      try { await startReadLocal(false); } catch (e) { showError(e); setBusy(btn, false); }
     });
     return withAI(btn);
   }
 
-  // the house line's words under "Read them … on this computer": only a model on this computer reads these excerpts
+  // the house line's words under "Read them again" / "Read them now": only a model on this computer reads these excerpts
   const localReads = () => `Your local model (${App.settings().restricted_model || "chosen in Settings › AI"}) reads them on this computer: they never leave it.`;
 
   async function startReadLocal(force) {
@@ -1527,8 +1527,9 @@ export async function renderResult(view, [hypId], query) {
     if (job.error_kind !== "memory") { showError({ message: job.error, kind: job.error_kind }); return; }
     const go = await confirmDialog({ title: "Too little memory free for your local model", message: h("div", {},
       h("p", {}, job.error),
-      h("p", {}, "You can start it anyway: the computer may then become very slow, or stop answering for a while, until the model has finished.")),
-      confirmText: "Start it anyway" });
+      h("p", {}, "You can start it anyway: the computer may then become very slow, or stop answering for a while, until the model has finished."),
+      aiWhere(localReads(), "local")),
+      confirmText: "Start it anyway", confirmIcon: "play", danger: false });
     if (go) { try { await startReadLocal(true); } catch (e) { showError(e); } }
   }
 
@@ -1543,15 +1544,15 @@ export async function renderResult(view, [hypId], query) {
         onYourself: () => judgeLocalYourself(part.waiting_local), yourselfText: part.waiting_local === 1 ? "Judge it myself" : "Judge them myself",
         yourselfNote: `${part.waiting_local === 1 ? "It then waits" : "They then wait"} for your judgement, marked Awaiting manual review; no model reads ${part.waiting_local === 1 ? "it" : "them"}.` }));
     }
-    const btn = readLocalButton("Read them now on this computer");
+    const btn = readLocalButton("Read them now");
     return notice({ kind: "info", icon: "house", class: "wait-local" },
       h("p", {}, `${part.waiting_local} ${part.waiting_local === 1 ? "excerpt comes" : "excerpts come"} from documents marked Only a local AI and ${part.waiting_local === 1 ? "waits" : "wait"} for the local model.`),
       h("div", { class: "btn-row" }, btn, h("span", { class: "muted small" }, "Without a local model (Settings → AI) they wait for your judgement.")), aiWhere(localReads(), "local"));
   }
 
   // What a stronger model did with one search (0.11.2: asking for one is in "Ask another AI model", for the whole result)
-  function strongerLine(rd) {
-    if (rd.waiting) return h("div", { class: "muted small" }, icon("inbox", { size: 12 }), " Waiting for Claude Code.");
+  function strongerLine(rd, r = {}) {
+    if (rd.waiting) return queueNotice({ text: "Claude Code reads this search's excerpts", command: r.queue_command }, { foldType: true });
     if (rd.stronger_waiting) return h("div", { class: "muted small" }, icon("inbox", { size: 12 }), " A stronger model reads these excerpts again; until then the first reading counts.");
     if (rd.stepped_up) return h("div", { class: "muted small" }, icon("layers", { size: 12 }), " A stronger model read these excerpts again; its reading counts (each changed excerpt shows the first one).");
     return null;
@@ -1750,7 +1751,7 @@ export async function renderResult(view, [hypId], query) {
     let rereadBtn = null;
     if (p.read_by !== "you") {   // 0.11: no model may read it
       // 0.12: under Details, with the facts about how this excerpt was read
-      rereadBtn = button({ sm: true, title: "The AI reads this excerpt again, on its own, with your comment as a hint", disabled: [...running.values()].some((x) => x.kind === "reread" && x.passage_id === p.passage_id) }, icon("refresh", { size: 13 }), "Ask the AI to read this again");
+      rereadBtn = button({ sm: true, title: "The AI reads this excerpt again, on its own, with your comment as a hint", disabled: [...running.values()].some((x) => x.kind === "reread" && x.passage_id === p.passage_id) }, icon("play", { size: 13 }), "Read this again…");
       rereadBtn.addEventListener("click", () => rereadDialog(p, part, rereadBtn));
     }
     const sec = p.second;
@@ -1803,11 +1804,13 @@ export async function renderResult(view, [hypId], query) {
       title: "Ask the AI to read this excerpt again?",
       body: h("div", {},
         h("p", {}, "The AI reads only this excerpt again, on its own. Its new judgement replaces its earlier one on this card; the earlier one stays visible."),
+        // who reads it, and where its text goes (an excerpt of a document marked Only a local AI stays here)
+        p.access === "local" ? aiWhere(`Your local model (${App.settings().restricted_model || "chosen in Settings › AI"}) reads it on this computer: it never leaves it.`, "local") : readsLine("this excerpt"),
         p.user_verdict ? h("p", {}, h("strong", {}, "Your own judgement is not changed and still counts."), " The AI's reading is for comparison.") : h("p", {}, "If you have judged it yourself, your judgement stays and still counts."),
         h("div", { class: "field" }, h("label", { class: "field-label", for: "reread-note" }, p.user_note ? "Your comment is given to the AI as a hint (change it here, or empty the box for a re-read without a hint)" : "A hint for the AI (optional: leave it empty for a re-read without a hint)"), note,
           h("div", { class: "field-help" }, "The hint is added to the AI's instructions as “A reader noted: …”. The AI may simply follow it, so judge the excerpt yourself afterwards."),
           keepRow)),
-      actions: [{ text: "Cancel", value: false }, { text: "Read it again", value: true, primary: true, id: "dlg-confirm" }],
+      actions: [{ text: "Cancel", value: false }, { text: "Read it again", value: true, primary: true, id: "dlg-confirm", icon: "play" }],
       onOpen() { syncKeep(); note.focus(); },
     });
     if (!ok) return;
@@ -2049,15 +2052,14 @@ export async function renderResult(view, [hypId], query) {
     const status = h("div", { class: "grow more-status" });
     const none = part.more_available === false;
     const readN = (part.passages || []).length;
-    const moreBtn = button({ sm: true, disabled: none }, "Read more excerpts");
+    const moreBtn = aiButton({ sm: true, disabled: none }, "Read more excerpts");
     const open = termsOpen.has(part.claim_id);
     const termsBtn = button({ sm: true, toggle: true, "aria-expanded": open ? "true" : "false" }, "Search with other words");
     const termsInput = fieldInput({ sm: true, placeholder: "e.g. telework, home office, car use", "aria-label": "Words to search for, separated by commas", value: termsText.get(part.claim_id) || "" });
     termsInput.addEventListener("input", () => termsText.set(part.claim_id, termsInput.value));
-    const termsGo = button({ sm: true }, "Search and read");
+    const termsGo = aiButton({ sm: true }, "Search and read");
     const lastRes = termsResult.get(part.claim_id);
-    // its button opened it from the row marked Uses the AI: no second mark here
-    const termsBox = h("div", { class: "more-terms", hidden: !open }, termsInput, termsGo, h("span", { class: "muted small" }, "Separate words with commas."),
+    const termsBox = h("div", { class: "more-terms", hidden: !open }, termsInput, withAI(termsGo), h("span", { class: "muted small" }, "Separate words with commas."),
       lastRes ? h("p", { class: "terms-result", role: "status" }, icon(lastRes.n ? "check" : "search-x", { size: 13 }), lastRes.text) : null);
     termsBtn.addEventListener("click", () => { termsBox.hidden = !termsBox.hidden; termsBtn.setAttribute("aria-expanded", termsBox.hidden ? "false" : "true"); if (termsBox.hidden) termsOpen.delete(part.claim_id); else { termsOpen.add(part.claim_id); termsInput.focus(); } });
     const run = async (terms) => {

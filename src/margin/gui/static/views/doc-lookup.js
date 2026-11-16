@@ -2,7 +2,7 @@
 // them and hands each the page's `ctx`.
 import { withAI } from "../features.js";
 import { App, api, h, icon, readsLine, replace, clear, toast, showError, fmt, emptyState, searchHref, session,
-  plural, shortTitle, button, link, notice, input, select, fold } from "../lib.js";
+  plural, shortTitle, button, link, notice, input, select, fold, aiButton } from "../lib.js";
 import { jobCard } from "./progress.js";
 import { stillRunning, norm } from "./doc-shared.js";
 
@@ -106,13 +106,12 @@ export function refsPanel(ctx) {
         : !r.read && r.already_read ? `The AI had already read ${plural(r.already_read, "stretch", "stretches")} for this. ${plural(r.chains || 0, "name")} with references.`
         : `The AI read ${plural(r.read || 0, "stretch", "stretches")}${r.failed ? `; ${r.failed} could not be read` : ""}. ${r.chains ? `${plural(r.chains, "name")} with references.` : "It found no references to follow."}`, r.failed || (name && !r.windows) ? "warn" : "ok", { ttl: 9000 }); }
       load();
-    }, { small: true, plain: true, stoppedText: "Stopped. What the AI read so far is kept; start again to go on where it stopped." }));
+    }, { small: true, plain: true, ai: true, noun: "passage", stoppedText: "Stopped. What the AI read so far is kept; start again to go on where it stopped." }));
   }
   function draw() {
     clear(body);
     const st = data.status || {};
     const chains = data.chains || [];
-    const where = App.privacy();
     body.appendChild(h("p", { class: "small dv-refs-lead" }, "The AI reads the document three passages at a time and links “it”, “they” or “the study” to the name they stand for. Every mention it reports is checked against the text. It is a reading aid: the AI misses some references."));
     const left = Math.max(0, (st.windows_total || 0) - (st.windows_read || 0));
     body.appendChild(h("p", { class: "muted small dv-refs-note" },
@@ -120,14 +119,14 @@ export function refsPanel(ctx) {
       st.windows_failed ? `; ${fmt.num(st.windows_failed)} could not be read` : "", "."));
     if (!running) {
       const name = input({ sm: true, placeholder: "a name used in the document", "aria-label": "Only for one name" });
-      const nameBtn = button({ sm: true, onClick: (e) => { const v = name.value.trim(); if (!v) { name.focus(); return; } start(v, e.currentTarget); } }, "Follow this name");
+      const nameBtn = aiButton({ sm: true, onClick: (e) => { const v = name.value.trim(); if (!v) { name.focus(); return; } start(v, e.currentTarget); } }, "Follow this name");
       name.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); nameBtn.click(); } });
       body.appendChild(h("div", { class: "btn-row" },
-        left ? withAI(button({ kind: chains.length ? "standard" : "main", sm: true, onClick: (e) => start(null, e.currentTarget) }, icon("link", { size: 13 }),
+        left ? withAI(aiButton({ kind: chains.length ? "standard" : "main", sm: true, onClick: (e) => start(null, e.currentTarget) },
           st.windows_read ? `Go on where it stopped (${plural(left, "stretch", "stretches")} left)` : "Follow the references in this document")) : h("span", { class: "it small" }, icon("check", { size: 13 }), " The AI has read the whole document.")));
       body.appendChild(fold({}, "Only for one name", h("p", { class: "muted small dv-names-fast" }, "Faster: the AI reads only the passages where the name occurs."), h("div", { class: "row dv-name-row" }, name, withAI(nameBtn))));
       // where the passages go, once for the panel, at its foot (docs/DESIGN.md 4.4)
-      if (where.where === "cloud" || where.where === "local") body.appendChild(readsLine("the passages it needs", { class: "dv-refs-reads" }));
+      body.appendChild(readsLine("the passages it needs", { class: "dv-refs-reads" }));   // demo mode too: its own line
     }
     if (!chains.length) {
       if (st.windows_read) body.appendChild(h("p", { class: "muted small" }, left ? "No references found yet in the stretches read." : "The AI found no references to follow in this document."));
@@ -168,8 +167,9 @@ export function refsPanel(ctx) {
       replace(selBox, h("p", { class: "dv-selnote" }, icon("link", { size: 13 }), ` “${shortTitle(s.text, 60)}” is part of `, h("strong", {}, ch.name), later.length ? `: ${plural(later.length, "later mention")}, marked in the text.` : ": no later mention."));
       return;
     }
-    const btn = button({ sm: true, disabled: running, onClick: (e) => { clear(selBox); start(s.text, e.currentTarget); } }, icon("link", { size: 13 }), `Follow the references to “${shortTitle(s.text, 40)}”`);
-    replace(selBox, notice({ kind: "info", class: "dv-selnote" }, h("div", {}, h("p", {}, `No reference found yet for “${shortTitle(s.text, 60)}”.`), h("div", { class: "btn-row dv-lookup-actions" }, withAI(btn)))));
+    const btn = aiButton({ sm: true, disabled: running, onClick: (e) => { clear(selBox); start(s.text, e.currentTarget); } }, `Follow the references to “${shortTitle(s.text, 40)}”`);
+    replace(selBox, notice({ kind: "info", class: "dv-selnote" }, h("div", {}, h("p", {}, `No reference found yet for “${shortTitle(s.text, 60)}”.`), h("div", { class: "btn-row dv-lookup-actions" }, withAI(btn)),
+      readsLine("the passages where it occurs"))));
   }
   load();
   return {

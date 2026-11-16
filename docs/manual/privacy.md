@@ -118,15 +118,19 @@ flowchart LR
 
 ### The local model and your computer's memory
 
-While Claude reads its excerpts, the progress says when your local model reads the ones marked *Only a local AI*:
-*Your local model (…) is reading 3 excerpts…*, with what it is doing and *Stop*.
+Your local model never starts by itself in work that Claude also does (0.19.13): starting Claude and starting the local
+model are two separate clicks. While Claude reads its excerpts, the ones marked *Only a local AI* (and the AI mix's
+share) wait beside them for the local model's own *Start*; one press covers the whole job, and the local model then
+reads beside Claude: *Your local model (…) is reading 3 excerpts…*, with what it is doing and its own *Stop*, which
+lets it finish the excerpt in hand and wait again. Work that only the local model does, started by its own button
+(*Read them now on this computer*, say), needs no second click.
 
 A local model needs about as much memory as its size (a 9-billion-parameter model about 8 GB). On Ollama, Margin does
 not start it when this computer clearly has too little free: starting it anyway pushes every other program into swap
-and can all but freeze the computer. The check then finishes with the rest, the progress says why, and those excerpts
-wait on the result (*Waiting for your local model*). Close programs you do not need and press *Read them now on this
-computer*, or choose a smaller local model in *Settings → AI*. If it still says too little is free, *Start it anyway*
-starts it regardless.
+and can all but freeze the computer. The progress then says why and the local part waits for *Start it anyway*; stop
+the job instead, and those excerpts wait on the result (*Waiting for your local model*). Close programs you do not
+need and press *Start* again (or *Read them now on this computer* on the result), or choose a smaller local model in
+*Settings → AI*. If it still says too little is free, *Start it anyway* starts it regardless.
 
 You need not start the model at all: *Judge it myself* (before *Start*) hands those excerpts to you. They wait under
 *Awaiting manual review*, no model reads them, and your judgement counts like any other. Changed your mind? *Let the

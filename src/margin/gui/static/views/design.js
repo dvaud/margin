@@ -13,8 +13,9 @@ import {
   button, downloadButton, fileButton, iconButton, link, tag, notice, card, fold, choice, optionCards, input, select,
   textarea, searchField, menu, workState, aiWhere, drawer, drawerButton, teamEntry, personMark, reviewedMark, severityTag, compare, guidedSteps,
   shareState, absentDocument, listRow, listGroup, noticeList, tabs, judgementIcon, readsLine, stopButton, proposalCard, decisionCard, inset,
-  passageNode, foundWords
+  passageNode, foundWords, aiButton, aiSide, aiSides, aiStart
 } from "../lib.js";
+import { aiRun } from "./progress.js";
 import { aiTag, withAI, viewTabs, featureEyebrow } from "../features.js";
 
 const HERE = "#/design";   // where a sample's link goes: nowhere else
@@ -81,6 +82,18 @@ const displayTitle = (text) => {
 
 export async function renderDesign(page) {
   const noop = () => {};
+  const GB = 2 ** 30;
+  // the full AI run panel, drawn once from a sample job (nothing is asked of the server)
+  const aiRunSample = () => {
+    const run = aiRun({ size: "full", title: "A sample check", engines: ["local", "cloud"], noun: "excerpt", stop: false });
+    run.update({ id: "sample", state: "running", seconds: 84, local: { gate: "go", waiting: 3, noun: "excerpt", model: "qwen3.5:9b" },
+      progress: { message: "qwen3.5:9b reads 5 excerpts · Claude's part comes later", elapsed: 84,
+        parts: [{ part: 0, steps: [{ key: "terms", label: "Other wordings", state: "done", seconds: 10 }, { key: "rank", label: "Finding excerpts", state: "done", seconds: 4 },
+          { key: "judge", label: "Reading the excerpts", state: "running", detail: "2 of 5 read", seconds: 70 }, { key: "verdict", label: "The answer", state: "pending" }] }],
+        model: { who: "local", phase: "thinking", model: "qwen3.5:9b", thinking_tokens: 1204, answer_tokens: 86, rate: 14.2, seconds: 72,
+          tail: "which bears on the first part but says nothing about the tradition itself, so" } } });
+    return run.el;
+  };
 
   // ---- 3 The identity
   const swatches = COLOURS.map(([name, tokens]) => sample(name, h("div", { class: "dz-swatches" },
@@ -184,7 +197,7 @@ export async function renderDesign(page) {
     h("td", { class: "kw-left" }, h("span", {}, left)),
     h("td", { class: "kw-node" }, h("mark", {}, node)),
     h("td", { class: "kw-right" }, right),
-    h("td", { class: "kw-act" }, button({ kind: "quiet", sm: true, icon: "flask" }, "Check")));
+    h("td", { class: "kw-act" }, aiButton({ kind: "quiet", sm: true }, "Check")));
 
   // ---- 4.26: an excerpt card
   const excerpt = (grade, reviewed) => h("article", { class: `ev ev-${grade}`, "data-reviewed": reviewed ? "1" : null },
@@ -198,11 +211,19 @@ export async function renderDesign(page) {
   // ---- 5.2: the status area in each state, the last row
   const aiCard = (cls, ic, name, words) => h("div", { class: "status-area" }, h("div", { class: "privacy-wrap" },
     h("a", { class: `privacy ${cls}`, href: HERE }, icon(ic, { size: 16 }), h("div", {}, h("strong", {}, name), h("span", { class: "privacy-sub" }, words)))));
-  const workBox = (kind, lead, words, time, sub, who, act, cloud) => h("div", { class: "status-area" }, h("div", { class: `work-box work-${kind}${cloud ? " work-cloud" : ""}` },
-    cloud ? h("span", { class: "work-rail", "aria-hidden": "true" }, icon("cloud", { size: 14 })) : null,
-    h("a", { class: "work-main", href: HERE }, h("span", { class: "work-line" }, lead, h("strong", { class: "work-text" }, words),
-      time ? h("span", { class: "work-time" }, time) : null),
-    h("span", { class: "work-sub" }, h("span", { class: "work-sub-text" }, sub), who || null)), act || null));
+  // the AI's work: the split bar along the top (local, cloud: the state of each half), the house at the left end, the
+  // cloud at the right end (0.19.13, the AI run panel's row)
+  const workBox = (kind, lead, words, time, sub, who, act, local, cloud) => {
+    const half = (st) => h("span", { class: `ab-half ab-s-${st || "none"}${st === "run" ? " ab-indet" : ""}` }, h("i"));
+    const tile = (where) => h("span", { class: `ab-rowtile ar-${where}` }, h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 13 })),
+      h("span", { class: "visually-hidden" }, where === "cloud" ? "To Claude" : "On this computer"));
+    const ai = local || cloud;
+    return h("div", { class: "status-area" }, h("div", { class: `work-box work-${kind}${ai ? ` ab-row ab-row-${local ? "local" : "cloud"}` : ""}` },
+      ai ? h("span", { class: "ab-rowbar", "aria-hidden": "true" }, half(local), half(cloud)) : null, local ? tile("local") : null,
+      h("a", { class: "work-main", href: HERE }, h("span", { class: "work-line" }, lead, h("strong", { class: "work-text" }, words),
+        time ? h("span", { class: "work-time" }, time) : null),
+      h("span", { class: "work-sub" }, h("span", { class: "work-sub-text" }, sub), who || null)), act || null, cloud ? tile("cloud") : null));
+  };
   const lastRow = (action) => h("div", { class: "sidebar-app" }, h("div", { class: "sidebar-app-row" },
     h("nav", { class: "nav nav-foot", "aria-label": "A sample of the last row" }, navEntry("sliders", "Settings")), action,
     iconButton({ icon: "monitor", label: "Theme: follows this computer", size: 17, class: "theme-btn" })));
@@ -261,8 +282,10 @@ export async function renderDesign(page) {
     section("4.4", "The AI mark and the AI line", "Does this use the AI (the chip), and where text goes (the cloud or the house).",
       sample("The AI mark: three values", aiTag("uses"), aiTag("optional"), aiTag("none")),
       sample("A page's eyebrow", featureEyebrow("check")),
-      sample("A button that sends text to an AI, with its mark (withAI())", ...withAI(button({ sm: true }, "Read more excerpts"))),
-      sample("A row of such buttons: one mark, after the last", ...withAI(button({ sm: true }, "Ask a stronger model"), button({ sm: true }, "Get a second opinion"))),
+      sample("A button that asks the AI for work (aiButton()): the play icon, a verb and what it works on, never who does it; its mark after it (withAI())", ...withAI(aiButton({ sm: true }, "Read more excerpts"))),
+      sample("A row of such buttons: one mark, after the last", ...withAI(aiButton({ sm: true }, "Ask a stronger model"), aiButton({ sm: true }, "Get a second opinion"))),
+      sample("Only a panel's own start names an engine (aiStart()): the play icon, its mark, its hint; after a few idle seconds it takes the panel's slow breath",
+        aiStart({ where: "cloud", onClick: noop, nudge: Date.now() - 6000 }), aiStart({ where: "local", model: "qwen3.5:9b", onClick: noop, compact: true })),
       sample("The AI line of the AI chosen in Settings (readsLine())", readsLine("the excerpts again")),
       sample("The AI line, once per card", aiWhere("Claude, on your plan, reads the excerpts it needs."),
         aiWhere("A model on this computer reads the excerpts; nothing leaves it.", "local"),
@@ -332,7 +355,7 @@ export async function renderDesign(page) {
           h("p", {}, "Its head (card({ title, help, action })): a title and at most a help mark and one action. A card holds at most one box, never a card."))),
       sample("A card with AI actions: one AI mark for its row, its AI line last",
         card({ title: "A card with AI actions", titleId: "dz-ai-card-h" },
-          h("div", { class: "btn-row" }, withAI(button({ sm: true }, "Ask a stronger model"), button({ sm: true }, "Get a second opinion"))),
+          h("div", { class: "btn-row" }, withAI(aiButton({ sm: true }, "Ask a stronger model"), aiButton({ sm: true }, "Get a second opinion"))),
           aiWhere("A card that holds AI actions ends with its AI line."))),
       sample("The one box a card may hold (inset()): one of a list in a card, and one not in force yet (tentative)", card({ as: "div" },
         h("ul", { class: "stack dz-list" }, inset({ as: "li" }, link({ kind: "title", serif: true, href: HERE }, "Commuting"), h("span", { class: "muted small" }, " · the same thing, said by 4 documents")),
@@ -406,8 +429,17 @@ export async function renderDesign(page) {
       sample("A state of work where an answer would be", statusBadge("not_checked")),
       sample("Queued, with its one action", workState("waiting", "Queued: starts when Read the documents has finished"), button({ kind: "quiet", sm: true }, "Cancel")),
       sample("Loading a part of a page", spinner("Loading the works"), h("span", { class: "muted" }, " Loading the works…")),
-      sample("A bar", h("div", { class: "dz-bar" },
-        h("div", { class: "progress-bar", role: "progressbar", "aria-label": "A sample bar", "aria-valuenow": "40", "aria-valuemin": "0", "aria-valuemax": "100" }, h("span", { style: { width: "40%" } }))))),
+      sample("A bar (work that is not the AI's)", h("div", { class: "dz-bar" },
+        h("div", { class: "progress-bar", role: "progressbar", "aria-label": "A sample bar", "aria-valuenow": "40", "aria-valuemin": "0", "aria-valuemax": "100" }, h("span", { style: { width: "40%" } })))),
+      sample("The AI run panel, full (aiRun()): its steps, and the two sides under the step they work on: this computer on the left, Claude on the right", aiRunSample()),
+      sample("Compact, in a card: this computer waits for its Start; Claude's seat is empty (nothing in this job goes to Claude)",
+        aiSides(aiSide({ where: "local", model: "qwen3.5:9b", count: 5, noun: "excerpt", memory: { need: 6.6 * GB, free: 9.2 * GB }, onStart: noop, compact: true }), null, { compact: true })),
+      sample("Compact: too little memory free, and the person may judge instead",
+        aiSides(aiSide({ where: "local", model: "qwen3.5:9b", count: 1, noun: "excerpt", memory: { need: 6.6 * GB, free: 2.7 * GB, short: true }, blocking: true, onStart: noop, onYourself: noop, yourselfText: "Judge it myself", compact: true }), null, { compact: true })),
+      sample("Compact: Claude at work with no count (its half slides); this computer's seat is empty",
+        aiSides(null, aiSide({ where: "cloud", state: "run", what: "Claude reads the excerpts" }), { compact: true })),
+      sample("Both in one job: two sides, each with its own state",
+        aiSides(aiSide({ where: "local", model: "qwen3.5:9b", count: 5, noun: "excerpt", onStart: noop, compact: true }), aiSide({ where: "cloud", state: "done", what: "Claude Code answered 13 tasks", muted: "58 s" }), { compact: true }))),
 
     section("4.22", "Folds", "More here, folded away.",
       fold({}, "More options", h("p", { class: "muted" }, "Optional reading or settings, folded away.")),
@@ -482,12 +514,18 @@ export async function renderDesign(page) {
     section("5.2", "The status area and the last row", "One fixed size: the AI line's card, or the work box in exactly that space.",
       sample("The AI line", side(aiCard("privacy-cloud", "cloud", "Claude, on your plan", "Only the passages of AI tasks leave this computer"))),
       sample("No AI can run yet: the attention look", side(aiCard("privacy-setup", "alert-triangle", "No AI model set up yet", "Exploring works; checking needs one"))),
-      sample("Work running, passages go to Claude: the rail and the cloud", side(workBox("running", h("span", { class: "running-dot", "aria-hidden": "true" }), "Check", "41 s", "and 1 more running",
-        h("span", { class: "work-who" }, "to Claude"), null, true))),
-      sample("Work running on this computer: no rail", side(workBox("running", h("span", { class: "running-dot", "aria-hidden": "true" }), "Checking 17 documents", "18 s", "running",
+      sample("Claude at work: the cloud at the right end, its half of the bar", side(workBox("running", h("span", { class: "running-dot", "aria-hidden": "true" }), "Check", "41 s", "and 1 more running",
+        null, null, null, "run"))),
+      sample("The model on this computer at work: the house at the left end", side(workBox("running", h("span", { class: "running-dot", "aria-hidden": "true" }), "Reading 33 passages", "1 min 12 s", "qwen3.5:9b · 12 of 33",
+        null, null, "run", null))),
+      sample("Both at work in one job", side(workBox("running", h("span", { class: "running-dot", "aria-hidden": "true" }), "Reading 33 excerpts", "2 min 2 s", "qwen3.5:9b reads · 28 wait for Claude",
+        null, null, "run", "need"))),
+      sample("Not the AI's work: where it runs, in words", side(workBox("running", h("span", { class: "running-dot", "aria-hidden": "true" }), "Adding 17 documents", "18 s", "running",
         h("span", { class: "work-who" }, icon("house", { size: 12 }), "This computer")))),
-      sample("Work not running: one action", side(workBox("stalled", icon("pause", { size: 14 }), "Not running", null, "2 tasks waiting", null,
-        button({ kind: "main", sm: true, class: "work-act" }, icon("play", { size: 12 }), "Start")))),
+      sample("Claude's work not running: one action", side(workBox("stalled", icon("pause", { size: 14 }), "Not running", null, "2 tasks for Claude Code", null,
+        button({ kind: "main", sm: true, class: "work-act" }, icon("play", { size: 12 }), "Start"), null, "need"))),
+      sample("Both wait for their Starts: the row opens the job's page, where both are", side(workBox("stalled", icon("pause", { size: 14 }), "Not running", null, "5 for this computer · 28 for Claude", null,
+        button({ sm: true, class: "work-act" }, "Open"), "need", "need"))),
       sample("The last row: Settings, Quit, the theme", side(lastRow(button({ kind: "quiet", sm: true }, icon("power", { size: 13 }), h("span", {}, "Quit"))))),
       sample("An update waits: it takes Quit's place", side(lastRow(button({ kind: "main", sm: true }, icon("arrow-up", { size: 13 }), h("span", {}, "Update")))))),
 
@@ -500,7 +538,7 @@ export async function renderDesign(page) {
           textarea({ hyp: true, rows: 2, id: "dz-hyp", placeholder: "A hypothesis, or several: one per line" }),
           h("div", { class: "hint-row" }, h("span", { class: "hyp-hint-main" }, "One sentence that could be true or false; for several, one per line."),
             h("span", { class: "hyp-hint-side" }, fileButton({ kind: "quiet", icon: "upload" }, h("input", { type: "file" }), "Load a spreadsheet (CSV) or text file")))),
-        h("div", { class: "btn-row hyp-actions" }, withAI(button({ kind: "main", icon: "flask" }, "Check 3"), button({ icon: "eye" }, "Look before checking"))),
+        h("div", { class: "btn-row hyp-actions" }, withAI(aiButton({ kind: "main" }, "Check 3"), aiButton({}, "Look before checking"))),
         readsLine("the excerpts it needs", { class: "hyp-reads" })),
       answersTable()),
 

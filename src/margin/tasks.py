@@ -1173,7 +1173,8 @@ def run_one(ws: Workspace, task_id: str, backend, model: str | None = None) -> t
             if lent_to_local(t[0]):  # 0.18.1 (I1): a kind the AI mix gives the local model first
                 local = mix_local()
                 if local is not None:
-                    answer_locally_first(ws, task_id, local[0], local[1])
+                    with _mix_gate(ws, t[0], backend, local):  # 0.19.13: only once the local model is started
+                        answer_locally_first(ws, task_id, local[0], local[1])
                 else:
                     to_claude(ws, [task_id])
         return wait_for(ws, task_id, backend)
@@ -1343,6 +1344,51 @@ def mix_local(settings: dict | None = None):
             _MIX_LOCAL.clear()
             _MIX_LOCAL[key] = got
     return got
+
+
+@contextmanager
+def _mix_gate(ws: Workspace, t, backend, local):
+    """0.19.13: in a job of the app, the AI mix's share waits for the local model's own Start (the job is Claude
+    Code's work too): nothing loads the model before. Too little memory free puts the job's gate back to waiting with
+    the numbers (the task is not handed to Claude for that); Start it anyway answers it whatever memory is free.
+    Raises "Stopped." when the job is stopped meanwhile."""
+    from .llm import BackendError, MemoryShort
+    from .localgate import GATE
+
+    gate = GATE.get()
+    if gate is None:
+        yield  # the command line, the connector: read at once, as before
+        return
+    be, model = local
+    n = ws.scalar("SELECT COUNT(*) FROM tasks WHERE kind=? AND status IN ('pending', 'retry') AND COALESCE(step, 0)=0 "
+                  "AND forced_model IS NULL AND COALESCE(access, 'cloud')='cloud'", (t["kind"],)) or 1
+
+    def look() -> dict:
+        st = be.memory_status(model) if hasattr(be, "memory_status") else None
+        mem = st if st and "need" in st else None
+        return {"model": model, "memory": {k: mem[k] for k in ("need", "free", "short")} if mem else None}
+
+    gate.mixed()
+    gate.involve(waiting=int(n), noun="task", look=look, report=getattr(backend, "progress", None))
+    while True:
+        if not gate.wait_open():
+            raise BackendError("Stopped.")
+        if gate.state == "force" or not hasattr(be, "check_memory"):
+            break
+        try:
+            be.check_memory(model)
+            break
+        except MemoryShort as e:
+            gate.refused(e)   # waits for Start (or Start it anyway) again
+    gate.involve(waiting=max(0, int(n) - 1))
+    forced = gate.state == "force" and bool(getattr(be, "memory_guard", False))
+    if forced:
+        be.memory_guard = False   # this answer only: the model is shared by every job of the mix
+    try:
+        yield
+    finally:
+        if forced:
+            be.memory_guard = True
 
 
 def to_claude(ws: Workspace, task_ids: Iterable[str]) -> int:

@@ -167,35 +167,50 @@ class QueueMixin:
 
         title = ("Your local model answers its share of the queue" if what == "mix" else
                  "Your local model answers the queue while Claude Code waits for the plan's limit")
+        # 0.19.13: started by its own button, all the local model's work: it needs no second Start
         return self.jobs.start(f"queue-local-{what}", title, name, run, uses_model=True, unique=True,
-                               background=background)
+                               background=background, local_start="go")
 
     def _at_limit(self, name: str, ws, runner: dict) -> dict | None:
         """0.18.1 (I4): whether Claude Code, started from the app, stopped at the plan's usage limit, and what happens
         now, as the person chose (Settings' at_limit): the queue waits for the next start, or the local model answers
-        what waits (started once per stop)."""
+        what waits. 0.19.13: the local model no longer starts by itself: with "local" the page offers its Start
+        (`offer_local`, until it is pressed: POST …/queue/run {"local": "limit"}); `started` says whether that job
+        runs."""
         said = taskqueue.limit_reached(runner)
         if not said:
             return None
         s = self.settings()
         choice = s.get("at_limit") or "wait"
         local = bool(s.get("restricted_server") and s.get("restricted_model")) and not home.local_only()
-        out = {"said": said, "choice": choice, "local_possible": local, "started": False}
-        key = f"{runner.get('started_at')}"
-        if choice == "local" and local and ws.meta("limit_handled") != key and taskqueue.status(ws, name)["waiting"]:
-            ws.set_meta("limit_handled", key)  # once per stop of Claude Code, even if the job is stopped
-            self._local_queue_job(name, "limit", background=True)
-            out["started"] = True
+        with self.jobs.lock:
+            running = any(j.kind == "queue-local-limit" and j.project == name and j.state in ("queued", "running")
+                          for j in self.jobs.jobs.values())
+        out = {"said": said, "choice": choice, "local_possible": local, "started": running, "offer_local": False}
+        if (choice == "local" and local and not running and ws.meta("limit_handled") != self._limit_key(runner)
+                and taskqueue.status(ws, name)["waiting"]):
+            out["offer_local"] = True
         return out
+
+    @staticmethod
+    def _limit_key(runner: dict | None) -> str:
+        """Which stop of Claude Code at the plan's limit (one offer of the local model each)."""
+        return f"{(runner or {}).get('started_at')}"
 
     def start_queue_run(self, name: str, body: dict) -> Job:
         """Answer what waits in the queue here, with the AI model of Settings (a local server or the Claude API),
         kind by kind. 0.18.1: with Claude Code in Settings, the local model answers here what the AI mix gives it
         first (`{"local": "mix"}`, the default), or every waiting task it may (`{"local": "all"}`, as at the plan's
-        limit)."""
+        limit; 0.19.13: also `{"local": "limit"}`, the Start the page offers there, `at_limit.offer_local`)."""
         ws = self.ws(name)
         if self.queue_mode():
-            what = "limit" if body.get("local") == "all" else "mix"
+            what = "limit" if body.get("local") in ("all", "limit") else "mix"
+            if what == "limit":  # 0.19.13: the offer at the plan's limit is handled (pressed) for this stop
+                from .. import claude_setup
+
+                runner = claude_setup.run_state(name)
+                if taskqueue.limit_reached(runner):
+                    ws.set_meta("limit_handled", self._limit_key(runner))
             if what == "mix" and not taskqueue.mix_kinds():
                 raise ApiError(400, "Settings name Claude Code: it answers the queue itself. Choose a mix of local "
                                     "and Claude in Settings → AI, or another AI model, to answer it here.")

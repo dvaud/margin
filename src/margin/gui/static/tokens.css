@@ -12,6 +12,8 @@
   --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
   --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Charter, "Noto Serif", "Liberation Serif", Georgia, "Times New Roman", serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
+  /* the AI run panel's motion in step with the clock: inStep() (lib.js) sets it on each panel; 0s until then */
+  --ar-sync: 0s;
 
   --bg: #f6f4ee;
   --bg-2: #efece4;

@@ -289,8 +289,8 @@ const WHERE_CHIP = {
   here: { icon: "house", label: "This computer", tip: "This runs on this computer; nothing is sent to Anthropic." },
   crossref: { icon: "network", label: "Crossref", tip: "Only the DOIs are sent, to Crossref; no text of your documents leaves this computer." },
 };
-// 0.19: work that sends passages to Claude has a grey rail with the cloud on the box's left edge and says "to Claude"
-// (docs/DESIGN.md 5.2): a different shape, not a colour of its own, so it reads at a glance and in greyscale
+// 0.19.13: the AI run panel's row (docs/DESIGN.md 4.21, 5.2): this computer's house at the box's left end, Claude's
+// cloud at its right end, and the split bar along its top (each engine's half), so it reads at a glance and in greyscale
 const CLOUD_TIP = "Your documents stay here; only the passages inside the AI's tasks go to Anthropic.";
 const tasksWord = (n) => `${n.toLocaleString()} ${n === 1 ? "task" : "tasks"}`;
 async function drawStatus() {
@@ -318,21 +318,41 @@ async function drawStatus() {
   const answering = q ? (q.being_answered || 0) : 0;
   // what to show: [kind, main words, the line under them, link, the one action]
   let w = null;
-  if (!runner && (hold.length || (q && waiting && !answering && s.backend === "claude_code"))) {
+  // 0.19.13: a job whose part for the local model waits for its Start (job.local.gate "wait")
+  const localWait = active.find((j) => j.local && j.local.gate === "wait" && (j.local.waiting || 0) > 0 && !j.local.problem);
+  const cloudStalled = !runner && (hold.length || (q && waiting && !answering && s.backend === "claude_code"));
+  if (localWait && cloudStalled) {   // both wait: two starts do not fit the row; it opens the job's page, where both are
+    const v = jobRow(localWait), n = Math.max(waiting, hold.length);
+    w = { kind: "stalled", icon: "pause", main: "Not running", sub: `${fmt.num(localWait.local.waiting)} here · ${fmt.num(n)} for Claude`, href: v.href || "#/settings/queue",
+      tip: "Two parts wait for you: one for the model on this computer, one for Claude Code. Open the work to start them.", act: "open-job", local: "need", cloudHalf: "need", job: localWait.id };
+  } else if (localWait && !cloudStalled && !going.some((j) => j !== localWait && !j.local)) {
+    const v = jobRow(localWait), L = localWait.local;
+    // the job's work for Claude (being answered, or done): its tile and half, not the empty seat
+    const cloudToo = !!localWait.queue || localWait.where === "cloud";
+    w = { kind: "stalled", icon: "pause", main: "Not running", sub: `${plural(L.waiting, L.noun || "passage")} ${L.waiting === 1 ? "waits" : "wait"}${cloudToo ? " here" : ""}`, href: v.href,
+      tip: `Nothing reads this yet: it waits for you to start ${L.model || "your local model"}.`, act: L.memory && L.memory.short ? "open-job" : "start-local", local: "need", job: localWait.id,
+      cloudHalf: cloudToo ? (runner || answering ? "run" : "done") : undefined };
+  } else if (cloudStalled) {
     const n = Math.max(waiting, hold.length);
     w = { kind: "stalled", icon: "pause", main: q && q.paused ? "Paused" : "Not running", sub: `${tasksWord(n)} waiting`,
       href: "#/settings/queue", tip: `Nothing answers this work yet: ${tasksWord(n)} ${n === 1 ? "waits" : "wait"} for Claude Code. Start it and the work runs.`,
-      act: q && q.can_start && !q.paused ? "start" : "open" };
+      act: q && q.can_start && !q.paused ? "start" : "open", cloudHalf: "need" };
   } else if (going.length) {
     const j = going[0], v = jobRow(j);
     const more = going.length - 1;
     w = { kind: "running", where: j.where || null, localModel: j.local_model || "", main: v.text, time: j.state === "running" ? fmt.secs(j.seconds) : "", href: v.href, tip: v.tooltip,
       sub: j.waiting_for ? j.waiting_for.message : j.state === "queued" ? "waiting its turn" : more ? `and ${more} more running` : waiting + answering ? `${(waiting + answering).toLocaleString()} for Claude Code` : "running",
       act: j.waiting_for ? "cancel" : undefined, job: j.id };   // 0.18 queued jobs: what it waits for, with Cancel
+    const mainLocal = ["ollama", "openai", "auto"].includes(s.backend);
+    const localRuns = !!(j.local_model !== undefined && j.local_model !== null) || (mainLocal && j.where == null);
+    if (localRuns) w.local = "run";
+    else if (j.local && (j.local.waiting || 0) > 0) w.local = j.local.gate === "wait" ? "need" : "run";
+    if (j.queue || j.where === "cloud" || (j.where == null && App.privacy().where === "cloud")) w.cloudHalf = runner || answering ? "run" : waiting ? "need" : "wait";
+    if (w.cloudHalf === "need" && w.local === "run") w.sub = `Reads here · ${fmt.num(waiting)} for Claude`;
   } else if (runner) {
-    w = { kind: "running", where: "cloud", main: "Claude Code is working", sub: `${(waiting + answering).toLocaleString()} to go`, href: "#/settings/queue", tip: "Claude Code answers the work waiting for it, on your Claude plan." };
+    w = { kind: "running", where: "cloud", main: "Claude Code is working", sub: `${(waiting + answering).toLocaleString()} to go`, href: "#/settings/queue", tip: "Claude Code answers the work waiting for it, on your Claude plan.", cloudHalf: "run" };
   } else if (q && waiting) {
-    w = { kind: "stalled", icon: "inbox", main: `${tasksWord(waiting)} waiting`, sub: "for Claude Code", href: "#/settings/queue", tip: "Work prepared for Claude Code: answer it there, or with the AI model of Settings.", act: "open" };
+    w = { kind: "stalled", icon: "inbox", main: `${tasksWord(waiting)} waiting`, sub: "for Claude Code", href: "#/settings/queue", tip: "Work prepared for Claude Code: answer it there, or with the AI model of Settings.", act: "open", cloudHalf: "need" };
   }
   privacy.hidden = !!w;
   box.hidden = !w;
@@ -343,18 +363,23 @@ async function drawStatus() {
     const p = App.privacy();
     const cloud = w.kind === "running" && (w.where === "cloud" || (w.where == null && p.where === "cloud"));
     const cloudTip = w.where === "cloud" ? CLOUD_TIP : p.plain;
-    const key = JSON.stringify([App.project, w.kind, w.where, w.localModel, cloud, w.main, w.sub, w.href, w.act, w.act === "cancel" ? w.job : ""]);
+    const key = JSON.stringify([App.project, w.kind, w.where, w.localModel, cloud, w.main, w.sub, w.href, w.act, w.act === "cancel" || w.act === "start-local" ? w.job : "", w.local, w.cloudHalf]);
     if (key === statusKey && box.firstChild) {
       const t = box.querySelector(".work-time"); if (t && w.time) t.textContent = w.time;   // only the seconds changed
     } else {
       statusKey = key;
       // 0.17: work that runs on this computer says so, not "Claude"; 0.19: the server says where each job runs
       const chip = WHERE_CHIP[w.where];
-      const who = w.kind !== "running" || w.where === "none" ? null   // nothing is sent while it waits; an install reads no document
-        : cloud ? h("span", { class: "work-who", title: cloudTip }, "to Claude")   // the rail carries the cloud
-        : chip ? h("span", { class: "work-who", title: w.localModel ? `Your local model, ${w.localModel}, reads on this computer; what it reads is not sent to Anthropic.` : chip.tip }, icon(chip.icon, { size: 12 }), chip.label)   // 0.19.6: the local model at work for a job of Settings' AI
+      // 0.19.13: the AI's work has its seats (the house at the left end, the cloud at the right end) in place of the chip
+      const ai = !!(w.local || w.cloudHalf);
+      const who = ai || w.kind !== "running" || w.where === "none" ? null   // nothing is sent while it waits; an install reads no document
+        : chip ? h("span", { class: "work-who", title: chip.tip }, icon(chip.icon, { size: 12 }), chip.label)
         : h("span", { class: "work-who", title: p.plain }, icon(p.icon, { size: 12 }), (p.label || "").split(",")[0]);
-      const rail = cloud ? h("span", { class: "work-rail", title: cloudTip, "aria-hidden": "true" }, icon("cloud", { size: 14 })) : null;
+      const half = (where, st) => h("span", { class: `ab-half ab-s-${st || "none"}${st === "run" ? " ab-indet" : ""}` }, h("i"));
+      const bar = ai ? h("span", { class: "ab-rowbar", "aria-hidden": "true" }, half("local", w.local), half("cloud", w.cloudHalf)) : null;
+      const tile = (where) => h("span", { class: `ab-rowtile ar-${where}`, title: where === "cloud" ? cloudTip : w.localModel ? `Your local model, ${w.localModel}, reads on this computer; what it reads is not sent to Anthropic.` : "This runs on this computer; nothing is sent to Anthropic." },
+        h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 13 })),
+        h("span", { class: "visually-hidden" }, where === "cloud" ? "To Claude" : "On this computer"));
       const main = h("a", { class: "work-main", href: w.href, title: w.tip },   // a round goes to the Team page
         h("span", { class: "work-line" }, w.kind === "running" ? h("span", { class: "running-dot", "aria-hidden": "true" }) : icon(w.icon, { size: 14 }),
           h("strong", { class: "work-text" }, w.main), w.time ? h("span", { class: "work-time" }, w.time) : null),
@@ -367,6 +392,15 @@ async function drawStatus() {
           catch (e) { showError(e); }
           act.disabled = false; renderStatus();
         } }, icon("play", { size: 12 }), "Start");
+      } else if (w.act === "start-local") {   // 0.19.13: the local model's part of one job (job.local), started here
+        act = button({ kind: "main", sm: true, class: "work-act", onClick: async () => {
+          act.disabled = true;
+          try { await api("POST", `/api/jobs/${P(w.job)}/local/start`, { force: false }); toast("Started. You can keep working; the results appear as they come in.", "ok"); }
+          catch (e) { showError(e); }
+          act.disabled = false; renderStatus();
+        } }, icon("play", { size: 12 }), "Start");
+      } else if (w.act === "open-job") {   // 0.19.13: both engines wait (two starts do not fit here): the job's page has both
+        act = button({ sm: true, class: "work-act", onClick: () => navigate(w.href) }, "Open");
       } else if (w.act === "cancel") {   // 0.18 queued jobs: a small quiet Cancel after the waiting state (docs/DESIGN.md 4.21, its row Queued; a running job's Stop is stopButton())
         act = button({ kind: "quiet", sm: true, class: "work-act", onClick: async () => {
           act.disabled = true;
@@ -374,8 +408,15 @@ async function drawStatus() {
           act.disabled = false; renderStatus();
         } }, "Cancel");
       }   // 0.17.0 (design guide): no "Open" button: the box's words are the link to where the work shows
-      box.className = `work-box work-${w.kind}${cloud ? " work-cloud" : ""}`;
-      replace(box, rail, main, act);
+      box.className = `work-box work-${w.kind}${ai ? ` ab-row ab-row-${w.local ? "local" : "cloud"}` : ""}`;
+      // the engine with no work in this job keeps its seat: a dashed tile (said in words to a screen reader)
+      const seat = (where) => h("span", { class: `ab-rowtile ab-rowseat ar-${where}`, title: where === "cloud" ? "Nothing in this work goes to Claude" : "No model on this computer works in this" },
+        h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 13 })),
+        h("span", { class: "visually-hidden" }, where === "cloud" ? "Nothing in this work goes to Claude." : "No model on this computer works in this."));
+      // between its two tiles the row has no room for its words and a button side by side: the button goes under the
+      // words (the status area grows a line), so no state word is ever cut
+      const mid = ai && act ? h("div", { class: "work-mid" }, main, act) : null;
+      replace(box, bar, w.local ? tile("local") : ai ? seat("local") : null, mid || main, mid ? null : act, w.cloudHalf ? tile("cloud") : ai ? seat("cloud") : null);
     }
   }
   let again = active.length ? 2000 : q && (waiting || answering || runner) ? 5000 : s.backend === "claude_code" ? 15000 : 0;

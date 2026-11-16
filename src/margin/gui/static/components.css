@@ -36,14 +36,15 @@
 /* on a phone a button never runs out of the page: a label too long for the line wraps, left-aligned. A label that
    fits stays on one line, as long as the page gives its button the room (a grid column sized to its content) */
 @media (max-width: 520px) { .btn { max-width: 100%; white-space: normal; text-align: left; } }
-/* a button that waits for you (Start Claude Code with work waiting) pulses; a still ring with reduced motion */
-.btn.sc-nudge { animation: sc-nudge 1.6s ease-out infinite; }
-@keyframes sc-nudge {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 65%, transparent); }
-  70%, 100% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 0%, transparent); }
+/* a button that waits for you (Start Claude Code, Start <model> with work waiting) takes the AI run panel's slow
+   breath (5 s, in step with the clock: --ar-sync); a still ring with reduced motion */
+.btn.ar-nudge { animation: ar-nudge 5s ease-in-out infinite; animation-delay: var(--ar-sync, 0s); }
+@keyframes ar-nudge {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 38%, transparent); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .btn.sc-nudge { animation: none; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent); }
+  .btn.ar-nudge { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 38%, transparent); }
 }
 @media (max-width: 420px) {
   .btn { padding: .45rem .7rem; }
@@ -108,6 +109,11 @@ a > .icon:first-child { margin-right: 3px; }
 .ai-where:not(:first-child) { margin-top: var(--space-2); }
 .card > .ai-where:last-child { margin-top: var(--space-3); }
 .with-ai { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; }
+
+/* the AI line inside a side of the AI run panel (4.21): its smaller size */
+.ab-side .ai-where { font-size: var(--fs-xs); }
+.ab-side .ai-where .sent-btn { padding: .1rem .45rem; font-size: var(--fs-xs); }
+.ab-side .ai-where:not(:first-child) { margin-top: 2px; }
 
 /* ==== 4.5 View tabs */
 /* Other views of this place, each with its address (viewTabs(), features.js; Settings' tabs). Words with an icon on
@@ -326,11 +332,6 @@ details.card > summary .muted { font-weight: var(--fw-regular); }
 .notice-warn > .icon { color: var(--attention); }
 .notice-error { border-color: var(--danger-line); background: var(--danger-soft); }
 .notice-error > .icon { color: var(--danger); }
-/* 0.19.4: the local notice: work for the model on this computer (the local panel, localPanel()). The page's own
-   ground and a stronger edge where Claude Code's notice is grey, so the two panels are told apart at a glance; the house
-   instead of the inbox. Its words are the info notice's. */
-.notice-local { border-color: var(--border-strong); background: var(--surface); }
-.notice-local > .icon { color: var(--text-2); }
 
 /* ==== 4.13 Empty states */
 /* Nothing here yet, and the one step that fills it: a dashed frame, a 28 px icon, a title, a sentence or two, then one
@@ -668,8 +669,6 @@ h2 .defined-wrap { font-size: var(--fs-small); font-weight: var(--fw-regular); }
 .progress-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
 .progress-head .msg { flex: 1 1 200px; min-width: 0; font-weight: var(--fw-strong); }
 .progress-head .elapsed { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-small); }
-.progress-running .progress-head { background: linear-gradient(90deg, var(--accent-soft), var(--surface-2)); }
-.progress-error .progress-head { background: var(--danger-soft); }
 .progress-body { padding: 10px 18px 14px; }
 .progress-notes { margin: 8px 0 0; padding-left: 18px; color: var(--text-2); }
 .progress-notes li { margin: 2px 0; }
@@ -689,30 +688,165 @@ h2 .defined-wrap { font-size: var(--fs-small); font-weight: var(--fw-regular); }
 .part-title .pn { margin-right: 8px; color: var(--muted); font-family: var(--font-ui); font-size: var(--fs-xs); font-weight: var(--fw-strong); }
 .decomp-parts { margin: 4px 0 0 30px; padding: 0; color: var(--text-2); font-family: var(--font-serif); list-style: decimal; }
 .decomp-parts li { padding: 1px 0; }
-.model-line { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctl); background: var(--surface-2); font-size: var(--fs-small); }
-.model-line .ml-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-2); }
-.model-tail { display: flex; align-items: flex-end; max-height: 4.5em; margin-top: 6px; overflow: hidden; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
-.model-tail span { display: block; }
-.model-tail::after { content: "▍"; color: var(--accent); animation: pulse 1s steps(2) infinite; }
 .progress-bar { height: 6px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-3); }
 .progress-bar > span { display: block; min-width: 2%; height: 100%; border-radius: var(--radius-pill); background: var(--accent); transition: width .3s; }
 .progress-bar.indeterminate > span { width: 30%; animation: slide 1.2s ease-in-out infinite; }
 @keyframes slide { 0% { margin-left: 0; } 50% { margin-left: 70%; } 100% { margin-left: 0; } }
-/* a small job's line under what started it (reading again, a second opinion): a work state in a neutral box */
-.mini-job { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctl); background: var(--surface-2); color: var(--text); font-size: var(--fs-small); }
-.mini-job .mini-msg { flex: 1 1 200px; min-width: 0; font-weight: var(--fw-strong); overflow-wrap: anywhere; }
-.mini-job .mini-time { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-xs); }
-.mini-job.mini-done { color: var(--text-2); }
-.mini-job .start-claude { flex: 1 0 100%; margin-top: 2px; color: var(--text); font-weight: var(--fw-regular); }
-/* 0.19.6: what the model is doing, in numbers, and its latest words on one line (the newest at the right edge; the
-   older ones slide out on the left), so slow work on this computer shows it goes on */
-.mini-job .mini-detail { flex: 1 0 100%; color: var(--muted); font-size: var(--fs-xs); overflow-wrap: anywhere; }
-/* 0.19.8: the model's latest words wrap onto a second line at most, then an ellipsis: on one line that never wrapped
-   they pushed the box out past its card */
-.mini-job { min-width: 0; max-width: 100%; }
-.mini-job .mini-tail { flex: 1 0 100%; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; min-width: 0; overflow: hidden; white-space: normal; overflow-wrap: anywhere; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-xs); }
-.mini-job .mini-tail > span::after { content: "▍"; color: var(--accent); animation: pulse 1s steps(2) infinite; }
-.mini-job .mini-detail[hidden], .mini-job .mini-tail[hidden] { display: none; }
+/* 0.19.13: the AI run panel (aiRun(), views/progress.js; its pieces in lib.js). Two seats, at every size: this
+   computer on the LEFT, Claude on the RIGHT. A seat with no work in the job is an empty, dashed seat. One split bar
+   runs above them, its left half this computer's progress and its right half Claude's. Told apart redundantly: the
+   side, the tile (solid ink with the house; hollow with the cloud), the ground, the bar's half, the eyebrow. Only the
+   head moves: a slow breath while it waits for you (5 s), a flow once in 15 s while something works, both from the
+   clock (--ar-sync, inStep()) so a redraw never restarts them; still under reduced motion. */
+/* a container (its sides stack by its own width): it takes the width of its place, never its content's */
+.ab { container: ab / inline-size; width: 100%; min-width: 0; }
+.ar-full > .progress-head { position: relative; overflow: hidden; }
+.ar-full > .progress-head > * { position: relative; }
+.ar-full > .progress-head::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.ar-lead { position: relative; display: inline-flex; flex: none; align-items: center; color: var(--muted); }
+.ar-attention .ar-lead { color: var(--attention); }
+.ar-error .ar-lead { color: var(--danger); }
+.ar-waiting > .progress-head::before { background: linear-gradient(90deg, var(--surface-3), transparent 75%); opacity: .55; animation: ar-breathe 5s ease-in-out infinite; animation-delay: var(--ar-sync, 0s); }
+.ar-waiting .ar-lead::before { content: ""; position: absolute; inset: -5px; border-radius: 50%; background: var(--border-strong); opacity: .3; animation: ar-breathe-disc 5s ease-in-out infinite; animation-delay: var(--ar-sync, 0s); }
+.ar-waiting .ar-lead > .icon { position: relative; color: var(--text-2); }
+@keyframes ar-breathe { 0%, 100% { opacity: .1; } 50% { opacity: 1; } }
+@keyframes ar-breathe-disc { 0%, 100% { opacity: .12; transform: scale(.82); } 50% { opacity: .5; transform: scale(1.12); } }
+.ar-running > .progress-head::before { left: -60%; right: 0; opacity: 1; background: linear-gradient(90deg, transparent 0, var(--accent-soft) 37.5%, var(--accent-soft) 44%, transparent 100%); animation: ar-flow 15s ease-in-out infinite; animation-delay: var(--ar-sync, 0s); }
+@keyframes ar-flow { 0%, 58% { transform: none; } 76%, 80% { transform: translateX(34%); } 98%, 100% { transform: none; } }
+.ar-attention > .progress-head { background: var(--attention-soft); }
+.progress-error > .progress-head { background: var(--danger-soft); }
+/* a step that waits for a Start shows a clock, still, not the turning loader */
+.step.step-waiting .st-icon { color: var(--muted); }
+.step.step-waiting .st-icon .icon { animation: none; }
+.step-sides { display: block; padding: 0; }
+.ar-foot { margin: 10px 0 0; color: var(--muted); font-size: var(--fs-small); }
+.ar-foot[hidden] { display: none; }
+
+/* ---- the two sides, the split bar along their top ------------------------------------------------------------------ */
+.ab-sides { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-ctl); font-size: var(--fs-small); }
+.ab-sides[hidden] { display: none; }
+.ab-sides.ab-only-local { grid-template-columns: minmax(0, 1fr) 46px; }
+.ab-sides.ab-only-cloud { grid-template-columns: 46px minmax(0, 1fr); }
+.progress-body .ab-sides { margin: 8px 0 10px; }
+/* an empty track: waits for you; teal: at work, as far as it has got (sliding: no count); amber: needs you; grey: done; no track: not in this job */
+.ab-half { position: relative; height: 6px; overflow: hidden; background: var(--surface-3); }
+.ab-sides > .ab-half { border-bottom: 1px solid var(--border); }
+.ab-half + .ab-half { border-left: 2px solid var(--surface); }
+.ab-half > i { position: absolute; inset: 0 auto 0 0; display: none; min-width: 6px; background: var(--accent); transition: width .3s; }
+.ab-half.ab-s-run > i { display: block; }
+.ab-half.ab-indet > i { width: 30%; animation: ar-slide 1.6s ease-in-out infinite; }
+@keyframes ar-slide { 0%, 100% { transform: none; } 50% { transform: translateX(233%); } }
+.ab-half.ab-s-need { background: var(--attention); }
+.ab-half.ab-s-done { background: var(--muted); }
+.ab-half.ab-s-none { background: transparent; }
+.ab-sides > .ab-half.ab-s-none { border-bottom-color: transparent; }
+.ab-side { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; padding: 10px 14px 12px; }
+.ab-side > * { max-width: 100%; }
+.ab-side p { margin: 0; overflow-wrap: anywhere; }
+.ab-side.ar-local { background: var(--surface); }
+.ab-side.ar-cloud { border-left: 1px solid var(--border); background: var(--surface-2); }
+.ab-side.ar-attn { background: var(--attention-soft); }
+/* the side's head: the tile at the OUTER edge (the house far left, the cloud far right), its name, its state */
+.ab-sh { display: flex; align-items: center; gap: 9px; align-self: stretch; min-height: 28px; margin-bottom: 2px; }
+.ab-sh > .ab-who { color: var(--text); font-size: var(--fs-xs); font-weight: var(--fw-strong); white-space: nowrap; }
+.ab-sh > .ab-state { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
+.ab-sh > .ab-state > .icon { flex: none; }
+.ar-local > .ab-sh > .ab-state { margin-left: auto; }
+.ar-cloud > .ab-sh > .ab-who { margin-left: auto; }
+.ab-s-run > .ab-sh > .ab-state { color: var(--accent-text); }
+.ab-s-need > .ab-sh > .ab-state { color: var(--attention); font-weight: var(--fw-strong); }
+.ar-tile { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: var(--radius-ctl); }
+.ar-cloud .ar-tile { border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-2); }
+.ar-local .ar-tile { background: var(--text); color: var(--surface); }
+.ab-what > strong { font-weight: var(--fw-strong); }
+.ab-count { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.ab-run-row, .ar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; align-self: stretch; }
+.ab-run-row > .ab-what { flex: 1 1 12em; min-width: 0; }
+.ar-start { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.ab-side > details.fold { align-self: stretch; }
+.ab-side > details.fold > summary { color: var(--text-2); font-size: var(--fs-xs); }
+.ab-modelrow { color: var(--muted); font-size: var(--fs-xs); }
+.ab-modelrow .mono { color: var(--text-2); }
+/* the hint under a start row: quiet, never bold; after a few idle seconds its first sentence wakes */
+.ar-hint { color: var(--muted); font-size: var(--fs-xs); }
+.ar-hint > .ar-wake { color: var(--text-2); }
+/* Claude's choices as one aligned list, in a fold whose summary names them */
+.ar-opts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 12px; align-items: baseline; align-self: stretch; margin: 2px 0 0; padding: 6px 0 0; font-size: var(--fs-xs); }
+.ar-opts > dt { color: var(--muted); }
+.ar-opts > dd { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; min-width: 0; margin: 0; color: var(--text-2); }
+.ar-opts .copy-line { margin: 0; }
+.ar-sep { color: var(--faint); }
+/* a running model's figures: one muted line, never a figure larger than the words around it, and its latest words */
+.ar-fine { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; align-self: stretch; color: var(--muted); font-size: var(--fs-label); font-variant-numeric: tabular-nums; line-height: 1.5; }
+.ar-fine > .ar-quiet { flex: 1 1 100%; font-size: var(--fs-xs); }
+/* the last 30 s as a small graph the poll rewrites (no animation): 2 px bars, flat where nothing came */
+.ar-spark { display: inline-flex; flex: none; align-items: flex-end; gap: 1px; width: 89px; height: 10px; margin-left: 2px; border-bottom: 1px solid var(--border); }
+.ar-spark > i { flex: 1; min-height: 0; background: var(--border-strong); }
+.ar-spark > i.ar-now { background: var(--muted); }
+.ar-tail { position: relative; display: flex; align-self: stretch; justify-content: flex-end; overflow: hidden; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-label); white-space: nowrap;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, black 22%); mask-image: linear-gradient(90deg, transparent 0, black 22%); }
+.ar-tail > span { flex: none; }
+/* memory: what the model needs against what is free */
+.ar-mem { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; align-self: stretch; color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.ar-mem-bar { position: relative; flex: none; width: 64px; height: 8px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); }
+.ar-mem-bar > span { display: block; height: 100%; background: var(--faint); }
+.ar-mem-short { color: var(--attention); }
+.ar-mem-short > .icon { flex: none; }
+.ar-mem-short .ar-mem-bar { border-color: var(--attention); }
+.ar-mem-short .ar-mem-bar > span { background: var(--attention); }
+.ar-mem-short strong { font-weight: var(--fw-strong); }
+.ar-mem-help { flex: 1 1 100%; color: var(--text-2); }
+.ar-mem-words { flex: 1 1 0; min-width: 0; }   /* the words stay beside the triangle and the bar, and wrap there */
+/* the empty seat: the place of the engine this job gives no work (a dashed tile: not there) */
+.ab-seat { display: flex; justify-content: center; padding-top: 10px; background: var(--surface); }
+.ab-seat.ar-cloud { border-left: 1px solid var(--border); }
+.ab-seat.ar-local { border-right: 1px solid var(--border); }
+.ab-seat.ar-local + .ab-side.ar-cloud { border-left: 0; }
+.ab-seat > .ar-tile { border: 1px dashed var(--border-strong); background: none; color: var(--faint); }
+/* both sides in a narrow place (a phone, a card): the halves stay side by side, the sides stack */
+@container ab (max-width: 620px) {
+  .ab-sides.ab-both > .ab-side { grid-column: 1 / -1; }
+  .ab-sides.ab-both > .ab-side.ar-cloud { border-top: 1px solid var(--border); border-left: 0; }
+}
+/* compact: the same block in a card, under what started it; a line above it says what runs, its time and its Stop */
+.ab-compact { min-width: 0; max-width: 100%; margin-top: 10px; }
+.card > .ab-compact:first-child { margin-top: 0; }
+.ab-compact > .ab-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 8px; font-size: var(--fs-small); }
+.ab-compact > .ab-line > .msg { flex: 1 1 200px; min-width: 0; font-weight: var(--fw-strong); overflow-wrap: anywhere; }
+.ab-compact > .ab-line > .elapsed { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-xs); }
+.ab-compact.ar-done > .ab-line, .ab-compact.ar-stopped > .ab-line { color: var(--text-2); }
+.ab-compact .ab-side { gap: 5px; padding: 7px 12px 9px; }
+.ab-compact .ar-tile { width: 22px; height: 22px; border-radius: var(--radius-sm); }
+.ab-compact .ab-sh { min-height: 22px; margin-bottom: 0; }
+.ab-compact .ab-sides.ab-only-local { grid-template-columns: minmax(0, 1fr) 38px; }
+.ab-compact .ab-sides.ab-only-cloud { grid-template-columns: 38px minmax(0, 1fr); }
+.ab-compact .ab-seat { padding-top: 7px; }
+.ab-compact .ab-half { height: 4px; }
+.ab-s-done.ab-side { padding-bottom: 10px; }
+/* the row (the sidebar's work box): the split bar along its top, 3 px; the house at its left end, the cloud at its right */
+.ab-rowbar { position: absolute; inset: 0 0 auto 0; display: grid; grid-template-columns: 1fr 1fr; }
+.ab-rowbar > .ab-half { height: 3px; }
+.ab-rowtile { display: inline-flex; flex: none; }
+.ab-rowtile > .ar-tile { width: 22px; height: 22px; border-radius: var(--radius-sm); }
+.ab-rowseat > .ar-tile { border: 1px dashed var(--border-strong); background: none; color: var(--faint); }
+/* the row's state words are never cut: its button goes under them (.work-mid), and the status area grows to hold
+   it; a word too long still wraps rather than being cut (a job's own title may still be cut) */
+.work-box.ab-row .work-sub-text, .work-box.ab-row.work-stalled .work-text { overflow: visible; white-space: normal; overflow-wrap: break-word; }
+.work-box.ab-row .work-sub { align-items: flex-start; }
+.work-box.ab-row .work-mid { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+.work-box.ab-row .work-mid > .work-main { align-self: stretch; }
+.status-area:has(> .work-box.ab-row:not([hidden])) { height: auto; min-height: 66px; }
+@media (prefers-reduced-motion: reduce) {
+  .ar-full > .progress-head::before, .ar-lead::before, .ab-half.ab-indet > i { animation: none; }
+  .ar-waiting > .progress-head::before { opacity: .55; }
+  .ab-half > i { transition: none; }
+}
+@media (max-width: 520px) {
+  .ab-side { padding: 9px 11px 11px; }
+  .ab-sides.ab-only-local { grid-template-columns: minmax(0, 1fr) 38px; }
+  .ab-sides.ab-only-cloud { grid-template-columns: 38px minmax(0, 1fr); }
+  .ab-seat > .ar-tile, .ab-side .ar-tile { width: 22px; height: 22px; border-radius: var(--radius-sm); }
+}
 
 /* ==== 4.22 Folds */
 /* More here, folded away (More options, Technical details): a line with a chevron before the words, secondary text;
@@ -1099,11 +1233,10 @@ span.passage-broken, span.passage-broken > span { display: block; }
 .work-box .work-act { flex: none; }
 .work-box.work-stalled { border-color: var(--attention-line); background: var(--attention-soft); }
 .work-box.work-stalled .work-text, .work-box.work-stalled .work-line .icon { color: var(--attention); }
-/* 0.19: work that sends passages to Claude: a grey rail with the cloud on the box's left edge, and the chip in stronger
-   words (never a colour of its own: docs/DESIGN.md 5.2). The rail has its own corners, so the link's focus ring is not clipped */
-.work-box.work-cloud { padding-left: 0; }
-.work-box .work-rail { display: flex; flex: none; align-items: center; justify-content: center; align-self: stretch; width: 24px; margin: -6px 0; border-right: 1px solid var(--border-strong); border-radius: var(--radius-ctl) 0 0 var(--radius-ctl); background: var(--surface-3); color: var(--text-2); }
-.work-box.work-cloud .work-who { color: var(--text-2); font-weight: var(--fw-strong); }
+/* 0.19.13: the AI run panel's row (docs/DESIGN.md 4.21): the split bar along the box's top, the house at its left end
+   (this computer), the cloud at its right end (Claude); work for Claude alone on a grey box, never a colour of its own */
+.work-box.ab-row { position: relative; overflow: hidden; padding: 8px 8px 5px; }
+.work-box.ab-row-cloud:not(.work-stalled) { background: var(--surface-2); }
 .sidebar-app { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; border-top: 1px solid var(--border); }
 .sidebar-app-row { display: flex; align-items: center; gap: 4px; }
 .sidebar-app-row .nav-foot { flex: 1; min-width: 0; }

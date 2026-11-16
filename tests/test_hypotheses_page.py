@@ -92,7 +92,8 @@ def test_the_ai_marks_and_the_line_on_who_reads():
     # one AI mark for the row of buttons (the 0.17 rule), after both of them, not one beside each. 0.17.0 (design
     # guide): withAI() (features.js) makes the row's mark and keeps it with the last button, on every page alike
     assert 'h("div", { class: "btn-row hyp-actions" }, withAI(runBtn, lookWrap))' in hyp
-    assert hyp.count("withAI(") == 1 and "aiTag(" not in hyp and "hyp-btn-group" not in hyp
+    # 0.19.13: and Look again (when the options changed after a look) has its own mark, as every ask button
+    assert hyp.count("withAI(") == 2 and "withAI(again)" in hyp and "aiTag(" not in hyp and "hyp-btn-group" not in hyp
     # "Look before checking" uses the AI only to split the hypothesis and find other words: its tooltip follows them
     assert 'o.decompose || o.expand ? "Uses the AI."' in hyp
     assert "options.addEventListener(\"change\", () => {\n    drawLookTag();" in hyp

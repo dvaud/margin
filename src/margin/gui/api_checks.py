@@ -439,6 +439,29 @@ class ChecksApi:
             raise ApiError(409, str(e)) from e
         return {"job": again.view()}
 
+    def _local_part(self, job_id):
+        job = self.app.jobs.get(job_id)
+        if not job.gate.involved:
+            raise ApiError(409, "This job has no work for the local model.")
+        if job.state not in ("queued", "running"):
+            raise ApiError(409, "This job has ended. Its excerpts that wait for the local model can be read from "
+                                "their own page.")
+        return job
+
+    def post_local_start(self, job_id, q):
+        """0.19.13: the local side's Start: the local model reads this job's local part (one Start covers the job);
+        {"force": true}: whatever memory this computer has free (Start it anyway)."""
+        job = self._local_part(job_id)
+        job.gate.open(force=bool(self._body().get("force")))
+        return {"job": job.view()}
+
+    def post_local_stop(self, job_id, q):
+        """0.19.13: the local side's Stop: the local model stops after the item in hand and the local part waits for
+        its Start again (the job's own Stop still ends everything)."""
+        job = self._local_part(job_id)
+        job.gate.close()
+        return {"job": job.view()}
+
     def post_benchmark(self, q):
         return {"job": self.app.start_benchmark(self._body()).view()}
 

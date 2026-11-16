@@ -87,14 +87,19 @@ def test_the_sidebar_does_not_call_the_index_job_claude():
 
 
 def test_cloud_work_has_its_own_shape_in_the_sidebar():
-    """0.19: work that sends passages to Claude gets a grey rail with the cloud and says "to Claude"; local work none."""
+    """0.19.13 (the AI run panel's row): work that sends passages to Claude has the cloud at the box's right end, work
+    of the model on this computer the house at its left end, and the split bar along its top; never a colour of its own."""
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     css = (STATIC / "components.css").read_text(encoding="utf-8")
-    assert 'w.where === "cloud" || (w.where == null && p.where === "cloud")' in js   # the AI of Settings, when Claude
-    assert 'w = { kind: "running", where: "cloud", main: "Claude Code is working"' in js   # whatever Settings name
-    assert 'work-box work-${w.kind}${cloud ? " work-cloud" : ""}' in js and "replace(box, rail, main, act)" in js
-    assert ".work-box .work-rail {" in css and ".work-box.work-cloud .work-who {" in css
-    assert "--accent" not in css[css.index(".work-box .work-rail {"):css.index(".work-box.work-cloud .work-who {")]
+    assert 'j.where == null && App.privacy().where === "cloud"' in js   # the AI of Settings, when Claude
+    assert 'w = { kind: "running", where: "cloud", main: "Claude Code is working"' in js and 'cloudHalf: "run"' in js
+    # the engine with no work keeps its seat, a dashed tile, at its end (BUILD: every single-engine panel, the row too)
+    assert 'replace(box, bar, w.local ? tile("local") : ai ? seat("local") : null, mid || main, mid ? null : act, w.cloudHalf ? tile("cloud") : ai ? seat("cloud") : null);' in js
+    # its button under the words (no state word cut between the two tiles), the status area a line taller then
+    assert 'const mid = ai && act ? h("div", { class: "work-mid" }, main, act) : null;' in js
+    assert ".status-area:has(> .work-box.ab-row:not([hidden])) { height: auto; min-height: 66px; }" in css
+    assert ".work-box.ab-row {" in css and ".ab-rowbar {" in css and ".work-rail" not in css
+    assert "--accent" not in css[css.index(".work-box.ab-row {"):css.index(".sidebar-app {")]
 
 
 def test_the_server_says_which_jobs_run_on_this_computer():

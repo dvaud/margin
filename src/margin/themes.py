@@ -35,6 +35,7 @@ import hashlib
 import json
 import math
 import random
+import threading
 import time
 import uuid
 from collections import Counter, defaultdict
@@ -1326,23 +1327,52 @@ def name_with_model(ws: Workspace, run_id: str, backend, model: str, progress: C
     rid = runs_mod.start(ws, "theme", run_id, backend, model, len(todo))
     done = failed = kept = 0
     dflt = access.default(ws)
-    for i, tid in enumerate(todo, 1):
+    # 0.19.13: in a job of the app the themes only the local model may name wait for its own Start (when Claude names
+    # others), and are named beside Claude's once it is pressed (the job's local gate)
+    level = {r[0]: r[1] for r in ws.query("SELECT task_id, COALESCE(access, 'cloud') FROM tasks WHERE kind='theme' "
+                                          "AND substr(task_id, 1, ?) = ?", (len(head), head))}
+    local_ids = {t for t in todo if level.get(t) not in readers.main_levels and level.get(t) == "local"}
+    gated = bool(local_ids) and readers.defers()
+    seen = [0]
+    tally = threading.Lock()   # the counts, kept by the job's thread and the local gate's worker
+
+    def one(tid: str) -> None:
+        nonlocal done, failed, kept
         if should_stop and should_stop():
-            break
+            return
+        with tally:
+            seen[0] += 1
         if progress:
-            progress(i, len(todo))
+            progress(min(seen[0], len(todo)), len(todo))
         # the setting worked out again as the text is about to leave (not the one stored when the tasks were made):
         # a document's cap counts what the themes named before this one sent
         with ws.connect() as cx:
             if access.recheck(cx, tid, dflt) is None:
-                continue
+                return
         got = readers.for_task(ws, tid)
         if got is None:
-            kept += 1  # keeps its key terms as its name
-            continue
+            with tally:
+                kept += 1  # keeps its key terms as its name
+            return
         ok, _e = tasks.run_one(ws, tid, got[0], got[1])
-        done += ok
-        failed += not ok
+        with tally:
+            done += ok
+            failed += not ok
+
+    # every local theme goes to the gate first, so the local side counts them (and its Start works) from the start,
+    # not only once the loop below has waited for Claude's answers before it
+    if gated:
+        for tid in todo:
+            if tid in local_ids:
+                readers.later(lambda tid=tid: one(tid), noun="theme", mixed=len(local_ids) < len(todo), ws=ws)
+    for tid in todo:
+        if should_stop and should_stop():
+            break
+        if gated and tid in local_ids:
+            continue
+        one(tid)
+    if gated:
+        readers.drain()
     runs_mod.finish(ws, rid, done + failed)
     with ws.connect() as cx:
         cx.execute("UPDATE theme_runs SET chat_model=? WHERE run_id=?", (model, run_id))

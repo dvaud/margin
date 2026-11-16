@@ -663,13 +663,61 @@ def require(backend, task, where=None) -> None:
 FORCE_LOCAL: contextvars.ContextVar[bool] = contextvars.ContextVar("margin_force_local", default=False)
 
 
+_FROM_JOB = object()
+
+
+class _Gated:
+    """0.19.13: the local model of a job of the app, asked only once the job's local gate opens
+    (`Readers.before_local`): nothing loads the model while the gate waits. Everything else is the model's own
+    (attributes read and set)."""
+
+    def __init__(self, be, readers: "Readers"):
+        object.__setattr__(self, "_be", be)
+        object.__setattr__(self, "_readers", readers)
+
+    def __getattr__(self, name: str):
+        return getattr(self._be, name)
+
+    def __setattr__(self, name: str, value) -> None:
+        setattr(self._be, name, value)
+
+    def check_memory(self, model: str) -> None:
+        """The memory check before the model starts: none after Start it anyway (the gate's "force")."""
+        g = self._readers.gate
+        if g is not None and g.state == "force":
+            if hasattr(self._be, "memory_guard"):
+                self._be.memory_guard = False
+            return
+        check = getattr(self._be, "check_memory", None)
+        if check is not None:
+            check(model)
+
+    def complete(self, *a, **k):
+        from .llm import MemoryShort
+
+        self._readers.before_local()
+        try:
+            return self._be.complete(*a, **k)
+        except MemoryShort as e:
+            self._readers.memory_short = e   # the gate waits again, with the numbers
+            raise
+
+
 class Readers:
     """The model that reads each setting: the main one where it may, the local model for restricted documents for
-    `local` when the main one is Claude, nobody for `none`."""
+    `local` when the main one is Claude, nobody for `none`.
+
+    0.19.13: in a job of the app the local model starts only when its gate opens (`localgate`): every request of it
+    waits for the job's gate first, and the features with work for Claude too hand it their local items (`later`)."""
 
     def __init__(self, backend, model: str, settings: dict | None = None, progress=None, should_stop=None,
-                 check_memory: bool | None = None):
+                 check_memory: bool | None = None, gate=_FROM_JOB):
+        from .localgate import GATE
+
         self.backend, self.model = backend, model
+        self.gate = GATE.get() if gate is _FROM_JOB else gate   # None outside the app's jobs: no gate
+        self._short = None
+        self._short_epoch = 0
         self._settings = settings
         self._local: tuple | None = None
         self._local_tried = False
@@ -680,7 +728,7 @@ class Readers:
         self.progress, self.should_stop = progress, should_stop
         # False: the person chose "Start it anyway" (by default: unless the job runs again for it, FORCE_LOCAL)
         self.check_memory = (not FORCE_LOCAL.get()) if check_memory is None else check_memory
-        self.memory_short = None               # the MemoryShort that kept the local model from starting
+        self.memory_short = None               # the MemoryShort that kept the local model from starting (see below)
         self.read = 0                          # the parts the local model for restricted documents has read
         # 0.18.1 (I1, I2): the AI mix's tasks the local model answered itself, and those that went to Claude Code
         # (no local model, or no answer of it passed)
@@ -690,6 +738,24 @@ class Readers:
     @property
     def used(self) -> bool:
         return self.read > 0 or self.mix_read > 0
+
+    @property
+    def memory_short(self):
+        """The MemoryShort that kept the local model from starting, or None. 0.19.13: it tells the job's gate (which
+        waits again, with the numbers), and it is past once the gate has opened again since (Start, or Start it
+        anyway): the features that wait on it then try again."""
+        if self._short is not None and self.gate is not None and self.gate.epoch != self._short_epoch:
+            self._short = None
+        return self._short
+
+    @memory_short.setter
+    def memory_short(self, e) -> None:
+        told = self._short is e
+        self._short = e
+        if self.gate is not None:
+            self._short_epoch = self.gate.epoch
+            if e is not None and not told:
+                self.gate.refused(e)
 
     @property
     def main_levels(self) -> set[str]:
@@ -721,7 +787,63 @@ class Readers:
                 self._wire(self._local[0])
                 if not self.check_memory and hasattr(self._local[0], "memory_guard"):
                     self._local[0].memory_guard = False
+                if self.gate is not None:  # 0.19.13: every request of it passes the job's gate first
+                    self._local = (_Gated(self._local[0], self), self._local[1])
+            elif self.gate is not None:  # 0.19.13: the job's local part has no model to start (the panel says why)
+                self.gate.problem = self.local_problem or ("No local model is chosen for documents marked Only a "
+                                                           "local AI (Settings → AI).")
         return self._local
+
+    # -- 0.19.13: the job's local gate --------------------------------------------------------------------------------
+    def _reporter(self):
+        report = (self.progress or getattr(self.backend, "local_progress", None)
+                  or getattr(self.backend, "progress", None))
+        return report
+
+    def look(self) -> dict:
+        """The local model's name, memory and why it cannot be used, for the job's local panel, without starting it."""
+        try:
+            st = local_status(self.settings())
+        except Exception:  # noqa: BLE001 - what the panel shows never stops the work
+            st = {}
+        mem = st.get("memory") or {}
+        return {"model": st.get("model") or (self._local[1] if self._local else None),
+                "memory": ({k: mem[k] for k in ("need", "free", "short")} if "need" in mem else None),
+                "problem": st.get("problem")}
+
+    def before_local(self, waiting: int | None = None, noun: str | None = None) -> None:
+        """Wait for the job's gate before the local model is asked (raises "Stopped." when the job is stopped
+        meanwhile). Outside a job, or when the main model reads local documents itself, nothing waits."""
+        from .llm import BackendError
+
+        g = self.gate
+        if g is None or "local" in self.main_levels:
+            return
+        g.involve(waiting=waiting, noun=noun, look=self.look, report=self._reporter())
+        if not g.wait_open(self.stopped):
+            raise BackendError("Stopped.")
+        if g.state == "force" and self._local is not None and hasattr(self._local[0], "memory_guard"):
+            self._local[0].memory_guard = False
+
+    def mixed(self) -> None:
+        """The job has work for Claude as well as the local model: its local part waits for its own Start."""
+        if self.gate is not None:
+            self.gate.mixed()
+
+    def defers(self) -> bool:
+        """Whether the local items of this job go to the gate's worker (`later`): a job of the app, a local model that
+        can be used, and not the main model itself."""
+        return self.gate is not None and "local" not in self.main_levels and self.local() is not None
+
+    def later(self, fn, n: int = 1, noun: str = "task", mixed: bool = True, ws=None) -> None:
+        """Read an item with the local model when the job's gate opens, beside the job's own work (see localgate)."""
+        self.gate.involve(look=self.look, report=self._reporter())
+        self.gate.later(fn, n, noun, mixed, ws)
+
+    def drain(self) -> None:
+        """Wait for the local items handed to the gate (they are read once the person starts the local model)."""
+        if self.gate is not None:
+            self.gate.drain(self.stopped)
 
     def _wire(self, be) -> None:
         """0.13.11: let the local model show what it does and see Stop (it read in silence while the page said only

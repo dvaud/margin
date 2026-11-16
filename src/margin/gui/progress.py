@@ -12,7 +12,8 @@ import time
 
 STEPS = [("terms", "Other wordings"), ("rank", "Finding excerpts"), ("grade", "Reading the excerpts")]
 PHASE = {"waiting": "loading the model and reading the prompt", "thinking": "reasoning",
-         "writing": "writing its answer", "done": "finished"}
+         "writing": "writing its answer", "done": "finished",
+         "ready": "ready: it starts when you press its Start"}   # 0.19.13: the job's local gate waits
 PLAIN_PHASE = {"waiting": "The AI is getting ready and reading", "thinking": "The AI is thinking it over",
                "writing": "The AI is writing down its judgement", "done": "The AI has finished"}
 # 0.13.11: the local model for documents marked Only a local AI, reading beside Claude (it used to read unseen)
@@ -20,7 +21,9 @@ LOCAL_PHASE = {"waiting": "Your local model is starting and reading the excerpts
                "thinking": "Your local model is thinking over the excerpts from documents marked Only a local AI",
                "writing": "Your local model is writing down its judgement of the excerpts from documents marked "
                           "Only a local AI",
-               "done": "Your local model has finished"}
+               "done": "Your local model has finished",
+               # 0.19.13: the job's local part waits for the local model's own Start (nothing is loaded)
+               "ready": "Your local model waits for you: it starts when you press its Start"}
 
 
 def _secs(s: float) -> str:
@@ -155,10 +158,17 @@ class Tracker:
         with self.lock:
             self.model = dict(info)
 
-    def say(self, msg: str) -> None:
-        """0.13.11: what is happening now, in the heading, without a step or a lasting note."""
+    def say(self, msg: str, step: str | None = None) -> None:
+        """0.13.11: what is happening now, in the heading, without a step or a lasting note. 0.19.13: `step` (a key,
+        "grade"): the same words as the detail of that step wherever it is running (the local model waits for its
+        Start, or reads, where the step said Claude Code would)."""
         with self.lock:
             self.message = msg
+            if step:
+                for p in self.parts:
+                    s = p["steps"].get(step)
+                    if s is not None and s["state"] == "running":
+                        s["detail"] = msg
 
     def state(self) -> dict:
         with self.lock:

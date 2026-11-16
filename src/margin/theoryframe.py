@@ -825,6 +825,39 @@ def apply_frame(draft: dict, frame, model: str | None, sent: list[dict], drafts:
     draft["left_out"] = left
 
 
+def _read_all(ws: Workspace, batches: list[dict], readers, prog: Callable, total: int,
+              should_stop: Callable[[], bool] | None) -> str | None:
+    """`theorycodes.read_parts` for every document. 0.19.13: in a job of the app, the documents only the local model
+    may read wait for its own Start (when Claude reads others), and are read beside Claude's once it is pressed (the
+    job's local gate); stopped before, they are not read (the reading counts as stopped)."""
+    from . import theorycodes
+
+    local = [b for b in batches if b["be"] is not readers.backend]
+    if not local or not readers.defers():
+        return theorycodes.read_parts(ws, batches, prog, should_stop)
+    cloud = [b for b in batches if b["be"] is readers.backend]
+    seen = {"cloud": 0, "local": 0}
+    out: dict = {}
+
+    def part(key: str) -> Callable:
+        def report(done: int, _n: int) -> None:
+            seen[key] = done
+            prog(seen["cloud"] + seen["local"], total)
+        return report
+
+    def read_local() -> None:
+        out["local"] = theorycodes.read_parts(ws, local, part("local"), should_stop)
+
+    readers.later(read_local, n=len(local), noun="document", mixed=bool(cloud), ws=ws)
+    halted = theorycodes.read_parts(ws, cloud, part("cloud"), should_stop) if cloud else None
+    readers.drain()
+    if "local" not in out:
+        for b in local:  # never read: the job was stopped while the local part waited for its Start
+            b.update(refused=None, read=[], problems=[], used=b["call"], reused=False)
+        return halted or "stopped"
+    return halted or out["local"]
+
+
 def read(ws: Workspace, backend, model: str, progress: Callable | None = None,
          should_stop: Callable[[], bool] | None = None, readers=None, job: str | None = None) -> dict:
     """The reading of a draft's theory documents (a job): every part of every document the AI may read is drafted
@@ -876,7 +909,7 @@ def read(ws: Workspace, backend, model: str, progress: Callable | None = None,
         if progress:
             progress(done, total)
 
-    halted = theorycodes.read_parts(ws, batches, prog, should_stop) if batches else None
+    halted = _read_all(ws, batches, readers, prog, total, should_stop) if batches else None
     parts_read = sum(len(b.get("read") or []) for b in batches)
     reading = {**_empty_reading(), "job": job, "parts": n_parts, "parts_read": parts_read,
                "input": _input_hash(ids, focus), "at": now()}

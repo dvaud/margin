@@ -1,7 +1,7 @@
 // Settings: model service, embeddings, check defaults, frameworks, model test, data folder.
-import { saveBlob, App, api, h, icon, tabs, replace, clear, toast, showError, fmt, pageHead, watchJob, P, field, switchControl, rangeControl, confirmDialog, dialog, download, VERSION, TERMINAL, strictness, statusBadge, copyLine, tesseractHelp, helpMark, rememberClaude, claudeAccount, appName, Updates, checkUpdate, speedPicker, saveSpeed, thoughtPicker, saveThought, choice, planTier, button, card, fold, link, notice, downloadButton, input as fieldInput, select as selectField, tag, optionCards, readsLine, stopButton, inset, workState, aiWhere, myLink, WhatsNew, loadWhatsNew, showWhatsNew, whatsNewLink } from "../lib.js";
+import { saveBlob, App, api, h, icon, tabs, replace, clear, toast, showError, fmt, pageHead, watchJob, P, field, switchControl, rangeControl, confirmDialog, dialog, download, VERSION, TERMINAL, strictness, statusBadge, copyLine, tesseractHelp, helpMark, rememberClaude, claudeAccount, appName, Updates, checkUpdate, speedPicker, saveSpeed, thoughtPicker, saveThought, choice, planTier, button, card, fold, link, notice, downloadButton, input as fieldInput, select as selectField, tag, optionCards, readsLine, stopButton, inset, workState, aiWhere, myLink, WhatsNew, loadWhatsNew, showWhatsNew, whatsNewLink, aiButton, setBusy, aiSide, aiSides } from "../lib.js";
 import { withAI } from "../features.js";
-import { simpleProgress } from "./progress.js";
+import { aiRun } from "./progress.js";
 import { restrictedModelCard, termsPanel } from "./ai-access.js";
 import { localModelHelp } from "./local-model.js";
 import { queueSection } from "./queue.js";
@@ -448,7 +448,7 @@ function modelSection(s, servers, watchers, info = { servers }) {
     const kindSel = selectField({ "aria-label": "Kind of task" });
     const n = fieldInput({ type: "number", min: 10, max: 100, step: 5, value: 30, "aria-label": "Tasks to compare" });
     const planLine = h("p", { class: "small" });
-    const start = button({ sm: true, icon: "play" }, "Compare the routes");
+    const start = aiButton({ sm: true }, "Compare the routes");
     const body = h("div", { class: "stack" });
     const base = `/api/projects/${P(App.project)}/agreement`;
     let kinds = [];
@@ -474,9 +474,12 @@ function modelSection(s, servers, watchers, info = { servers }) {
       const pb = h("div", { class: "pb" });
       const holder = card({ as: "div", title: "Comparing", level: "h3", action: stop }, pb);
       replace(out, holder);
+      // 0.19.13: both engines on purpose: the AI run panel with both sides at work
+      const run = aiRun({ size: "compact", stop: false, engines: ["local", "cloud"], noun: "task",
+        label: (job) => { const p = job.progress || {}; return p.total ? `Task ${Math.min((p.done || 0) + 1, p.total)} of ${p.total}` : "Starting…"; } });
+      replace(pb, run.el);
       const watcher = watchJob(jobId, (job) => {
-        const p = job.progress || {};
-        replace(pb, simpleProgress(job, () => p.total ? `Task ${Math.min((p.done || 0) + 1, p.total)} of ${p.total}` : "Starting…"));
+        run.update(job);
         if (TERMINAL.has(job.state)) stop.hidden = true;
       });
       watchers.push(watcher);
@@ -500,7 +503,8 @@ function modelSection(s, servers, watchers, info = { servers }) {
       if (r.problem) { body.append(h("p", { class: "muted small" }, r.problem)); return; }
       if (!kinds.length) { body.append(h("p", { class: "muted small" }, "No task with a decision to compare is answered yet in this project (checks, second readings, labels and links have one).")); return; }
       kindSel.append(...kinds.map((k) => h("option", { value: k.kind }, `${k.name[0].toUpperCase()}${k.name.slice(1)} (${k.answered} answered)`)));
-      body.append(h("div", { class: "fields-2" }, field("Kind of task", kindSel), field("Tasks to compare (10 to 100)", n)), planLine, h("div", { class: "row" }, start), out);
+      body.append(h("div", { class: "fields-2" }, field("Kind of task", kindSel), field("Tasks to compare (10 to 100)", n)), planLine, h("div", { class: "row" }, withAI(start)),
+        aiWhere(`Your local model (${s.restricted_model}) reads the sample on this computer.`, "local"), readsLine("the same sample"), out);
       showPlan();
     }).catch((e) => body.append(h("p", { class: "muted small" }, e.message || "Could not load the plan.")));
     return box;
@@ -801,10 +805,15 @@ function reproSection(s) {
     try { await save({ seed: v }, state); } catch (_) { /* shown */ }
   });
   const out = h("div", { "aria-live": "polite" });
-  const test = button({}, icon("play", { size: 14 }), "Test: repeatable answers?");
+  const test = aiButton({ sm: true }, "Test whether answers repeat");
   test.addEventListener("click", async () => {
-    test.disabled = true;
-    replace(out, h("p", { class: "muted small" }, "Asking the model the same short question twice…"));
+    setBusy(test, true);
+    // one call: the AI run panel's compact look, its one engine at work, then the result
+    const p = App.privacy();
+    const what = "Asking the model the same short question twice";
+    replace(out, p.where === "local" ? aiSides(aiSide({ where: "local", model: String(p.detail || "").split(" · ").pop() || null, running: { phase: "waiting" }, compact: true }), null, { compact: true })
+      : p.where === "cloud" ? aiSides(null, aiSide({ where: "cloud", state: "run", what }), { compact: true })
+      : h("p", { class: "muted small" }, `${what}…`));
     try {
       const r = await api("POST", "/api/servers/repeatable", {});
       replace(out, notice({ kind: r.repeatable ? "done" : "attention" },
@@ -812,7 +821,7 @@ function reproSection(s) {
           h("p", { class: "small" }, r.note || ""),
           h("p", { class: "small muted" }, `Tested: the same request (search words for a short hypothesis) sent twice, with seed ${App.settings().seed ?? 42} and temperature 0.${r.digest ? ` Exact version: ${String(r.digest).slice(0, 19)}…` : ""} It says whether this server repeats itself; the version and settings behind each result are in “How these results were made” in every Excel download and under Technical details on the Profile page.`)));
     } catch (e) { replace(out); showError(e); }
-    test.disabled = false;
+    setBusy(test, false);
   });
   return sectionCard("repeatable", "Repeatable results", "Every model request is sent with a fixed seed and temperature 0, and every result records the model and, when the server reports it, its exact version (the digest), so the same documents and settings give the same answers. Whether a server honours the seed differs: test it here.",
     h("div", { class: "fields-2" },
@@ -830,7 +839,7 @@ function testSection(s, watchers) {
   const kExtract = h("input", { type: "checkbox", id: "k-extract" });
   const kLabel = h("input", { type: "checkbox", id: "k-label" });
   const out = h("div", { "aria-live": "polite", class: "set-test-out" });
-  const run = button({}, icon("play", { size: 14 }), "Run test");
+  const run = aiButton({ sm: true }, "Run the test");
   run.addEventListener("click", async () => {
     const kinds = [kVerify.checked && "verify_set", kExtract.checked && "extract", kLabel.checked && "label"].filter(Boolean);
     if (!ref.value.trim() || !kinds.length) { toast("Give the reference folder and tick at least one task kind.", "warn"); return; }
@@ -845,10 +854,12 @@ function testSection(s, watchers) {
     const pb = h("div", { class: "pb" });
     const holder = card({ as: "div", title: "Testing", level: "h3", action: stop }, pb);
     replace(out, holder);
+    // the panel (not `run`: that is the button, which comes back once the test has ended)
+    const panel = aiRun({ size: "compact", stop: false, noun: "task",
+      label: (job) => { const p = job.progress || {}; return p.total ? `Task ${Math.min((p.done || 0) + 1, p.total)} of ${p.total}${p.task ? " · " + p.task : ""}` : "Starting…"; } });
+    replace(pb, panel.el);
     const watcher = watchJob(jobId, (job) => {
-      const p = job.progress || {};
-      replace(pb, simpleProgress(job, () => p.total ? `Task ${Math.min((p.done || 0) + 1, p.total)} of ${p.total}${p.task ? " · " + p.task : ""}` : "Starting…"),
-        p.model && p.model.line ? h("div", { class: "model-line set-model-line" }, h("div", { class: "ml-head" }, h("span", {}, p.model.line))) : null);
+      panel.update(job);
       if (TERMINAL.has(job.state)) stop.hidden = true;
     });
     watchers.push(watcher);
@@ -871,10 +882,10 @@ function testSection(s, watchers) {
         saveBlob(blob, `benchmark_${(r.model || "model").replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
       } }, "Download the full result")));
   }
-  return sectionCard("test", "Test a model before trusting it", "For technical users. It compares the chosen local model with reference answers saved in a project (for the pilot, those were made earlier with Claude Opus 5.5). Nothing is sent anywhere and nothing is stored. This measures agreement with the reference, not correctness.",
+  return sectionCard("test", "Test a model before trusting it", "For technical users. It compares the AI model of Settings › AI with reference answers saved in a project (for the pilot, those were made earlier with Claude Opus 5.5). Nothing is stored, and the test tasks go only where that model reads: a model on this computer keeps them here; the Claude API is sent one call per task, and billed for it. This measures agreement with the reference, not correctness.",
     field("Reference workspace folder", ref, { help: "For example the pilot folder that ships with the package." }),
     h("div", { class: "fields-2" }, n, h("div", { class: "field" }, h("span", { class: "field-label" }, "Tasks"), h("label", { class: "it", for: "k-verify" }, kVerify, " Checking claims"), h("label", { class: "it", for: "k-extract" }, kExtract, " Extracting claims"), h("label", { class: "it", for: "k-label" }, kLabel, " Labelling with codes"))),
-    h("div", { class: "save-row" }, withAI(run), App.settings().backend === "anthropic" ? h("span", { class: "muted small" }, "With the Claude API this is billed: one call per task.") : null),
+    h("div", { class: "save-row" }, withAI(run)),
     readsLine("the test tasks"),
     out);
 }

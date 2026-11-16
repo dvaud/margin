@@ -1,5 +1,5 @@
 """0.19.12: on an excerpt awaiting manual review, selecting words highlights them, as the AI's quote is highlighted;
-and the way back from "Judge it myself": "Let the local model read them".
+and the way back from "Judge it myself": "Read them again" (0.19.13: an ask button, no engine named).
 
 Asked by the user after 0.19.8: judging an excerpt by hand, they wanted to mark the words that matter as the AI does
 (the way to it was "Quote another sentence … Use it", for replacing the AI's quote); and they wanted to change their
@@ -86,7 +86,7 @@ def test_highlighting_words_of_an_excerpt_you_judge(mixed, monkeypatch):
 
 def test_the_page_highlights_on_selection_and_offers_the_way_back():
     js = (STATIC / "views" / "result.js").read_text(encoding="utf-8")
-    assert "/local-again" in js and "Let the local model read them" in js and "startReadLocal(false)" in js
+    assert "/local-again" in js and '"Read it again" : "Read them again"' in js and "startReadLocal(false)" in js
     assert 'if (p.read_by === "you") {' in js and 'passageEl.addEventListener("mouseup"' in js
     assert "Highlight the words that show it" in js and "selectionPlace(p.text" in js
     assert any(r[2] == "post_local_again" for r in server.ROUTES)

@@ -82,9 +82,10 @@ has (*· 4 helpers at once*).
 
 When Claude Code stops because your plan's usage limit is reached, the queue keeps the work, and *Settings → AI → At
 your plan's usage limit* decides what happens next: **Wait and continue later** (start Claude Code again when the
-limit resets; the page says when, if Claude Code said it), or **Carry on with the local model**, which answers what
-waits on this computer, where it may (a local model must be chosen). Answers the local model gives count like any
-other and record which model gave them.
+limit resets; the page says when, if Claude Code said it), or **Carry on with the local model**: the page then offers
+the local model's own Start, and once you press it the local model answers what waits on this computer, where it may
+(a local model must be chosen). It never starts by itself. Answers the local model gives count like any other and
+record which model gave them.
 
 **Choose the helpers for this run**, folded under that line beside *Start Claude Code*, lists each helper that has work waiting, with its model,
 what it would answer and how much waits (*Labeller haiku · Codebook labels · 7,868 waiting*). Set how many of each

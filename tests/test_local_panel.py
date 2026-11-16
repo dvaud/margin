@@ -137,15 +137,17 @@ def test_the_local_panel_is_built_like_the_claude_code_panel():
 
     static = Path(profile.__file__).parent / "gui" / "static"
     lib = (static / "lib.js").read_text(encoding="utf-8")
-    body = lib[lib.index("function localPanelBody("):lib.index("// 0.13.10: how fast Claude Code works")]
-    # the house in every state, Start it anyway behind a confirmation, the memory sentence, the house line
-    assert 'icon("house"' in body and "On this computer" in body and "confirmDialog(" in body
-    assert "Start it anyway" in body and "of memory;" in body and 'aiWhere(' in body and '"local")' in body
-    assert 'local: "notice notice-local"' in lib
+    # 0.19.13: this computer's side of the AI run panel (the local panel's opts kept): the house tile, Start it anyway
+    # behind a confirmation, the memory against what is free, the house line
+    body = lib[lib.index("function localSide("):lib.index("// ---- Claude's side")]
+    assert "confirmDialog(" in body and "Start it anyway" in body and "arMemory(" in body and 'aiWhere(' in lib and '"local")' in lib
+    assert 'local: "On this computer"' in lib and 'icon(where === "cloud" ? "cloud" : "house"' in lib
+    assert "Needs about ${gb(mem.need)} of memory" in lib
     css = (static / "components.css").read_text(encoding="utf-8")
-    assert ".notice-local {" in css
-    for page in ("profile.js", "progress.js", "result.js"):
+    assert ".ab-side.ar-local {" in css and ".notice-local" not in css
+    for page in ("profile.js", "result.js"):
         assert "localPanel(" in (static / "views" / page).read_text(encoding="utf-8"), page
+    assert 'aiSide({ where: "local"' in (static / "views" / "progress.js").read_text(encoding="utf-8")
 
 
 # -- 0.19.4, after the release: any job the local model was refused in runs again from its panel ----------------------

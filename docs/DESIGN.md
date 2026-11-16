@@ -52,6 +52,8 @@ looks like this. **A piece that cannot be named from this table is a misfit.**
 | Type or pick here | A white box with a strong edge, its label above it | [Form field](#48-form-fields) |
 | Does this use the AI? | The chip icon and *Uses the AI*, *AI on request* or *No AI*, in grey | [AI mark](#44-the-ai-mark-and-the-ai-line) |
 | Where my text goes, who reads it | The cloud (Claude) or the house (this computer) and one sentence | [AI line](#44-the-ai-mark-and-the-ai-line) |
+| Which AI works on this, and where | **Left is this computer, right is Claude**, at every size: the house on a solid ink tile at the left end, the cloud on a hollow tile at the right end, one split bar above them; a seat with no work in the job is dashed and empty | [AI run panel](#421-progress-and-work-states) |
+| Ask the AI for this work | A button with the play icon, a verb and what it works on, *Uses the AI* after it; only a panel's own *Start Claude Code* / *Start qwen3.5:9b* names an engine | [Ask button](#41-buttons) |
 | What the evidence says | A coloured pill with a circle icon: green, amber, purple, red, slate | [Judgement badge](#49-judgement-badges) |
 | A fact about this item | A small grey rectangle | [Tag](#410-tags-and-counts) |
 | A judgement that does not count | Its pill with no fill and a dashed edge (the one dashed edge on a pill) | [Judgement badge](#49-judgement-badges) |
@@ -78,7 +80,9 @@ looks like this. **A piece that cannot be named from this table is a misfit.**
 
 **Why five minutes is enough.** The whole language rests on the four invariants at the top of this guide. The AI has one
 icon (the chip), where text goes has two (the cloud, the house), "needs you" has one (the triangle), "went wrong" one
-(the alert circle). Nothing else carries those icons or those colours.
+(the alert circle). Nothing else carries those icons or those colours. **Which engine works is told by its side**:
+wherever AI runs, this computer is on the left and Claude on the right (0.19.13); position needs no colour, no
+pattern and no word, and reads in greyscale, to a colour-blind eye and in a 66 px row.
 
 **A five-minute test.** Give a new user five minutes in the dev server's Demo project, then ask them to point at: the
 main action of this page; something that would send text to the AI; where they are; something that needs them; what
@@ -251,7 +255,18 @@ title) cuts it with "…" inside its padding and says it whole in its tooltip.
 in its `title` or the line beside it. Busy (`busy: true`, `setBusy()`): disabled, `aria-busy`, the label stays and the
 turning loader takes its first icon's place. A toggle (`toggle: true`): a chevron after the words that turns with `aria-expanded`. Opens beside
 (`opens: true`, the drawer's button): soft teal while what it opens is open. A button that waits for you (*Start Claude
-Code* with work waiting) pulses (`.sc-nudge`), and stands still with a ring under reduced motion.
+Code* or *Start qwen3.5:9b* with work waiting, after a few idle seconds) takes the AI run panel's slow breath (`.ar-nudge`,
+5 s, in step with the clock), and stands still with a ring under reduced motion.
+
+**The ask button: one rule for every button that asks the AI for work** (0.19.13). The play icon first (`aiButton()`),
+a verb and what it works on, never who does it (*Check*, *Name the themes*, *Judge this pair*, *Draft from the
+examples*, *Label 33 passages*; *Ask a stronger model* and *Get a second opinion* keep their object, as it is the
+point), and *Uses the AI* after the row (`withAI()`). Standard, and the main kind only where it is the page's or the
+card's one main action; small in cards, rows and toolbars. Pressed, it goes busy and the [AI run
+panel](#421-progress-and-work-states) opens under it: it never shows progress by itself, and nothing is said by a
+toast alone. **The engine start** is the one button that names an engine (*Start Claude Code*, *Start qwen3.5:9b*,
+`aiStart()`): main, small, the play icon, its mark and its hint, and it lives only in the panel's side (and the
+sidebar's row, the queue section of Settings).
 
 **Two actions that are not `<button>`s:** a download makes a file, so it is a small quiet button even when it is an
 `<a download>` (`downloadButton()`; a row of them: `downloadLinks()`); choosing a file is an action, so the label that
@@ -326,7 +341,8 @@ only a model on this computer does (excerpts from documents marked *Only a local
 yet*. A document's AI setting is a [tag](#410-tags-and-counts) with the same icons: *Claude may read it* (cloud),
 *Only a local AI* (house), *No AI* (`eye-off`: no AI reads it).
 
-**Make it:** `aiTag(value)`; buttons with their mark: `withAI(…buttons)` (it returns the buttons and the mark after them as one
+**Make it:** `aiTag(value)`; an ask button: `aiButton({ kind, sm, onClick }, words)` (the play icon; [4.1](#41-buttons));
+buttons with their mark: `withAI(…buttons)` (it returns the buttons and the mark after them as one
 wrapping group, `.with-ai`: where the row is too narrow the mark goes under the buttons; put them in the row: `h("div", { class: "btn-row" }, withAI(check, look))`);
 `featureEyebrow(key)` (`features.js`); the AI line: `readsLine(what, { model })` says who reads *what* for the AI chosen
 in Settings (*Claude, on your plan, reads the excerpts again.*), `aiWhere(sentence, "cloud" | "local" | "attention" |
@@ -490,7 +506,6 @@ per card. **Not for:** a fact about one item (a [tag](#410-tags-and-counts)), wh
 | Done | `"done"` | The same, with a tick | A state the page is about that stays true: *Ollama is installed and running* |
 | Attention | `"attention"` | Amber ground and edge, the triangle | Needs you before you go on |
 | Error | `"error"` | Red ground and edge, the alert circle | Did not work |
-| Local | `"local"` | The page's own ground, the strong edge, no icon of its own (its eyebrow wears the house) | The local panel only: work for the model on this computer |
 
 A message about what just happened on this page that stays in view (*Done in 2.0 s*, *Moved here, into the evidence*,
 *Showing the 4 hypotheses of one set*) is a notice too, done or info: a page never draws a message box of its own.
@@ -500,17 +515,9 @@ link (a next-step link to the page where the work is done) after its words. Anot
 one under the other, each with its own plain message: `noticeList([{ kind, person, text, action, live }])`; the list
 stands in its place, so none of its rows is an alert unless its `live` says so.
 
-**The two AI panels** (0.19.4) are notices that hold more than one action, the one exception to "one action or one
-link": the Claude Code panel (`queueNotice()`: the inbox, grey, *Start Claude Code*, Thought, the helpers, the command
-to type, the cloud line) and its twin, the local panel (`localPanel()`: the local notice, *On this computer* with the
-house over its head, what waits, the model's memory against what this computer has free, *Start <model>* and a quiet
-*Start it anyway*, the model's row, the house line; 0.19.8: where the person may judge what waits, as on a result,
-*Judge it myself* takes the place of *Start it anyway*, first and as the main button, *Start <model>* after it). The same rows in the same order, so the two read as one family;
-the ground, the eyebrow and the house tell them apart. When the local model cannot start and its work is all that is
-left, the local panel is an attention notice (it needs you) and keeps its eyebrow; when Claude goes on with the rest,
-only its memory line is amber (`workState("attention")`). Both may stand in one card, the local one first: it reads
-first, while Claude Code takes its own. While the model reads, its panel has no buttons and no model row, and no live
-region of its own (the card's progress is one).
+**The two AI panels** of 0.19.4 (the Claude Code panel and its local twin, with the notice kind *Local*) became one, the
+[AI run panel](#421-progress-and-work-states) (0.19.13): it is a component of its own, not a notice, so the rule
+"one action or one link" stays whole here.
 
 **Heard:** each notice is read once, and only what comes of an action interrupts.
 
@@ -739,13 +746,59 @@ tag).
 | Did not work | the alert circle, red | *Did not work* |
 | A button at work | its loader turns, its words stay ([4.1](#41-buttons)) | the verb stays |
 | A job's *Stop* | a small quiet button with the stop icon, after the job's time; never red, as nothing is removed (what is done is kept) | *Stop*; *Stop Claude Code* where the job beside it has its own |
-| A long step-by-step job | the progress panel: steps with icons and times, a bar | step names |
-| A short AI job | one line (`MiniJob`): the running dot, what runs and who reads (*qwen3.5:9b is thinking it over*), the count and time, *Stop*; while a model reads, a muted line of what it has written and how fast (*nothing new for 24 s; it may still be working* when it goes quiet) and, while it reasons, its latest words on one line; neither is read out | *The AI names the themes: …* |
+| A long step-by-step job of the AI | the AI run panel, full: its head, its steps, the two sides under the step they work on | step names |
+| A short AI job | the AI run panel, compact: one line (what runs, its time, *Stop*) and the two sides under it, in the card that started it | *The AI names the themes: …* |
+| Work that is not the AI's | a bar and its words (`simpleProgress()`): adding documents, search by meaning, the glossary | *Copying 3 of 17* |
 | Loading a part of a page | the turning loader and a sentence | *Loading the works…* |
 
-A work state is words and an icon, never a pill. The running dot stands still under reduced motion. **Make it:**
-`workState(state, words, seconds)`, `stopButton({ text, onClick })`, `spinner(label)`, the progress panel (`views/progress.js`). **Lives in:**
-`components.css` § 4.21.
+A work state is words and an icon, never a pill. The running dot stands still under reduced motion.
+
+**The AI run panel** (0.19.13): every place where AI runs, at three sizes, one family. **Left is this computer, right
+is Claude**, always: each run shows both seats in the same places, and a seat whose engine has no work in this job is
+an *empty seat*, a dashed tile and nothing else (said to a screen reader: *Nothing in this job goes to Claude* / *No
+model on this computer works in this job*). One **split bar** runs along the top of the two: its left half this
+computer's progress, its right half Claude's (an empty track: waits for you; teal: at work, as far as it has got, or
+sliding when there is no count; amber: needs you; grey: done; no track: not in this job). Told apart redundantly: the
+side, the tile (the house on solid ink; the cloud on a hollow tile, at the outer edges), the ground (the page's own;
+grey), the half of the bar, the side's name (*On this computer* / *To Claude*): any one of them is enough.
+
+| Size | What it is |
+| --- | --- |
+| Full (`aiRun({ size: "full" })`, `ProgressPanel`) | the head (its state's icon, the message, the time, *Stop*), the steps, the two sides directly under the step they work on (the first not done), the steps still to come under them, a muted foot. A single engine's side takes the width; the other seat is a narrow column with its dashed tile |
+| Compact (`aiRun({ size: "compact" })`, `MiniJob`, `jobCard({ ai: true })`, `queueNotice()`, `localPanel()`, `memoryRefused()`) | one line (what runs, its time, *Stop*) and the two sides alone, in the card under what started them. In a narrow card both sides stack, this computer first; the bar's halves stay side by side |
+| Row | the sidebar's work box ([5.2](#52-the-status-area-and-the-last-row)): the split bar along its top (3 px), the house at its left end, the cloud at its right end |
+
+**A side** says its state once, in its head, with an icon and words: *Waits for you* (a clock), *At work* (the running
+dot), *Paused* (the pause), *Needs you* (the triangle, amber; the side's ground amber too), *Done* (a tick), *Not yet*,
+*Stopped*. Under it, in this order, each line only when it has something to say: what waits or works (*5 excerpts wait
+for qwen3.5:9b*; *qwen3.5:9b is thinking it over* with *Stop qwen3.5:9b*; *Claude Code is working on it* with *Stop
+Claude Code*), how far (*2 of 5 excerpts done · 1 min 12 s*), while a model reads its latest words on one line and its
+figures as one muted line in the smallest size with a 10 px graph of the last 30 s (`.ar-fine`; *Nothing new for 24 s;
+it may still be working.* when it goes quiet; neither is read out), this computer's memory against what is free (a
+small bar; amber with the triangle when short), the engine start with its mark and hint (*Start it anyway*, quiet,
+asks first; *Judge it myself*, the main button, first, where the person may judge instead), Claude's choices in one
+fold whose summary names them (*Balanced thought · 2 helpers at a time · or type it by hand*: Thought, Helpers, By
+hand, Last run), the model's row, the side's AI line (the cloud line with *See what is sent*; the house line). In a
+compact side the choices, the model's row and the AI line sit in the fold (*Options and what is sent*, *The model*).
+
+**Two parts, two starts.** A job with work for both engines has both sides open, each with its own Start; nothing
+starts the model on this computer by itself (job.local's gate waits for its Start: one Start covers the job, *Stop
+qwen3.5:9b* puts it back), and the two run side by side once started, in either order.
+
+**Motion.** Only the head moves: a slow breath (5 s) while it waits for you, a teal flow once in 15 s while something
+works; the engine start's nudge takes the same breath. Each starts from the clock (`inStep()`, `--ar-sync`), so the
+0.5 s redraw of a page never restarts it and two panels breathe together. `transform` and `opacity` only, no script
+loop; all still under reduced motion (the bar does not slide, the nudge keeps a still ring).
+
+**Heard.** Each side is a group named by its side; the panel has one polite live region (its message, at most every
+4 s, a state change at once); the bar, the graph and the latest words are hidden from a screen reader; the reading
+order is this computer, then Claude (the order seen). A poll writes in place: a side is drawn again only when its
+state changes, so no button is replaced under the pointer.
+
+**Make it:** `workState(state, words, seconds)`, `stopButton({ text, onClick })`, `spinner(label)`; the AI run panel
+`aiRun({ size, title, steps, noun, engines, onStop, label })` (`views/progress.js`; `.update(job)`), its pieces
+`aiSide({ where, … })`, `aiSides(local, cloud, { compact })`, `aiSeat(where)`, `aiStart({ where, model, onClick })`,
+`aiButton()`, `inStep(el)` (`lib.js`). **Lives in:** `components.css` § 4.21.
 
 ### 4.22 Folds
 
@@ -888,14 +941,16 @@ the list of places scrolls; the brand, the project, Find and the foot stay. **Li
 ### 5.2 The status area and the last row
 
 **Means:** which AI works for you and where text goes, or the work it is doing now. **The status area has one fixed size** (66 px; 58 px in a window under 760 px high): normally the AI line's card;
-while work runs or waits, the work box in exactly that space. Never a popover.
+while work runs or waits, the work box in exactly that space. The one exception: the AI run panel's row with a button
+(*Start*, *Open*, *Cancel*) has no room for its words and the button between its two tiles, so the button goes under
+the words and the area grows a line; a state word is never cut. Never a popover.
 
 | State | Looks |
 | --- | --- |
 | The AI line | the cloud or the house, the AI's name (*Claude, on your plan*), what leaves the computer; on hover or focus a card of details opens upwards (the account, the model, where to change it) |
 | Set-up not finished, no AI model yet, Demo mode | the same card in the attention look: the triangle, amber |
-| Work running | a teal edge; the running dot, what runs, the time; under it how many more, and where the text goes: work that sends passages to Claude also has a grey rail with the cloud on its left edge and says *to Claude*; work on this computer keeps the house and no rail (*This computer*), and so does work of the AI of Settings while the local model reads for it (documents marked Only a local AI; the tooltip names the model); a DOI lookup says *Crossref* |
-| Work not running or waiting | amber: a pause mark, *Not running*, *N tasks waiting* (for whom: its tooltip); one action, *Start* (a small main button) |
+| Work running | a teal edge; the running dot, what runs, the time; under it how many more. The AI's work is the [AI run panel](#421-progress-and-work-states)'s row: the split bar along its top, the house on its ink tile at the left end when the model on this computer works (the tooltip names the model), the cloud on its hollow tile at the right end when passages go to Claude (a grey box when only Claude works), both in one job; other work says where it runs in words (*This computer*, *Crossref*) |
+| Work not running or waiting | amber: a pause mark, *Not running*, *N tasks waiting* (for whom: its tooltip and its tile); one action, *Start* (a small main button) for the engine its row shows; when both engines of one job wait, *Open* (two starts do not fit the row: the job's page has both). The engine with no work in it keeps its seat: a dashed tile at its end |
 
 The box's words are the link to where the work shows; its one button is always an action. The status area is the AI's
 own place (the AI line, the AI's name), so its *Start* carries no AI mark; *Start Claude Code* anywhere else does. **The last row:**
@@ -1029,7 +1084,7 @@ Part of every element above; these are the rules that cut across them.
 | Names | an icon button has an `aria-label`; the AI mark's tooltip says the long form; toasts and the status area are live regions |
 | Announced | only what comes of an action, and once: a toast, the status area, a notice that appears because of what you did ([4.12](#412-notices), *Heard*: by its live container, or by its own `live`); a notice that stands on its page (a caution, a list of problems) is read with the page, never as an alert |
 | Disabled | a disabled control looks disabled and says why nearby |
-| Reduced motion | animations shortened; the running dot and the nudge stand still; the drawer appears without sliding |
+| Reduced motion | animations shortened; the running dot, the AI run panel's head and the nudge stand still; the drawer appears without sliding |
 | Narrow and zoomed | every page at 390 px wide; the drawer a column from 1,000 px at 80–125 % zoom; with the drawer open, every column of a table is in view (it stacks) |
 | Dark | each element looked at in dark as in light |
 
@@ -1080,6 +1135,7 @@ else may reach it.
 | Button, download, file chooser, icon button | `button()`, `stopButton()`, `setBusy()`, `setButtonKind()`, `downloadButton()`, `downloadLinks()`, `fileButton()`, `iconButton()` |
 | Link (all kinds) | `link()` |
 | AI mark, eyebrow, AI line | `aiTag()`, `withAI()`, `featureEyebrow()` (`features.js`), `aiWhere()`, `readsLine()` |
+| The AI run panel, ask buttons | `aiRun()` (`views/progress.js`), `aiSide()`, `aiSides()`, `aiSeat()`, `aiStart()`, `aiButton()`, `inStep()`, `queueNotice()`, `localPanel()`, `memoryRefused()` |
 | View tabs, choice, option cards | `viewTabs()` (`features.js`), `tabs()`, `choice()`, `optionCards()` |
 | Judgement badge, tag, person mark | `statusBadge()`, `gradeBadge()`, `judgementIcon()`, `tag()`, `codeChip()`, `personMark()`, `initials()`, `reviewedMark()`, `severityTag()`, `shareState()`, `absentDocument()`, `strongerMark()` |
 | Comparison | `compare()` |
@@ -1160,6 +1216,14 @@ A few rules have exceptions, each argued for once. They are listed here and in t
 | `.dv-pbox-out` | A part left out of the reading |
 | `.cal-bar.cal-empty` | No excerpts in this band yet |
 | `.m-nonsci .map-sym` | Not in force: what a non-scientific document says on the evidence map, read and not counted |
+| `.ab-seat > .ar-tile` | Not there: the AI run panel's empty seat, the engine this job gives no work |
+| `.ab-rowseat > .ar-tile` | Not there: the sidebar row's empty seat, the engine this work gives no work |
+
+**Two main buttons in one panel** ([4.1](#41-buttons), "at most one in each"): a job with work for both engines shows
+*Start qwen3.5:9b* in this computer's side and *Start Claude Code* in Claude's, both main. Each side of the [AI run
+panel](#421-progress-and-work-states) counts as its own box, side by side, so nobody reads the two as one button;
+they are two separate clicks on purpose (nothing starts the model on this computer by itself). The sidebar's row, too
+small for two, offers *Open* in their place.
 
 ---
 

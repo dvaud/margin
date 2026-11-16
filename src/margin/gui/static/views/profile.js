@@ -4,7 +4,7 @@
 // says why it is there; a person can agree, change or reject it (in the document viewer, Codes panel).
 // The pieces shared with the document viewer (the AI-labelling card, the keyword pass, wording) are exported from here.
 import { featureEyebrow, viewTabs, withAI } from "../features.js";
-import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, addDocumentsFirst, fmt, pageHead, P, emptyState, download, switchControl, navigate, plural, shortTitle, cap, runningJob, heatCell, downloadLinks, helpMark, drawInSteps, button, link, notice, card, tag, input, select, fold, choice, readsLine, localPanel, inset, heatGrid, heatHead, codesAreNames } from "../lib.js";
+import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, addDocumentsFirst, fmt, pageHead, P, emptyState, download, switchControl, navigate, plural, shortTitle, cap, runningJob, heatCell, downloadLinks, helpMark, drawInSteps, button, link, notice, card, tag, input, select, fold, choice, readsLine, localPanel, inset, heatGrid, heatHead, codesAreNames, aiButton } from "../lib.js";
 import { jobCard } from "./progress.js";
 import { roleTag } from "./doc-role.js";   // 0.19.0 (N3): a working document's row in the grid
 
@@ -127,12 +127,12 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
       h("p", { class: "field-help", id: hid + "-lim" }, "To try the AI on a few passages first. Leave it empty to read them all; you can stop at any time.")));
     // what changed since the last run
     const changed = run.changed || [];
-    const startBtn = button({ kind: "main", sm: !!compact, disabled: !lim }, !toRead ? "Nothing left to read" : changed.length ? `Label ${plural(lim, "passage")} anyway` : `Let the AI label ${plural(lim, "passage")}`);
+    const startBtn = aiButton({ kind: "main", sm: !!compact, disabled: !lim }, !toRead ? "Nothing left to read" : changed.length ? `Label ${plural(lim, "passage")} anyway` : `Label ${plural(lim, "passage")}`);
     startBtn.addEventListener("click", () => start(startBtn));
     if (changed.length) {
       const last = run.last || {};
       const cmpBox = h("div");
-      const cmpBtn = button({ sm: true }, icon("scale", { size: 13 }), "Label a sample (up to 50) again first");
+      const cmpBtn = aiButton({ sm: true }, "Label a sample of up to 50 again first");
       cmpBtn.addEventListener("click", () => compare(cmpBtn, cmpBox, plan));
       bits.push(notice({ kind: "attention", class: "pf-changed" }, h("div", { class: "grow" },
         h("p", {}, h("strong", {}, `Something changed since the last labelling${last.started_at ? ` (${fmt.date(last.started_at)})` : ""}. `), "New labels may differ from the earlier ones for that reason alone:"),
@@ -159,7 +159,7 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
       localBox = localPanel({ model: lm.model, memory, problem: lm.problem || (lastLocal && lastLocal.local_problem),
         blocking: only, count: n,
         head: only ? null : `${fmt.num(n)} of these ${n === 1 ? "comes" : "come"} from documents marked Only a local AI: your local model reads ${n === 1 ? "it" : "them"}`,
-        sub: only ? null : short ? `Claude labels the other ${fmt.num(rest)} meanwhile; ${n === 1 ? "this one waits" : "these wait"} until there is room.` : "It reads them first, while Claude Code takes its own.",
+        sub: only ? null : short ? `Claude labels the other ${fmt.num(rest)} meanwhile; ${n === 1 ? "this one waits" : "these wait"} until there is room.` : `Once the labelling begins, ${n === 1 ? "it waits" : "they wait"} for this computer’s own Start; Claude labels the other ${fmt.num(rest)}.`,
         anywayText: only ? null : `Label all ${fmt.num(toRead)}, the local ${n === 1 ? "one" : "ones"} too`,
         status: only && lastLocal && lastLocal.memory ? `Still only ${(lastLocal.memory.free / 2 ** 30).toFixed(1)} GB free: it was not started.` : null,
         onStart: (force) => start(startBtn, force) });
@@ -197,7 +197,7 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
     watchers.push(jobCard(box, r.job.id, "Labelling a sample again to compare", compareLabel, (job) => {
       if (job.state === "done") { compareResult = job.result || {}; box.hidden = true; draw(plan); }
       else btn.disabled = false;
-    }, { small: true, plain: true, stoppedText: "Stopped. Nothing was stored." }));
+    }, { small: true, plain: true, ai: true, noun: "passage", stoppedText: "Stopped. Nothing was stored." }));
   }
 
   async function start(btn, force) {
@@ -230,7 +230,7 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
       body.hidden = false;
       load();
       if (onEnd) onEnd(job);
-    }, { small: compact, plain: compact, stoppedText: "Stopped. The passages read so far keep their labels; start again to go on where it stopped." }));
+    }, { small: compact, plain: compact, ai: true, noun: "passage", stoppedText: "Stopped. The passages read so far keep their labels; start again to go on where it stopped." }));
   }
 
   load();

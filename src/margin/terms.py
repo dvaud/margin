@@ -1664,24 +1664,53 @@ def judge_links(ws: Workspace, pairs: list[tuple[str, str]], backend, model: str
     made = [make_link_task(ws, a, b, model, readers.main_levels, readers.local_configured()) for a, b in pairs]
     ids = [t for t in made if t]
     kept = len(made) - len(ids)  # pairs whose terms occur only in documents no model here may read
-    try:
-        for i, tid in enumerate(ids, 1):
-            if should_stop and should_stop():
-                break
-            if progress:
-                progress(i, len(pairs))
-            # the setting worked out again as the text is about to leave (not the one stored when the tasks were
-            # made): a document's cap counts what the tasks before this one sent, and a task over it waits for a
-            # model that may read it, or the person
-            with ws.connect() as cx:
-                if access.recheck(cx, tid, dflt) is None:
-                    continue
-            got = readers.for_task(ws, tid)
-            if got is None:
-                continue
-            ok, _errs = tasks.run_one(ws, tid, got[0], got[1])
+    # 0.19.13: in a job of the app the pairs only the local model may judge wait for its own Start (when Claude
+    # judges others), and are judged beside Claude's once it is pressed (the job's local gate)
+    level = {}
+    for tid in ids:
+        level[tid] = ws.scalar("SELECT COALESCE(access, 'cloud') FROM tasks WHERE task_id=?", (tid,))
+    local_ids = {t for t in ids if level.get(t) == "local" and "local" not in readers.main_levels}
+    gated = bool(local_ids) and readers.defers()
+    seen = [0]
+    tally = threading.Lock()   # the counts, kept by the job's thread and the local gate's worker
+
+    def one(tid: str) -> None:
+        nonlocal done, failed
+        if should_stop and should_stop():
+            return
+        with tally:
+            seen[0] += 1
+        if progress:
+            progress(min(seen[0], len(pairs)), len(pairs))
+        # the setting worked out again as the text is about to leave (not the one stored when the tasks were
+        # made): a document's cap counts what the tasks before this one sent, and a task over it waits for a
+        # model that may read it, or the person
+        with ws.connect() as cx:
+            if access.recheck(cx, tid, dflt) is None:
+                return
+        got = readers.for_task(ws, tid)
+        if got is None:
+            return
+        ok, _errs = tasks.run_one(ws, tid, got[0], got[1])
+        with tally:
             done += ok
             failed += not ok
+
+    try:
+        # every local pair goes to the gate first, so the local side counts them (and its Start works) from the
+        # start, not only once the loop below has waited for Claude's answers before it
+        if gated:
+            for tid in ids:
+                if tid in local_ids:
+                    readers.later(lambda tid=tid: one(tid), noun="pair", mixed=len(local_ids) < len(ids), ws=ws)
+        for tid in ids:
+            if should_stop and should_stop():
+                break
+            if gated and tid in local_ids:
+                continue
+            one(tid)
+        if gated:
+            readers.drain()
         if getattr(getattr(backend, "router", None), "route", "") == "local":
             tasks.run_stepups(ws, backend, ["link"], should_stop)  # the stronger model once, after the small one
     finally:

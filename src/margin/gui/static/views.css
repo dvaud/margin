@@ -1433,7 +1433,6 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .result .more-line { margin: 6px 0 0; font-size: var(--fs-small); color: var(--text-2); }
 .result .more-terms:not([hidden]) { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 12px; }
 /* a check waiting for Claude Code: the answer card is the queue notice, without a box of its own */
-.result .answer-waiting .sc-start { flex-direction: column; align-items: flex-start; gap: 4px; }
 /* the other AI models: two columns, no boxes */
 .result .ask-card { margin-top: 32px; }
 .result .ask-state > svg { flex: none; margin-top: 4px; color: var(--accent); }
@@ -1543,7 +1542,7 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 /* The speed beside Start Claude Code, and the helpers chosen for one run */
 .sc-speed { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
 .sc-speed-label { color: var(--text-2); }
-.sc-speed.sc-speed-off .sc-speed-line { opacity: .55; }   /* the helpers chosen for one run replace the speed: its line greys out */
+.sc-speed.sc-speed-off .sc-speed-line, .sc-speed-line.sc-speed-off { opacity: .55; }   /* the helpers chosen for one run replace the speed: its line greys out */
 .sc-helpers-body { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 4px 18px; }
 .sc-helpers-body p { margin: 0; }
 .sc-helpers-body > .btn { align-self: flex-start; }
@@ -1572,18 +1571,6 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .cc-step[data-state="done"] .cc-mark { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .cc-step[data-state="todo"] .cc-mark { border-color: transparent; color: var(--attention); }
 .cc-step strong { display: block; }
-/* Start Claude Code (queue notices, the sidebar panel) */
-.start-claude { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-/* 0.19.4: the local panel (localPanel()): the Claude Code panel's rows, in the local notice */
-.lp-eyebrow { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-weight: var(--fw-strong); }
-.lp-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.lp-start { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.lp-model-label { color: var(--text-2); }
-.sc-start, .sc-running { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-/* the button's hint is a line of its own under it, never read as part of the AI mark beside the button */
-.sc-start > .muted { flex: 1 0 100%; }
-.sc-running .btn { margin-left: auto; }
-.sc-type { display: flex; flex-direction: column; gap: 2px; }
 .sc-report { margin: 0; white-space: pre-wrap; max-height: 12em; overflow: auto; }
 /* the technical details, shown to copy by hand: long lines wrap instead of widening the card */
 .tech-details { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -1626,9 +1613,6 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
   /* the text fills the line beside the icon … */
   .update-banner .btn { margin-left: 32px; }
 }
-.sc-start .sc-wake { color: var(--text); }
-/* "Claude Code is working on it": the dot stays beside its words in a narrow place (390 px, a follow-up job's line) */
-.sc-running > span:nth-child(2) { flex: 1 1 12em; min-width: 0; }
 /* Settings → AI: the privacy panel sits inside the Claude box, which sits inside the card: drawn without a third box */
 .cc-card .terms-panel { margin-top: 12px; }
 .aia-cap { width: 90px; }
@@ -1656,7 +1640,6 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .set-context-line { margin-bottom: var(--space-3); }
 .set-context-form { gap: var(--space-3); }
 .set-test-out { margin-top: var(--space-3); }
-.set-model-line { margin-top: var(--space-2); }
 .set-result-actions { margin-top: var(--space-3); }
 .set-problem-help { margin-top: var(--space-3); }
 .set-data-note { margin-top: var(--space-3); }

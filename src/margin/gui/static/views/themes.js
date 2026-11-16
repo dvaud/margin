@@ -4,7 +4,7 @@
 // A theme that is not relevant can be removed (its passages are left out until it is brought back), and a new theme
 // found in its place, on this computer without AI (POST …/new, job "theme-new").
 import { featureEyebrow, withAI } from "../features.js";
-import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks, button, choice, link, tag, notice, card, input, select, textarea, fold, readsLine, aiWhere, stopButton, menu, inset, searchHref, drawInSteps, heatGrid, heatHead, jobFailed, workState } from "../lib.js";
+import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks, button, choice, link, tag, notice, card, input, select, textarea, fold, readsLine, aiWhere, stopButton, menu, inset, searchHref, drawInSteps, heatGrid, heatHead, jobFailed, workState, aiButton, setBusy } from "../lib.js";
 import { simpleProgress, MiniJob, jobError, timeLeft } from "./progress.js";
 import { historyButton, askWhy } from "./versions.js";
 import { shareBar } from "./share.js";   // 0.18 (L1)
@@ -192,7 +192,7 @@ async function renderRun(view, runId, info, query) {
     const nDocs = (v.documents || []).length;
     const namedByModel = v.themes.filter((t) => t.name_source === "model").length;
     const byTerms = v.themes.filter((t) => t.name_source === "terms").length;   // a new theme, for one
-    const nameBtn = button({ sm: true, disabled: !!nameJob.firstChild }, !namedByModel ? "Let the AI name the themes" : byTerms ? `Let the AI name the other ${plural(byTerms, "theme")}` : "Let the AI name the themes again");
+    const nameBtn = aiButton({ sm: true, disabled: !!nameJob.firstChild }, !namedByModel ? "Name the themes" : byTerms ? `Name the other ${plural(byTerms, "theme")}` : "Name the themes again");
     nameBtn.addEventListener("click", () => nameThemes(nameBtn));
     // 0.13.3: the download is a quiet link; naming the themes is the head's one button
     const xlsx = downloadLinks([{ text: "Excel (.xlsx)", onClick: () => download(`${base}/export.xlsx?framework=${encodeURIComponent(framework)}`).catch(showError) }]);
@@ -211,11 +211,11 @@ async function renderRun(view, runId, info, query) {
     if (notNamed.length) {
       const reasons = [...new Set(notNamed.map((t) => t.naming_failed.reason))];
       const models = [...new Set(notNamed.map((t) => t.naming_failed.model).filter(Boolean))];
-      const retry = button({ sm: true, disabled: !!nameJob.firstChild, onClick: (e) => nameThemes(e.currentTarget) }, icon("refresh", { size: 13 }), "Try again");
+      const retry = aiButton({ sm: true, disabled: !!nameJob.firstChild, onClick: (e) => nameThemes(e.currentTarget) }, "Name them again");
       notes.appendChild(notice({ kind: "error", live: false, class: "th-status-notice th-not-named-notice" },
         h("p", {}, `The AI${models.length === 1 ? ` (${models[0]})` : ""} could not name ${plural(notNamed.length, "theme")} after three tries: `,
           reasons.length === 1 ? `${reasons[0]}.` : "each says why below.",
-          ` ${notNamed.length === 1 ? "It keeps its" : "They keep their"} key terms as a name. Try again, or rename ${notNamed.length === 1 ? "it" : "them"} yourself.`),
+          ` ${notNamed.length === 1 ? "It keeps its" : "They keep their"} key terms as a name. Name them again, or rename ${notNamed.length === 1 ? "it" : "them"} yourself.`),
         withAI(retry),
         // who reads them again: the local model that tried (documents marked Only a local AI), not always Settings' AI
         models.length && models.every((x) => !/^(claude|haiku|sonnet|opus|fable)/i.test(x))
@@ -459,10 +459,13 @@ async function renderRun(view, runId, info, query) {
   }
   function followNew(jobId, name) {
     finding = true;
-    const m = new MiniJob({ title: name ? `Finding a new theme in place of “${shortTitle(name, 50)}”` : "Finding a new theme" });
-    replace(newJob, h("div", { class: "th-new-job" }, m.el,
+    // no AI (search by meaning, on this computer): the plain bar of work that is not the AI's, not the AI run panel
+    const title = name ? `Finding a new theme in place of “${shortTitle(name, 50)}”` : "Finding a new theme";
+    const line = h("div", { "aria-live": "polite" });
+    const stop = stopButton({ onClick: async () => { setBusy(stop, true); try { await api("POST", `/api/jobs/${P(jobId)}/cancel`); } catch (e) { showError(e); setBusy(stop, false); } } });
+    replace(newJob, h("div", { class: "th-new-job" }, h("div", { class: "row th-new-line" }, h("div", { class: "grow" }, line), stop),
       h("p", { class: "muted small th-new-help" }, "On this computer, without AI: the passages that fit their own theme least well are grouped by what they share into a new theme, named by its key terms. The themes it takes passages from keep their names.")));
-    const w = watchJob(jobId, (job) => m.update(job));
+    const w = watchJob(jobId, (job) => { replace(line, simpleProgress(job, () => title)); stop.hidden = TERMINAL.has(job.state); });
     watchers.push(w);
     w.promise.then(async (job) => {
       finding = false;
@@ -484,11 +487,11 @@ async function renderRun(view, runId, info, query) {
 
   // ---- the AI names the themes
   function nameThemes(btn) {
-    btn.disabled = true;
-    api("POST", `${base}/name`, {}).then((r) => followNames(r.job.id)).catch((e) => { showError(e); btn.disabled = false; });
+    setBusy(btn, true);
+    api("POST", `${base}/name`, {}).then((r) => followNames(r.job.id)).catch((e) => { showError(e); setBusy(btn, false); });
   }
   function followNames(jobId) {
-    const m = new MiniJob({ title: "The AI names the themes" });
+    const m = new MiniJob({ title: "The AI names the themes", noun: "theme" });
     replace(nameJob, h("div", { class: "th-names-job" }, m.el,
       h("p", { class: "muted small th-names-help" }, "The AI reads the passages that represent each theme and gives it a short name and a description, each with a quote that is checked against the passage. Names you gave yourself are kept.")));
     let lastAt = 0, atSecs = 0;   // the theme being named, and the job's time when it began
@@ -501,7 +504,7 @@ async function renderRun(view, runId, info, query) {
         const at = Math.min(p.done || 0, p.total);
         if (at !== lastAt) { lastAt = at; atSecs = job.seconds || 0; }
         const left = m.waiting ? null : timeLeft(atSecs, Math.max(0, at - 1), p.total, (job.seconds || 0) - atSecs);
-        m.time.textContent = `theme ${at} of ${p.total}${left ? ` · ${left}` : ""} · ${m.time.textContent}`;
+        m.elapsed.textContent = `theme ${at} of ${p.total}${left ? ` · ${left}` : ""} · ${m.elapsed.textContent}`;
       }
     });
     watchers.push(w);

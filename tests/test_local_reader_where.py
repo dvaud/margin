@@ -110,14 +110,16 @@ def test_the_sidebar_and_the_short_job_line_use_it():
     assert "localModel: j.local_model" in app and "w.localModel" in app
     prog = (STATIC / "views" / "progress.js").read_text(encoding="utf-8")
     assert "export function modelDetail(" in prog and "export function timeLeft(" in prog
-    assert "this.detail" in prog and "this.tail" in prog and "MODEL_PHASE[m.phase]" in prog
-    # a queue report older than the model's does not make the line say "waiting for Claude Code"
-    assert "(m.at || 0) > (p.queue.at || 0)" in prog and "running && pq)" in prog
-    assert '"mini-detail", hidden: true, "aria-hidden": "true"' in prog
+    # 0.19.13: the running model's figures and latest words, written in place in this computer's side
+    assert "sideFigures(side, localNow ? modelFigures(m, this.seen) : null)" in prog
+    # a queue report older than the model's does not make the panel say it waits for Claude Code
+    assert "(m.at || 0) > (p.queue.at || 0)" in prog
+    lib = (STATIC / "lib.js").read_text(encoding="utf-8")
+    assert 'h("p", { class: "ar-tail", "aria-hidden": "true" }' in lib and 'h("span", { class: "ar-spark", "aria-hidden": "true"' in lib
     themes = (STATIC / "views" / "themes.js").read_text(encoding="utf-8")
     assert "timeLeft(atSecs, " in themes and "m.waiting ? null" in themes
     css = (STATIC / "components.css").read_text(encoding="utf-8")
-    assert ".mini-job .mini-detail {" in css and ".mini-job .mini-tail {" in css
+    assert ".ar-fine {" in css and ".ar-tail {" in css
 
 
 def test_a_local_done_is_not_this_computer_when_the_main_ai_reports_nothing():

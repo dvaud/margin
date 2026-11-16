@@ -2,7 +2,7 @@
 // concept: its wordings, the documents that discuss it, the passages as concordance lines, and related concepts
 // (a person accepts or rejects the links proposed by search by meaning or by the AI).
 import { featureEyebrow, withAI, viewTabs } from "../features.js";
-import { App, api, h, icon, replace, clear, toast, showError, failedLoad, noDocuments, addDocumentsFirst, fmt, pageHead, watchJob, P, emptyState, debounce, switchControl, plural, shortTitle, runningJob, button, link, notice, card, tag, input, select, textarea, fold, readsLine, inset, searchHref, jobFailed } from "../lib.js";
+import { App, api, h, icon, replace, clear, toast, showError, failedLoad, noDocuments, addDocumentsFirst, fmt, pageHead, watchJob, P, emptyState, debounce, switchControl, plural, shortTitle, runningJob, button, link, notice, card, tag, input, select, textarea, fold, readsLine, inset, searchHref, jobFailed, aiButton, setBusy } from "../lib.js";
 import { MiniJob, jobCard as jobCardOf } from "./progress.js";
 import { pathsCard, timeCard } from "./concept-paths.js";   // 0.18.1: D3 and D4
 import { shareInline, sharingOf } from "./share.js";   // 0.18 (L1)
@@ -142,26 +142,26 @@ export async function renderConcepts(view, params, query) {
   }
 
   function drawJudge() {
-    const btn = button({ sm: true }, "Let the AI judge the proposed pairs");
+    const btn = aiButton({ sm: true }, "Judge the proposed pairs");
     const mini = h("div");
     btn.addEventListener("click", async () => {
-      btn.disabled = true;
+      setBusy(btn, true);
       let r;
       try { r = await api("POST", `/api/projects/${P(project)}/concepts/judge`, {}); }
       catch (e) {
-        btn.disabled = false;
+        setBusy(btn, false);
         if (e.status === 400 && /no pair/i.test(e.message)) toast("There is no proposed pair left to judge: search by meaning proposed none, or they were all judged.", "info");
         else showError(e);
         return;
       }
-      const m = new MiniJob({ title: "The AI judges the proposed pairs" });
+      const m = new MiniJob({ title: "The AI judges the proposed pairs", noun: "pair" });
       mini.appendChild(m.el);
       const w = watchJob(r.job.id, (job) => m.update(job));
       watchers.push(w);
       w.promise.then((job) => {
         if (job.state === "done") { const res = job.result || {}; toast(`The AI judged ${plural(res.judged || 0, "pair")}${res.failed ? `; ${res.failed} could not be judged` : ""}. Open a concept to see its links.`, "ok"); }
         else if (job.state === "error") jobFailed(job);
-        btn.disabled = false;
+        setBusy(btn, false);
         load();
       }).catch(showError);
     });
@@ -342,11 +342,11 @@ export async function renderConcept(view, [termId], query) {
           if (w.term_id === termId) location.hash = `#/concepts/${encodeURIComponent(termId)}`; else await reload();
         } catch (err) { showError(err); b.disabled = false; }
       } }, icon("x", { size: 12 }), "Not the same") : null)));
-    const ask = button({ sm: true, disabled: jobRunning }, "Ask the AI for other wordings");
+    const ask = aiButton({ sm: true, disabled: jobRunning }, "Propose other wordings");
     ask.addEventListener("click", async () => {
-      ask.disabled = true;
+      setBusy(ask, true);
       let r;
-      try { r = await api("POST", `${base}/concepts/${P(termId)}/wordings`, {}); } catch (e) { showError(e); ask.disabled = false; return; }
+      try { r = await api("POST", `${base}/concepts/${P(termId)}/wordings`, {}); } catch (e) { showError(e); setBusy(ask, false); return; }
       jobRunning = true;
       const m = new MiniJob({ title: "The AI proposes other wordings" });
       replace(wordJob, m.el);
@@ -422,7 +422,7 @@ export async function renderConcept(view, [termId], query) {
   }
 
   function judgePair(lk, btn) {
-    btn.disabled = true;
+    setBusy(btn, true);
     api("POST", `${base}/concepts/judge`, { pairs: [[lk.a, lk.b]] }).then((r) => {
       jobRunning = true;
       const m = new MiniJob({ title: `The AI judges “${c.label}” and “${lk.label}”` });
@@ -436,7 +436,7 @@ export async function renderConcept(view, [termId], query) {
         clear(linkJob);
         await reload();
       }).catch((e) => { jobRunning = false; showError(e); });
-    }).catch((e) => { showError(e); btn.disabled = false; });
+    }).catch((e) => { showError(e); setBusy(btn, false); });
   }
 
   function linkRow(lk) {
@@ -450,7 +450,7 @@ export async function renderConcept(view, [termId], query) {
       actions.append(
         button({ sm: true, onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "accept" }, e.currentTarget, "Accepted.") }, icon("check", { size: 13 }), lk.relation === "same" ? "Yes, the same" : "Yes, right"),
         button({ kind: "quiet", sm: true, onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "reject" }, e.currentTarget, "Rejected.", { undo: true }) }, icon("x", { size: 13 }), lk.relation === "same" ? "No, not the same" : "No"));
-      if (lk.source === "meaning") actions.append(...withAI(button({ kind: "quiet", sm: true, disabled: jobRunning, onClick: (e) => judgePair(lk, e.currentTarget) }, "Ask the AI")));
+      if (lk.source === "meaning") actions.append(...withAI(aiButton({ sm: true, disabled: jobRunning, onClick: (e) => judgePair(lk, e.currentTarget) }, "Judge this pair")));
     } else if (lk.source !== "abbreviation") {
       actions.append(button({ kind: "quiet", sm: true, onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "reject" }, e.currentTarget, "Removed.", { undo: true }) }, icon("x", { size: 13 }), "Not right"));
     }

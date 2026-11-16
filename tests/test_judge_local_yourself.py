@@ -83,7 +83,10 @@ def test_no_more_link_when_the_card_shows_the_whole_excerpt():
     assert "!moreText && p.in_corpus ? docLinks() : null" in js
 
 
-def test_the_thinking_line_wraps_to_two_lines_at_most():
+def test_the_thinking_line_stays_inside_its_side():
+    # 0.19.13: the latest words on one line inside the side (the newest at the right, the older fading out on the
+    # left): the line is clipped by its own box, which never grows past the side (0.19.8: it pushed the box out)
     css = (Path(server.__file__).parent / "static" / "components.css").read_text(encoding="utf-8")
-    rule = css.split(".mini-job .mini-tail {", 1)[1].split("}", 1)[0]
-    assert "-webkit-line-clamp: 2" in rule and "white-space: normal" in rule and "nowrap" not in rule
+    rule = css.split(".ar-tail {", 1)[1].split("}", 1)[0]
+    assert "overflow: hidden" in rule and "align-self: stretch" in rule and "mask-image" in rule
+    assert ".ab-side > * { max-width: 100%; }" in css and "min-width: 0; padding: 10px 14px 12px;" in css
