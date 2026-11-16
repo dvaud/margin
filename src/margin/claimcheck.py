@@ -255,14 +255,18 @@ def _is_person(t) -> bool:
     return (t["model"] or "") == PERSON
 
 
-def _person_rows(cx, task_id: str, cid: str, passages: list[dict]) -> None:
-    """The excerpts of a part no model reads: each waits for a person's judgement (no AI verdict)."""
+BY_CHOICE = "by-choice"  # 0.19.8: the prompt_version of a person's row the person chose over the local model
+
+
+def _person_rows(cx, task_id: str, cid: str, passages: list[dict], by_choice: bool = False) -> None:
+    """The excerpts of a part no model reads: each waits for a person's judgement (no AI verdict). `by_choice`: the
+    person chose to judge them instead of starting the local model (0.19.8: "Awaiting manual review")."""
     for p in passages:
         vid = f"v{tasks._h(task_id, p['passage_id'])}"
         cx.execute("INSERT OR REPLACE INTO verifications(ver_id, subject_kind, subject_id, passage_id, doc_id, verdict, "
                    "confidence, quote, start, end, page, model, prompt_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (vid, "user_claim", cid, p["passage_id"], p["doc_id"], "not_enough_info", None, None, None, None,
-                    p.get("page"), PERSON, None))
+                    p.get("page"), PERSON, BY_CHOICE if by_choice else None))
 
 
 def _add_round(ws: Workspace, cid: str, base: str, payload: dict, model: str, main_levels=("cloud",),
@@ -305,8 +309,9 @@ def _add_round(ws: Workspace, cid: str, base: str, payload: dict, model: str, ma
     return out
 
 
-def _to_person(ws: Workspace, task_id: str) -> None:
-    """A local part whose local model is not there: its excerpts wait for a person's judgement instead."""
+def _to_person(ws: Workspace, task_id: str, by_choice: bool = False) -> None:
+    """A local part whose local model is not there (or, `by_choice`, that the person chose to judge rather than start
+    the local model): its excerpts wait for a person's judgement instead."""
     with ws.connect() as cx:
         t = cx.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         if t is None or t["status"] == "done":
@@ -316,7 +321,18 @@ def _to_person(ws: Workspace, task_id: str) -> None:
         cx.execute("DELETE FROM results WHERE task_id=?", (task_id,))
         cx.execute("UPDATE tasks SET status='done', model=?, attempts=0, queued=0, claimed_by=NULL WHERE task_id=?",
                    (PERSON, task_id))
-        _person_rows(cx, task_id, cid, payload["passages"])
+        _person_rows(cx, task_id, cid, payload["passages"], by_choice)
+
+
+def judge_local_yourself(ws: Workspace, hyp_id: str) -> int:
+    """0.19.8: the excerpts of a check that wait for the local model (documents marked Only a local AI) wait for the
+    person instead: they would rather judge them than start the model ("Judge it myself"). Still no model reads them.
+    Returns the number of excerpts handed over. The tasks of the AI mix that wait for the local model are left alone:
+    they are not excerpts of such documents, and Claude Code answers them when no local model does."""
+    rows = [r for r in local_waiting(ws, [hyp_id], retry_failed=True) if not r.get("mix")]
+    for r in rows:
+        _to_person(ws, r["task_id"], by_choice=True)
+    return sum(r["passages"] for r in rows)
 
 
 def _part_counts(ws: Workspace, parts: dict[str, str]) -> dict[str, int]:

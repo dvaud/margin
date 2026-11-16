@@ -395,6 +395,8 @@ def not_read_text(p: dict) -> str | None:
     model did judge it."""
     if p.get("ai_read", True):
         return None
+    if p.get("by_choice"):  # 0.19.8: you chose to judge it rather than start the local model
+        return "Not read by an AI: you chose to judge it yourself (awaiting manual review)"
     if p.get("read_by") == "you":  # marked No AI (or Only a local AI, with no local model)
         return "Not read by an AI: kept for your own judgement"
     if p.get("waiting_local"):

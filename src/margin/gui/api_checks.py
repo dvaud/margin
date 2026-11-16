@@ -21,6 +21,10 @@ class ChecksApi:
         body = self._body()
         return {"job": self.app.start_read_local(name, hyp_id, force=bool(body.get("force"))).view()}
 
+    def post_judge_local(self, name, hyp_id, q):
+        """0.19.8: the excerpts that wait for the local model wait for the person instead ("Judge it myself")."""
+        return self.app.judge_local_yourself(name, hyp_id)
+
     def get_suggest(self, name, q):
         text = _str(q, "text") or ""
         fw = _str(q, "framework") or "sdg"

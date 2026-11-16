@@ -953,6 +953,10 @@ project's default. The setting is enforced where tasks are made and run (see `ac
   model's line carries `"who": "local"` and `name`); when this computer has too little memory free for the model it
   ends in `error_kind: "memory"` and the excerpts keep waiting. Body `{"force": true}` starts the model anyway (the
   page's *Start it anyway*).
+- `POST /api/projects/<p>/hypotheses/<hyp_id>/judge-local` (0.19.8) → `{"hyp_id", "excerpts"}`: the excerpts of the
+  check that wait for the local model wait for the person instead, and no model reads them (the page's *Judge it
+  myself*). Each then has `read_by: "you"`, `waiting_for_you` until judged, and `by_choice: true` (the result says
+  *Awaiting manual review*, as for excerpts no model may read). 409 while the local model reads this check's excerpts.
 - `/api/state` adds `restricted` (as `restricted_model` above). Settings: `restricted_server` (`""`, `ollama`,
   `openai`), `restricted_model`, `account_type` (`""`, `personal`, `commercial`).
 - The result of a check: each excerpt has `read_by` (`claude`, `local`, `ai`, `you`, `waiting`), `access` (its

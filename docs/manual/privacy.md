@@ -128,6 +128,9 @@ wait on the result (*Waiting for your local model*). Close programs you do not n
 computer*, or choose a smaller local model in *Settings → AI*. If it still says too little is free, *Start it anyway*
 starts it regardless.
 
+You need not start the model at all: *Judge it myself* (before *Start*) hands those excerpts to you. They wait under
+*Awaiting manual review*, no model reads them, and your judgement counts like any other.
+
 A model that takes more than a third of this computer's memory is let go as soon as it has read, instead of being
 kept for 15 minutes. A local model you chose as the **main** AI is not checked this way: you start it yourself and see
 it load.

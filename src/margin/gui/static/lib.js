@@ -2359,7 +2359,9 @@ let LP_SEQ = 0;   // each local panel's own ids
 // opts beyond localPanel's: blocking (the local model's work is all that is left, so a model that cannot start needs
 // you: the attention notice, and Start is the panel's main button), sub (one more line under the head: "Claude labels
 // the other 2 meanwhile."), anywayText (only the Start it anyway button, with these words: the card's own main button
-// starts the rest), status (what came of the last press, said once), note (a line where the buttons would be).
+// starts the rest), status (what came of the last press, said once), note (a line where the buttons would be),
+// onYourself + yourselfText + yourselfNote (0.19.8: "Judge it myself", first and the main button, in place of Start it
+// anyway, and a line under it).
 function localPanelBody(o) {
   const name = o.model || "your local model";
   const noun = o.noun || "passage";
@@ -2383,12 +2385,20 @@ function localPanelBody(o) {
     parts.push(short && !alarm ? h("p", { class: "lp-mem small" }, workState("attention", words)) : h("p", { class: `lp-mem small${short ? "" : " muted"}` }, words));
   } else if (o.refused) parts.push(h("p", { class: "lp-mem small" }, o.refused));
   else if (mem && mem.loaded && !o.running) parts.push(h("p", { class: "lp-mem muted small" }, `${o.model || "Your local model"} is in memory already: it starts at once.`));
+  // 0.19.8: onYourself: the person may judge what waits instead of starting the model ("Judge it myself"). It takes
+  // the place of Start it anyway beside Start (two Starts side by side read oddly); with too little memory free it is
+  // the main button, and comes first (Start the model second). Start it anyway is still offered when the start is
+  // refused for memory (memoryShort, result.js).
+  const yourself = o.onYourself && !o.running ? button({ kind: "main", sm: true, icon: "user", onClick: async () => {
+    yourself.disabled = true;
+    try { await o.onYourself(); } catch (e) { showError(e); yourself.disabled = false; }
+  } }, o.yourselfText || "Judge it myself") : null;
   if (!o.running && !o.problem && o.onStart) {
     const go = async (b, force) => {
       b.disabled = true;
       try { await o.onStart(force); } catch (e) { showError(e); b.disabled = false; }
     };
-    const anyway = short ? button({ kind: o.anywayText ? "standard" : "quiet", sm: true, onClick: async () => {
+    const anyway = short && !yourself ? button({ kind: o.anywayText ? "standard" : "quiet", sm: true, onClick: async () => {
       const ok = o.confirm === false || await confirmDialog({ title: `Start ${name} anyway?`, danger: false, confirmText: "Start it anyway",
         message: h("p", {}, "The computer may become very slow, or stop answering for a while, until the model has finished. What you have open is kept.") });
       if (ok) go(anyway, true);
@@ -2396,11 +2406,13 @@ function localPanelBody(o) {
     if (o.anywayText) {
       if (anyway) parts.push(h("div", { class: "lp-start" }, withAI(anyway)));
     } else {
-      const start = button({ kind: "main", sm: true, icon: "play", onClick: () => go(start, false) }, `Start ${name}`);
-      parts.push(h("div", { class: "lp-start" }, anyway ? withAI(start, anyway) : withAI(start),
-        anyway ? null : h("span", { class: "muted small" }, "Runs here, in this app, and stops by itself when nothing waits.")));
+      const start = button({ kind: yourself ? "standard" : "main", sm: true, icon: "play", onClick: () => go(start, false) }, `Start ${name}`);
+      parts.push(h("div", { class: "lp-start" }, yourself, anyway ? withAI(start, anyway) : withAI(start),
+        anyway || yourself ? null : h("span", { class: "muted small" }, "Runs here, in this app, and stops by itself when nothing waits.")));
     }
-  } else if (o.note) parts.push(h("p", { class: "muted small" }, o.note));
+  } else if (yourself) parts.push(h("div", { class: "lp-start" }, yourself));
+  else if (o.note) parts.push(h("p", { class: "muted small" }, o.note));
+  if (yourself && o.yourselfNote) parts.push(h("p", { class: "muted small" }, o.yourselfNote));
   if (o.status) parts.push(h("p", { class: "small", role: "status" }, o.status));
   // the model's own row, where Claude's panel has Thought and its helpers (not while it reads: nothing to change then)
   if (!o.running) parts.push(h("p", { class: "lp-model small" }, h("span", { class: "lp-model-label" }, "Model"), " ",

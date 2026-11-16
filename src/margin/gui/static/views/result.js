@@ -516,8 +516,10 @@ export async function renderResult(view, [hypId], query) {
     }
 
     // keep the person's place after a save or a re-read: the card they acted on stays where it was on the screen,
-    // even when it moved in the list (the list is sorted by judgement), gets a short highlight and says where it
-    // went; a slim placeholder is left at its old place, so the next card slides into it
+    // unless it moved in the list (the list is sorted by judgement). Then a slim placeholder is left at its old place
+    // and, after a judgement of yours, the screen stays there, so the next card to review slides up under it (the
+    // card itself says where it went, and the placeholder's "Show it" goes to it); after a re-read the screen follows
+    // the card, as before
     window.scrollTo(0, y);
     if (refocus && !focusAfter) {
       const again = (refocus.id && box.querySelector(`#${CSS.escape(refocus.id)}`)) || [...box.querySelectorAll(refocus.tag.toLowerCase())].find((e) => e.textContent.trim() === refocus.text);
@@ -533,14 +535,19 @@ export async function renderResult(view, [hypId], query) {
         const movedList = f.was && f.was !== nowIn;
         const movedInList = !movedList && Number.isInteger(f.index) && newIndex !== f.index;
         const group = { supports: "Supports", partially_supports: "Partly supports", refutes: "Contradicts" }[(el.className.match(/ev-(supports|partially_supports|refutes)/) || [])[1]] || "Not about this hypothesis";
+        let ph = null;   // the slim placeholder at the card's old place
         if ((movedList || movedInList) && !f.noNote) {
           const part = el.closest(".part-card");
           const oldList = part ? (f.was === "rest" ? part.querySelector(".also-read .ev-list") : part.querySelector(":scope > .ev-list")) : null;
+          // a long list draws its cards as the page scrolls: the cards down to the old place are drawn first, so the
+          // placeholder lands there and not at the end of what was drawn
+          const lazy = oldList && lazies.find((l) => l.lazy.el === oldList);
+          if (lazy && Number.isInteger(f.index)) lazy.lazy.reveal(Math.min(f.index + 1, lazy.lazy.total() - 1));
           const what = movedList ? (nowIn === "rest" ? "Moved to “not about this hypothesis”" : "Moved into the evidence list")
             : `Moved ${newIndex > f.index ? "down" : "up"} the list (sorted by judgement)`;
           const showIt = () => { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("ev-flash"); setTimeout(() => el.classList.remove("ev-flash"), 1800); };
           // the place it left: a one-line note like the card's own (which is the one a screen reader hears)
-          const ph = notice({ kind: "info", icon: "arrow-right", class: "moved-ph" },
+          ph = notice({ kind: "info", icon: "arrow-right", class: "moved-ph" },
             h("p", {}, what, " · ", link({ kind: "jump", onClick: showIt }, "Show it")));
           if (oldList) {
             const kids = [...oldList.children].filter((e) => e.classList.contains("ev") && e !== el);
@@ -554,9 +561,11 @@ export async function renderResult(view, [hypId], query) {
         }
         // same place on the screen as before, when it was in view then; otherwise bring it into view. With an
         // anchor (the judgement row the person clicked), that row is what stays put, so no button moves under the pointer
-        if (!f.noScroll) {
+        const wasInView = Number.isFinite(f.top) && (f.bottom === undefined || f.bottom > 0) && f.top < window.innerHeight;
+        const stay = !!(f.stay && ph && ph.isConnected && wasInView);   // a judgement moved it: the screen stays at the old place
+        if (stay) window.scrollBy(0, ph.getBoundingClientRect().top - f.top);
+        else if (!f.noScroll) {
           const r0 = el.getBoundingClientRect();
-          const wasInView = Number.isFinite(f.top) && (f.bottom === undefined || f.bottom > 0) && f.top < window.innerHeight;
           const anchorEl = f.anchor ? el.querySelector(f.anchor) : null;
           if (wasInView && anchorEl && Number.isFinite(f.anchorTop)) window.scrollBy(0, anchorEl.getBoundingClientRect().top - f.anchorTop);
           else if (wasInView) window.scrollBy(0, r0.top - f.top);
@@ -565,9 +574,10 @@ export async function renderResult(view, [hypId], query) {
         el.classList.add("ev-flash");
         setTimeout(() => el.classList.remove("ev-flash"), 1800);
         // the button that was pressed was drawn again: the keyboard goes on from the card's way back (its note's
-        // Back to “…”, else the first button of its judging row), never from the top of the page
+        // Back to “…”, else the first button of its judging row), never from the top of the page. When the screen
+        // stayed at the old place, from the placeholder's "Show it", so Tab goes on to the next card to review
         if (!document.activeElement || document.activeElement === document.body) {
-          const next = el.querySelector(".ev-moved .btn") || el.querySelector(".judge-row button");
+          const next = (stay && ph.querySelector("a, button")) || el.querySelector(".ev-moved .btn") || el.querySelector(".judge-row button");
           if (next) next.focus({ preventScroll: true });
         }
       }
@@ -1337,8 +1347,11 @@ export async function renderResult(view, [hypId], query) {
     } else {
       if (judged.length) card.append(...evList(byCount, part));
       if (forYou.length) {
-        card.appendChild(h("div", { class: "evidence-head" }, h("h3", {}, `Waiting for your judgement: ${forYou.length} ${forYou.length === 1 ? "excerpt" : "excerpts"}`),
-          h("span", { class: "muted small" }, "No AI may read these (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other.")));
+        const chosen = forYou.filter((p) => p.by_choice).length;
+        card.appendChild(h("div", { class: "evidence-head" }, h("h3", {}, `Awaiting manual review: ${forYou.length} ${forYou.length === 1 ? "excerpt" : "excerpts"}`),
+          h("span", { class: "muted small" }, chosen === forYou.length ? `You chose to judge ${chosen === 1 ? "this one" : "these"} yourself rather than start the local model. Your judgement counts like any other.`
+            : chosen ? `You chose to judge ${chosen} of these yourself rather than start the local model; no AI may read the others (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other.`
+            : "No AI may read these (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other.")));
         card.append(...evList(forYou, part));
       }
       if (rest.length) {
@@ -1471,6 +1484,13 @@ export async function renderResult(view, [hypId], query) {
     followJob(r.job.id, "read-local", READ_LOCAL_TITLE, async () => { followNote = "Your local model has read the excerpts from documents marked Only a local AI."; }, { onError: memoryShort });
   }
 
+  // 0.19.8: "Judge it myself": the excerpts that wait for the local model wait for you instead (no model is started)
+  async function judgeLocalYourself(n) {
+    await api("POST", `/api/projects/${P(project)}/hypotheses/${P(current.hyp_id)}/judge-local`, {});
+    toast(`${n === 1 ? "The excerpt waits" : `The ${n} excerpts wait`} for your judgement: see Awaiting manual review below.`, "ok", { small: true });
+    await load();
+  }
+
   // 0.13.11: the local model was not started, as the computer has too little memory free: the person decides
   async function memoryShort(job) {
     if (job.error_kind !== "memory") { showError({ message: job.error, kind: job.error_kind }); return; }
@@ -1487,7 +1507,10 @@ export async function renderResult(view, [hypId], query) {
     if (![...running.values()].some((x) => x.kind === "read-local")) {
       return h("div", { class: "wait-local" }, localPanel({ count: part.waiting_local, noun: "excerpt", model: App.settings().restricted_model,
         head: `${part.waiting_local} ${part.waiting_local === 1 ? "excerpt comes" : "excerpts come"} from documents marked Only a local AI and ${part.waiting_local === 1 ? "waits" : "wait"} for your local model`,
-        blocking: true, load: true, onStart: (force) => startReadLocal(force) }));
+        blocking: true, load: true, onStart: (force) => startReadLocal(force),
+        // 0.19.8: or judge them yourself, without starting the model: they wait under "Awaiting manual review"
+        onYourself: () => judgeLocalYourself(part.waiting_local), yourselfText: part.waiting_local === 1 ? "Judge it myself" : "Judge them myself",
+        yourselfNote: `${part.waiting_local === 1 ? "It then waits" : "They then wait"} for your judgement, marked Awaiting manual review; no model reads ${part.waiting_local === 1 ? "it" : "them"}.` }));
     }
     const btn = readLocalButton("Read them now on this computer");
     return notice({ kind: "info", icon: "house", class: "wait-local" },
@@ -1562,8 +1585,9 @@ export async function renderResult(view, [hypId], query) {
     } else if (yours) {
       append(top, [nonsciBadge(p) || gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact", title: who ? `You have not judged this excerpt: ${who}’s judgement counts in your copy until you do.` : null }, who ? personMark([who]) : icon("user", { size: 12 }), `${who || "You"} agreed with the AI`)]);
     } else if (p.waiting_for_you) {
-      append(top, [fact("Waiting for your judgement", { class: "ev-fact ev-yours-fact" }),
-        fact(waitReason(p.access, current && current.words_access))]);
+      // 0.19.8: the tag "Awaiting manual review", and why no model read it (you chose to, or no model may)
+      append(top, [tag({ kind: "attention", icon: "user" }, "Awaiting manual review"),
+        fact(p.by_choice ? "you chose to judge it instead of the local model" : waitReason(p.access, current && current.words_access))]);
     } else {
       // a judgement that does not count: its badge without fill, a dashed edge (the one meaning of a dashed edge)
       append(top, [nonsciBadge(p) || gradeBadge(p.verdict, !!p.verdict && !p.counted)]);
@@ -1621,13 +1645,18 @@ export async function renderResult(view, [hypId], query) {
     const whole = wholeShown.has(wkey);
     // the window is worked out on the text’s own indices: the app’s offsets are turned into them first
     const [hsI, heI, brI] = [cpToIndex(p.text || "", hs), cpToIndex(p.text || "", he), breaksToIndex(p.text || "", p.breaks)];
-    const win = !whole && !p.waiting_for_you ? excerptWindow(p.text, hsI, heI, brI, { after: matchMedia("(max-width: 600px)").matches ? 0 : 1 }) : null;
+    // 0.19.8: the window the folded card shows; null when it shows the whole excerpt, and then there is no "more…"
+    const folded = !p.waiting_for_you ? excerptWindow(p.text, hsI, heI, brI, { after: matchMedia("(max-width: 600px)").matches ? 0 : 1 }) : null;
+    const moreText = !!folded;
+    const win = !whole ? folded : null;
     const passageEl = win ? windowNode(p.text, hsI, heI, hcls, brI, win) : passageNode(p.text, hsI, heI, "p", hcls, brI);
     card.appendChild(passageEl);
     // 0.18.2: "more…" at the end of the excerpt is the one way to more of the text: the whole excerpt the AI read, with
     // the ways on into the document under it; "less" at the end of the whole excerpt folds it again. It was the
     // "In context" button in the row of actions. Not selectable, so a sentence selected to quote never takes it along.
-    if (p.in_corpus || win || whole) {
+    // 0.19.8: only when there is more of the excerpt to show (a "more…" or "less" that changed nothing was confusing);
+    // otherwise its ways into the document are under Details
+    if (moreText) {
       const moreLink = link({ kind: "jump", class: "more-link", "aria-expanded": whole ? "true" : "false",
         "aria-label": whole ? "Less context" : "More context", onMousedown: (e) => e.preventDefault(),
         title: whole ? "Back to the quote in its context" : "The whole excerpt the AI read, and the way into the whole document at this place",
@@ -1646,11 +1675,12 @@ export async function renderResult(view, [hypId], query) {
     }
     // the ways into the document: with the whole excerpt (more…), not in every card's row
     // the links in one line, then the download (an action) after it, its words a verb (DESIGN.md 6)
-    if (whole && p.in_corpus) card.appendChild(h("div", { class: "ev-doclink" },
+    const docLinks = () => h("div", { class: "ev-doclink" },
       h("p", {}, h("a", { href: docHref(p, span) }, "Open the whole document at this place"), " · ",
         originalLink(project, p.doc_id, p.page, null, { text: "the original file", quote: p.quote || null, pdfHint: !!p.quote, noIcon: true })),
       p.verdict || p.user_verdict ? downloadButton({ title: "A copy of this document with the judgements of this hypothesis highlighted (green supports, amber partly, red contradicts), each with a note",
-        onClick: () => download(`/api/projects/${P(project)}/documents/${P(p.doc_id)}/annotated.pdf?hyp=${encodeURIComponent(hypId)}&threshold=${threshold}`).catch(showError) }, "Download a highlighted copy") : null));
+        onClick: () => download(`/api/projects/${P(project)}/documents/${P(p.doc_id)}/annotated.pdf?hyp=${encodeURIComponent(hypId)}&threshold=${threshold}`).catch(showError) }, "Download a highlighted copy") : null);
+    if (whole && moreText && p.in_corpus) card.appendChild(docLinks());
     // 0.12: what to keep in mind about the quote, on one quiet line after it, each with its explanation behind a (?)
     const why = (text) => helpMark("Why?", text, { size: 13 });
     const notes = [];
@@ -1694,6 +1724,7 @@ export async function renderResult(view, [hypId], query) {
     }
     const sec = p.second;
     const morePanel = h("div", { class: "ev-more-panel" },
+      !moreText && p.in_corpus ? docLinks() : null,   // 0.19.8: no "more…" on this card: the ways into the document
       rereadBtn ? h("div", { class: "ev-more-actions" }, withAI(rereadBtn), readsLine("this excerpt again, with your comment")) : null,
       h("dl", { class: "ev-tech-list" },
         p.confidence !== null && p.confidence !== undefined ? h("div", {}, h("dt", {}, "AI certainty"), h("dd", {}, `${Math.round(p.confidence * 100)}%; your strictness counts from ${Math.round(threshold * 100)}%`)) : null,
@@ -1814,7 +1845,7 @@ export async function renderResult(view, [hypId], query) {
       const list = el ? [...el.parentElement.children].filter((e) => e.classList.contains("ev")) : [];
       const rect = el ? el.getBoundingClientRect() : { top: 80, bottom: 400 };
       // the judgement row is what the person clicked: after the re-draw it stays where it is on the screen
-      focusAfter = { passage_id: p.passage_id, claim_id: part.claim_id, top: rect.top, bottom: rect.bottom, anchor: ".judge", anchorTop: wrap.getBoundingClientRect().top, was: el && el.closest(".also-read") ? "rest" : "evidence", index: el ? list.indexOf(el) : 0,
+      focusAfter = { passage_id: p.passage_id, claim_id: part.claim_id, top: rect.top, bottom: rect.bottom, anchor: ".judge", anchorTop: wrap.getBoundingClientRect().top, was: el && el.closest(".also-read") ? "rest" : "evidence", index: el ? list.indexOf(el) : 0, stay: true,
         reason: verdict ? `your judgement is now ${verdict === "not_relevant" ? "“Not about this”" : `“${GRADE_TEXT[verdict]}”`}.` : "the AI's judgement counts again." };
       const fa = focusAfter;
       const noteNow = note ?? (noteField ? noteField.value.trim() : prev.note);   // a comment typed before picking is saved with the judgement

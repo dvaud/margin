@@ -1140,6 +1140,21 @@ class App(LibraryMixin, QueueMixin):
         job.scope = hyp_id  # 0.13.11: the result page that started it follows it again after a reload
         return job
 
+    def judge_local_yourself(self, name: str, hyp_id: str) -> dict:
+        """0.19.8: "Judge it myself": the excerpts of a check that wait for the local model wait for the person
+        instead, without starting the model (not while the local model reads them)."""
+        ws = self.ws(name)
+        if not ws.scalar("SELECT 1 FROM hypotheses WHERE hyp_id=?", (hyp_id,)):
+            raise ApiError(404, "No such hypothesis.")
+        with self.jobs.lock:
+            busy = any(j.kind == "read-local" and j.project == name and getattr(j, "scope", None) == hyp_id
+                       and j.state in ("queued", "running") for j in self.jobs.jobs.values())
+        if busy:
+            raise ApiError(409, "Your local model is reading these excerpts now. Stop it first to judge them yourself.")
+        n = claimcheck.judge_local_yourself(ws, hyp_id)
+        taskqueue.advance(ws, [hyp_id])
+        return {"hyp_id": hyp_id, "excerpts": n}
+
     def start_batch(self, name: str, body: dict) -> Job:
         ws = self.ws(name)
         s = self.settings()
@@ -1527,6 +1542,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", rf"/api/projects/{P}/ai-sent\.csv", "get_ai_sent_csv"),
     ("GET", rf"/api/projects/{P}/documents/{P}/ai-sent", "get_document_sent"),
     ("POST", rf"/api/projects/{P}/hypotheses/{P}/read-local", "post_read_local"),
+    ("POST", rf"/api/projects/{P}/hypotheses/{P}/judge-local", "post_judge_local"),
     ("GET", rf"/api/projects/{P}/documents/{P}", "get_document"),
     ("DELETE", rf"/api/projects/{P}/documents/{P}", "delete_document"),
     ("GET", rf"/api/projects/{P}/documents/{P}/file", "get_document_file"),

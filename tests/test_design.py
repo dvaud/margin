@@ -1302,7 +1302,8 @@ def test_a_judged_excerpt_names_each_way_back():
     judgement, and its moved note offers Back to “…” only when your earlier judgement was your own, so no two buttons
     on a card go to the same place and each says where it goes. The place the card left has only Show it."""
     js = VIEW_JS["result.js"]
-    ph = js[js.index("const ph = "):js.index("if (oldList)")]
+    start = js.index('ph = notice({ kind: "info", icon: "arrow-right", class: "moved-ph" }')   # 0.19.8: set, not declared, there
+    ph = js[start:js.index("if (oldList)", start)]
     assert "button(" not in ph and '"Show it"' in ph, "the place a moved card left offers an action besides Show it"
     # the note's way back comes from noteWayBack() (tested below), and sits in its sentence (one line)
     assert "fa.undoText = noteWayBack(prev.verdict, verdict, p.read_by);" in js and "fa.undo = fa.undoText ? undo : null;" in js

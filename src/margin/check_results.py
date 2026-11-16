@@ -451,6 +451,8 @@ def _result(ws: Workspace, claim_id: str, threshold: float | None = None) -> tup
         so = seconds.get(p["passage_id"])
         item["second"] = ({**so, "agrees": so["verdict"] == item["ai_verdict"]} if so else None)
         item["waiting_for_you"] = item["read_by"] == "you" and not item["user_verdict"]
+        # 0.19.8: the person chose to judge it rather than start the local model ("Awaiting manual review")
+        item["by_choice"] = item["read_by"] == "you" and bool(v) and v.get("prompt_version") == _cc.BY_CHOICE
         out["waiting_for_you"] += item["waiting_for_you"]
         out["waiting_local"] += item["waiting_local"]
         out["passages"].append(item)
