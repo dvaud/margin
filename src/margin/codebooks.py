@@ -759,6 +759,8 @@ def _follow_one(cx, fw: str, e: dict, label_id: Callable, only: set | None = Non
                    (new_id, dst, e["op"], merged, e["op"], old_id))
         if new_id != old_id:
             cx.execute("UPDATE reviews SET item_id=? WHERE item_kind='label' AND item_id=?", (new_id, old_id))
+            # Margin: the label's practice and element (label_parts) go with it
+            cx.execute("UPDATE OR REPLACE label_parts SET label_id=? WHERE label_id=?", (new_id, old_id))
         n += 1
     if e["op"] == "unmerge":  # the labels that stayed (the passage had both codes) count again as they are
         for (lid,) in cx.execute("SELECT label_id FROM labels WHERE framework=? AND code=? AND merged_from=?",

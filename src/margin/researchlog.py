@@ -122,8 +122,7 @@ def _own(cx: sqlite3.Connection, entry_id: str) -> sqlite3.Row:
     row = cx.execute("SELECT * FROM research_log WHERE entry_id=?", (entry_id,)).fetchone()
     if row is None:
         raise KeyError(entry_id)
-    if row["person_id"] != _me():
-        raise PermissionError("This entry is a colleague's: only they can change it.")
+    # Margin: one person, so every entry is yours, also one written in ENLENS under its own person id
     return row
 
 
@@ -166,7 +165,7 @@ def _view(r: sqlite3.Row | dict, names: dict[str, str], me: str, versions: set[s
     data = d.pop("data_json", None)
     d["data"] = json.loads(data) if data else None
     d["group"] = GROUPS.get(d["kind"], "other")
-    d["mine"] = d["person_id"] == me
+    d["mine"] = True  # Margin: one person (an entry written in ENLENS keeps its person id, and is yours)
     d["who"] = names.get(d["person_id"] or "", "a colleague")
     d["can_edit"] = d["mine"] and d["kind"] == "entry"
     d["can_why"] = d["mine"]

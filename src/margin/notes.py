@@ -127,8 +127,7 @@ def _own(cx: sqlite3.Connection, note_id: str) -> sqlite3.Row:
     row = cx.execute("SELECT * FROM notes WHERE note_id=?", (note_id,)).fetchone()
     if row is None:
         raise KeyError(note_id)
-    if row["person_id"] != _me():
-        raise PermissionError("This note is a colleague's: only they can change it.")
+    # Margin: one person, so every note is yours, also one written in ENLENS under its own person id
     return row
 
 
@@ -189,7 +188,7 @@ def _placed(cx: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[dict]:
                     cx.execute("UPDATE notes SET start=?, end=?, page=? WHERE note_id=?", (*got, page, d["note_id"]))
                 d["start"], d["end"] = got
                 d["page"] = page
-        d["mine"] = d["person_id"] == me
+        d["mine"] = True  # Margin: one person (a note written in ENLENS keeps its person id, and is yours)
         out.append(d)
     if out:
         nm = None
@@ -237,9 +236,7 @@ def search(ws: Workspace, q: str | None = None, doc_id: str | None = None, colou
     if colour:
         where.append("colour=?")
         args.append(colour)
-    if mine:
-        where.append("person_id=?")
-        args.append(_me())
+    # Margin: one person, so `mine` leaves nothing out (a note written in ENLENS keeps its person id)
     sql_where = ("WHERE " + " AND ".join(where)) if where else ""
     first, most = max(0, int(offset)), max(1, min(int(limit), 100000))
     with ws.connect() as cx:

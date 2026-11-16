@@ -176,4 +176,4 @@ def test_notes_through_the_app(api, tmp_path):  # noqa: F811
     assert api("POST", f"/api/projects/Demo/notes/{nid}/evidence", {"claim_id": "nope", "verdict": "supports"})[0] == 404
     with ws.connect() as cx:
         cx.execute("UPDATE notes SET person_id='p0123456789ab' WHERE note_id=?", (nid,))
-    assert api("DELETE", f"/api/projects/Demo/notes/{nid}")[0] == 403
+    assert api("DELETE", f"/api/projects/Demo/notes/{nid}")[0] == 200  # Margin: a note written in ENLENS is yours

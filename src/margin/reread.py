@@ -1116,6 +1116,8 @@ def _plan(ws: Workspace, cx, doc_id: str, new_doc, m: _Map | None = None,
             for r in cx.execute("SELECT rowid FROM reviews WHERE item_kind='label' AND item_id=?",
                                 (lb["label_id"],)).fetchall():
                 plan.upd("reviews", r[0], item_id=new_id)
+            for r in cx.execute("SELECT rowid FROM label_parts WHERE label_id=?", (lb["label_id"],)).fetchall():
+                plan.upd("label_parts", r[0], label_id=new_id)  # Margin: its practice and element go with it
 
     # --- themes --------------------------------------------------------------------------------------------------
     cur = ws.corpus_version()

@@ -851,6 +851,11 @@ def _copy_project(src: Path, target: Path) -> None:
     b = sqlite3.connect(target / DB_FILE)
     try:
         a.backup(b)
+        # the copy is Margin's alone: ENLENS's triggers, which count changes for its shared folder, would run at every
+        # write here for good (a zip and a linked folder lose them too: bundle._rows_only)
+        for kind, name in b.execute("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view')").fetchall():
+            b.execute(f"DROP {'TRIGGER' if kind == 'trigger' else 'VIEW'} IF EXISTS \"{name.replace(chr(34), chr(34) * 2)}\"")
+        b.commit()
     finally:
         b.close()
         a.close()

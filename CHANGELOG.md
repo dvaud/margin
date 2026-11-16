@@ -1,16 +1,29 @@
 # Changelog
 
-## Unreleased
+## 0.16.0 (November 2026): ENLENS's new look, new readers, and notes with a research log
 
-From ENLENS 0.16.0 and 0.16.1, and one fix that will be in ENLENS 0.16.2: notes and highlights on a document's words,
-a research log, history (compare and restore), your own codebook in the app, and short code names from the themes.
-Margin has no shared projects, so everything here is made for one person (*Left out, or made for Margin*, below).
+Margin takes in ENLENS 0.16.0 to 0.19.3, without its team features: Margin is for one person (*Left out, or made
+for Margin*, twice below).
+
+### New in 0.16, in short
+
+- **A new look on every page, in Margin's colours.** A sidebar of seven places plus *Write* for Margin's own pages,
+  and *Find* (Ctrl+K, or ⌘K on a Mac) for any page or setting.
+- **Notes, highlights and a research log.** Mark the words of a document, use a note as evidence in a check, and keep
+  a dated record of what was decided, beside every page.
+- **History.** Compare and restore your themes, your judgements in a check, and your codebooks.
+- **Your own codebook in the app**, also made from the themes, from a theory document, or from NVivo, ATLAS.ti or
+  MAXQDA.
+- **Readers 4, 5 and 6.** Tables, figures, Word files in full and cleaner PDFs, for the documents you move to them.
+- **Documents grouped as you choose**, with roles: theory, non-scientific, or your own working document.
+- **A concept map**, paths between concepts, and the assessment in words under each answer.
+- **See what is sent** to Claude, word for word, and choose the mix of local model and Claude per kind of task.
 
 ### Notes, a research log, history and your own codebook (ENLENS 0.16.0)
 
 **New**
 
-- **The research log** (sidebar: *Research log*). A dated record of what was decided in a project, written as it
+- **The research log** (a tab of the Overview, and a panel beside every page). A dated record of what was decided in a project, written as it
   happens: documents added and removed, who may read a document with AI, a document read again with the new reader,
   a hypothesis checked or a check removed, themes found, removed, renamed or merged, a codebook made, changed, moved or
   removed, a note used as evidence, an earlier version restored. Add entries of your own, and *Say why* beside what the
@@ -25,7 +38,7 @@ Margin has no shared projects, so everything here is made for one person (*Left 
 - **History: compare and restore.** *History* on a set of themes, *History of your judgements* at the foot of a result,
   and *History* on a codebook list the states before each change you made; *Compare with now* and *Restore this
   version* (which keeps the present state as a version too, so a restore can be undone).
-- **Your own codebook** (sidebar: *Codebooks*). *New codebook*: start fresh, from the themes, as a copy (of a built-in
+- **Your own codebook** (*Codes* › *Codebooks*). *New codebook*: start fresh, from the themes, as a copy (of a built-in
   one too) or from a CSV file; keep it with this project or with all projects. Each code has a name, a definition,
   *When to use it*, *When not to use it*, *Words it is matched by* and *Examples from the documents* (checked against
   the documents). Groups, drag to reorder, *Split*, *Merge into…*, *Remove*; *Save* asks an optional *Why?*.
@@ -174,6 +187,16 @@ Margin takes ENLENS's work of three series, without its team features (*Left out
 - Skim's key sentences came out empty with ENLENS's smaller term index.
 - Removing a document left its practice-and-element labels behind.
 
+**From the review of this sync** (Claude Opus 5.5 read the seams between ENLENS's code and Margin's)
+
+- **What you wrote in ENLENS is yours in Margin.** Notes and research log entries of a project brought over from
+  ENLENS carry ENLENS's person id; Margin took them for a colleague's and refused to change or remove them. Every note
+  and entry is yours now, and the `.qdpx` export names you.
+- **A label keeps its practice and element** when its code is renamed or merged, a codebook version is restored, or
+  its document is read with a new reader.
+- **A project copied from ENLENS loses ENLENS's change counters** (triggers that wrote a row at every change, for its
+  shared folder), as a project from a zip or a linked folder already did.
+
 ### Tests
 
 From ENLENS: `test_0_16_0_research_log.py`, `test_0_16_0_notes.py`, `test_0_16_0_history.py`,
@@ -190,6 +213,11 @@ colours are overrides of ENLENS's tokens, in light and both dark forms, with `ma
 - The new pages (Codebooks, Notes, Research log, History) were tried by the tests and in screenshots, not yet in a
   week of use on a real project.
 - Highlights were not tried in Safari (WebKit) or on Windows.
+- **A folder both apps open** (an ENLENS project linked, not copied): ENLENS keeps each person's judgements in a
+  table of its own, which Margin does not write, so a judgement changed in Margin can be undone the next time ENLENS
+  saves one in the same check. Copy the project instead of linking it if you judge in Margin. In a project that came
+  from ENLENS with a colleague's judgements, Margin shows them as yours.
+- Taking ENLENS's settings can bring its default codebook (the SDG targets) along; choose another in Settings.
 - From ENLENS 0.17.0 to 0.19.3: every main page was seen in light, dark and at 390 px with no console error and no
   sideways scrolling, but the new features (readers 4 to 6 on real PDFs, the concept map, codebooks from theory and
   from NVivo, the `.qdpx` export in NVivo itself, the mix of local and Claude with a real Claude Code) were tried by

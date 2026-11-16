@@ -163,7 +163,7 @@ class _Users:
 
     def person(self, person_id: str | None) -> str:
         pid = person_id or self.me
-        name = self.my_name if pid == self.me else self.names.get(pid) or "a colleague"
+        name = self.names.get(pid) if pid in self.names and pid != self.me else self.my_name  # Margin: one person
         g = guid("user", "person", pid)
         self.used[g] = name
         return g

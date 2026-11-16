@@ -1,8 +1,8 @@
-# 0.15.0: a new reader, and a manual of short pages
-*Documents read with their layout, and results that say which Margin made them.*
-- A new reader: columns in order, running heads and notes set aside, tables kept as tables
-- See how each document was read, and leave out or restore any part of it
-- Older documents can move to the new reader, their quotes and codes with them
-- Large projects are quicker: adding documents, search, the glossary and Profile
-- Claude Code works in a box of its own: it cannot open your files
-- On Windows, Update now installs the new version by itself
+# 0.16.0: ENLENS's new look, new readers, and notes with a research log
+*Margin takes in ENLENS 0.16.0 to 0.19.3, without its team features.*
+- A new look on every page, in Margin's colours
+- Notes, highlights and a research log
+- History
+- Your own codebook in the app
+- Readers 4, 5 and 6
+- Documents grouped as you choose

@@ -117,13 +117,11 @@ def test_your_own_entries_and_reasons_and_what_cannot_be_changed(demo):
     assert researchlog.update(demo, auto["entry_id"], why="")["why"] is None
     researchlog.remove(demo, e["entry_id"])
     assert not demo.scalar("SELECT 1 FROM research_log WHERE entry_id=?", (e["entry_id"],))  # Margin: no sync_removed
-    # a colleague's entry is theirs
+    # Margin: an entry written in ENLENS (under its own person id) is yours
     with demo.connect() as cx:
-        other = researchlog.record(cx, "entry", "Ben's note", person_id="p0123456789ab")
-    with pytest.raises(PermissionError):
-        researchlog.update(demo, other, why="mine now")
-    with pytest.raises(PermissionError):
-        researchlog.remove(demo, other)
+        other = researchlog.record(cx, "entry", "Written in ENLENS", person_id="p0123456789ab")
+    assert researchlog.update(demo, other, why="mine now")["why"] == "mine now"
+    researchlog.remove(demo, other)
 
 
 def test_the_log_filters_searches_and_goes_out_as_markdown_and_excel(demo):
@@ -170,4 +168,4 @@ def test_the_log_through_the_app(api, tmp_path):  # noqa: F811
     with ws.connect() as cx:
         other = researchlog.record(cx, "entry", "A colleague's", person_id="p0123456789ab")
     st, r = api("PUT", f"/api/projects/Demo/log/{other}", {"text": "mine"})
-    assert st == 403 and "colleague" in r["error"]
+    assert st == 200 and "mine" in str(r)  # Margin: an entry written in ENLENS is yours
