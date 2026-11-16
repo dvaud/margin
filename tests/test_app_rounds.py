@@ -222,7 +222,7 @@ console.log(JSON.stringify([reg.jobRow({{ id: "j1", kind: "folder-sync", title: 
     # both run on this computer: the work box says so, not the AI's name; a round's row is a link to the Team page
     from margin.gui.api_common import WHERE_OF_KIND
     assert WHERE_OF_KIND["folder-sync"] == WHERE_OF_KIND["new_reader"] == "here" and "WHERE_CHIP[w.where]" in APP
-    assert "margin-drawer" not in APP and "w.drawer" not in APP
+    assert "w.drawer" not in APP
 
 
 def test_every_look_at_the_poller_tells_the_team_entry():

@@ -283,8 +283,8 @@ points), and it is in English only.
   words. *Read more excerpts* and *Search with other words* look further.
 - **The quote check proves that the words are there**, not that the grade is right. The person's review checks the
   grade.
-- **The default models are validated only on a small invented gold set** (`validation-report-ai.md`), not on a
-  filled-in reference set of real documents ([MODEL_CHOICE.md](MODEL_CHOICE.md)).
+- **The default models are validated only on a small invented gold set** (`validation-report-ai.md`), not yet on
+  real documents labelled by a person, nor on a local model ([MODEL_CHOICE.md](MODEL_CHOICE.md)).
 - **Agreement is not correctness**: kappa compares two readers, neither of them a gold standard.
 - **Claude's answers are not repeatable** the way a seeded local model's are.
 - **The stemmer is English.** It strips English endings from words in every language, so forms in other languages may

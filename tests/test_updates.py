@@ -1,5 +1,5 @@
-"""0.15.1: an update of a git copy brings the layout reader (pdfminer), as the one-line install always has; and the
-version numbers: 0.15.1 is a release, so no number is withdrawn any more."""
+"""0.15.1: an update of a git copy brings the layout reader (pdfminer), as the one-line install always has.
+(That no number is withdrawn any more is in tests/test_version_numbers.py.)"""
 from __future__ import annotations
 
 
@@ -47,12 +47,3 @@ def test_no_layout_extra_is_asked_for_when_the_version_has_none(tmp_path):
 
     root, run, _calls = _copy(tmp_path, "")
     assert update.update_git(root=root, run=run, python="py")["extras"] == ["connector"]
-
-
-def test_no_version_is_withdrawn_any_more():
-    from margin import __version__, update
-    from margin.gui import launcher
-
-    assert update.WITHDRAWN == frozenset()
-    assert launcher.is_older({"version": "0.15.0"}) and not launcher.is_older({"version": __version__})
-    assert launcher.is_older({"version": "0.15.1"}) is (__version__ != "0.15.1")  # 0.15.2: no longer pinned to 0.15.1

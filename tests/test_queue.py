@@ -301,7 +301,7 @@ def test_see_what_is_sent_shows_the_next_batch_and_takes_nothing(home, corpus):
     first_doc = pv["tasks"][0]["documents"][0]["doc_id"]
     access.set_documents(ws, [first_doc], "none")
     again = taskqueue.preview(ws, "label")
-    assert all(first_doc not in {d["doc_id"] for d in t["documents"]} for t in again.get("tasks", []))
+    assert again["tasks"] and all(first_doc not in {d["doc_id"] for d in t["documents"]} for t in again["tasks"])
     # nothing of a kind waits: a note, no tasks
     assert not taskqueue.preview(ws, "theme").get("tasks")
 

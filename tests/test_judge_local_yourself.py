@@ -71,8 +71,7 @@ def test_the_page_offers_judge_it_myself_in_place_of_start_it_anyway():
     assert "short && !yourself" in lib and '"Judge it myself"' in lib
     result = (static / "views" / "result.js").read_text(encoding="utf-8")
     assert "/judge-local" in result and "Awaiting manual review" in result and "p.by_choice" in result
-    assert ("POST", r"/api/projects/([^/]+)/hypotheses/([^/]+)/judge-local", "post_judge_local") in server.ROUTES or \
-        any(r[2] == "post_judge_local" for r in server.ROUTES)
+    assert [m for m, _rx, h in server.ROUTES if h == "post_judge_local"] == ["POST"]
 
 
 def test_no_more_link_when_the_card_shows_the_whole_excerpt():

@@ -965,11 +965,38 @@ def advance(ws: Workspace, hyp_ids: list[str] | None = None) -> list[str]:
 # waiting in the app
 # ---------------------------------------------------------------------------------------------
 QUEUE_POLL = 1.5  # seconds between two looks at a task Claude Code has not answered yet (2026-11-12: tests shorten it)
+# 0.19.14: the report that ends a wait in the queue. Without it the last "Waiting for Claude Code: 1 excerpt" stayed
+# the job's newest word after Claude Code had answered, so while the local model then read its part (or waited for its
+# Start) the job was "on hold" and the page and the sidebar asked for Claude Code again: each run found nothing to do.
+QUEUE_END = "queue_end"
+
+
+def end_report(info: dict, store: dict) -> bool:
+    """Whether `info` is the end of a wait in the queue; then it takes the place of the queue's last report in `store`
+    (a job's progress that keeps the queue's report apart, under "queue"), stamped with its time: newer than the model's
+    report, it says nothing is at work (`latest_report`); dropped, an older "done" of the local model would be the
+    newest word, and the job would seem to read with it."""
+    if info.get("phase") != QUEUE_END:
+        return False
+    store["queue"] = {"phase": QUEUE_END, "at": time.time()}
+    return True
 
 
 def wait_for(ws: Workspace, task_id: str, backend, poll: float | None = None) -> tuple[bool, list[str]]:
     """Wait until Claude Code has answered a task (through the connector, in another program): the app's own runs
-    call this instead of a model. Stop (`backend.should_stop`) ends the wait; the progress line says what waits."""
+    call this instead of a model. Stop (`backend.should_stop`) ends the wait; the progress line says what waits, and
+    says once more (QUEUE_END) when the wait is over."""
+    try:
+        return _wait_for(ws, task_id, backend, poll)
+    finally:
+        if getattr(backend, "progress", None):
+            try:
+                backend.progress({"phase": QUEUE_END})
+            except Exception:  # noqa: BLE001 - a display problem must never stop the work
+                pass
+
+
+def _wait_for(ws: Workspace, task_id: str, backend, poll: float | None) -> tuple[bool, list[str]]:
     poll = QUEUE_POLL if poll is None else poll
     from .llm import BackendError
     from .tasks import mark_queued

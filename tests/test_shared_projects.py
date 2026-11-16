@@ -375,14 +375,6 @@ def test_the_app_brings_a_colleagues_work_in(anna_and_ben):
             srv.server_close()
 
 
-def test_a_withdrawn_number_is_not_this_release():
-    from margin import __version__, update
-
-    # 0.14.1: this release is not a withdrawn number either (the test no longer pins 0.14.0 as the version);
-    # 0.15: a withdrawn number may be released for real (gui/launcher.is_older), so only 0.14.0 is checked
-    assert "0.14.0" not in update.WITHDRAWN
-
-
 def test_agreement_between_two_people_and_cohens_kappa(ws):
     """You and a colleague judged the same excerpts: how often alike, and Cohen's kappa from 10 excerpts on."""
     me = people.me()

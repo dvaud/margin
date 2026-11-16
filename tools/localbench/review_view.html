@@ -1,0 +1,148 @@
+<style>
+[hidden] { display: none !important; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs a { font: 600 .9rem var(--font-ui); color: var(--fg2); text-decoration: none; padding: 8px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs a[aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rv-switch { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.rv-switch button { font: 600 .82rem var(--font-ui); border: 1px solid var(--line); background: var(--surface); color: var(--fg2); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.rv-switch button[aria-pressed="true"] { color: var(--fg); border-color: var(--fg); }
+.rv-switch button:disabled { opacity: .45; cursor: not-allowed; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; }
+.stat .v { font: 600 1.4rem/1.2 var(--font-ui); font-variant-numeric: tabular-nums; }
+.stat .k { font-size: .78rem; color: var(--fg2); } .stat .s { font-size: .74rem; color: var(--muted); }
+.mx { border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+.mx th, .mx td { padding: 6px 10px; text-align: center; border: 1px solid var(--line); }
+.mx th { color: var(--fg2); font-weight: 600; font-size: .78rem; background: var(--bg); }
+.mx td.hot { outline: 2px solid var(--accent); outline-offset: -2px; font-weight: 700; }
+.rd { display: grid; gap: 8px; }
+.rd .row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; align-items: center; font-size: .85rem; }
+.rd .bar { display: flex; height: 26px; border-radius: 4px; overflow: hidden; gap: 2px; background: var(--surface); }
+.rd .bar span { display: grid; place-items: center; font: 600 .74rem var(--font-ui); min-width: 0; overflow: hidden; white-space: nowrap; }
+.rd .g-none { background: #e7eaed; color: #5c6670; } .rd .g-partially_supports { background: #faefd3; color: #946000; }
+.rd .g-supports { background: #e1f2e6; color: #1f7a3d; } .rd .g-refutes { background: #fbe4e2; color: #b3261e; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rd .g-none { background: #262b30; color: #a3adb6; }
+  :root:not([data-theme="light"]) .rd .g-partially_supports { background: #332a12; color: #e8bd5a; }
+  :root:not([data-theme="light"]) .rd .g-supports { background: #16301f; color: #6fd092; }
+  :root:not([data-theme="light"]) .rd .g-refutes { background: #3a1c1a; color: #f28b83; } }
+:root[data-theme="dark"] .rd .g-none { background: #262b30; color: #a3adb6; } :root[data-theme="dark"] .rd .g-partially_supports { background: #332a12; color: #e8bd5a; }
+:root[data-theme="dark"] .rd .g-supports { background: #16301f; color: #6fd092; } :root[data-theme="dark"] .rd .g-refutes { background: #3a1c1a; color: #f28b83; }
+.warnline { font-size: .85rem; color: var(--fg2); background: var(--surface); border: 1px solid var(--line); border-left: 4px solid #946000; border-radius: 6px; padding: 8px 12px; max-width: 80ch; }
+.cl { border-collapse: collapse; width: 100%; font-size: .85rem; }
+.cl td, .cl th { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.cl th { color: var(--muted); font-size: .76rem; font-weight: 600; }
+.cl td.c { max-width: 52ch; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .76rem; font-weight: 600; white-space: nowrap; }
+.chip.supported { color: #1f7a3d; background: #e1f2e6; } .chip.partially_supported { color: #946000; background: #faefd3; }
+.chip.contradicted { color: #b3261e; background: #fbe4e2; } .chip.unsupported { color: #5c6670; background: #e7eaed; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chip.supported { color: #6fd092; background: #16301f; }
+  :root:not([data-theme="light"]) .chip.partially_supported { color: #e8bd5a; background: #332a12; }
+  :root:not([data-theme="light"]) .chip.contradicted { color: #f28b83; background: #3a1c1a; }
+  :root:not([data-theme="light"]) .chip.unsupported { color: #a3adb6; background: #262b30; } }
+:root[data-theme="dark"] .chip.supported { color: #6fd092; background: #16301f; } :root[data-theme="dark"] .chip.partially_supported { color: #e8bd5a; background: #332a12; }
+:root[data-theme="dark"] .chip.contradicted { color: #f28b83; background: #3a1c1a; } :root[data-theme="dark"] .chip.unsupported { color: #a3adb6; background: #262b30; }
+</style>
+<script>
+(function () {
+  const R = D.review;
+  const GROUPS = [["qwen3.5_4b", ["qwen3.5_4b"]], ["ifm_k2-horizon_0.9b", ["ifm_k2-horizon_0.9b"]], ["opus", ["opus-A", "opus-B"]], ["sonnet", ["sonnet-A", "sonnet-B"]]];
+  const SNAME = { supported: "supported", partially_supported: "partly", contradicted: "contradicted", unsupported: "nothing" };
+  const GNAME = { none: "Nothing", partially_supports: "Partly", supports: "Supports", refutes: "Contradicts" };
+  const WHO = { fable: "Fable's final review · reference", you: "Your review · comparison", both: "Where you agree with Fable · comparison" };
+  let who = "fable";
+  const avg = (r, tags, phase, k) => { const v = tags.map(t => r.models[t]?.[phase]?.[k]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+
+  function dumbbells(r, k, title, hint, tick) {
+    const rows = GROUPS.map(([g, tags]) => ({ g, b: avg(r, tags, "before", k), a: avg(r, tags, "after", k), t: tick ? avg(r, tags, "after", tick) : null }))
+      .sort((x, y) => (y.a ?? -1) - (x.a ?? -1));
+    const rankB = [...rows].sort((x, y) => (y.b ?? -1) - (x.b ?? -1)).map(x => x.g);
+    const W = 640, lane = 32, labelW = 150, right = 120, H = 10 + rows.length * lane + 22;
+    const x = v => labelW + Math.max(0, Math.min(1, v)) * (W - labelW - right);
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${title}">`;
+    for (const t of [0, .25, .5, .75, 1]) s += `<line x1="${x(t)}" x2="${x(t)}" y1="6" y2="${H - 18}" stroke="var(--line)"/><text x="${x(t)}" y="${H - 4}" text-anchor="middle">${t * 100}%</text>`;
+    rows.forEach((r0, i) => {
+      const y = 10 + i * lane + lane / 2, c = COL[r0.g], moved = rankB.indexOf(r0.g) - i;
+      s += `<text class="lane" x="0" y="${y + 4}">${D.labels[r0.g]}${moved ? (moved > 0 ? "  ▲" + moved : "  ▼" + (-moved)) : ""}</text>`;
+      if (r0.a == null) return;
+      if (r0.t != null) s += `<line x1="${x(r0.t)}" x2="${x(r0.t)}" y1="${y - 9}" y2="${y + 9}" stroke="var(--muted)" stroke-width="2"><title>stated confidence ${P(r0.t)}</title></line>`;
+      if (r0.b != null) s += `<line x1="${x(r0.b)}" x2="${x(r0.a)}" y1="${y}" y2="${y}" stroke="${c}" stroke-width="2.5"/>` + mark(r0.g, x(r0.b), y, false);
+      s += mark(r0.g, x(r0.a), y, true);
+      const d = r0.b == null ? "" : Math.round((r0.a - r0.b) * 100);
+      s += `<text class="val" x="${Math.max(x(r0.a), x(r0.b ?? 0)) + 12}" y="${y + 4}">${P(r0.b)} → ${P(r0.a)}${d === "" ? "" : ` (${d > 0 ? "+" : ""}${d})`}</text>`;
+    });
+    return `<div class="scale"><div class="info"><span class="name">${title}</span><span class="hint">${hint}</span>
+      <span class="hint">○ against the Opus gold · ● against ${who === "you" ? "your" : who === "fable" ? "Fable's" : "the shared"} judgement${tick ? " · | stated confidence" : ""}</span></div>
+      <div class="plot">${s}</svg></div></div>`;
+  }
+  function matrix(tr) {
+    const G = ["none", "partially_supports", "supports", "refutes"];
+    return `<div style="overflow-x:auto"><table class="mx"><tr><th>Opus gold ↓ · reviewer →</th>${G.map(g => `<th>${GNAME[g]}</th>`).join("")}</tr>` +
+      G.map(a => `<tr><th>${GNAME[a]}</th>${G.map(b => { const n = tr[a][b]; const hot = a !== b && n && ((a === "supports" && b === "partially_supports") || (a === "partially_supports" && b === "supports"));
+        return `<td class="${hot ? "hot" : ""}" style="${a === b ? "color:var(--muted)" : ""}">${n || "·"}</td>`; }).join("")}</tr>`).join("") + `</table></div>`;
+  }
+  function readings(rd) {
+    const G = ["supports", "partially_supports", "refutes", "none"];
+    const bar = (name) => { const c = rd.counts[name], t = rd.passages;
+      return `<div class="row"><span style="${name === "Fable" ? "font-weight:700" : ""}">${name === "Fable" ? "Fable · reference" : name}</span><div class="bar" style="${name === "Fable" ? "outline:2px solid var(--fg);outline-offset:2px" : ""}">${G.filter(g => c[g]).map(g => `<span class="g-${g}" style="flex:${c[g]}" title="${GNAME[g]}: ${c[g]} of ${t}">${c[g]}</span>`).join("")}</div></div>`; };
+    return `<section class="area"><div class="area-head"><span class="eyebrow">The readings</span><h2>The same ${rd.passages} passages, graded ${Object.keys(rd.counts).length} times</h2></div>
+      <div class="panel"><div class="rd">${Object.keys(rd.counts).map(bar).join("")}</div>
+      <div class="legend">${G.map(g => `<span class="key"><span class="chip ${({supports:"supported",partially_supports:"partially_supported",refutes:"contradicted",none:"unsupported"})[g]}">${GNAME[g]}</span></span>`).join("")}</div>
+      <div class="stats">${Object.entries(rd.pairs).map(([k, v]) => `<div class="stat"><span class="k">${k}</span><span class="v">${P(v)}</span><span class="s">same grade, passage by passage</span></div>`).join("")}</div>
+      <p class="note">The ${rd.claims} claims you judged (your "not sure" answers left out), 6 passages each. Opus leaves most passages out, and so does Gemini grading from scratch; Fable, the reference, counts partial evidence as partly and keeps supports to the rules' definition; you also count much of it as support.</p></div></section>`;
+  }
+  const label = k => WHO[k] || (k.startsWith("free-") ? k.slice(5).replace(/^./, c => c.toUpperCase()) + ", graded from scratch · comparison" : k);
+  function render() {
+    const el = document.getElementById("view-review");
+    if (!R || !Object.keys(R.by).length) { el.innerHTML = `<p class="lede">No review data yet.</p>`; return; }
+    if (!R.by[who]) who = Object.keys(R.by)[0];
+    const r = R.by[who], n = r.ids.length, vf = R.you_vs_fable;
+    const moved = r.claims.filter(c => c.gold !== c.reviewer);
+    const tr = r.transitions_gold, s2p = tr.supports.partially_supports, p2s = tr.partially_supports.supports;
+    const shown = r.agreed_with_shown || {};
+    el.innerHTML = `
+      <header style="display:grid;gap:8px"><span class="eyebrow">Margin · green hydrogen pilot · manual review</span><h1>After review</h1>
+        <p class="lede">The same models, scored again on the claims a reviewer judged. The reference is Fable's final review:
+        all 30 claims, after it had seen another reviewer's grades and kept or changed its own on the merits. ○ is the score
+        against the Opus gold, ● the score against the reviewer's grades, on the same claims. Opus is no longer marking its
+        own work here.</p>
+        ${who !== "fable" ? `<p class="warnline">A comparison view. The reference is Fable's final review; switch to it above.</p>` : ""}</header>
+      <div class="rv-switch">${["fable", ...Object.keys(R.by).filter(k => !["fable", "you", "both"].includes(k)), "you", "both"].map(k => `<button data-who="${k}" aria-pressed="${who === k}" ${R.by[k] ? "" : "disabled"}>${label(k)} · ${R.reviewed[k] || 0}</button>`).join("")}</div>
+      <div class="stats">
+        <div class="stat"><span class="k">Claims judged</span><span class="v">${n} of ${R.total_cards}</span><span class="s">"not sure" left out</span></div>
+        <div class="stat"><span class="k">Opus gold's status kept</span><span class="v">${P(r.gold_status_agree)}</span><span class="s">every grade kept: ${P(r.gold_grade_agree)}</span></div>
+        <div class="stat"><span class="k">Supports → partly</span><span class="v">${s2p}</span><span class="s">passages moved down by the reviewer</span></div>
+        <div class="stat"><span class="k">Partly → supports</span><span class="v">${p2s}</span><span class="s">passages moved up by the reviewer</span></div>
+        ${R.pairs_all && R.pairs_all[who + " · Fable"] && who !== "you" ? (pf => `<div class="stat"><span class="k">${label(who).split(",")[0]} and Fable agree</span><span class="v">${P(pf.status)}</span><span class="s">on the status; per passage ${P(pf.passages)} (${pf.claims} claims)</span></div>`)(R.pairs_all[who + " · Fable"]) : ""}
+        ${vf && who !== "fable" && !who.startsWith("free-") || (vf && who === "fable") ? `<div class="stat"><span class="k">You and Fable agree</span><span class="v">${P(vf.status)}</span><span class="s">on the status; every grade: ${P(vf.grades)}; per passage ${P(vf.passages)} (${vf.claims} claims)</span></div>` : ""}
+      </div>
+      ${R.gates && R.gates[who] ? `<p class="note">${label(who).split(",")[0]} graded every passage from scratch, without seeing any AI judgement, and passed the checks: ${R.gates[who].controls_ok} of ${R.gates[who].controls} hidden controls right, ${R.gates[who].quotes_found} of ${R.gates[who].quotes} quotes found word for word in the passages.</p>` : ""}
+      ${n < 12 ? `<p class="warnline">${n} claims only: one claim moves a score by about ${Math.round(100 / n)} points. Read the direction, not the exact figures.</p>` : ""}
+      ${who === "fable" && R.fable_rounds ? `<p class="note">Fable's final answers: after seeing another reviewer's grades on 10 claims, it changed ${R.fable_rounds.changed_passages} passages (all from nothing to partly) and ${R.fable_rounds.changed_status} status.</p>` : ""}
+      ${R.readings ? readings(R.readings) : ""}
+      <section class="area"><div class="area-head"><span class="eyebrow">Does the ranking hold?</span><h2>Scores before and after review</h2></div>
+        ${dumbbells(r, "status_acc", "Right status", "▲▼ how many places a model moved in the ranking")}
+        ${dumbbells(r, "counting_precision", "Share right when it counts a grade (0.6 or more)", "the gap to the grey tick is its overconfidence", "counting_mean_conf")}
+        ${dumbbells(r, "passage_recall", "Passages that matter, found", "the passages the judge grades, found at 0.6 or more")}
+      </section>
+      <section class="area"><div class="area-head"><span class="eyebrow">Where the line moved</span><h2>Opus gold's grades against the reviewer's, passage by passage</h2></div>
+        <div class="panel">${matrix(tr)}<p class="note">Each cell counts passages (6 per claim). The diagonal is where the reviewer kept the gold's grade. Ringed: supports and partly supports swapped.</p></div>
+      </section>
+      ${Object.keys(shown).length ? `<section class="area"><div class="area-head"><span class="eyebrow">Unblinded</span><h2>How often the reviewer agreed with the judgement shown</h2></div>
+        <div class="stats">${GROUPS.map(([g, tags]) => { const v = tags.map(t => shown[t]).filter(Boolean)[0]; return v ? `<div class="stat"><span class="k">${D.labels[g]}</span><span class="v">${v[0]} of ${v[1]}</span><span class="s">cards where its judgement was shown</span></div>` : ""; }).join("")}</div></section>` : ""}
+      <section class="area"><div class="area-head"><span class="eyebrow">Claim by claim</span><h2>Where the status changed (${moved.length} of ${n})</h2></div>
+        <div class="panel" style="overflow-x:auto"><table class="cl"><tr><th>Claim</th><th>Target</th><th>Opus gold</th><th>Reviewer</th></tr>
+        ${moved.map(c => `<tr><td class="c">${c.claim.replace(/[&<>]/g, x => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[x]))}</td><td>${c.target}</td><td><span class="chip ${c.gold}">${SNAME[c.gold]}</span></td><td><span class="chip ${c.reviewer}">${SNAME[c.reviewer]}</span></td></tr>`).join("") || `<tr><td colspan="4">No status changed.</td></tr>`}</table></div></section>`;
+    el.querySelectorAll(".rv-switch button").forEach(b => b.onclick = () => { who = b.dataset.who; render(); });
+  }
+  function route() {
+    const rv = location.hash === "#review";
+    document.getElementById("view-bench").hidden = !rv ? false : true;
+    document.getElementById("view-review").hidden = !rv;
+    document.querySelectorAll(".tabs a").forEach(a => a.setAttribute("aria-current", (a.getAttribute("href") === "#review") === rv ? "page" : "false"));
+    if (rv) render();
+  }
+  addEventListener("hashchange", route); route();
+})();
+</script>

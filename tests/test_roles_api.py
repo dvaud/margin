@@ -3,8 +3,7 @@
 - each route exists, checks what it is sent, and hands the right arguments to the rule it calls (the rules are
   monkeypatched here, so these tests hold whatever P1, P2 and P3 build behind them);
 - a refusal of a rule is the page's status: NotAllowed 403, KeyError 404, ValueError 409, a rule not built yet 501;
-- end to end, against the real rules: marked `needs_p1` / `needs_p2` / `needs_p3`, skipped while the rule they need
-  is still a stub of S0 (they switch on by themselves once it is built).
+- end to end, against the real rules (they were skipped while P1, P2 and P3 were stubs; all three are built).
 """
 from __future__ import annotations
 
@@ -14,21 +13,6 @@ from margin import codebooks, ownership, people, removed
 from margin.gui import server
 from test_app import api, home  # noqa: F401  (fixtures)
 
-
-def _stub(fn, *args) -> bool:
-    """True while `fn` is still the S0 stub (it raises NotImplementedError at once)."""
-    try:
-        fn(*args)
-    except NotImplementedError:
-        return True
-    except Exception:  # noqa: BLE001 - built: it failed on the dummy arguments, as it may
-        return False
-    return False
-
-
-needs_p1 = pytest.mark.skipif(_stub(ownership.owner_questions, None), reason="waits for P1: ownership's roles rules are stubs")
-needs_p2 = pytest.mark.skipif(_stub(codebooks.offers, None), reason="waits for P2: codebooks.offers is a stub")
-needs_p3 = pytest.mark.skipif(_stub(removed.listing, None), reason="waits for P3: removed.py is a stub")
 
 ROUTES = [
     ("PUT", "/api/projects/Demo/owner/roles/pben", "put_owner_role"),
@@ -170,7 +154,6 @@ def test_a_codebooks_offer_and_its_answer(demo, monkeypatch):
 
 
 # ------------------------------------------------------------------ end to end, against the real rules
-@needs_p1
 def test_the_view_has_every_field_the_page_reads(demo):
     st, v = demo("GET", "/api/projects/Demo/owner")
     assert st == 200
@@ -180,7 +163,6 @@ def test_the_view_has_every_field_the_page_reads(demo):
         assert {"role", "same_as", "needs_update"} <= set(p)
 
 
-@needs_p1
 def test_only_the_owners_copy_sets_roles(demo):
     st, v = demo("GET", "/api/projects/Demo/owner")
     assert v["can_set_roles"] is True
@@ -188,12 +170,10 @@ def test_only_the_owners_copy_sets_roles(demo):
     assert demo("PUT", "/api/projects/Demo/owner/roles/pnobody00000000", {"role": "co"})[0] == 404
 
 
-@needs_p3
 def test_restore_without_an_archive_is_404(demo):
     assert demo("POST", "/api/projects/Demo/owner/removed/dnothing/restore", {})[0] == 404
 
 
-@needs_p2
 def test_a_codebook_with_no_colleague_has_no_offer(demo):
     st, r = demo("GET", "/api/projects/Demo/codebooks/Nothing/offer")
     assert st == 200 and r == {"offer": None}

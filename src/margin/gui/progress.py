@@ -156,6 +156,10 @@ class Tracker:
 
     def model_report(self, info: dict) -> None:
         with self.lock:
+            if info.get("phase") == "queue_end":  # taskqueue.QUEUE_END: Claude Code has answered what this waited for
+                if self.model and self.model.get("phase") == "queue":
+                    self.model = None
+                return
             self.model = dict(info)
 
     def say(self, msg: str, step: str | None = None) -> None:

@@ -299,7 +299,8 @@ export class AiRun {
     const s = App.settings();
     const mainLocal = LOCAL_MAIN.has(s.backend);
     // 0.19.6: the queue's report counts only while it is the later one (as the server's latest_report)
-    const pq = p.queue && !(m && m.phase !== "queue" && (m.at || 0) > (p.queue.at || 0)) ? p.queue : null;
+    // 0.19.14: "queue_end" is the end of the wait (taskqueue.end_report), not words of what waits
+    const pq = p.queue && p.queue.phase !== "queue_end" && !(m && m.phase !== "queue" && (m.at || 0) > (p.queue.at || 0)) ? p.queue : null;
     const wq = running ? ((m && m.phase === "queue" && m.queue) || pq || null) : null;
     const localNow = running && !!(m && m.phase && !["queue", "done", "refused", "ready"].includes(m.phase) && (m.who === "local" || (mainLocal && m.who !== "cloud")));
     if (!this.fixed) {
@@ -383,8 +384,10 @@ export class AiRun {
       // waits, works or is answered (the local model's report may be the newer one meanwhile)
       if (wq) this.lastQ = wq;
       // the last words it had, whole, while the local model's report is the newer one: flipping between two would
-      // draw Claude's side again (and its Stop under the pointer) every poll
-      const jqNow = wq || this.lastQ || null;
+      // draw Claude's side again (and its Stop under the pointer) every poll. 0.19.14: marked `stale`, so its counts
+      // never outvote the project's queue: once Claude Code has answered, its "1 waits" asked for Claude Code again
+      // while the local model read, and each run found nothing to do
+      const jqNow = wq || (this.lastQ && { ...this.lastQ, stale: true }) || null;
       if (App.project && (wq || (running && job.queue && this.lastQ))) {
         const key = "live";
         if (this.sideKey.cloud !== key || !side) {

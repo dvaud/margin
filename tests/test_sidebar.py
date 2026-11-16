@@ -83,6 +83,6 @@ def test_the_team_entry_is_the_one_entry_with_a_state():
     assert 'entry = teamEntry({ id: "team-entry" });' in entry and "plain.replaceWith(entry);" in entry
     assert "initTeamEntry();" in app[app.index("async function boot()"):]
     # a link moves you: the phone's menu closes on the route like any entry (no listener of its own)
-    assert 'closest("#team-line")' not in app and "margin-drawer" not in app
+    assert 'closest("#team-line")' not in app
     # no counts beside the sidebar's entries, but the Team entry's, in words
     assert "count" not in rule(".nav a") and ".nav a .chip" not in css

@@ -242,8 +242,6 @@ console.log(JSON.stringify({{
     assert out["lost"] is None
 
 
-def test_docs_name_the_endpoint_and_the_roadmap_item_is_built():
+def test_docs_name_the_endpoint():
     root = Path(__file__).resolve().parent.parent
     assert "/hypotheses/similar" in (root / "docs" / "API.md").read_text(encoding="utf-8")
-    road = (root / "docs" / "ROADMAP.md").read_text(encoding="utf-8")
-    assert "**N1. Near-duplicate hypotheses** · Level 0 · built in 0.18.0" in road

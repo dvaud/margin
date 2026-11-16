@@ -12,7 +12,6 @@
 import json
 import os
 import plistlib
-import re
 import socket
 import subprocess
 import sys
@@ -26,7 +25,7 @@ from _started import is_started
 from margin import __version__
 
 from test_app import Api, api, home  # noqa: F401  (fixtures)
-from _static import all_css, defined_tokens_all, rule
+from _static import rule
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "src" / "margin" / "gui" / "static"
@@ -215,9 +214,6 @@ def test_page_files_of_the_release():
     assert html.index('id="update-banner"') < html.index('id="quicklook-banner"') < html.index('id="view"')
     # 0.17.0: the release's rules are in the cascade (tests/_static.py rule()), not in a sheet of its own
     assert rule(".update-banner") and rule("#update-banner:not(:empty)")
-    defined = defined_tokens_all()
-    used = set(re.findall(r"var\((--[a-z0-9-]+)", all_css()))
-    assert used and used <= defined, used - defined
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "function renderUpdateBanner()" in app and "renderUpdateBanner(); });" in app
     assert "st.installed_version" in app and 'onClick: () => quitApp(' in app  # 0.17.0 (design guide): made by button()

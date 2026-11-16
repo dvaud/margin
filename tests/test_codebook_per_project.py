@@ -40,7 +40,7 @@ def test_a_codebook_of_one_project_chosen_there_leaves_the_others_on_the_sdg_tar
     assert st == 200
     st, r = api("POST", "/api/projects/Beta/profile/keywords", {})
     assert st == 200, r
-    api.wait(r["job"]["id"])
+    assert api.wait(r["job"]["id"])["state"] == "done"
 
     # back in the first project, the choice is still there
     assert api("PUT", "/api/settings", {"project": "Alpha"})[0] == 200

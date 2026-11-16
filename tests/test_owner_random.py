@@ -673,6 +673,8 @@ def clock(monkeypatch):
 # seeds of the default run that show a defect, each also a small test in test_owner_more.py, marked
 # xfail(strict=True) with the defect (when it is fixed the seed passes and its mark must go)
 KNOWN: dict[int, str] = {}   # (seeds 1, 3, 4 and 8 showed four defects of 14af59e; fixed by builder A in 5e3dc72)
+# the four defects of the long run of 2026-11-15 (seeds 1, 2, 10, 13, 15, 16, 25; fixed in c0f176f and 3b8bfb0) are
+# each a small test in test_sync_defects_fixed.py
 
 
 def _seeds():

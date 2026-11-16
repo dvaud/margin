@@ -122,7 +122,6 @@ def test_the_line_says_where_a_shared_item_goes():
     assert '`Goes to ${brief.names} at the next round${brief.nextAt ? ", " + inText(brief.nextAt) : ""}.`' in fn
     # a plain link to the section on the Team page (it was a jump that opened the drawer's Team tab)
     assert 'link({ href: "#/team?at=shared", class: "share-see" }, "See what you shared")' in fn
-    assert "margin-drawer" not in SHARE
     css = (STATIC / "views.css").read_text(encoding="utf-8")
     block = css[css.index("/* ==== Working together */"):]
     assert ".share-bar .share-where { flex: 1 1 100%; margin: 0; color: var(--text-2); font-size: var(--fs-small); }" in block

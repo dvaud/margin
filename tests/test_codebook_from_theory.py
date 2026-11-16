@@ -88,8 +88,7 @@ def test_defined_terms_come_first_with_their_definition_quoted_from_the_theory(p
 
 def test_a_definition_carries_its_page(project):
     ws, theory, _ev = project
-    if ws.scalar("SELECT kind FROM documents WHERE doc_id=?", (theory,)) != "pdf":
-        pytest.skip("the theory was written as text: it has no pages")
+    assert ws.scalar("SELECT kind FROM documents WHERE doc_id=?", (theory,)) == "pdf"   # the fixture writes a PDF: it has pages
     got = _by_term(theorycodes.candidates(ws, theory))
     assert got["stock"]["definition"]["page"] == 1
     assert got["balancing loop"]["definition"]["page"] == 2
@@ -335,8 +334,7 @@ def test_a_headings_terms_are_offered_one_by_one_and_a_label_or_a_phrase_is_not(
         ingest.ingest(ws, [d])
         doc = ws.scalar("SELECT doc_id FROM documents")
         heads = [r[0] for r in ws.query("SELECT text FROM headings WHERE doc_id=?", (doc,))]
-        if "Resilience, Self-Organization, and Hierarchy" not in heads:
-            pytest.skip("the reader did not find the headings")
+        assert "Resilience, Self-Organization, and Hierarchy" in heads   # a reader that loses the headings fails here
         got = _by_term(theorycodes.candidates(ws, doc))
         # "Policy Resistance—Fixes that Fail": the term. "Resilience, Self-Organization, and Hierarchy" names three
         # single words the text never defines outright ("Resilience keeps a system working"): since the framework
@@ -392,8 +390,7 @@ def test_a_glossary_entry_too_short_to_define_anything_is_left_out_not_added_to_
                         "Hierarchy: Systems organized in such a way as to create a larger system.\n")
     try:
         cands = theorycodes.candidates(ws, doc)
-        if not any(c["how"] == "glossary" for c in cands["concepts"]):
-            pytest.skip("the reader did not find the glossary's heading")
+        assert any(c["how"] == "glossary" for c in cands["concepts"])   # a reader that loses the glossary fails here
         got = _by_term(cands)
         assert got["flow"]["definition"]["quote"] == ("Material or information that enters or leaves a stock over a "
                                                      "period of time.")

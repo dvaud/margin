@@ -603,7 +603,9 @@ export function confirmDialog({ title, message, confirmText = "Confirm", typeToC
       if (input) {
         const btn = dlg.querySelector("#dlg-confirm");
         input.addEventListener("input", () => { btn.disabled = input.value.trim() !== typeToConfirm; });
-        input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) btn.click(); });
+        // Enter confirms. preventDefault: without it the same key press, once the dialog has closed and focus is
+        // back on the button that opened it, presses that button too and opens the dialog again
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (!btn.disabled) btn.click(); } });
         input.focus();
       }
     },
@@ -2513,9 +2515,9 @@ function localSide(o, el) {
 // Claude's side for work that waits for Claude Code: the live part. It asks the project's queue itself (one request
 // at a time per project, the answer shared) and keeps itself current while it is on the page: Start Claude Code while
 // work waits, Claude Code at work (Stop Claude Code), paused at the plan's limit, not found, not signed in. opts:
-// project, q (the job's own words for what waits: text, estimate, paused, paused_text, command, kind, being_answered),
-// compact (the choices and the cloud line in one fold, Options and what is sent), privacy (false: no cloud line),
-// always (Start even when nothing waits: the queue page), onDone (when a run it showed has ended), half.
+// project, q (the job's own words for what waits: text, estimate, paused, paused_text, command, kind, being_answered;
+// `stale`: words kept from before, whose counts the project's queue overrules), compact (the choices and the cloud
+// line in one fold, Options and what is sent), privacy (false: no cloud line), always (Start even when nothing waits: the queue page), onDone (when a run it showed has ended), half.
 const AR_FOLD_OPEN = new Map();   // per project: Claude's choices left open, kept across redraws
 function thoughtWord(q) {
   const v = (q.thought && q.thought.chosen) || "balanced";
@@ -2583,9 +2585,12 @@ function cloudSide(o) {
     const r = q.runner || {};
     const idle = idleQueue(q);
     if (!idle) WAIT_SINCE.delete(project);
-    const paused = !!(jq.paused || (q.paused && !jq.text));
-    const waiting = jq.waiting ?? q.waiting;
-    const being = jq.being_answered ?? q.being_answered;
+    // 0.19.14: a job's words kept from before (`stale`: the job reports the local model now, or nothing) keep their
+    // text, but whether anything still waits is the project's queue's to say
+    const stale = !!jq.stale;
+    const paused = stale ? !!q.paused : !!(jq.paused || (q.paused && !jq.text));
+    const waiting = stale ? q.waiting : jq.waiting ?? q.waiting;
+    const being = stale ? q.being_answered : jq.being_answered ?? q.being_answered;
     const state = q.route !== "claude_code" ? "other" : r.running ? "run" : paused ? "paused" : q.can_start ? ((waiting || being || o.always) ? "wait" : "idle")
       : q.claude && !q.claude.found ? "missing" : "wait";
     // the words of the job are drawn only while it waits: at work, a new count of the job's never redraws its Stop

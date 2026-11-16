@@ -18,8 +18,8 @@
 
 These are the models for a **Pro** plan on Claude Code; other plans follow the next table. A model chosen in
 *Settings → Technical → AI model per task* comes first. A task **steps up** once: when its answer's certainty is
-under 0.6, after two rejected answers, or when you press *Ask a stronger model*. The defaults are starting points
-until runs on the pilot set them ([MODEL_CHOICE.md](../MODEL_CHOICE.md); `margin acceptance queue|score`).
+under 0.6, after two rejected answers, or when you press *Ask a stronger model*. Why these defaults, and how good they
+are on the validation report's gold set: [MODEL_CHOICE.md](../MODEL_CHOICE.md).
 
 ### How much thought
 

@@ -73,6 +73,12 @@ warns (`WriteBudgetWarning`), so a new heavy test is caught the day it is added;
 that wrote the most at the end of a run, `MARGIN_WRITES_JSON=<file>` keeps every test's number, and `--durations=15`
 the slowest.
 
+**A view is tested by running it.** `tests/_views.py` runs a real view of the page in Node, with the real `lib.js` and
+the modules it imports, under a fake DOM and with the server stood in for (each call answered from the test's table; a
+call it did not expect fails the test), and reads back what a person sees: the text, the buttons, the focus, what was
+sent (`tests/test_views_*.py`). Test a view this way, not by looking for strings in its source: such a test proves no
+behaviour and breaks on a refactor.
+
 Tests never touch a real Claude Code, uv or the network: `tests/conftest.py` points `MARGIN_CLAUDE` nowhere, gives
 every test its own `MARGIN_HOME` (and keeps secrets in files there, `MARGIN_KEYCHAIN=file`, never the computer's
 keychain), shows no notification on the screen (`MARGIN_NO_NOTIFY=1`, the dev server too) and reads added documents one at a time (`MARGIN_READ_WORKERS=1`, so a stand-in a test puts in this process
@@ -261,9 +267,9 @@ editing its files is in [EXTENDING.md](EXTENDING.md).
   update the sidebar has *What's new* until it is opened, and Settings has it always.
 - The README's *New in* is written by `prepare` (between its two `<!-- new-in -->` markers); update the manual and
   the other sections of the README as the last two sections say.
-- **Release candidates (0.15).** The roadmap ([`docs/ROADMAP.md`](ROADMAP.md): what each release builds, and what
-  waits) gives every minor release a release candidate, in use for at least a
-  week: a `## 0.15.0rc1` changelog entry, tagged `v0.15.0rc1` (the package's version is made from the tag).
+- **Release candidates (0.15).** Every minor release has a release candidate first, in use for at least a week,
+  unless the owner asks for a stable release straight away: a `## 0.15.0rc1` changelog entry, tagged `v0.15.0rc1`
+  (the package's version is made from the tag).
   The workflow drafts it as a GitHub pre-release, which the install line and the app's *Update* never take (GitHub's
   *latest* is the latest full release); its notes give install lines with its own files. A copy of a candidate is
   offered the release when it comes (`update.version_tuple` puts `0.15.0rc1` after every earlier release and before

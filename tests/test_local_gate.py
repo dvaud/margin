@@ -317,7 +317,7 @@ def test_local_start_and_stop_endpoints(app_api):
     assert api("GET", f"/api/jobs/{plain.id}")[1]["local"] is None
 
     job = app.jobs.start("check", "Mixed", None, run, uses_model=False)
-    _until(lambda: job.gate.involved)
+    _until(lambda: job.gate.waiting == 3)   # both parts queued (involved turns true after the first)
     st, j = api("GET", f"/api/jobs/{job.id}")
     assert j["local"] == {"gate": "wait", "waiting": 3, "noun": "excerpt", "model": None, "memory": None,
                           "problem": None}

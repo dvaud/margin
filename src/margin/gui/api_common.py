@@ -164,9 +164,10 @@ def latest_report(job: Job) -> dict | None:
     p = job.progress if isinstance(job.progress, dict) else {}
     m = p.get("model") if isinstance(p.get("model"), dict) else None
     q = p.get("queue") if isinstance(p.get("queue"), dict) else None
-    if m and q:
-        return m if (m.get("at") or 0) > (q.get("at") or 0) else {**q, "phase": "queue"}
-    return m or ({**q, "phase": "queue"} if q else None)
+    newer = (m if (m.get("at") or 0) > (q.get("at") or 0) else q) if m and q else m or q
+    if newer is None or newer is m:
+        return newer
+    return None if q.get("phase") == "queue_end" else {**q, "phase": "queue"}  # 0.19.14: the wait is over
 
 
 def local_reader(job: Job) -> str | None:

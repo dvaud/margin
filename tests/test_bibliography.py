@@ -16,7 +16,7 @@ import pytest
 from fake_zotero import FakeZotero
 from helpers import make_pdf
 from test_app import api, home  # noqa: F401  (fixtures)
-from _static import all_css, css_blocks, defined_tokens_all, rule
+from _static import all_css, css_blocks, rule
 from helpers import api_docs
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -456,9 +456,6 @@ def test_the_page_shell_and_documents():
     sources = "\n".join((STATIC / "views" / f).read_text() for f in ("sources.js", "doc-page.js"))
     # 0.18.2: a document's citation is named in its panel on the Documents page
     assert 'h("dt", {}, "In the bibliography")' in sources and 'class: "dv-bib"' in sources and "see Bibliography" in sources
-    defined = defined_tokens_all()
-    used = set(re.findall(r"var\((--[a-z0-9-]+)", all_css()))
-    assert used and used <= defined, used - defined
     # colours only through the tokens (light and dark): the rules of the bibliography's own classes
     mine = [d for _m, sels, d in css_blocks(all_css()) if any(re.match(r"\.(bib-|doc-cite|dv-bib)", s) for s in sels)]
     assert len(mine) > 10

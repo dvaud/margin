@@ -470,7 +470,8 @@ class QueueMixin:
             self._wire(job, be)
             if hasattr(be, "progress"):
                 be.progress = (lambda info: job.progress.update(queue=info) if info.get("phase") == "queue" else
-                               tracker.model_report(info)) if q else tracker.model_report
+                               taskqueue.end_report(info, job.progress) or tracker.model_report(info)) \
+                    if q else tracker.model_report
 
             def started(i, total, tid):
                 if job.cancel.is_set():

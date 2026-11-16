@@ -8,7 +8,7 @@ import time
 import traceback
 
 from .api_common import ONE_START, ApiError, Job, _usable_embedder
-from .. import bibliography, embed, frameworks, home
+from .. import bibliography, embed, frameworks, home, taskqueue
 from ..llm import BackendError
 from ..store import now as _now
 
@@ -297,8 +297,8 @@ class LibraryMixin:
             job.progress = {"done": 0, "total": 0}
             self._wire(job, be)
             if hasattr(be, "progress"):   # 0.19.6: each stamped, so the later of the two is the one at work now
-                be.progress = lambda info: job.progress.update(**{"queue" if info.get("phase") == "queue" else "model":
-                                                                  {**info, "at": time.time()}})
+                be.progress = lambda info: taskqueue.end_report(info, job.progress) or job.progress.update(
+                    **{"queue" if info.get("phase") == "queue" else "model": {**info, "at": time.time()}})
             return fn(job, be, model, lambda d, n: job.progress.update(done=d, total=n))
 
         return self.start_job(kind, title, name, run,

@@ -77,7 +77,7 @@ def test_the_tokens_are_in_tokens_css():
     # every var() names a token some Margin sheet defines (0.17.0: the cascade, tests/_static.py; a few are set on one
     # part of the page, like .result's sizes)
     used = set(re.findall(r"var\((--[a-z0-9-]+)", all_css()))
-    assert used <= defined_tokens_all(), used - defined_tokens_all()
+    assert used and used <= defined_tokens_all(), used - defined_tokens_all()
 
 
 def test_brand_json_and_the_state(api):  # noqa: F811

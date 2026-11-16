@@ -210,7 +210,7 @@ def test_a_colleagues_entry_is_theirs_in_the_list_the_counts_the_filter_and_the_
         rows = {r["Entry"]: r for r in researchlog.table(ben.ws)}
         assert rows[hers["text"]]["What"] == "Entry" and rows[hers["text"]]["Who"] == "Anna"
         assert rows[his["text"]]["What"] == "Entry"
-        assert "Your own" not in {r["What"] for r in rows.values()} and "Your colleagues'" not in str(rows)
+        assert "Your own" not in {r["What"] for r in rows.values()} and researchlog.GROUP_NAMES[researchlog.COLLEAGUES] not in str(rows)
         md = researchlog.markdown(ben.ws, "Demo")
         assert "(Anna) Anna: the water figures" in md and "Your own" not in md
     # in Anna's copy, the same entry is her own

@@ -19,15 +19,20 @@ sys.path.insert(0, str(ROOT / "tools"))
 import release  # noqa: E402
 
 
-def test_a_withdrawn_version_still_running_counts_as_older():
+def test_a_withdrawn_version_still_running_counts_as_older(monkeypatch):
     from margin import update
     from margin.gui import launcher
 
-    assert update.WITHDRAWN == set()  # 0.14.0 (shared projects), 0.15.0 (the new reader), 0.15.1 (reader 3): releases
-    for v in update.WITHDRAWN:
-        above = update.version_tuple(v) > update.version_tuple(__version__)
-        assert launcher.is_older({"version": v}) == above, v  # 0.15: released for real, a number is a number again
+    # 0.14.0 (shared projects), 0.15.0 (the new reader), 0.15.1 (reader 3) were released for real: none is withdrawn
+    assert update.WITHDRAWN == frozenset()
+    assert launcher.is_older({"version": "0.15.0"})
     assert not launcher.is_older({"version": "0.15.1"}) or update.version_tuple(__version__) > (0, 15, 1)
+    # the rule stays for the day a release is withdrawn: such a version above this one counts as older, a number that
+    # is not on the list does not, and a withdrawn one below this version is older as any earlier version is
+    monkeypatch.setattr(update, "WITHDRAWN", frozenset({"9.0.0", "0.13.5"}))
+    assert launcher.is_older({"version": "9.0.0"}) and not launcher.is_older({"version": "9.0.1"})
+    assert launcher.is_older({"version": "0.13.5"})
+    monkeypatch.setattr(update, "WITHDRAWN", frozenset())
     assert not launcher.is_older({"version": __version__})
     assert launcher.is_older({"version": "0.13.5"})
     assert not launcher.is_older({"version": "9.0.0"})  # a later number is a later version again
