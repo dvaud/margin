@@ -127,6 +127,35 @@ class _BudgetReached(Exception):
         self.thinking = thinking
 
 
+
+def local_urlopen(req, *args, **kwargs):
+    """0.19.10: urlopen for model servers on this computer. Windows looks "localhost" up as ::1 (IPv6) first, while
+    Ollama, like most model servers, listens on 127.0.0.1 only, and Windows reports a refused connection only after
+    about two seconds of trying again. So every request to http://localhost:… waited two seconds there, and the quick
+    looks for a running server (0.6 s) never saw Ollama: the card kept saying "Starting Ollama…" or "not running"
+    while Ollama ran. A request for localhost goes to 127.0.0.1 first, and to localhost as given only when nothing
+    listens there (a server on ::1 alone). Any other address is opened as it is."""
+    from urllib.error import URLError
+    from urllib.parse import urlsplit, urlunsplit
+    from urllib.request import Request, urlopen
+
+    if not isinstance(req, Request):
+        req = Request(req)
+    parts = urlsplit(req.full_url)
+    if (parts.hostname or "").lower() != "localhost":
+        return urlopen(req, *args, **kwargs)
+    user, at, _ = parts.netloc.rpartition("@")
+    netloc = f"{user}{at}127.0.0.1" + (f":{parts.port}" if parts.port else "")
+    v4 = Request(urlunsplit(parts._replace(netloc=netloc)), data=req.data, headers=dict(req.header_items()),
+                 method=req.get_method())
+    try:
+        return urlopen(v4, *args, **kwargs)
+    except URLError as e:
+        if not isinstance(e.reason, ConnectionRefusedError):
+            raise
+    return urlopen(req, *args, **kwargs)
+
+
 def _read_lines(opener, req, *, stall_timeout: float, timeout: float, t0: float, should_stop, report, on_line,
                 stalled, slow, whole_body: bool = False) -> None:
     """The plumbing both streaming backends share (0.17.2; it was written out twice): one request, read by a thread
@@ -344,7 +373,7 @@ class OllamaBackend:
         self.seed = seed
         self._digests: dict[str, str] = {}
         if opener is None:
-            from urllib.request import urlopen as opener  # noqa: N813
+            opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
 
     def digest(self, model: str) -> str | None:
@@ -776,7 +805,7 @@ class LocalBackend:
         self._format = "json_schema"
         self.seed = seed
         if opener is None:
-            from urllib.request import urlopen as opener  # noqa: N813
+            opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
 
     def _request(self, path: str, body: dict | None = None):
@@ -1036,10 +1065,8 @@ def ollama_version(url: str, timeout: float = 1.5) -> str | None:
     """The one probe of "does an Ollama answer here" (0.17.2: it was written three times): the version it reports
     ("" when it answers without one), or None when nothing answers within `timeout` seconds. Any 200 counts as
     answering. Each caller keeps its own time limit."""
-    from urllib.request import urlopen
-
     try:
-        with urlopen(f"{url.rstrip('/')}/api/version", timeout=timeout) as r:
+        with local_urlopen(f"{url.rstrip('/')}/api/version", timeout=timeout) as r:
             if r.status != 200:
                 return None
             try:

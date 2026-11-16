@@ -61,6 +61,7 @@ function getOllama(app) {
       try {
         const r = await api("POST", "/api/ollama/start", {});
         if (r.job) { followInstall(r.job, area, btn); return; }   // an install is still running: its progress instead
+        if (r.running) { answersAlready(area, btn); return; }
         startedWait(area, btn);
       } catch (e) { showError(e); btn.disabled = false; }
     });
@@ -100,9 +101,16 @@ async function startByItself(area, btn) {
   try {
     const r = await api("POST", "/api/ollama/start", {});
     if (r.job) { followInstall(r.job, area, btn); return; }   // an install is still running: its progress instead
-    if (r.running) { btn.disabled = false; return; }           // it answers already: the page notices it by itself
+    if (r.running) { answersAlready(area, btn); return; }
     startedWait(area, btn, STARTING);
   } catch (e) { btn.disabled = false; replace(area, h("p", { class: "muted small" }, `${e.message} Press Start Ollama to try again.`)); }
+}
+
+// Ollama answers already: the page notices it by itself within a few seconds. 0.19.10: the install's progress ("Starting
+// Ollama…") is replaced, not left running beside it, and a minute later the card says so if it was not noticed.
+function answersAlready(area, btn) {
+  btn.disabled = false;
+  startedWait(area, btn, "Ollama is running. A moment…");
 }
 
 // After Start Ollama: the page notices Ollama within a few seconds (and moves on); after a minute without it, say so.

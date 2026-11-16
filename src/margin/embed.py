@@ -18,7 +18,7 @@ import threading
 from array import array
 from typing import Callable, Protocol, Sequence
 
-from .llm import BackendError
+from .llm import BackendError, local_urlopen
 from .store import Workspace
 
 # Some embedding models are trained with a prefix that says whether a text is a query or a document.
@@ -76,7 +76,7 @@ class OllamaEmbedder:
         self.base_url = url[:-3] if url.endswith("/v1") else url
         self.model, self.timeout = model, timeout
         if opener is None:
-            from urllib.request import urlopen as opener  # noqa: N813
+            opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -106,7 +106,7 @@ class OpenAIEmbedder:
         self.model, self.timeout = model, timeout
         self.api_key = api_key or os.environ.get("MARGIN_LOCAL_KEY", "local")
         if opener is None:
-            from urllib.request import urlopen as opener  # noqa: N813
+            opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
