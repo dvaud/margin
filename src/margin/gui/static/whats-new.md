@@ -1,3 +1,3 @@
-# 0.19.9: Hear when your work has finished
-*Margin now tells you, in your computer's own notifications, when work you started has finished.*
-- Margin tells you when work has finished
+# 0.19.10: Margin sees Ollama on Windows
+*Margin now notices Ollama on Windows as soon as it runs.*
+- On Windows, Margin sees Ollama when it runs
