@@ -75,7 +75,7 @@ the slowest.
 
 Tests never touch a real Claude Code, uv or the network: `tests/conftest.py` points `MARGIN_CLAUDE` nowhere, gives
 every test its own `MARGIN_HOME` (and keeps secrets in files there, `MARGIN_KEYCHAIN=file`, never the computer's
-keychain) and reads added documents one at a time (`MARGIN_READ_WORKERS=1`, so a stand-in a test puts in this process
+keychain), shows no notification on the screen (`MARGIN_NO_NOTIFY=1`, the dev server too) and reads added documents one at a time (`MARGIN_READ_WORKERS=1`, so a stand-in a test puts in this process
 is what reading sees; `tests/test_speed.py` reads at once on purpose); `tests/fake_claude_cli.py`,
 `tests/fake_claude_installer.py`, `tests/fake_servers.py` and `tests/fake_zotero.py` stand in for the real programs. A
 release's tests go in a new file `tests/test_<X>_<Y>_<Z>_<topic>.py`; older files keep their names.

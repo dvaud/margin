@@ -109,6 +109,19 @@ class SetupApi:
 
         return {"text": installation.technical_details()}
 
+    def post_notify_test(self, q):
+        """After 0.19.7: one notification now, as finished work would send it → `{"sent", "how", "problem", "note"}`
+        (`note`: where this system lets the person allow or stop them)."""
+        from . import notify
+
+        if notify.disabled():
+            return {"sent": False, "how": "", "problem": "Notifications are switched off here (MARGIN_NO_NOTIFY).",
+                    "note": notify.where_to_allow()}
+        out = notify.send_note("Notifications work",
+                               "This is how Margin tells you that work you started has finished.",
+                               url=notify._app_link(self.app))
+        return {**out, "note": notify.where_to_allow()}
+
     def get_servers(self, q):
         return self.app.servers()
 

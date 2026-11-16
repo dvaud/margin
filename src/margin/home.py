@@ -77,6 +77,9 @@ DEFAULTS = {
     # 0.18.1 (I4): when Claude Code says the plan's usage limit is reached: wait (the queue waits for the next start)
     # or local (the local model answers what waits, where it may)
     "at_limit": "wait",
+    # after 0.19.7: a notification from the computer when work the person started has finished (gui/notify.py): away
+    # (only when no tab of the app is in front of them), always, or off
+    "notify": "away",
     # 0.13.10: the recommended model of each task follows the Claude plan (routing.tier_defaults): the plan Claude Code
     # names, found in the background whenever Margin asks Claude Code how it is (free | pro | max; "" not known), unless
     # set by hand under Settings → Technical (auto | free | pro | max)
@@ -395,6 +398,8 @@ def clean_settings(changes: dict) -> dict:
         raise ValueError("ai_mix must be best, balanced or mostly_local.")
     if "at_limit" in out and out["at_limit"] not in ("wait", "local"):
         raise ValueError("at_limit must be wait or local.")
+    if "notify" in out and out["notify"] not in ("away", "always", "off"):
+        raise ValueError("notify must be away, always or off.")
     if "claude_plan" in out and out["claude_plan"] not in ("auto", "free", "pro", "max"):
         raise ValueError("claude_plan must be auto, free, pro or max.")
     if "claude_plan_detected" in out and out["claude_plan_detected"] not in ("", "free", "pro", "max"):

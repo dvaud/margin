@@ -12,7 +12,7 @@ const rerender = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 // #/settings/calibration…) open its tab and scroll to it.
 // the AI tab wears the icon of the sidebar's AI line (where text goes): the chip is the AI mark's only (DESIGN.md 3.3)
 const TABS = [["model", "AI", "cloud"], ["basics", "Checking", "flask"], ["explore", "Exploring", "network"], ["documents", "Documents", "book-open"], ["advanced", "Technical", "sliders"]];
-const TAB_OF = { model: "model", ai: "model", speed: "model", queue: "model", basics: "basics", calibration: "basics", explore: "explore", frameworks: "explore", documents: "documents", ocr: "documents", embeddings: "documents",
+const TAB_OF = { model: "model", ai: "model", speed: "model", queue: "model", basics: "basics", calibration: "basics", notify: "basics", explore: "explore", frameworks: "explore", documents: "documents", ocr: "documents", embeddings: "documents",
   advanced: "advanced", routing: "advanced", second: "advanced", context: "advanced", repeatable: "advanced", test: "advanced", updates: "advanced", data: "advanced", link: "advanced" };
 
 export async function renderSettings(view, [section]) {
@@ -27,7 +27,7 @@ export async function renderSettings(view, [section]) {
   // actions (docs/DESIGN.md 4.14)
   view.appendChild(pageHead("Settings", { sub: [{
     model: "Which AI reads your documents: Claude Code on your own Claude plan, a model on this computer, or none.",
-    basics: "How strict a check is, and how new checks start.",
+    basics: "How strict a check is, how new checks start, and when you hear that work has finished.",
     explore: "The defaults of the Profile and Themes pages, and your codebooks.",
     documents: "Reading scanned PDFs, and search by meaning.",
     advanced: "For whoever installs the app. Most people never change anything here.",
@@ -43,7 +43,7 @@ export async function renderSettings(view, [section]) {
     if (s.backend === "anthropic") main.append(sectionCard("terms", "Your Claude account and your documents", "", termsPanel({ account: "commercial" })));
     main.append(queueSection());   // 0.17.0: what waits for Claude Code (the sidebar's status area links here)
   }
-  else if (tab === "basics") main.append(basicsSection(s));
+  else if (tab === "basics") main.append(basicsSection(s), notifySection(s));
   else if (tab === "explore") main.append(exploreSection(s), frameworksSection());
   else if (tab === "documents") main.append(sectionCard("ocr", "Reading scanned PDFs", "", ocrBlock(s)), embedSection(s, servers, info));
   else {
@@ -134,6 +134,34 @@ function basicsSection(s) {
     strictForm,
     h("h3", { class: "set-start-title" }, "How new checks start"),
     form);
+}
+
+// After 0.19.7: a notification from the computer when work the person started has finished (gui/notify.py), so the
+// browser can be closed while a local model works. Saved when picked; a test sends one now.
+function notifySection(s) {
+  const name = appName();
+  const st = h("span", { class: "save-state", "aria-live": "polite" });
+  const pick = async (v) => { try { await save({ notify: v }, st); s.notify = v; } catch (_) { /* shown */ } };
+  const when = choice({ sm: true, label: "When to tell you", value: s.notify || "away",
+    options: [["away", `When ${name} is not in front`], ["always", "Always"], ["off", "Never"]], onPick: pick });
+  const out = h("div", { "aria-live": "polite" });
+  const test = button({ sm: true, icon: "bell" }, "Send a test notification");
+  test.addEventListener("click", async () => {
+    test.disabled = true;
+    replace(out, h("p", { class: "muted small" }, "Sending…"));
+    try {
+      const r = await api("POST", "/api/notify/test");
+      replace(out, r.sent
+        ? h("p", { class: "small" }, icon("check", { size: 14 }), " Sent. ", r.note)
+        : notice({ kind: "attention" }, h("p", {}, h("strong", {}, "The notification could not be sent.")),
+          h("p", { class: "small" }, r.problem || ""), h("p", { class: "small" }, r.note)));
+    } catch (e) { clear(out); showError(e); }
+    test.disabled = false;
+  });
+  return sectionCard("notify", "When work has finished", `Work you started that took more than 20 seconds (a check, documents being added, your local model answering the queue) can tell you when it has finished, or stopped with a problem, in your computer's own notifications. So you can close the browser while it runs: ${name} keeps working, and a click on the notification opens it again.`,
+    h("div", { class: "field" }, h("div", { class: "field-label" }, "Tell me"), h("div", { class: "row" }, when, st),
+      h("div", { class: "field-help" }, `When ${name} is not in front: only when no ${name} tab is the one you are looking at (the browser closed, or another window in front). Work ${name} does by itself, such as looking in a shared folder, never sends one.`)),
+    h("div", { class: "save-row" }, test), out);
 }
 
 // Calibration: how often the person agreed with the AI, by the AI's certainty, as a small bar chart with a text

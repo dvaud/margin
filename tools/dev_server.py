@@ -260,6 +260,8 @@ def main() -> int:
     os.environ["MARGIN_CLAUDE"] = str(home_dir / "no-claude-here")
     # 0.18.0rc2 (L6): a storage space's keys go to files in the dev data folder, never the developer's own keychain
     os.environ["MARGIN_KEYCHAIN"] = "file"
+    # after 0.19.7: work in a dev copy never shows notifications on the developer's screen (gui/notify.py)
+    os.environ["MARGIN_NO_NOTIFY"] = "1"
 
     import fake_servers
     from helpers import PAPER_A_PAGES, REPORT_B_TEXT, UNRELATED_HTML, make_pdf

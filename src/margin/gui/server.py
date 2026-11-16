@@ -127,6 +127,12 @@ class App(LibraryMixin, QueueMixin):
         from . import api_owner
 
         self.jobs.ended.append(lambda job: api_owner.after_job(self, job))
+        # after 0.19.7: a notification from the computer when work the person started has finished (gui/notify.py);
+        # `seen`: the last request from a tab that was in front of the person (the page's X-Margin-Seen header)
+        from . import notify
+
+        self.seen = 0.0
+        self.jobs.ended.append(lambda job: notify.job_ended(self, job))
 
     def freeze_static(self) -> None:
         self.frozen_static = {f.relative_to(STATIC).as_posix(): f.read_bytes()
@@ -1518,6 +1524,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", r"/api/whats-new/read", "post_whats_new_read"),
     ("POST", r"/api/update", "post_update"),
     ("GET", r"/api/technical-details", "get_technical_details"),
+    ("POST", r"/api/notify/test", "post_notify_test"),
     ("GET", r"/api/servers", "get_servers"),
     ("POST", r"/api/servers/test", "post_test"),
     ("POST", r"/api/servers/pull", "post_pull"),
@@ -1922,6 +1929,8 @@ class Handler(BaseHTTPRequestHandler, DocumentsApi, ExploreApi, ChecksApi, Setup
                     token = self.headers.get("X-Margin-Token") or (_str(q, "token") if hname in downloads else None)
                     if not token or not secrets.compare_digest(token, self.app.token):
                         raise ApiError(401, "Missing or wrong token. Open Margin from its icon (or run margin-gui).")
+                    if self.headers.get("X-Margin-Seen") == "1":  # a tab in front of the person (gui/notify.py)
+                        self.app.seen = time.time()
                     args = [unquote(g) for g in mt.groups()]
                     out = getattr(self, name)(*args, q=q) if isinstance(name, str) else name(self, *args, q=q)
                     if method != "GET" and args and path.startswith("/api/projects/") and path.count("/") > 3 \

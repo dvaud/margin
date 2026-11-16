@@ -86,6 +86,8 @@ function connection(down) {
 
 export async function api(method, path, body, opts = {}) {
   const headers = { "X-Margin-Token": TOKEN };
+  // after 0.19.7: this tab is in front of the person: work that ends now needs no notification (gui/notify.py)
+  try { if (document.visibilityState === "visible" && document.hasFocus()) headers["X-Margin-Seen"] = "1"; } catch (_) { /* no document */ }
   let payload;
   if (body instanceof Blob || body instanceof ArrayBuffer) {
     headers["Content-Type"] = "application/octet-stream";

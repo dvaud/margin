@@ -228,6 +228,11 @@ since 0.13.6 only when there is an update).
 - `GET /api/technical-details` (0.15) → `{"text": "Margin version: …\nInstalled: …\nSystem: …\nPython: …\nAI route: …\nLocal
   only: yes|no\nUpdate channel: …"}`: a short block for a problem report (*Copy technical details* in Settings →
   Technical). It holds no path, project or document name, user name or key.
+- `POST /api/notify/test` (after 0.19.7) → `{"sent": bool, "how": "app"|"osascript"|"toast"|"balloon"|"notify-send"|"gdbus",
+  "problem": "...", "note": "..."}`: one notification now (*Send a test notification*); `note` says where this system
+  lets the person allow or stop them. A job the person started that ends after 20 s or more sends one as Settings'
+  `notify` says (`away`, the default: only when no request with `X-Margin-Seen: 1`, which a tab in front of the person
+  sends, came in the last 20 s; `always`; `off`). `MARGIN_NO_NOTIFY=1` switches them off for the process.
 - `POST /api/restart` `{}` → `{"restarting": true, "jobs_stopped": n}`: restarts into the version on disk (*Restart
   now* on the banner *Margin X is installed, but Y is still running*); 409 when this copy cannot restart itself.
 
