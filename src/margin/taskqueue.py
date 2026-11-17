@@ -666,7 +666,8 @@ def preview(ws: Workspace, kind: str | None = None, start: int = 0) -> dict:
     `start` skips that many tasks of the batch's model and helper (the batch after this one).
 
     Returns {"kind", "title", "model", "helper", "system", "tasks": [{"task_id", "prompt", "documents"}], "raw",
-    "waiting", "being_answered", "start", "more"}, or {"kind": None, "note"} when nothing waits."""
+    "waiting", "being_answered", "start", "more"}. When nothing waits but Claude Code holds tasks, the same for the
+    tasks it is answering now, with "answering": True; {"kind": None, "note"} when it holds none either."""
     from .llm import estimate_tokens
     from .tasks import render
 
@@ -734,8 +735,54 @@ def preview(ws: Workspace, kind: str | None = None, start: int = 0) -> dict:
                 "tasks": picked, "raw": json.dumps(raw, ensure_ascii=False, indent=1),
                 "waiting": waiting, "being_answered": _held_count(ws, k), "start": start,
                 "more": start + len(picked) < len(cand)}
+    if not start:
+        answering = _answering(ws, kind, o)
+        if answering:
+            return answering
     what = f" of {KIND_TITLE.get(kind, kind)}" if kind else ""
     return {"kind": kind, "note": f"Nothing{what} waits for Claude Code now, so nothing is about to be sent."}
+
+
+def _answering(ws: Workspace, kind: str | None, o: list[str]) -> dict | None:
+    """The tasks Claude Code has taken and is answering now, of `kind` (the first kind, in the queue's order, that has
+    some, when None), as its helper received them: what the preview shows when nothing more waits but Claude Code is
+    at work, so it does not read as if Claude Code had nothing. None when it holds none."""
+    from .tasks import render
+
+    for k in [kind] if kind else o:
+        rows = ws.query(f"SELECT t.task_id, t.claimed_by FROM tasks t WHERE {_HELD} AND {WAITING} AND +t.kind=? "
+                        f"ORDER BY t.claimed_at, t.task_id", (_cutoff(), k))
+        if not rows:
+            continue
+        claim = ws.query("SELECT model, helper FROM task_claims WHERE claim_id=?", (rows[0]["claimed_by"],))
+        picked: list[dict] = []
+        with ws.connect() as cx:
+            for t in rows[:PREVIEW_SHOWN]:
+                full = cx.execute("SELECT * FROM tasks WHERE task_id=?", (t["task_id"],)).fetchone()
+                if full is None:
+                    continue
+                _sys, user = render(ws, full)
+                payload = json.loads(full["payload_json"])
+                picked.append({"task_id": t["task_id"], "prompt": user, "payload": payload,
+                               "documents": _documents_of(cx, payload)})
+        if not picked:
+            continue
+        system = prompts.system_prompt(k)
+        shared = prompts.shared_codebook(k, [p["payload"] for p in picked])
+        if shared:
+            system = f"{system}\n\n{shared['codebook']}"
+            for p, user in zip(picked, shared["prompts"]):
+                p["prompt"] = user
+        for p in picked:
+            p.pop("payload")
+        model = claim[0]["model"] if claim else None
+        helper = claim[0]["helper"] if claim else None
+        raw = {"kind": k, "model": model, "helper": helper, "prompt_version": prompts.VERSIONS[k], "system": system,
+               "tasks": [{"task_id": p["task_id"], "prompt": p["prompt"]} for p in picked]}
+        return {"kind": k, "title": KIND_TITLE.get(k, k), "model": model, "helper": helper, "system": system,
+                "tasks": picked, "raw": json.dumps(raw, ensure_ascii=False, indent=1), "answering": True,
+                "waiting": 0, "being_answered": len(rows), "start": 0, "more": False}
+    return None
 
 
 def _documents_of(cx, payload) -> list[dict]:

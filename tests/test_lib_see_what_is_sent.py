@@ -84,6 +84,15 @@ await scenario("nothing waits", async (t) => {
   return { text: t.text(body(t)), actions: t.buttons(d.querySelector(".dialog-actions")).map((b) => b.label), asked: asked(t) };
 });
 
+await scenario("being answered", async (t) => {
+  t.answer(PREVIEW, { ...FIRST, answering: true, waiting: 0, being_answered: 3, more: false });
+  line(t, "Study", "");
+  await t.click("See what is sent");
+  const d = t.dialog();
+  return { text: t.text(body(t)), heads: body(t).querySelectorAll(".sent-task h3").map((x) => t.text(x)),
+    actions: t.buttons(d.querySelector(".dialog-actions")).map((b) => b.label) };
+});
+
 await scenario("only a local model", async (t) => {
   t.answer(PREVIEW, { kind: null, note: "This installation keeps everything on this computer: nothing is sent to Claude Code." });
   line(t);
@@ -179,3 +188,14 @@ def test_a_preview_that_fails_says_so_in_the_window_and_why_in_a_toast(page):
     f = page["the preview fails"]
     assert f["text"] == "The preview could not be built."
     assert any("The queue could not be read." in x for x in f["toasts"])
+
+
+@needs_node
+def test_with_nothing_waiting_but_tasks_being_answered_the_window_shows_what_claude_code_is_answering(page):
+    b = page["being answered"]
+    assert b["text"].startswith("Claude Code is answering these 2 tasks now. Nothing more waits for it, so nothing new "
+                                "is about to be sent. They are of Labelling passages, word for word as its helper received them")
+    assert "3 being answered now (the first 2 shown) · margin-labeller on haiku." in b["text"]
+    assert "Nothing waits for Claude Code now" not in b["text"]
+    assert b["heads"] == ["Task 1 · Repair report, pp. 3, 4", "Task 2 · Interview notes, p. 7; Field diary"]
+    assert b["actions"] == ["Close"]

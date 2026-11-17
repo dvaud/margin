@@ -306,11 +306,44 @@ def test_see_what_is_sent_shows_the_next_batch_and_takes_nothing(home, corpus):
     assert not taskqueue.preview(ws, "theme").get("tasks")
 
 
+def test_see_what_is_sent_shows_what_claude_code_is_answering_when_nothing_more_waits(home, corpus):
+    """Claude Code has taken every task that waited and is answering them: the preview shows those tasks, word for
+    word as it was sent them, rather than "nothing waits" (which read as if Claude Code had nothing to do)."""
+    from margin import taskqueue
+
+    ws, _pids = _queued_labels(home, corpus, "H")
+    got = taskqueue.next_tasks(ws, "label", n=10_000)
+    while (more := taskqueue.next_tasks(ws, "label", n=10_000)).get("tasks"):
+        got["tasks"] += more["tasks"]
+    pv = taskqueue.preview(ws, "label")
+    assert pv["answering"] is True and pv["kind"] == "label" and pv["more"] is False
+    assert pv["waiting"] == 0 and pv["being_answered"] == len(got["tasks"])
+    assert pv["system"] == got["system"] and pv["model"] == got["model"] and pv["helper"] == got["helper"]
+    shown = {t["task_id"]: t["prompt"] for t in pv["tasks"]}
+    assert shown and all(shown[t["task_id"]] == t["prompt"] for t in got["tasks"] if t["task_id"] in shown)
+    assert taskqueue.preview(ws)["answering"] is True                     # no kind named: the first it holds
+    # answered (or given back): nothing is held, and the note comes back
+    taskqueue.release(ws, got["claim"])
+    with ws.connect() as cx:
+        cx.execute("UPDATE tasks SET status='done' WHERE kind='label'")
+    assert not taskqueue.preview(ws, "label").get("tasks") and "Nothing" in taskqueue.preview(ws, "label")["note"]
+
+
 def test_see_what_is_sent_through_the_app(api, corpus):
     _project(api, corpus)
     st, r = api("GET", "/api/projects/P/queue/preview")
     assert st == 200 and not r.get("tasks") and r["note"]
     assert api("GET", "/api/projects/P/queue/preview?kind=nope")[0] == 400
+
+
+def test_see_what_is_sent_says_so_while_claude_code_still_runs_with_nothing_in_hand(api, corpus, monkeypatch):
+    from margin import claude_setup
+
+    _project(api, corpus)
+    monkeypatch.setattr(claude_setup, "run_state", lambda name: {"running": True})
+    st, r = api("GET", "/api/projects/P/queue/preview")
+    assert st == 200 and not r.get("tasks")
+    assert r["note"].startswith("Claude Code is still running, but it holds no task now")
 
 
 # ---------------------------------------------------------------------------------------------

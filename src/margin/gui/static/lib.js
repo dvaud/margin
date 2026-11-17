@@ -2172,10 +2172,15 @@ export async function showSent(project, kind) {
 function sentParts(r) {
   if (!r.tasks || !r.tasks.length) return [h("p", {}, r.note || "Nothing waits for Claude Code now, so nothing is about to be sent.")];
   const pages = (d) => d.pages && d.pages.length ? `, ${d.pages.length > 1 ? "pp." : "p."} ${d.pages.join(", ")}` : "";
-  const from = r.start ? `Tasks ${r.start + 1} to ${r.start + r.tasks.length}` : `The next ${r.tasks.length === 1 ? "task" : `${r.tasks.length} tasks`}`;
+  const n = r.tasks.length;
+  // nothing more waits, but Claude Code is at work: show what it was sent and is answering now, not "nothing"
+  const from = r.answering ? `Claude Code is answering ${n === 1 ? "this task" : `these ${n} tasks`} now. Nothing more waits for it, so nothing new is about to be sent. ${n === 1 ? "It is" : "They are"} of ${r.title}, word for word as its helper received ${n === 1 ? "it" : "them"}`
+    : `${r.start ? `Tasks ${r.start + 1} to ${r.start + n}` : `The next ${n === 1 ? "task" : `${n} tasks`}`} of ${r.title}, word for word as Claude Code's helper receives them`;
+  const counts = r.answering ? `${r.being_answered.toLocaleString()} being answered now${r.being_answered > n ? ` (the first ${n} shown)` : ""}`
+    : `${r.waiting.toLocaleString()} waiting${r.being_answered ? ` · ${r.being_answered} being answered now` : ""}`;
   return [
-    h("p", {}, `${from} of ${r.title}, word for word as Claude Code's helper receives them: the instruction once, then each task's text. Nothing else from this project goes with them: not the documents' files, other passages, your results or your reviews.`),
-    h("p", { class: "muted small" }, `${r.waiting.toLocaleString()} waiting${r.being_answered ? ` · ${r.being_answered} being answered now` : ""} · ${r.helper ? `${r.helper} on ` : "on "}${r.model}. Claude Code adds its own instructions for the helper (the same for every project) and its own working; they hold none of your documents.`),
+    h("p", {}, `${from}: the instruction once, then each task's text. Nothing else from this project goes with them: not the documents' files, other passages, your results or your reviews.`),
+    h("p", { class: "muted small" }, `${counts} · ${r.helper ? `${r.helper} on ` : "on "}${r.model || "Claude"}. Claude Code adds its own instructions for the helper (the same for every project) and its own working; they hold none of your documents.`),
     fold({ sm: true }, "The instruction (the same for every task of the batch)", inset({ class: "sent-box" }, h("pre", { class: "sent-text" }, r.system))),
     ...r.tasks.map((t, i) => h("section", { class: "sent-task" },
       h("h3", {}, `Task ${r.start + i + 1}`, (t.documents || []).length ? h("span", { class: "muted small" }, ` · ${t.documents.map((d) => `${d.title}${pages(d)}`).join("; ")}`) : null),

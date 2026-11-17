@@ -471,9 +471,16 @@ class ChecksApi:
     def get_queue_preview(self, name, q):
         """What Claude Code would be sent for the next batch (read only: nothing is claimed or recorded)."""
         try:
-            return taskqueue.preview(self.app.ws(name), _str(q, "kind"), _int(q, "start", 0, 0, 1_000_000))
+            out = taskqueue.preview(self.app.ws(name), _str(q, "kind"), _int(q, "start", 0, 0, 1_000_000))
         except ValueError as e:
             raise ApiError(400, str(e)) from e
+        if not out.get("tasks") and not out.get("start") and not home.local_only():
+            from .. import claude_setup
+            if (claude_setup.run_state(name) or {}).get("running"):
+                # Claude Code started from the app is still at work but holds no task: say so, not "nothing waits"
+                out["note"] = ("Claude Code is still running, but it holds no task now: it has answered what it was "
+                               "sent, and nothing more waits for it yet. When the work gives it more, it is shown here.")
+        return out
 
     def post_queue_order(self, name, q):
         body = self._body()
