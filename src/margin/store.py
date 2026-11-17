@@ -270,12 +270,30 @@ CREATE TABLE IF NOT EXISTS ai_cache(key TEXT PRIMARY KEY, kind TEXT, prompt_vers
 -- B5 (retractions.py): what Crossref said about each DOI asked, and when; notices_json is a list of {type, doi, date,
 -- source}, empty when nothing updates the work
 CREATE TABLE IF NOT EXISTS retractions(doi TEXT PRIMARY KEY, checked_at TEXT, notices_json TEXT);
+-- B5 by title (retractions.py): a work of the bibliography without a DOI, looked up by its title, first author and year:
+-- the work Crossref has for it (doi NULL: looked up, no match); rejected_at/rejected_by: the researcher said it is
+-- another work. The matched DOI's notices are in `retractions` as any DOI's
+CREATE TABLE IF NOT EXISTS retraction_matches(item_key TEXT PRIMARY KEY, checked_at TEXT, doi TEXT, title TEXT,
+  year TEXT, author TEXT, rejected_at TEXT, rejected_by TEXT);
+-- I5 (benchmark.py): each finished comparison of the local model with Claude (kappa on a sample of one kind of
+-- answered task), kept so a later sample can be set beside it. About this computer's local model: not for sync
+CREATE TABLE IF NOT EXISTS agreement_runs(run_id TEXT PRIMARY KEY, at TEXT, kind TEXT, n INT, compared INT, failed INT,
+  decisions INT, kappa REAL, agree REAL, local_model TEXT, claude_model TEXT, asked_local INT, asked_claude INT,
+  app_version TEXT);
 -- end of 0.18.1 part B
 -- Team codebooks (teamcodebooks.py): the owner's settings about codebooks (shared at once; the project's default
 -- codebook), one row per setting and writer, merged like `roles` (sync/owner_merge.py); a row counts when its writer
 -- owned the place it names. `sig`: NULL for now, as in `roles`
 CREATE TABLE IF NOT EXISTS team_settings(key TEXT, by TEXT, owner_seq INT, n INT, value_json TEXT, at TEXT, sig TEXT,
   PRIMARY KEY(key, by));
+-- D1, the rest (groupnames.py): the names of the concept map's groups that are not made from their concepts (the
+-- researcher's, the AI's drafts and the AI's names used), each with its group's concepts (term ids and labels) and the
+-- filters and size it was given under; the quote an AI name rests on, apart, so that it goes with its document. Both
+-- stay on this computer (sync.common.LOCAL_ONLY)
+CREATE TABLE IF NOT EXISTS concept_group_names(name_id TEXT PRIMARY KEY, name TEXT, source TEXT, model TEXT,
+  concepts_json TEXT, labels_json TEXT, filters_json TEXT, n INT, created_at TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS concept_group_quotes(name_id TEXT PRIMARY KEY, doc_id TEXT, passage_id TEXT, page INT,
+  start INT, end INT, quote TEXT);
 """
 SCHEMA = SCHEMA.replace("{PLACES_TABLE}", PLACES_TABLE)
 
@@ -527,7 +545,9 @@ GLOSSARY_META = ("glossary_corpus_version", "terms_corpus_version", "terms_built
 # roles (DESIGN-roles §3.4): rows `Workspace._document_rows` names that are made again, so a removal's archive
 # (removed.py) leaves them out
 REMADE = ("embeddings", "term_mentions",
-          "concept_link_sentences")  # 0.18.1 (D2): made again with the glossary
+          "concept_link_sentences",  # 0.18.1 (D2): made again with the glossary
+          "concept_group_quotes")  # D1 rest: an AI group name's quote goes with its document, unarchived (it stays on
+#                                    this computer; the name stays, and naming the group again finds a new quote)
 
 
 def passage_range(doc_id: str) -> tuple[str, str]:
@@ -988,10 +1008,11 @@ class Workspace:
                       "claim_targets", "evidence", "interactions", "verifications", "labels", "terms", "term_mentions",
                       "concepts", "concept_terms", "theme_runs", "themes", "theme_members", "mentions", "bib_links",
                       "blocks", "doc_tables", "block_choices", "concept_link_sentences",
+                      "concept_group_names", "concept_group_quotes",  # D1 rest: the groups' names
                       "ai_cache"):  # 0.18.1: the AI's answers kept so as not to ask again, with their quotes
                 out[t] = cx.execute(f"DELETE FROM {t}").rowcount
             kinds = ("('extract','verify','verify_set','expand','check','decompose','reread','second','label','link',"
-                     "'theme','resolve','theory_codes','theory_frame','code_definition')")
+                     "'theme','resolve','theory_codes','theory_frame','code_definition','group_name')")
             out["results"] = cx.execute(f"DELETE FROM results WHERE kind IN {kinds}").rowcount
             out["tasks"] = cx.execute(f"DELETE FROM tasks WHERE kind IN {kinds}").rowcount
             out["user_claims"] = cx.execute("DELETE FROM user_claims").rowcount
@@ -1034,7 +1055,8 @@ class Workspace:
         out += [("labels", "doc_id=?", (doc_id,)), ("mentions", "doc_id=?", (doc_id,)),
                 ("term_mentions", "passage_id >= ? AND passage_id < ?", passage_range(doc_id))]
         out += [(tbl, "doc_id=?", (doc_id,)) for tbl in ("blocks", "doc_tables", "block_choices",
-                                                          "concept_link_sentences")]  # 0.15; 0.18.1 (D2)
+                                                          "concept_link_sentences",  # 0.15; 0.18.1 (D2)
+                                                          "concept_group_quotes")]  # D1 rest: an AI name's quote
         # 0.15: answers kept as records when the document moved to the new reader name passages that no longer exist
         # ("<doc>:r1-0005", reread.tombstone); they go with the document
         for tbl in ("results", "tasks"):
@@ -1053,6 +1075,10 @@ class Workspace:
         for tbl in ("results", "tasks"):
             out.append((tbl, "kind='code_definition' AND task_id IN (SELECT task_id FROM tasks WHERE "
                         "kind='code_definition' AND instr(payload_json, ?) > 0)", (json.dumps(doc_id),)))
+        # D1 rest (the optional AI part): the name of a group of concepts, drafted from passages of its documents
+        for tbl in ("results", "tasks"):
+            out.append((tbl, "kind='group_name' AND task_id IN (SELECT task_id FROM tasks WHERE "
+                        "kind='group_name' AND instr(payload_json, ?) > 0)", (json.dumps(doc_id),)))
         out += [(tbl, "doc_id=?", (doc_id,)) for tbl in ("passages", "pages", "paragraphs", "headings", "doc_refs",
                                                           "bib_links",  # 0.13: its work goes back to "to find"
                                                           "documents")]

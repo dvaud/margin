@@ -467,6 +467,26 @@ class CodeDefinitionOut(BaseModel):
         return " ".join(str(v or "").split())
 
 
+class GroupNameOut(BaseModel):
+    """D1 rest (the optional AI part): a short name for a group of concepts on the concept map, drafted from passages
+    where its concepts are mentioned together (group-name-v1), with a quote that shows it."""
+    name: str = Field(min_length=3, max_length=60)
+    name_quote: QuoteRef
+    note: Optional[str] = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _flat(cls, v):
+        return " ".join(str(v or "").split())
+
+    @field_validator("name")
+    @classmethod
+    def _six_words(cls, v):
+        if len(v.split()) > 6:
+            raise ValueError("the name has more than six words: give at most six words")
+        return v
+
+
 class Mention(BaseModel):
     passage: int = Field(ge=1)
     span: str = Field(min_length=3, max_length=300)
@@ -565,6 +585,8 @@ def output_schema(kind: str) -> dict:
         s = _inline(TheoryCodesOut.model_json_schema())
     elif kind == "code_definition":
         s = _inline(CodeDefinitionOut.model_json_schema())
+    elif kind == "group_name":
+        s = _inline(GroupNameOut.model_json_schema())
     elif kind == "theory_frame":
         s = _inline(TheoryFrameOut.model_json_schema(by_alias=True))
     else:

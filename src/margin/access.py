@@ -1022,6 +1022,7 @@ FEATURES = {"check": "Check", "reread": "Read again", "second": "Second opinion"
             "split": "SDG pack", "verify": "SDG pack", "verify_set": "SDG pack", "expand": "Search words",
             "decompose": "Parts of a hypothesis", "theory_codes": "Codes from a theory document",
             "code_definition": "A code's definition from its examples",
+            "group_name": "Names of groups of concepts",
             "theory_frame": "A framework from theory documents"}
 
 

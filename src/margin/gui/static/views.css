@@ -168,6 +168,9 @@ html:has(.bulk-stick:not([hidden])) { scroll-padding-bottom: 6rem; }
   border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--text);
 }
 .bulk-bar[hidden] { display: none; }
+/* roadmap N3: the role menu opens upwards: the bar sits at the window's foot */
+.bulk-role:empty { display: none; }
+.bulk-role > .menu > .menu-list:not([data-float="true"]) { top: auto; bottom: calc(100% + 4px); left: 0; right: auto; }
 .sent-list { list-style: none; margin: 6px 0 0; padding: 0; max-height: 260px; overflow: auto; border-top: 1px solid var(--border); }
 .sent-list li { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .sent-preview { color: var(--text-2); margin-top: 2px; }
@@ -496,6 +499,7 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .bib-retract { margin-top: 12px; align-items: center; gap: 12px; flex-wrap: wrap; }
 .bib-retract p { margin: 0; }
 .bib-notices { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 2px 0 4px; }
+.bib-match { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
 /* where the bibliography comes from (a grey tile with its icon: a fact, not a place), and the four lists: a choice */
 .bib-source { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
 .bib-source-icon {
@@ -975,7 +979,36 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .cm-detail .ct-quotes { margin-top: var(--space-2); }
 .cm-detail-part { margin-bottom: var(--space-2); }
 .cm-list-h { font-size: var(--fs-body); margin: var(--space-4) 0 var(--space-2); }
-.cm-group-name { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+/* D1 rest (a): the end of a link's line says its kind, in the link's own grey; a hollow head takes the card's ground,
+   so the line does not show through it */
+.cm-head-open { fill: none; stroke: var(--text-2); stroke-width: 2px; stroke-linecap: round; stroke-linejoin: round; }
+.cm-head-ring { fill: var(--surface); stroke: var(--text-2); stroke-width: 2px; }
+.cm-head-bar { fill: none; stroke: var(--text-2); stroke-width: 2.5px; stroke-linecap: round; }
+.cm-head-diamond { fill: var(--surface); stroke: var(--text-2); stroke-width: 1.75px; stroke-linejoin: round; }
+.cm-head-cross { fill: none; stroke: var(--text-2); stroke-width: 2px; stroke-linecap: round; }
+.cm-keys + .cm-keys { margin-top: var(--space-1); }
+.cm-key-line { flex: none; overflow: visible; }
+/* (b) a group's name on the map, its own small mark before it; never pressed */
+.cm-gname { pointer-events: none; }
+.cm-gname text { font-size: var(--fs-small); font-weight: var(--fw-strong); fill: var(--text-2); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.cm-gname .cm-gdraft { font-weight: var(--fw-regular); fill: var(--muted); }
+.cm-svg[data-focus="true"] .cm-gname { opacity: .35; }
+/* the Groups section under the map */
+.cm-groups-lead { margin: 0 0 var(--space-2); max-width: 46em; }
+.cm-groups-ask { margin-bottom: var(--space-2); }
+.cm-groups-note { margin: var(--space-3) 0; }
+.cm-groups-job { margin: var(--space-2) 0 var(--space-3); }
+.cm-groups-job-help { margin: var(--space-2) 0 0; }
+.cm-group-cell { display: flex; flex-direction: column; gap: var(--space-1); min-width: 13em; }
+.cm-group-title { display: flex; align-items: flex-start; gap: 6px; }
+.cm-group-title .cm-swatch { margin-top: 4px; }
+.cm-group-words { font-size: var(--fs-doc); overflow-wrap: anywhere; }
+.cm-group-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.cm-group-change { margin: 0; }
+.cm-group-acts { justify-content: flex-end; flex-wrap: nowrap; }
+.cm-groups-kept { margin-top: var(--space-3); }
+.cm-kept-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.cm-kept-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px var(--space-3); }
 .cm-link-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: var(--space-1); }
 
 /* ==== Themes */

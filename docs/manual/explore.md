@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | [Search](#search) | Every place words occur, with the words around them; phrases, near, other forms, words nearby; Excel/CSV | no |
 | [Codes](#codes) | The codes each document addresses, how much and where, with the words or quote and reason behind each | keywords first; the AI confirms |
-| [Concepts](#concepts) | A glossary of terms grouped into concepts (abbreviations, wordings, your links), and where each appears | optional |
+| [Concepts](concepts.md) | A glossary of terms grouped into concepts (abbreviations, wordings, your links), and where each appears | optional |
 | [Themes](#themes) | Themes across the documents, by document and by code; rename, merge, move, remove | optional (names) |
 | [A document](#in-a-document) | Its codes, key terms, references ("it", "they"), search, a highlighted copy, how it was read | references only |
 
@@ -74,95 +74,7 @@ are not counted. *Open the codebook* goes to its editor ([What happens to labels
 
 ## Concepts
 
-A **glossary** of the terms the documents use (one or more words, found by the C-value method; running heads and page
-furniture are left out), grouped into **concepts**:
-
-- abbreviations and their long forms ("proton exchange membrane (PEM)");
-- wordings close in meaning (with an embedding model);
-- links found in the sentences themselves (0.18.1, see below);
-- links the AI proposes and you accept, and links of your own.
-
-A concept card shows how the documents write it (*Not the same* splits a wording off), which documents discuss it and
-where it first appears, every line where it occurs, and related concepts (the same, broader, narrower, related,
-often together). *Ask the AI for other wordings* lists wordings the documents use: add them, or say *Not the same*
-and they are not proposed again.
-
-**Links found in the text (0.18.1).** When the glossary is made, Margin proposes links from the sentences, without AI,
-only between two terms the glossary knows and only when the connecting words alone stand between them:
-
-| The sentence says | The link proposed |
-| --- | --- |
-| "X such as Y, Z and W" | X is broader than Y, Z and W |
-| "Y, Z and other X" | Y and Z are kinds of X (narrower) |
-| "X, also called Y", "X (also known as Y)", "X, i.e. Y" | the same |
-| "X leads to / causes / reduces / increases / results in Y" | X *leads to* Y |
-| "X instead of Y" | X *replaces* Y |
-
-Words inside quotation marks are passed by. Each proposal, marked *found in the text*, shows the sentences it was
-found in with their document and page, and waits for *Yes, right* or *No* like any proposed link. English sentences
-only, for now.
-
-**Paths to another concept (0.18.1).** On a concept's card, type another concept and *Find the paths*: the shortest
-chains between them, through links you accepted and concepts the documents mention together more often than by chance
-(pointwise mutual information). Each step shows the passages that mention both its concepts: a way into an argument
-the corpus already makes. A list, not a drawn map.
-
-**Over time and across groups (0.18.1).** *By year* shows, for each publication year, how many documents mention the
-concept, how they word it and what it is mentioned with. The year is that of the work the document is in your
-[bibliography](bibliography.md); documents without one are counted apart. *Compare two sets of documents* does the
-same for two sets you tick (policy against academic, one country against another); the sets are not kept.
-
-**The concept map.** The *Map* tab beside *Glossary* draws the concepts mentioned in the most passages (60 at first;
-*Concepts on the map* gives 30 to 150) as a map, made on this computer without AI:
-
-- **A line** joins two concepts the documents mention together, in two passages or more, more often than by chance
-  (pointwise mutual information): two common words that turn up together only as often as chance would give are not
-  joined, however many passages they share. The thicker the line, the more often than by chance. Each concept keeps
-  its strongest lines only, so the map stays readable.
-- **Groups** are concepts that are mentioned with each other more than with the rest; the legend names each group's
-  concepts in the most passages. Groups 1 to 5 are each a filled shape in a colour of their own (circle, square,
-  diamond, triangle, hexagon); groups 6 to 10 are the same five shapes outlined, in the same five colours; groups 11
-  and on, the smallest, are all grey stars, and *The map as lists* says which concepts each holds. A concept with no
-  line is in no group: a grey dashed circle. So no two kinds of mark differ by colour alone.
-- **Links** (those you accepted or added, the AI's confident ones and the abbreviations) are darker lines with their
-  words: *is part of* and *leads to* point the way they run, *is used instead of*, *is related to*. Two concepts with
-  links of two types (two wordings you joined, or two sources) have one line with both. Two wordings you joined as
-  *the same* are one concept, so they are one mark.
-
-Choose a concept to open its page. Choose a line to see, under the map, the passages that mention both (and, for a
-link, its sentences); *The map as lists* gives the groups, every line and the links as lists, with *Show the
-passages* on each. Pointing at a concept dims everything it is not joined to. Marks that would cover each other are
-pushed apart a little, and on a narrow screen they are smaller.
-
-When fewer than 30 passages are counted (one short document, a narrow filter), the page says so: a line that rests on
-two or three passages can look strong by chance.
-
-The filters above the map narrow the passages it counts, and the map is drawn again from those passages alone:
-*Documents*, a *Theme* (of the latest set, with your merges and moves), a *Code* of a codebook (the passages labelled
-with it), and the years a document was *Published from* and *until* (from the [bibliography](bibliography.md);
-documents without a year are then left out). The same project and filters always give the same map. On the command
-line: `margin --ws myproject concept-map`.
-
-Theory and working documents are left out of the glossary, of key terms, of both cards and of the map.
-
-### Words the glossary leaves out
-
-No term starts or ends with a common word of its passage's language: "because" and "themselves" in English, "dan",
-"wel", "maar" and "ja" in Dutch. Margin tells each passage's language by the common words it uses (lists for 58
-languages come with it; a passage too short to tell, such as "Ja.", takes the language of the one before it). A Dutch
-word that is also English ("net", "door") is left out only in Dutch passages, so "net zero" stays a term of an English
-report. The key terms of themes come from the glossary, so they leave out the same words.
-
-Under *Words the glossary leaves out* on the Concepts page:
-
-- **Languages found**, with how many passages each. Switch one off to read its passages as English; a language with a
-  few passages is often a table or a reference list. English common words are always left out.
-- **Your own words**, one per line: a speaker label such as "Interviewer" or "R1", or a word that says nothing in your
-  project. No term starts or ends with a word listed here; a phrase ("zeg maar") leaves out just that term.
-
-*Save and update the glossary* makes the glossary again. Themes found before keep their key terms; the Themes page
-says which of them are now left out, and finding the themes again gives key terms without them. Search is not
-changed: it still finds every word.
+The glossary of concepts and the concept map have a page of their own: [Concepts and the concept map](concepts.md).
 
 ## Themes
 
@@ -235,6 +147,12 @@ codebook labels, checks), with links to make them again without it; a check is r
 evidence* takes the mark back. In a shared project the mark travels like *Leave out*: the owner's or a Co-owner's
 holds at once, a Member's is a proposal ([Roles](roles.md)). A theory is also where a codebook can start
 ([Make your own codebook](codebooks.md#make-one)).
+
+**Many documents at once.** In *Documents*, tick the documents, then *Role* in the bar at the foot of the window:
+*Evidence*, *Theory* or *Working document*. A role every ticked document has already is greyed out. Margin asks once,
+then marks them all; *Undo* in the message gives each document the role it had. The research log keeps one entry
+naming the documents. A *Non-scientific* mark stays as it is. In a shared project each document's mark travels as
+one would: a Member's are proposals.
 
 ### Working documents
 

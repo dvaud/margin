@@ -70,7 +70,10 @@ _LOCAL_TABLES = ("embeddings", "code_vectors", "terms", "term_mentions", "concep
                  "removed_docs", "sync_via", "sync_from", "sync_refused",
                  # 0.18.1: the sentences of links found in the text (quotes from this copy's readings) and the AI's
                  # answers kept so as not to ask again (raw answers with quotes, of any document's setting)
-                 "concept_link_sentences", "ai_cache")
+                 "concept_link_sentences", "ai_cache",
+                 "agreement_runs",  # I5: the comparisons of this computer's local model with Claude
+                 # D1 rest: the names of the concept map's groups stay on this computer, in this release
+                 "concept_group_names", "concept_group_quotes")
 # the keys of `meta` a zip for a colleague keeps (besides `codebook_followed:` of shared codebooks and `read_again:`
 # of documents): what a colleague's merge or import reads
 _META_KEPT = {"project_uid", "project_uids_known", "bibliography", "corpus_version",
@@ -721,6 +724,11 @@ def strip(cx: sqlite3.Connection, root: Path | str | None, me: str) -> dict:
     # the bibliography's attachments go without where they are on this computer
     for key, files in cx.execute("SELECT item_key, files_json FROM bib_items").fetchall():
         cx.execute("UPDATE bib_items SET files_json=? WHERE item_key=?", (without_paths(files), key))
+    # this copy's own tasks (the AI's draft names of concept-map groups) and their results stay here
+    marks = ",".join("?" * len(LOCAL_TASK_KINDS))
+    cx.execute(f"DELETE FROM results WHERE task_id IN (SELECT task_id FROM tasks WHERE kind IN ({marks}))",
+               LOCAL_TASK_KINDS)
+    cx.execute(f"DELETE FROM tasks WHERE kind IN ({marks})", LOCAL_TASK_KINDS)
     # the ledger of what was sent to Claude stays whole (a cap on what Claude may read counts every copy's reading),
     # but a row of work that is not shared no longer names its task (a check's id is in it)
     cx.execute("UPDATE ai_sent SET task_id='private' WHERE task_id IS NOT NULL AND task_id NOT IN (SELECT task_id FROM "
@@ -739,6 +747,10 @@ def strip(cx: sqlite3.Connection, root: Path | str | None, me: str) -> dict:
 # ---------------------------------------------------------------------------------------------
 # tasks of these kinds belong to checks and theme runs (sync.fingerprints check_tasks, themes_tasks), never to the project
 ITEM_TASK_KINDS = ("check", "expand", "decompose", "reread", "second", "theme")
+# tasks of these kinds (and their results) are this copy's own, like the tables they fill (sync.LOCAL_ONLY): the AI's
+# draft name for a concept-map group (groupnames.KIND). They never leave in a zip or the shared folder, and never come
+# in from a colleague. Not in ITEM_TASK_KINDS: those belong to a check or a theme run (sync/folder.py)
+LOCAL_TASK_KINDS = ("group_name",)
 # tables without words of a document in them: a document kept out of the shared folder does not keep these rows out
 _NO_TEXT = {"ai_sent", "people", "bib_items", "bib_links", "research_log", "sync_removed", "runs", "meta",
             "ownership", "proposals", "decisions", "canon",  # 0.18 L2: they name documents, and hold none of their words
@@ -863,7 +875,9 @@ class ProjectRows:
                 for key in keys:
                     if (kind, key) not in self.shared:
                         private |= {r["task_id"] for r in rows_of(self.cx, kind, key).get("tasks", [])}
-            self._tasks_ok = {r[0] for r in self.cx.execute("SELECT task_id FROM tasks")} - private
+            self._tasks_ok = {r[0] for r in self.cx.execute(
+                f"SELECT task_id FROM tasks WHERE kind NOT IN ({','.join('?' * len(LOCAL_TASK_KINDS))})",
+                LOCAL_TASK_KINDS)} - private
         return task_id in self._tasks_ok
 
     def _bundled_labels(self) -> str:
@@ -916,9 +930,10 @@ class ProjectRows:
         own = [("labels", f"source IN ('model', 'person') AND framework IN ({bundled})", "*"),
                ("mentions", "1", "*"),
                ("tasks", f"status NOT IN ({','.join(repr(u) for u in UNFINISHED)}) AND kind NOT IN "
-                         f"({','.join(repr(k) for k in ITEM_TASK_KINDS)})",
+                         f"({','.join(repr(k) for k in ITEM_TASK_KINDS + LOCAL_TASK_KINDS)})",
                 _TASK_COLS + (", payload_json" if self.kept_out else "")),
-               ("results", "1", "task_id, attempt"),
+               ("results", f"task_id NOT IN (SELECT task_id FROM tasks WHERE kind IN "
+                           f"({','.join(repr(k) for k in LOCAL_TASK_KINDS)}))", "task_id, attempt"),
                ("ai_sent", "1", "*"),
                ("reviews", f"item_kind NOT IN ('concept_link', 'theme', 'theme_member') AND (item_kind != 'label' OR "
                            f"item_id IN ({self._bundled_labels()}))", "*"),

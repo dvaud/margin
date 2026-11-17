@@ -290,7 +290,7 @@ async function renderStatus() {
 // words; a job that uses the AI of Settings (no `where`) gets that AI's name and icon
 const WHERE_CHIP = {
   here: { icon: "house", label: "This computer", tip: "This runs on this computer; nothing is sent to Anthropic." },
-  crossref: { icon: "network", label: "Crossref", tip: "Only the DOIs are sent, to Crossref; no text of your documents leaves this computer." },
+  crossref: { icon: "network", label: "Crossref", tip: "Only DOIs are sent to Crossref, and for a work without one its title, first author’s family name and year; no text of your documents leaves this computer." },
 };
 // 0.19.13: the AI run panel's row (docs/DESIGN.md 4.21, 5.2): this computer's house at the box's left end, Claude's
 // cloud at its right end, and the split bar along its top (each engine's half), so it reads at a glance and in greyscale

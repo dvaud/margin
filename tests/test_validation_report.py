@@ -65,13 +65,21 @@ def _pass(checks=None, labels=None):
 GOLD = {"fingerprint": "abc", "hypotheses": [{}] * 5, "labels": [{}] * 5, "codes": CODES}
 
 
+def test_an_unfinished_check_is_never_right_about_finding_nothing():
+    # a model whose every check failed found nothing, which is not the right answer where the gold says "unsupported"
+    items = [{"gold": "unsupported", "got": None}, {"gold": "supported", "got": None}]
+    s = v.score_checks(items)
+    assert s["answered"] == 0 and s["accuracy"] == 0.0
+    assert s["grounded_accuracy"] is None
+
+
 def test_score_checks():
     s = v.score_checks(_pass()["checks"])
     assert s["n"] == 5 and s["answered"] == 4
     assert s["accuracy"] == 0.4                       # H1, H3 right
     assert s["per_verdict"]["contradicted"] == 0.0
     assert s["confusion"]["contested"] == {"no answer": 1}
-    # found evidence or not: H1 yes/yes, H2 no/no (contested is not grounded), H3 no/no, H4 yes/yes, H5 no/no
+    # found evidence or not, over the 4 finished: H1 yes/yes, H2 no/no (contested is not grounded), H3 no/no, H4 yes/yes
     assert s["grounded_accuracy"] == 1.0
     assert s["compound_n"] == 1 and s["compound_accuracy"] == 0.0 and s["simple_accuracy"] == 0.5
     pairs = [("supported", "supported"), ("contradicted", "contested"), ("unsupported", "unsupported"),

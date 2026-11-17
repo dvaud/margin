@@ -113,7 +113,7 @@ def test_remove_everything_removes_every_ai_task_that_holds_passages(loaded):
     new kind of task left off it fails here."""
     ws = loaded
     kinds = [n for n in routing.KINDS if taskkinds.get(n).core and taskkinds.get(n).task]
-    assert {"label", "check", "theory_frame", "code_definition"} <= set(kinds)
+    assert {"label", "check", "theory_frame", "code_definition", "group_name"} <= set(kinds)
     passage = dict(ws.query("SELECT passage_id, doc_id, text FROM passages LIMIT 1")[0])
     with ws.connect() as cx, tasks.queueing(True):
         for k in kinds:

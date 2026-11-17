@@ -314,6 +314,23 @@ Output format
  "when_to_use": "one sentence", "when_to_use_quote": {{"passage": 2, "quote": "exact words"}},
  "when_not_to_use": "one sentence or empty", "note": null}}
 {_JSON_RULE}"""
+    if kind == "group_name":  # D1 rest (the optional AI part): a short name for a group of the concept map
+        return f"""You name one group of concepts that a concept map of a researcher's documents found: concepts the
+documents mention together more often than by chance.
+
+You are given the group's concepts, the most mentioned first, and a few passages where several of them are mentioned
+together. Write, from these passages only:
+- name: a short name for what the group is about in these documents, two to six words, in the documents' own terms and
+  in the language of the passages, in sentence case (a capital first letter, the rest as the documents write it), with
+  no quotation marks; not a list of its concepts joined by "and" unless nothing more telling fits; not a judgement;
+- name_quote: one quote, copied exactly from one passage, at least three whole words, that shows the name best, with
+  that passage's number;
+- note: one line when the concepts seem to form more than one group, else null.
+Use no outside knowledge and no knowledge of the field: only what the passages show.
+
+Output format
+{{"name": "Remote work and commuting", "name_quote": {{"passage": 1, "quote": "exact words"}}, "note": null}}
+{_JSON_RULE}"""
     if kind == "resolve":
         return f"""You find chains of references in consecutive passages of one document: the places that refer to the same
 thing (a plant, a policy, a country, a group of people, a technology).
@@ -492,6 +509,15 @@ def user_prompt(kind: str, payload: dict, codes_once: bool = False) -> str:
         for p in payload["passages"]:
             ex = "\n".join(f"EXAMPLE: \u201c{e}\u201d" for e in p.get("examples") or [])
             parts.append(f"P{p['n']}" + (f" (page {p['page']})" if p.get("page") else "") + f"\n{ex}\n{p['text']}")
+        return "\n\n".join(parts)
+    if kind == "group_name":
+        parts = ["GROUP OF CONCEPTS: " + ", ".join(payload.get("concepts") or [])]
+        if payload.get("before"):   # "Name the groups again": the researcher wants another name than this one
+            parts.append(f"NAME DRAFTED BEFORE (the researcher asked for another; do not give it again): "
+                         f"{payload['before']}")
+        for p in payload["passages"]:
+            parts.append(f"P{p['n']}" + (f" (page {p['page']})" if p.get("page") else "")
+                         + "\nCONCEPTS IN IT: " + ", ".join(p.get("concepts") or []) + f"\n{p['text']}")
         return "\n\n".join(parts)
     if kind == "resolve":
         parts = [f"DOCUMENT: {payload.get('title') or 'untitled'}"]

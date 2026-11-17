@@ -51,7 +51,8 @@ def _resolved(model, **kw) -> dict:
 KINDS = {"split": schema.SplitOut, "verify": schema.VerifyOut, "verify_set": schema.VerifySetOut,
          "check": schema.CheckOut, "expand": schema.ExpandOut, "decompose": schema.DecomposeOut,
          "label": schema.LabelOut, "link": schema.LinkOut, "theme": schema.ThemeOut, "resolve": schema.ResolveOut,
-         "theory_codes": schema.TheoryCodesOut, "code_definition": schema.CodeDefinitionOut}
+         "theory_codes": schema.TheoryCodesOut, "code_definition": schema.CodeDefinitionOut,
+         "group_name": schema.GroupNameOut}
 
 
 @pytest.mark.parametrize("kind", sorted(KINDS))

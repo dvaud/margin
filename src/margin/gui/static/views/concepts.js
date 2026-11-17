@@ -252,12 +252,20 @@ const GROUPS = [
   // 0.18.1 (D2): links the sentences state, "X leads to Y", "X instead of Y" (seen from this concept)
   ["effect", "What it leads to", "The documents say this concept leads to, causes or changes these."],
   ["effect_of", "What leads to it", "The documents say these lead to, cause or change this concept."],
+  // D1 rest: shapes, needs (seen from this concept), and clashes
+  ["shapes", "What it shapes", "The documents say this concept shapes or influences these."],
+  ["shaped_by", "What shapes it", "The documents say these shape or influence this concept."],
+  ["needs", "What it needs", "The documents say this concept needs, requires or depends on these."],
+  ["needed_by", "What needs it", "The documents say these need, require or depend on this concept."],
   ["replaces", "What it replaces", "The documents use this concept instead of these."],
   ["replaced_by", "What replaces it", "The documents use these instead of this concept."],
+  ["clashes", "What it clashes with", "The documents say this concept and these conflict or work against each other."],
   ["different", "Judged not the same", null],
 ];
 const RELATION_CHOICES = [["same", "is the same as"], ["broader", "is broader than (includes)"], ["narrower", "is narrower than (is part of)"], ["related", "is related to"],
-  ["effect", "leads to"], ["effect_of", "is an effect of"], ["replaces", "replaces"], ["replaced_by", "is replaced by"], ["different", "is different from"]];
+  ["effect", "leads to"], ["effect_of", "is an effect of"],
+  ["shapes", "shapes"], ["shaped_by", "is shaped by"], ["needs", "needs"], ["needed_by", "is needed by"],
+  ["replaces", "replaces"], ["replaced_by", "is replaced by"], ["clashes", "clashes with"], ["different", "is different from"]];
 
 export async function renderConcept(view, [termId], query) {
   const project = App.project;

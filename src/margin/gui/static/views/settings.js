@@ -437,11 +437,12 @@ function modelSection(s, servers, watchers, info = { servers }) {
   }
 
   // 0.18.1 (I5): the local model and Claude answer the same sample of this project's tasks of one kind, and Cohen's
-  // kappa says whether the local model is good enough for it. On request only (it uses the plan); nothing is stored.
+  // kappa says whether the local model is good enough for it. On request only (it uses the plan). Roadmap I5: each
+  // finished comparison is kept in the project (this copy only), listed under the box, and set beside the next one.
   function agreeBox() {
     if (!(s.restricted_server && s.restricted_model && (s.backend === "claude_code" || s.backend === "anthropic"))) return null;
     const box = h("div", { class: "field", id: "s-agreement" }, h("div", { class: "field-label" }, "Agreement between routes"));
-    const help = h("div", { class: "field-help" }, "Your local model and Claude answer the same sample of your own answered tasks of one kind, and kappa (1 is full agreement, 0 is chance) shows whether the local model is good enough for it. An answer a task already has is reused, so only what is missing is asked. Only documents Claude may read are used. Nothing is stored in the project. ",
+    const help = h("div", { class: "field-help" }, "Your local model and Claude answer the same sample of your own answered tasks of one kind, and kappa (1 is full agreement, 0 is chance) shows whether the local model is good enough for it. An answer a task already has is reused, so only what is missing is asked. Only documents Claude may read are used. Each finished comparison is kept, dated, in the project on this computer (it does not travel to colleagues), so a later sample can be compared with it. ",
       helpMark("About agreement", "Kappa from 0.8 on is good, from 0.6 fair, below that poor. Agreement is not correctness: Claude is not always right either. Themes, search words, hypothesis splits and term resolutions have no decision to compare, so they are left out."));
     if (!App.project) { box.append(h("p", { class: "muted small" }, "Open a project first: the sample is taken from its answered tasks."), help); return box; }
     const out = h("div", { "aria-live": "polite", class: "set-test-out" });
@@ -452,6 +453,26 @@ function modelSection(s, servers, watchers, info = { servers }) {
     const body = h("div", { class: "stack" });
     const base = `/api/projects/${P(App.project)}/agreement`;
     let kinds = [];
+    let kept = [];
+    const keptBox = h("div", { class: "agree-kept" });
+    const kindName = (k) => (kinds.find((x) => x.kind === k) || {}).name || k;
+    const num = (v) => (v === null || v === undefined ? "–" : v.toFixed(2));
+    function keptLine(r) {
+      return h("li", {}, `${fmt.dateShort(r.at)} · ${kindName(r.kind)} · ${r.compared} compared · kappa ${num(r.kappa)} · ${r.agree === null || r.agree === undefined ? "–" : `${Math.round(r.agree * 100)}%`} agree · ${r.local_model || "local model"} and ${r.claude_model || "Claude"} `,
+        h("span", { class: "muted small" }, [reusedNote(r), r.app_version ? `Margin ${r.app_version}` : ""].filter(Boolean).join(" · ")));
+    }
+    // answers a task already had are reused: say how many, since they may come from an earlier local model
+    function reusedNote(r) {
+      if (r.asked_local === null || r.asked_local === undefined) return "";
+      const reused = Math.max(0, (r.compared || 0) - r.asked_local);
+      return reused ? `${reused} local ${reused === 1 ? "answer" : "answers"} reused` : "";
+    }
+    function showKept() {
+      if (!kept.length) { clear(keptBox); return; }
+      const SHOWN = 8, list = (rows) => h("ul", { class: "plain-steps" }, rows.map(keptLine));
+      replace(keptBox, h("p", { class: "small" }, h("strong", {}, "Earlier comparisons")), list(kept.slice(0, SHOWN)),
+        kept.length > SHOWN ? fold({ sm: true }, `${kept.length - SHOWN} more`, list(kept.slice(SHOWN))) : null);
+    }
     const size = () => Math.min(100, Math.max(10, Math.round(n.valueAsNumber) || 30));
     async function showPlan() {
       start.disabled = true;
@@ -487,7 +508,10 @@ function modelSection(s, servers, watchers, info = { servers }) {
         start.disabled = false;
         if (job.state === "done") {
           const r = job.result || {};
+          const prev = r.previous, was = prev && prev.kappa !== null && prev.kappa !== undefined ? prev.kappa : null;
+          if (r.kept) { kept = [r.kept, ...kept.filter((x) => x.run_id !== r.kept.run_id)]; showKept(); }
           replace(pb, h("p", {}, h("strong", {}, r.verdict || "")),
+            was !== null && r.kappa !== null && r.kappa !== undefined ? h("p", { class: "small" }, `Kappa ${was.toFixed(2)} on ${fmt.dateShort(prev.at)} → ${r.kappa.toFixed(2)} now`) : null,
             h("div", { class: "kv" }, h("dt", {}, "Kappa"), h("dd", {}, r.kappa === null || r.kappa === undefined ? "–" : r.kappa.toFixed(2))),
             h("div", { class: "kv" }, h("dt", {}, "Same decision"), h("dd", {}, r.agree === null || r.agree === undefined ? "–" : `${Math.round(r.agree * 100)}% of ${r.decisions}`)),
             h("p", { class: "muted small" }, `${r.compared} of ${r.n} tasks compared. Asked now: ${r.asked.local} of your local model, ${r.asked.claude} of Claude.` + (r.failed ? ` ${r.failed} could not be compared.` : "")));
@@ -497,9 +521,11 @@ function modelSection(s, servers, watchers, info = { servers }) {
     }
     kindSel.addEventListener("change", showPlan);
     n.addEventListener("change", showPlan);
-    box.append(body, help);
+    box.append(body, keptBox, help);
     api("GET", `${base}/plan`).then((r) => {
       kinds = r.kinds || [];
+      kept = r.kept || [];
+      showKept();
       if (r.problem) { body.append(h("p", { class: "muted small" }, r.problem)); return; }
       if (!kinds.length) { body.append(h("p", { class: "muted small" }, "No task with a decision to compare is answered yet in this project (checks, second readings, labels and links have one).")); return; }
       kindSel.append(...kinds.map((k) => h("option", { value: k.kind }, `${k.name[0].toUpperCase()}${k.name.slice(1)} (${k.answered} answered)`)));

@@ -179,7 +179,9 @@ def _forget_folder(ws: Workspace, sender: str | None) -> None:
                   "sync_via", "sync_from", "sync_refused",  # roles (DESIGN-roles §3.2): what the sender's copy noted
                   # 0.18.1: the sender's kept AI answers (they would answer here as this copy's) and the sentences of
                   # links found in the text (made again with this copy's glossary)
-                  "ai_cache", "concept_link_sentences"):
+                  "ai_cache", "concept_link_sentences",
+                  "agreement_runs",  # I5: the sender's comparisons of their own local model
+                  "concept_group_names", "concept_group_quotes"):  # D1 rest: the sender's names of the map's groups
             cx.execute(f"DELETE FROM {t}")
         cx.execute("UPDATE canon_seen SET ai_offer=NULL")  # roles-p1: offers made to the sender are the sender's
         # the bibliography's attachments name files on the colleague's computer: a path here could name a file of

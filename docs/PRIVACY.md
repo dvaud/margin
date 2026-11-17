@@ -21,7 +21,7 @@ Releases are downloaded from GitHub ([below](#other-online-services-not-ai)).
 | Anthropic | Runs the Claude models, when the researcher uses Claude | The passages and text inside the AI tasks Claude answers, from documents Claude may read ([below](#what-goes-to-claude)) |
 | A model server on the computer (Ollama, LM Studio and others) | Runs a local model | The text of the tasks it answers; it stays on the computer |
 | The team's shared folder, or its storage space at Backblaze, Cloudflare or the institution's drive (WebDAV) | Carries the work a team shares | Only when the researcher sets one up ([Working together](#working-together)) |
-| Crossref | Answers a retraction lookup | DOIs, only when the researcher asks ([Other online services](#other-online-services-not-ai)) |
+| Crossref | Answers a retraction lookup | DOIs, and the title, first author's family name and year of bibliography works without a DOI, only when the researcher asks ([Other online services](#other-online-services-not-ai)) |
 | GitHub | Hosts Margin's releases | A request for the latest version ([Other online services](#other-online-services-not-ai)) |
 
 ## In short
@@ -160,7 +160,7 @@ Points for an assessment:
 
 | Service | What is sent | When | Under `--local-only` |
 | --- | --- | --- | --- |
-| **Crossref** (`api.crossref.org`), retractions and corrections | DOIs only, with `User-Agent: Margin/<version>`; no name, e-mail or project name. A work with a document marked *No AI* is not looked up | Only when the researcher presses *Check for retractions*, or runs `margin retractions --check` | Off: nothing is sent |
+| **Crossref** (`api.crossref.org`), retractions and corrections | DOIs, and for a bibliography work without a DOI (a published kind of item with a title of three words or more, a first author and a year) its title, first author's family name and year, one request per work; with `User-Agent: Margin/<version>`; no name, e-mail or project name. A work with a document marked *No AI*, or linked to a working document, is not looked up; a document with no work of the bibliography is never looked up by title | Only when the researcher presses *Check for retractions*, or runs `margin retractions --check` | Off: nothing is sent |
 | **GitHub** (`api.github.com`, `github.com`), updates | A request for the latest release, with `User-Agent: margin-update`; no project data | When a page of the app opens, every two minutes while it is open (one look shared by open tabs), and on *Check for updates*; a download only on *Update* | Not switched off |
 | **Anthropic's installer** (`claude.ai`) | A download of Claude Code | Only when the researcher confirms installing it in *Set up Claude* | Refused |
 

@@ -1061,6 +1061,15 @@ def _store_code_definition(cx, t, payload, obj, model):
 
 taskkinds.attach("code_definition", store=_store_code_definition, demo=_codedefine.demo_answer,
                  size=_codedefine.prompt_size)
+# D1 rest (the optional AI part): a group of the concept map named from passages where its concepts meet (groupnames.py)
+from . import groupnames as _groupnames  # noqa: E402 - after the store functions it may import
+
+
+def _store_group_name(cx, t, payload, obj, model):
+    return _groupnames.store_answer(cx, t, payload, obj, model)
+
+
+taskkinds.attach("group_name", store=_store_group_name, demo=_groupnames.demo_answer, size=_groupnames.prompt_size)
 # 0.13.6: the store function of each kind, Margin's and the add-ons', from the registry
 HANDLERS = taskkinds.Table("store")
 

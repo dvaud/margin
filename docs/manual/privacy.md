@@ -25,7 +25,7 @@ promise: [PRIVACY.md](../PRIVACY.md).
 | **Nowhere** | With a model on this computer, every word stays on it. |
 
 Apart from the AI you chose, Margin itself goes online only to look for a new version on GitHub, and, when you ask for
-them, to get Claude Code or a local model, to ask Crossref about retractions (DOIs only, never under local-only) and to
+them, to get Claude Code or a local model, to ask Crossref about retractions (DOIs, and the title, first author's family name and year of a work without one; never under local-only) and to
 reach your team's storage space (sealed on this computer first). There is no telemetry. The app is a small server on `127.0.0.1` with a key
 (an access token) per run, and the page loads nothing from the internet (no CDN, fonts or analytics). Bringing in a colleague's work reads
 the file on this computer and sends nothing. A shared folder is written and read on this computer too: Margin itself

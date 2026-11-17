@@ -863,6 +863,7 @@ AI_LINE_DRAWN_BY = {
     ("result.js", "readLocalButton"): ["partView", "readLocalNotice"],
     ("concepts.js", "linkRow"): ["relatedCard"],
     ("doc-lookup.js", "lookup"): ["refsPanel"],   # 0.18.4: the References panel moved from sources.js
+    ("concept-map.js", "failedNote"): ["drawGroups"],   # D1 rest: Name them again, under the Groups section's AI line
 }
 
 

@@ -3,14 +3,14 @@
 import { featureEyebrow, viewTabs } from "../features.js";
 import { tesseractHelp, App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, watchJob, P,
   navigate, batchId, confirmDialog, field, emptyState, TERMINAL, KIND_TEXT, dialog, plural, lazyList, button,
-  iconButton, fileButton, link, notice, card, tag, input, fold, choice, stopButton, store, searchField } from "../lib.js";
+  iconButton, fileButton, link, notice, card, tag, input, fold, choice, stopButton, store, searchField, menu } from "../lib.js";
 import { simpleProgress, jobCard } from "./progress.js";
 import { forgetOriginals } from "./result.js";
 import { LEVEL, accessChoice, accessAskCard, accessBanner, docAccessDialog, levels as accessLevels } from "./ai-access.js";
 import { askWhy } from "./versions.js";
 import { proposalChip, proposedToast, removalNote } from "./owner.js";   // 0.18 L2
 import { docChip } from "./owner-state.js";   // 0.18.5: the owner's word as an icon on a closed line
-import { documentMarks, roleMenuItems, roleLine, nonsciMenuItem, NONSCI_MEANS, suggestLine } from "./doc-role.js";   // 0.18.1 K2: theory documents; 0.18.6: non-scientific ones; 0.19.0 N3: working documents
+import { documentMarks, roleMenuItems, bulkRoleItems, roleLine, nonsciMenuItem, NONSCI_MEANS, suggestLine } from "./doc-role.js";   // 0.18.1 K2: theory documents; 0.18.6: non-scientific ones; 0.19.0 N3: working documents
 import { reader, newReaderFor, readingNote, READER_4_NEWS, READER_5_NEWS, READER_6_NEWS, renameDocument } from "./doc-shared.js";
 
 const ACCEPT = ".pdf,.docx,.html,.htm,.txt,.md,.zip";
@@ -382,7 +382,20 @@ export async function renderSources(view) {
     const toBar = link({ kind: "jump", class: "docs-to-bar", hidden: true, onClick: () => { const b = bulk.querySelector("button"); if (b) { b.scrollIntoView({ block: "nearest" }); b.focus(); } } });
     const bulk = h("div", { class: "bulk-bar bulk-stick", hidden: true, role: "region", "aria-label": "Change the selected documents" }, bulkCount,
       h("span", { class: "bulk-move" }, accessLevels().map((lv) => button({ sm: true, "data-level": lv, onClick: () => setAccess([...picked], lv, undefined, { fromBar: true }) }, icon(LEVEL[lv].icon, { size: 13 }), h("span", { class: "bulk-word" }, LEVEL[lv].many)))),
+      // roadmap N3: the role of the ticked documents, from a menu (evidence, theory, working document)
+      h("span", { class: "bulk-role" }),
       button({ kind: "quiet", sm: true, onClick: () => clearPicked() }, "Clear"));
+    // after a change of role from the bar (or its Undo): the marks read again, the moved rows redrawn, the ticks cleared
+    const afterRoles = async (ids) => {
+      try { await loadMarks(); } catch (_) { /* as it was */ }
+      picked.clear(); for (const c of docsBox.querySelectorAll(".doc-tick")) c.checked = false;
+      drawGroups(ids); drawBulk();
+    };
+    const drawBulkRole = () => {
+      const ticked = docs.filter((d) => picked.has(d.doc_id)).map((d) => ({ doc_id: d.doc_id, title: d.title || d.file }));
+      bulk.querySelector(".bulk-role").replaceChildren(ticked.length ? menu({ class: "bulk-role-menu", text: "Role", label: `Set the role of the ${plural(ticked.length, "document")} selected`, title: "Mark them as evidence, theory or your working documents",
+        items: bulkRoleItems(project, ticked, roles, (r) => afterRoles(Array.isArray(r && r.changed) ? r.changed : ticked.map((d) => d.doc_id))) }) : "");
+    };
     const drawBulk = () => {
       bulk.hidden = !picked.size;
       // ticks the filter or a folded group hides still count: the bar says how many, so a change never surprises
@@ -396,6 +409,7 @@ export async function renderSources(view) {
         b.disabled = levels.size === 1 && levels.has(b.dataset.level);
         b.querySelector(".bulk-word").textContent = picked.size === 1 ? LEVEL[b.dataset.level].title : LEVEL[b.dataset.level].many;   // "it" or "them", as the question
       }
+      drawBulkRole();
       for (const f of groupsBox ? groupsBox.querySelectorAll(".doc-group") : []) if (f.paintPick) f.paintPick();
       drawNr();
     };

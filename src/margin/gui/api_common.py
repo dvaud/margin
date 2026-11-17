@@ -134,7 +134,8 @@ LANE_OF_KIND = {"ingest": "corpus", "new_reader": "reader", "index": "index", "f
 BEHIND = {ALONE: {"index"}}
 
 # 0.19: where a job's work goes, for the sidebar's work box ("where" in the job's view): "here" (this computer only:
-# the reader, the embedding model, the local model), "crossref" (only DOIs go online), "none" (it reads no document:
+# the reader, the embedding model, the local model), "crossref" (only DOIs, or a title, first author's family name and
+# year, go online), "none" (it reads no document:
 # installs and downloads). A kind not named uses the AI of Settings, so the box names that AI.
 WHERE_OF_KIND = {
     **dict.fromkeys(("ingest", "index", "new_reader", "new_reader_preview", "folder-sync", "keywords", "terms",

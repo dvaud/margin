@@ -58,6 +58,7 @@ Arranged by what you need: to **learn**, to **do** something, to **look somethin
 | [Check a hypothesis](manual/check.md) | Writing one, *Look before checking*, parts, many at once |
 | [Read and review a result](manual/review.md) | The result page, excerpt cards, downloads, the evidence map |
 | [Explore your documents](manual/explore.md) | Search, Codes, Concepts, Themes, theory documents |
+| [Concepts and the concept map](manual/concepts.md) | The glossary, links, named groups, the picture |
 | [Make your own codebook](manual/codebooks.md) | Codes of your own, and how labels follow |
 | [Look at how a document was read](manual/reading.md) | The reading view, *Leave out*, a new reader |
 | [Your bibliography](manual/bibliography.md) | Zotero beside your documents, retractions |

@@ -298,7 +298,15 @@ editing its files is in [EXTENDING.md](EXTENDING.md).
 
   `score` writes `tools/validation/runs/<date>-<route>.json` with every answer, its model, prompt version, Margin
   version and date. A local model answers the same projects with `margin --ws "<project folder>" queue run --backend
-  ollama` instead of `/margin-run`. Delete the two projects afterwards. The gold set itself (`tools/validation/`, its
+  ollama --model <model> --think off` instead of `/margin-run`, run again until it answers nothing more (a check's
+  steps follow one another); its run file is named after the model (`<date>-qwen3-5-4b.json`). `report --latest`
+  sets the newest run of each route side by side, then gives each in full. Delete the projects afterwards.
+
+  **A real project, labelled by a person.** `margin validate person --project "<name>" --label "<name to show>"`
+  writes `tools/validation/runs/person/<date>-<label>.json`: the AI's grades of the excerpts a person then judged, and
+  the AI's codes a person accepted, changed or rejected, with no document text (only grades, codes, model names and
+  prompt versions). The report adds them, the newest of each project, as their own section. Ask the project's owner
+  before committing one, and give `--label` when the project's name should not be published. The gold set itself (`tools/validation/`, its
   README says how it was made) changes only on purpose: its fingerprint is in every run file, and a report made from
   a run on an older gold set says so.
 

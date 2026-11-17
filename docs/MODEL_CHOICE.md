@@ -29,6 +29,7 @@ The recommendation for a **Pro** plan (and for a plan Claude Code does not name)
 | theme | Sonnet | Opus | the main model |
 | resolve | Sonnet | Opus | the main model |
 | theory_codes, code_definition | Sonnet | Opus | the main model |
+| group_name | Haiku | Sonnet | the main model |
 | theory_frame | Opus | none | the main model |
 | check, reread | Sonnet (high effort) | the auditor (Opus, or Fable if switched on) | the main model |
 | second, audit | the auditor | none | the second model |

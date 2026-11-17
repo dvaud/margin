@@ -16,7 +16,7 @@ import zipfile
 from margin import bundle, sharing
 from margin.sync.common import LOCAL_ONLY
 
-OWN = ("ai_cache", "concept_link_sentences")
+OWN = ("ai_cache", "concept_link_sentences", "agreement_runs")
 
 
 def _fill(ws) -> None:
@@ -26,6 +26,7 @@ def _fill(ws) -> None:
                    "('k1', 'label', 'v1', 'qwen3:8b', '{\"quote\": \"words of a local-only document\"}', '2026-11-13')")
         cx.execute("INSERT OR REPLACE INTO concept_link_sentences(a, b, passage_id, doc_id, page, start, end, quote) VALUES "
                    "('water', 'electrolysis', ?, ?, 1, 0, 10, 'water such as electrolysis')", (pid, doc))
+        cx.execute("INSERT OR REPLACE INTO agreement_runs(run_id, at, kind, n) VALUES ('r1', '2026-11-17T09:00:00+00:00', 'check', 3)")
 
 
 def _count(db_bytes: bytes, tmp_path, table: str) -> int:
@@ -66,7 +67,7 @@ def test_remove_everything_and_removing_a_document_take_them_too(loaded):
     assert not loaded.scalar("SELECT COUNT(*) FROM concept_link_sentences WHERE doc_id=?", (doc,))
     _fill(loaded)
     loaded.reset_corpus()
-    for table in OWN:
+    for table in ("ai_cache", "concept_link_sentences"):   # a comparison of the model is not about a document: it stays
         assert not loaded.scalar(f"SELECT COUNT(*) FROM {table}"), table
 
 

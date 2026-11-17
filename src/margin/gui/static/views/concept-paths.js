@@ -6,7 +6,8 @@
 import { api, h, P, replace, showError, button, link, card, input, fold, plural, shortTitle, tag, debounce } from "../lib.js";
 
 const REL_WORDS = { same: "the same as", broader: "broader than", narrower: "part of", related: "related to",
-  effect: "leads to", effect_of: "an effect of", replaces: "used instead of", replaced_by: "replaced by" };
+  effect: "leads to", effect_of: "an effect of", replaces: "used instead of", replaced_by: "replaced by",
+  needs: "needs", needed_by: "needed by", shapes: "shapes", shaped_by: "shaped by", clashes: "clashes with" };
 const docHref = (b) => `#/doc/${encodeURIComponent(b.doc_id)}?q=${b.start}-${b.start + 1}`;
 
 function passageItem(b) {

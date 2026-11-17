@@ -12,7 +12,9 @@ A graph of the glossary's concepts (a concept's wordings count as one node, as i
   wordings into one node, so it is never an edge).
 - **Groups**: the concepts clustered by their co-occurrence edges (each concept's `GROUP_EDGES` strongest, more than
   are drawn) with the Louvain method (greedy modularity, then joined groups, again until nothing moves), in a fixed
-  order, so the same project and filters give the same groups. A concept with no such edge is in no group.
+  order, so the same project and filters give the same groups. A concept with no such edge is in no group. Each group
+  has a name (groupnames.py): made from its two most central concepts (the most strongly joined inside it), or kept
+  from the researcher or the AI.
 - **Layout**: each group in a disc of its own, laid out force-directed (Fruchterman and Reingold) from fixed starting
   places, the discs placed by the edges between them without overlapping, the concepts in no group in a row under
   them; a fixed number of rounds, rounded: the same map every time. Places are in a unit square for a map `ASPECT`
@@ -435,16 +437,19 @@ def _built(ws: Workspace) -> bool:
     return bool(ws.scalar("SELECT 1 FROM terms LIMIT 1"))
 
 
-def concept_map(ws: Workspace, f: Filters | None = None, n: int = DEFAULT_N) -> dict:
+def concept_map(ws: Workspace, f: Filters | None = None, n: int = DEFAULT_N, settings: dict | None = None) -> dict:
     """{"built", "filters", "passages" (in scope), "concepts_in_scope", "nodes": [{"id", "label", "passages",
     "group", "x", "y"}], "edges": [{"a", "b", "together", "pmi"}], "links": [{"a", "b", "relation", "source"}],
-    "groups": [{"group", "size", "names"}], "links_off_map"}. `id` is a term id of the glossary (the page of the
-    concept: for a concept of several wordings, `conceptpaths._Graph.term`), as are every edge's and link's "a" and "b".
+    "groups": [{"group", "size", "names", "concepts" (term ids, the most central first), "name", "name_source",
+    "name_id", "model", "quote", "changed", "naming_failed"}], "names_elsewhere", "can_name", "links_off_map"}. `id` is
+    a term id of the glossary (the page of the concept: for a concept of several wordings, `conceptpaths._Graph.term`),
+    as are every edge's and link's "a" and "b". The groups' names: groupnames.attach (nothing asks an AI here).
     Raises KeyError for a theme set that does not exist."""
     f = f or Filters()
     n = max(MIN_N, min(MAX_N, int(n or DEFAULT_N)))
     out = {"built": _built(ws), "filters": f.applied or f.describe(), "n": n, "passages": 0, "concepts_in_scope": 0,
-           "nodes": [], "edges": [], "links": [], "groups": [], "links_off_map": 0}
+           "nodes": [], "edges": [], "links": [], "groups": [], "links_off_map": 0, "names_elsewhere": [],
+           "can_name": {"offered": False, "why": None, "reader": None}}
     if not out["built"]:
         return out
     g = _Graph(ws)
@@ -460,6 +465,9 @@ def concept_map(ws: Workspace, f: Filters | None = None, n: int = DEFAULT_N) -> 
         idx = {x: i for i, x in enumerate(chosen)}
         # how often each pair is mentioned together (in SQLite: only the pairs that can be an edge come back)
         together = sc.together(chosen, MIN_TOGETHER)
+        # the documents in scope (whose AI settings say whether the AI may be offered to name the groups)
+        in_scope = {r[0] for r in sc.cx.execute(f"SELECT DISTINCT p.doc_id FROM {_T_PS} s JOIN passages p ON "
+                                                f"p.passage_id=s.passage_id")}
     pmi: dict[tuple[int, int], float] = {}
     for (a, b), c in together.items():
         v = math.log2(c * total / (node_n[chosen[a]] * node_n[chosen[b]]))
@@ -530,6 +538,18 @@ def concept_map(ws: Workspace, f: Filters | None = None, n: int = DEFAULT_N) -> 
                       "names": [label(chosen[i]) for i in sorted(ms, key=lambda i: (-node_n[chosen[i]], i))[:3]]}
                      for gi, ms in enumerate(real, 1)]
     out["links_off_map"] = len(off)
+    # each group's concepts, the most central first: the most strongly joined inside the group (the edges it was
+    # found from), then the most passages
+    strength = [0.0] * len(chosen)
+    for (a, b) in for_groups:
+        if group[a] is not None and group[a] == group[b]:
+            strength[a] += pmi[(a, b)] / mx
+            strength[b] += pmi[(a, b)] / mx
+    members = [[tid(chosen[i]) for i in sorted(ms, key=lambda i: (-round(strength[i], 9), -node_n[chosen[i]], i))]
+               for ms in real]
+    from . import groupnames
+
+    groupnames.attach(ws, out, members, {tid(x): label(x) for x in chosen}, out["filters"], n, in_scope, settings)
     return out
 
 
@@ -639,7 +659,9 @@ def as_text(m: dict) -> str:
                      "together in two or three of them can look strong by chance.")
     for gr in m["groups"]:
         ms = [x["label"] for x in m["nodes"] if x["group"] == gr["group"]]
-        lines.append(f"Group {gr['group']} ({gr['size']}): {', '.join(ms)}")
+        how = {"ai_draft": ", the AI's draft", "ai": ", the AI's name"}.get(gr.get("name_source"), "")
+        name = f"{gr['name']}{how}" if gr.get("name") else f"Group {gr['group']}"
+        lines.append(f"{name} ({gr['size']}): {', '.join(ms)}")
     alone = [x["label"] for x in m["nodes"] if x["group"] is None]
     if alone:
         lines.append(f"In no group: {', '.join(alone)}")

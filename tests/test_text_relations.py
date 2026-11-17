@@ -141,3 +141,101 @@ def test_a_pair_with_a_link_already_gets_no_pattern_link(built):
     terms.build(ws)
     assert ws.query("SELECT source FROM concept_links WHERE a=? AND b=?", (a, b)) and \
         not ws.query("SELECT 1 FROM concept_links WHERE a=? AND b=? AND source='pattern'", (a, b))
+
+
+# ---- D1 rest: needs, shapes, clashes ---------------------------------------------------------------------------
+def test_needs_shapes_and_clashes_by_their_verb_forms():
+    for verb in ("requires", "required", "requiring", "needs", "needed", "depends on", "depended on", "relies on",
+                 "relying on", "can depend on", "is dependent on", "are reliant on", "often needs the"):
+        assert pairs(f"Remote work {verb} commuting.") == {("remote work", "commuting", "needs")}, verb
+    for verb in ("shapes", "shaped", "shaping", "influences", "influenced", "influencing", "affects", "affected",
+                 "affecting", "determines", "determined", "determining", "may influence"):
+        assert pairs(f"A carbon tax {verb} emissions.") == {("carbon tax", "emissions", "shapes")}, verb
+    for verb in ("conflicts with", "conflicted with", "clashes with", "clashed with", "is at odds with",
+                 "was at odds with", "are at odds with"):
+        assert pairs(f"Solar power {verb} wind power.") == {("solar power", "wind power", "clashes")}, verb
+    assert pairs("Solar power needs the wind power.") == {("solar power", "wind power", "needs")}
+
+
+def test_undermines_is_an_effect_not_a_clash():
+    for verb in ("undermines", "undermined", "undermining"):
+        assert pairs(f"A carbon tax {verb} emissions.") == {("carbon tax", "emissions", "effect")}, verb
+
+
+def test_needs_to_and_quotation_marks_propose_nothing():
+    assert pairs("A carbon tax needs to cut emissions.") == set()
+    assert pairs("Remote work needs to reduce commuting.") == set()
+    assert pairs('She wrote "remote work requires commuting" in 2019.') == set()
+    assert pairs("The book “Solar power conflicts with wind power” was read.") == set()
+    assert pairs("Solar power at odds with wind power was rare.") == set()
+
+
+def test_the_new_relations_are_turned_round_with_the_pair():
+    assert textrelations._INV["needs"] == "needed_by" and textrelations._INV["needed_by"] == "needs"
+    assert textrelations._INV["shapes"] == "shaped_by" and textrelations._INV["shaped_by"] == "shapes"
+    assert textrelations._INV.get("clashes", "clashes") == "clashes"
+    for rel in ("needs", "needed_by", "shapes", "shaped_by", "clashes"):
+        assert rel in terms.LINK_RELATIONS
+    assert "clashes" not in terms._INVERSE
+    for rel in ("needs", "needed_by", "shapes", "shaped_by"):
+        assert terms._INVERSE[terms._INVERSE[rel]] == rel
+
+
+def test_a_person_adds_the_new_links_and_sees_them_from_the_other_end(built):
+    ws = built
+    ep, gb, hs = _term(ws, "energy poverty"), _term(ws, "gas boilers"), _term(ws, "heating systems")
+    a, b = sorted((ep, gb))   # pairs the sentences state nothing about
+    terms.set_link(ws, a, b, "add", "needs")
+    from_a = next(x for x in terms._related(ws, [a], terms.links(ws))["links"] if x["term_id"] == b)
+    from_b = next(x for x in terms._related(ws, [b], terms.links(ws))["links"] if x["term_id"] == a)
+    assert from_a["relation"] == "needs" and from_b["relation"] == "needed_by"
+    # given from the larger id, it is stored from the smaller one, turned round
+    terms.set_link(ws, b, a, "change", "shapes")
+    assert next(x for x in terms.links(ws) if (x["a"], x["b"]) == (a, b))["relation_effective"] == "shaped_by"
+    # clashes is the same from both ends
+    c, d = sorted((ep, hs))
+    terms.set_link(ws, d, c, "add", "clashes")
+    assert next(x for x in terms._related(ws, [c], terms.links(ws))["links"] if x["term_id"] == d)["relation"] == "clashes"
+    assert next(x for x in terms._related(ws, [d], terms.links(ws))["links"] if x["term_id"] == c)["relation"] == "clashes"
+    with pytest.raises(ValueError):
+        terms.set_link(ws, a, b, "add", "nonsense")
+
+
+# ---- review finding: false links from longer terms, questions and negations ---------------------------------------
+def _pairs_with(sentence: str, terms_: tuple[str, ...]) -> set[tuple[str, str, str]]:
+    ms = [(m.start(), m.end(), t) for t in terms_ for m in re.finditer(r"\b" + re.escape(t) + r"\b", sentence, re.I)]
+    return set(textrelations._pairs(sentence, ms))
+
+
+def test_a_longer_known_term_around_the_verb_is_not_a_link():
+    nt = ("training", "assessment", "training needs assessment")
+    assert _pairs_with("The firm ran a training needs assessment last year.", nt) == set()
+    # a separate pair of terms still links
+    assert _pairs_with("Training needs the assessment.", nt) == {("training", "assessment", "needs")}
+
+
+def test_a_question_or_a_negation_before_the_first_term_is_not_a_link():
+    assert pairs("The study asks whether remote work affects emissions.") == set()
+    assert pairs("We do not know if remote work affects emissions.") == set()
+    assert pairs("Nothing in remote work conflicts with commuting.") == set()
+    assert pairs("Whether or not remote work influences commuting is unclear.") == set()
+    assert pairs("There is no sign that a carbon tax reduces emissions.") == set()
+    assert pairs("Heat pumps never replace anything, nor gas boilers.") == set()
+    assert pairs("A carbon tax without remote work needs commuting.") == set()
+    # the true positives next to them
+    assert pairs("Remote work affects commuting.") == {("remote work", "commuting", "shapes")}
+    assert pairs("The study shows remote work conflicts with commuting.") == {("remote work", "commuting", "clashes")}
+    assert pairs("Remote work needs commuting.") == {("remote work", "commuting", "needs")}
+    assert pairs("The study asked a question, and remote work affects commuting.") == \
+        {("remote work", "commuting", "shapes")}
+    assert pairs("Whether it works is unclear, but a carbon tax reduces emissions.") == \
+        {("carbon tax", "emissions", "effect")}
+    assert pairs("Households chose heat pumps instead of gas boilers.") == {("heat pumps", "gas boilers", "replaces")}
+    assert pairs("Nothing here: households chose heat pumps instead of gas boilers.") == \
+        {("heat pumps", "gas boilers", "replaces")}
+
+
+def test_negation_does_not_touch_broader_narrower_or_same():
+    assert pairs("Not all renewable energy such as solar power is cheap.") == \
+        {("renewable energy", "solar power", "broader")}
+    assert pairs("No remote work, also called telework, was allowed.") == {("remote work", "telework", "same")}

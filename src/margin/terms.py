@@ -49,9 +49,12 @@ MEANING_MIN = 0.85        # cosine from which two mutual nearest neighbours are 
 _JOIN = re.compile(r"[\s\-‐‑]*")   # what may stand between two words of a term
 LINK_RELATIONS = ("same", "broader", "narrower", "related", "different",
                   # 0.18.1 (D2, textrelations.py): "X leads to Y" (from a to b; seen from b: effect_of), "X instead of Y"
-                  "effect", "effect_of", "replaces", "replaced_by")
+                  "effect", "effect_of", "replaces", "replaced_by",
+                  # D1 rest: needs (seen from the other end: needed_by), shapes (shaped_by), clashes (symmetric, like related)
+                  "needs", "needed_by", "shapes", "shaped_by", "clashes")
 _INVERSE = {"broader": "narrower", "narrower": "broader", "effect": "effect_of", "effect_of": "effect",
-            "replaces": "replaced_by", "replaced_by": "replaces"}
+            "replaces": "replaced_by", "replaced_by": "replaces", "needs": "needed_by", "needed_by": "needs",
+            "shapes": "shaped_by", "shaped_by": "shapes"}
 
 
 def term_id(stems: str) -> str:

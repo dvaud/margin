@@ -1866,6 +1866,12 @@ terms.
 - `GET /api/projects/<p>/codebooks/<name>.qdc` → 0.18.7 (G5): the codebook as a REFI-QDA codebook (`urn:QDA-XML:codebook:1.0`) for NVivo, ATLAS.ti and MAXQDA: its groups as parent codes, each code's definition, when to use it and when not, keywords and examples as its description (`qdpx.codebook_xml`). 404 for an unknown codebook.
 - `GET /api/projects/{p}/document-roles` → `{"roles": {doc id: "theory"}, "nonscientific": [doc ids]}` (only the
   documents with a role; 0.18.6: and those marked Non-scientific).
+- Roadmap N3: `PUT /api/projects/{p}/document-roles` `{"doc_ids": [...], "role": "theory" | "working" | null, "why"?}`
+  → `{"role", "changed": [ids], "unchanged": [ids], "was": {id: role before}, "marked_nonscientific": [ids], "roles",
+  "nonscientific"}` (the last two as the GET above): one role for many documents by the rules of one
+  (`docrole.set_roles`), with ONE research-log entry for the batch (`subject_kind` "documents" when more than one
+  changed; `data`: `{"role", "was", "documents"}`). 400 for another role or no documents, 404 (nothing changed) when
+  one is not in the project. The bulk bar's *Undo* sends the documents back by the role each had.
 - `GET /api/projects/{p}/documents/{d}/role` → `{"doc_id", "role": "theory" | "working" | null, "impact":
   {"themes": [{"run_id", "created_at", "passages"}], "labels": [{"framework", "name", "passages"}], "checks":
   [{"hyp_id", "text", "excerpts"}]}}`: what was made with the document in.
@@ -2031,8 +2037,15 @@ in the project folder (`drafts/codebook-from-theory.json`, not shared through th
   "concepts_in_scope", "nodes": [{"id" (a term id), "label", "passages", "group" (1… or null), "x", "y" (0 to 1, for a
   map 1.6 times as wide as high)}], "edges": [{"a", "b", "together", "pmi"}], "links": [{"a", "b", "relation",
   "source", "types": [{"relation" (seen from a), "source"}]}] (one per pair; "relation" and "source" are its first
-  type), "groups": [{"group", "size", "names"}], "links_off_map" (links with exactly one end on the map)}`. `n` is 10
-  to 150. 400 for a malformed filter or an unknown codebook, 404 for a set of themes that is gone.
+  type), "groups": [{"group", "size", "names", "concepts" (term ids, the most central first), "name", "name_source"
+  ("concepts" | "person" | "ai_draft" | "ai"), "name_id" (null for a name made from its concepts), "model" (an AI
+  name's), "quote" ({"quote", "doc_id", "title", "page", "start", "end"} for an AI name), "changed" (null or {"left",
+  "joined"}: labels), "naming_failed" (null or {"reason", "model"})}], "names_elsewhere" ([{"id", "name",
+  "name_source", "concepts" (the first six labels), "more"}]: kept names no group on this map takes), "can_name"
+  ({"offered", "why", "reader": "claude" | "local" | "main" | null}: whether the AI may be asked to name the groups;
+  nothing asks a model), "links_off_map" (links with exactly one end on the map)}`. `n` is 10 to 150. 400 for a
+  malformed filter or an unknown codebook, 404 for a set of themes that is gone. Relations of links may also be
+  `needs`, `needed_by`, `shapes`, `shaped_by` and `clashes` (D1, the rest).
 - `GET /api/projects/{p}/concept-map/options` → `{"documents": [{"doc_id", "title"}], "themes": {"run_id", "themes":
   [{"theme_id", "name"}]}, "codebooks": [{"name", "title", "codes": [{"code", "description"}]}], "years": [yyyy]}`:
   what the filters can choose from (evidence documents only).
@@ -2041,10 +2054,26 @@ in the project folder (`drafts/codebook-from-theory.json`, not shared through th
   null, "passages": [{"passage_id",
   "doc_id", "title", "page", "location", "text", "start"}]}` (the first 5, by document). 400 without both, 404 for a
   term the glossary does not know.
+- `POST /api/projects/{p}/concept-map/names` `{"action", …}` → `{"record"}` (D1, the rest, `groupnames.py`): a change to
+  a group's name. Actions: `rename` `{"name_id"?, "name", "concepts", "labels", "filters", "n"}` (the researcher's
+  name for the group as it is now; 400 for an empty name), `use_concepts` `{"name_id", "concepts"}` (named by its
+  concepts again), `accept` `{"name_id" | "items": [{"name_id", "concepts", "labels"}], …}` (the AI's draft used),
+  `unaccept` `{"name_id" | "items"}` (Undo), `keep` `{"name_id", "concepts", "labels", "filters", "n"}` (a changed
+  group's name goes with it as it is), `forget` `{"name_id"}` (returns the removed record) and `restore`
+  `{"record"}` (Undo). 404 for a name that is not there. The names stay on this computer: this route starts no round
+  of the shared folder.
+- `POST /api/projects/{p}/concept-map/name-groups[?n=60&…filters]` `{"which": "unnamed" | "again"}` → `{"job"}` (kind
+  `group-names`): the AI drafts a name for the groups still named by their concepts (`again`: every group but those
+  the researcher named), one task of kind `group_name` per group, from a few passages where its concepts are mentioned
+  together, only from documents the reader may read. The request only queues the work; the job waits for its own
+  Start, as every AI job does. Its result: `{"named", "failed", "groups", "skipped" (groups with no passage the AI may
+  read), "stopped", "model", "failures"}`. 400 when the map has no group or no AI may read its documents.
 
 Links found from the text (roadmap D2, `textrelations.py`) need no route of their own: they are rows of the concept
 page's `related.links` with `"source": "pattern"` and their `"sentences"` (`[{"doc_id", "title", "page", "start",
-"end", "quote"}]`); relations gain `effect`, `effect_of`, `replaces` and `replaced_by`.
+"end", "quote"}]`); relations gain `effect`, `effect_of`, `replaces` and `replaced_by`, and with D1 (the rest)
+`needs`, `needed_by`, `shapes`, `shaped_by` and `clashes` (`clashes` is the same from both ends; the others turn into
+their pair when seen from the other concept).
 
 **Reader 5: figures and tables from their rules** (roadmap A6, `reader5.py`).
 
@@ -2076,13 +2105,19 @@ answer, also written into the research log as kind `verdict-moved`, else null).
 
 Looks the DOIs of the bibliography's works and of the documents up in Crossref, which carries Retraction Watch's
 retractions and the publishers' corrections and expressions of concern. Only when asked. Off under local-only (400,
-nothing sent). Only DOIs are sent, with a plain `User-Agent: Margin/<version>`. A work whose document is marked
-No AI is not looked up. The Crossref address can be set with `MARGIN_CROSSREF_URL` (tests use a stand-in).
+nothing sent). DOIs are sent, and for a work of the bibliography without a usable DOI (a published kind of item, with
+a title of three words or more, a first author's family name and a year) its title, first author's family name and
+year, one request per work (at most 300 a lookup), with a plain `User-Agent: Margin/<version>` and nothing else. A work
+whose document is marked No AI is not looked up; by title, a work linked (even probably) to a No AI or a working
+document is not looked up either. A match by title is strict (the
+same title, a year within one, the same first author, and one candidate only); the matched DOI's notices are found as
+any DOI's. A document with no DOI and no work of the bibliography is never looked up by title. The Crossref address can be set with `MARGIN_CROSSREF_URL` (tests use a stand-in).
 
 | Route | Answer |
 | --- | --- |
-| `GET /api/projects/<name>/retractions` | What the last lookups found: `{"local_only", "checked_at" (the latest lookup or null), "checked", "affected", "by_doi": {doi: {"checked_at", "notices"}}, "by_item": {item_key: [notice]}, "by_doc": {doc_id: [notice]}, "plan": {"ask", "no_ai"}}`. A notice is `{"type": "retraction", "correction", "expression_of_concern", …, "doi": the notice's DOI, "date", "source", "work_doi", "checked_at"}`. Only works with a notice are listed. |
-| `POST /api/projects/<name>/retractions/check` | Starts the lookup as a job (`{"job"}`; `progress` has `done` and `total` DOIs; one at a time per project). Its result: `{"looked_up", "no_ai", "notices", "capped", "checked_at"}`. 400 under local-only or when there is no DOI to ask about. |
+| `GET /api/projects/<name>/retractions` | What the last lookups found: `{"local_only", "checked_at" (the latest lookup or null), "checked", "affected", "by_doi": {doi: {"checked_at", "notices"}}, "by_item": {item_key: [notice]}, "by_doc": {doc_id: [notice]}, "plan": {"ask", "no_ai"}, "title_plan": {"ask", "no_ai", "working", "capped"}, "title_matches": [{"item_key", "doi", "title", "year", "author", "checked_at", "notices"}]}`. A notice is `{"type": "retraction", "correction", "expression_of_concern", …, "doi": the notice's DOI, "date", "source", "work_doi", "checked_at"}`; one found by title also has `"found_by": "title"` and `"match": {"doi", "title", "year", "author"}`. Only works with a notice are listed; a match the researcher rejected is not. |
+| `POST /api/projects/<name>/retractions/check` | Starts the lookup as a job (`{"job"}`; `progress` has `done` and `total` works and DOIs asked; one at a time per project). Its result: `{"looked_up", "no_ai", "notices", "capped", "checked_at", "by_title", "title_matched", "title_ambiguous", "title_capped"}`. 400 under local-only or when there is nothing to ask about. |
+| `POST /api/projects/<name>/retractions/matches/<item_key>` | Body `{"reject": true}` (the default): *Not this work*, the match by title of this work is hidden and not proposed again; `{"reject": false}` takes it back. Kept with who and when (`rejected_by` is the person) and written in the research log (kind `retraction-match`, subject `bib_item`). Answer: `{"item_key", "doi", "title", "rejected", "changed"}`. 404 for a work with no match. |
 
 `GET …/bibliography` gives each work a `notices` list, and `retractions: {checked_at, affected, local_only}` beside `counts`.
 
@@ -2091,14 +2126,19 @@ No AI is not looked up. The Crossref address can be set with `MARGIN_CROSSREF_UR
 The local model and Claude answer the same sample of an answered kind of task, and
 Cohen's kappa compares their decisions (the grade of each excerpt for `check`, `reread` and `second`; whether each
 candidate code applies for `label`; the relation of each pair of terms for `link`). Only tasks whose documents Claude
-may read are used. An answer a task already has from a route is reused; only what is missing is asked. Nothing is stored
-in the project (the passages sent to Claude are noted in the ledger). Kappa from 0.8 is good, from 0.6 fair, below
-that poor.
+may read are used. An answer a task already has from a route is reused; only what is missing is asked. The passages sent to
+Claude are noted in the ledger. Kappa from 0.8 is good, from 0.6 fair, below that poor.
+
+**Kept comparisons.** A comparison that ran to its end (tasks that failed inside it count, with `failed`) is kept in
+the project's `agreement_runs` table: `{"run_id", "at" (UTC, ISO), "kind", "n", "compared", "failed", "decisions",
+"kappa", "agree", "local_model", "claude_model", "app_version"}`. One stopped with Stop is not kept. The comparisons
+describe this computer's local model, so they stay in this copy of the project: they are not sent through sync, the
+shared folder or a zip for a colleague (a zip of your whole project, for moving it, keeps them).
 
 | Route | Answer |
 | --- | --- |
-| `GET /api/projects/<name>/agreement/plan` | `{"kinds": [{"kind", "answered", "name", "noun"}], "problem": a sentence when it cannot start (Claude not the main AI, no local model, local-only) or null, "claude": the main backend, "plan": null}`. With `?kind=label&n=30` (n 10 to 100), `plan` is `{"kind", "n" (tasks compared), "ask_local", "ask_claude" (tasks each route would be asked), "left_out" (answered tasks Claude may not read)}`. 400 for a kind without a decision. |
-| `POST /api/projects/<name>/agreement` | Body `{"kind", "n"}`. Starts a job (`{"job"}`, kind `agreement`; `progress` has `done` and `total` tasks). Its result: `{"kind", "n", "compared", "failed", "kappa" (null when undefined), "agree" (share of identical decisions), "decisions", "verdict" (a plain sentence), "left_out", "asked": {"local", "claude"}, "items": [{"task_id", "decisions", "same", "local", "claude" ("stored" or "asked")} or {"task_id", "error"}], "thresholds": {"good": 0.8, "fair": 0.6}}`. 400 when it cannot start. |
+| `GET /api/projects/<name>/agreement/plan` | `{"kinds": [{"kind", "answered", "name", "noun"}], "problem": a sentence when it cannot start (Claude not the main AI, no local model, local-only) or null, "claude": the main backend, "plan": null, "kept": the kept comparisons, newest first, at most 20}`. With `?kind=label&n=30` (n 10 to 100), `plan` is `{"kind", "n" (tasks compared), "ask_local", "ask_claude" (tasks each route would be asked), "left_out" (answered tasks Claude may not read)}`. 400 for a kind without a decision. |
+| `POST /api/projects/<name>/agreement` | Body `{"kind", "n"}`. Starts a job (`{"job"}`, kind `agreement`; `progress` has `done` and `total` tasks). Its result: `{"kind", "n", "compared", "failed", "kappa" (null when undefined), "agree" (share of identical decisions), "decisions", "verdict" (a plain sentence), "left_out", "asked": {"local", "claude"}, "items": [{"task_id", "decisions", "same", "local", "claude" ("stored" or "asked")} or {"task_id", "error"}], "thresholds": {"good": 0.8, "fair": 0.6}, "local_model", "claude_model" (the names the two routes answered under), and for a finished run "kept" (its stored row) and "previous" (the last kept run of the same kind before it, or null)}`. A stopped run has neither. 400 when it cannot start. |
 
 **The answers a page at a time (H5).** `GET …/hypotheses?offset=<n>&limit=<n>` (with the same `q`, `status`, `batch`
 and `threshold`) answers one page of the list: `hypotheses` holds at most `limit` rows (100 when not given, at most

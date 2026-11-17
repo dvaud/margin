@@ -437,11 +437,12 @@ class _Merge(CodebookRules, ReadingRules, ShareRules, OwnerRules):
                     if self._doc_ok(r) and r["doc_id"] in self.docs and self.docs[r["doc_id"]] not in have_mentions]
         self._insert(cx, "mentions", mentions)
         # the tasks behind them (and every other finished task outside checks and theme runs): how each answer was made
-        from ..sharing import ITEM_TASK_KINDS
+        from ..sharing import ITEM_TASK_KINDS, LOCAL_TASK_KINDS
 
+        skipped = (*ITEM_TASK_KINDS, *LOCAL_TASK_KINDS)
         tasks = [t for t in _rows(self.icx, f"SELECT * FROM tasks WHERE status NOT IN ({','.join('?' * len(UNFINISHED))}) "
-                                            f"AND kind NOT IN ({','.join('?' * len(ITEM_TASK_KINDS))})",
-                                  (*UNFINISHED, *ITEM_TASK_KINDS))
+                                            f"AND kind NOT IN ({','.join('?' * len(skipped))})",
+                                  (*UNFINISHED, *skipped))
                  if not any(x in self.skip_docs for x in _TOKEN.findall(t["task_id"]))]
         added = {self._id("task_id", t["task_id"]) for t in tasks}
         self._insert(cx, "tasks", [dict(t, queued=0, claimed_by=None, access=None) for t in tasks],

@@ -66,9 +66,14 @@ are left out. The result is the share of identical decisions and Cohen's kappa, 
 alone would give: 1 is full agreement, 0 is chance. From 0.8 the local model is good enough for that kind, from 0.6 fair
 (review what it answers), below that poor (let Claude read these).
 
-It is a measurement: it is asked only when you press the button, nothing is stored in the project's results, and the
-passages sent to Claude are noted in the list of what left your computer. Agreement is not correctness: Claude is not
-always right either. Cannot change results.
+It is a measurement: it is asked only when you press the button, it changes none of the project's results, and the
+passages sent to Claude are noted in the list of what left your computer. Each comparison that runs to its end is kept,
+with its date, in the project on this computer (not one you stop with Stop). Under the box, *Earlier comparisons* lists
+them, newest first: the kind of task, how many were compared, kappa, the share that agree, the two models' names and
+the Margin version. When a new comparison finishes, its result sets kappa beside the last one of the same kind (for
+example "Kappa 0.62 on 3 Nov 2026 → 0.71 now"), so you can see whether a different model or a new version helped. The
+list describes the local model on this computer, so it does not travel to colleagues with the project. Agreement is not
+correctness: Claude is not always right either. Cannot change results.
 
 ### Models that suit your Claude plan
 

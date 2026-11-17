@@ -35,6 +35,7 @@ export const JOB_KINDS = {
   "theory-codes": { icon: "book-marked", text: "Drafting codes from a theory", link: "#/codebooks" },   // 0.18.4 (K2)
   "theory-frame": { icon: "book-marked", text: "Reading the theory for a codebook", link: "#/codebooks/draft/theory" },   // K2, the framework draft
   "code-define": { icon: "sparkles", text: "Drafting a code's definition", link: "#/codebooks" },   // K1, the optional AI part
+  "group-names": { icon: "sparkles", text: "Naming the groups of concepts", link: "#/concept-map" },   // D1 rest, the optional AI part
   quicklook: { icon: "eye", text: "Quick look", link: "#/sources" },
   "claude-install": { icon: "download", text: "Installing Claude Code", link: "#/settings/model" },
   "model-pull": { icon: "download", text: "Downloading a model", link: "#/settings/model" },   // 0.13.7

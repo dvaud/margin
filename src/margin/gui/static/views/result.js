@@ -197,8 +197,9 @@ function retractedMark(docId) {
   if (!ns || !ns.length) return null;
   const bad = ns.some((n) => ["retraction", "withdrawal", "removal"].includes(n.type));
   const what = [...new Set(ns.map((n) => (n.type || "notice").replace(/_/g, " ")))].join(", ");
-  return tag({ kind: "attention", title: `Crossref lists a ${what} for the work this document is${ns[0].date ? ` (notice dated ${ns[0].date})` : ""}. Checked ${fmt.dateShort(ns[0].checked_at)}. Read the notice before relying on this excerpt.` },
-    bad ? "work retracted" : "work corrected or flagged");
+  const byTitle = ns.some((n) => n.found_by === "title");
+  return tag({ kind: "attention", title: `Crossref lists a ${what} for the work this document is${ns[0].date ? ` (notice dated ${ns[0].date})` : ""}. Checked ${fmt.dateShort(ns[0].checked_at)}.${byTitle ? ` The work was found by its title${ns[0].match && ns[0].match.doi ? ` (${ns[0].match.doi})` : ""}: check that it is the same work in Bibliography.` : ""} Read the notice before relying on this excerpt.` },
+    bad ? "work retracted" : "work corrected or flagged", byTitle ? " · found by title" : "");
 }
 
 // Why an excerpt waits for a person: its document's AI setting or (0.19.0, N3) that of the document the hypothesis's

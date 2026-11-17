@@ -54,10 +54,11 @@ def test_the_concept_map_on_the_command_line(mapped, capsys):
     path = str(mapped.root)
     assert cli.main(["--ws", path, "concept-map", "--n", "12"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("12 of ") and "concepts, from" in out and "Group 1" in out
+    assert out.startswith("12 of ") and "concepts, from" in out
     assert "Mentioned together more often than by chance:" in out and "PMI" in out
     assert cli.main(["--ws", path, "concept-map", "--n", "12", "--json"]) == 0
     m = json.loads(capsys.readouterr().out)
+    assert m["groups"][0]["name"] in out          # D1 rest: each group by its name
     assert len(m["nodes"]) == 12 and m["built"] is True
     for args, said in ((["--theme", "bad"], "A theme is <run id>:<theme id>."),
                        (["--theme", ":1"], "A theme is <run id>:<theme id>."),
