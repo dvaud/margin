@@ -418,9 +418,92 @@ def _shared_in_job(backend, model: str):
 
 def _local_after(readers) -> None:
     """0.19.13: wait for the local parts a check handed to the job's local gate (read once the person starts the local
-    model). Stopped meanwhile, they keep waiting for the local model, and the check keeps what Claude read."""
+    model). Stopped meanwhile, the first round of a check keeps them waiting for the local model, and the check keeps
+    what Claude read; a further round is reset instead (`_undo_unread`)."""
     if readers is not None:
         readers.drain()
+
+
+def _was_stopped(should_stop: Callable[[], bool] | None, readers=None) -> bool:
+    """Whether the job was stopped (its own Stop, or the Stop the backend was wired to)."""
+    try:
+        if should_stop is not None and should_stop():
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return readers is not None and readers.stopped()
+
+
+def _drop_parts(cx, tids: list[str]) -> None:
+    """Remove parts of a round: their tasks, answers and excerpt rows, and a second opinion asked of them."""
+    tids = [t for t in tids if t]
+    for tid in tids:
+        pl = cx.execute("SELECT payload_json FROM tasks WHERE task_id=?", (tid,)).fetchone()
+        for p in (json.loads(pl[0])["passages"] if pl else []):
+            cx.execute("DELETE FROM verifications WHERE ver_id=?", (f"v{tasks._h(tid, p['passage_id'])}",))
+        # second:<part>:<model>; the main part's prefix also starts its local and person parts' ids, kept unless dropped
+        head = f"second:{tid}:"
+        seconds = [r[0] for r in cx.execute("SELECT task_id FROM tasks WHERE substr(task_id, 1, ?) = ?", (len(head), head))
+                   if not any(r[0].startswith(f"{head}{s}:") for s in ("local", "person"))
+                   or any(r[0].startswith(f"second:{o}:") for o in tids if o != tid)]
+        for t in [tid, *seconds]:
+            cx.execute("DELETE FROM results WHERE task_id=?", (t,))
+            cx.execute("DELETE FROM tasks WHERE task_id=?", (t,))
+
+
+def _person_judged(cx, cid: str, tid: str) -> bool:
+    """Whether the person judged or commented on an excerpt of a part that waits for them."""
+    pl = cx.execute("SELECT payload_json FROM tasks WHERE task_id=?", (tid,)).fetchone()
+    for p in (json.loads(pl[0])["passages"] if pl else []):
+        row = cx.execute("SELECT user_verdict, user_note FROM verifications WHERE ver_id=?",
+                         (f"v{tasks._h(tid, p['passage_id'])}",)).fetchone()
+        if (row is not None and (row[0] or row[1])) or cx.execute(
+                "SELECT 1 FROM judgements WHERE claim_id=? AND passage_id=?", (cid, p["passage_id"])).fetchone():
+            return True
+    return False
+
+
+def _undo_unread(ws: Workspace, cid: str, parts: dict[str, str], terms_before: str | None = None) -> bool:
+    """0.19.17: Stop resets a further round of a check (Read it, Read these, Read more excerpts, Search with other
+    words): what no model read is taken back, as if it had not been asked, so the page shows the button that asked it
+    again instead of a panel that waits for a model (the owner's rule: after Stop, start again by its own click; a
+    document's AI setting changed meanwhile then decides who reads it). Nothing read: the whole round goes, and the
+    search words it added with it. Claude read its part: that stays, and only the local part that waits goes. A
+    judgement of the person stays. Returns whether anything was taken back."""
+    with ws.connect() as cx:
+        st = {}
+        for key, tid in parts.items():
+            row = cx.execute("SELECT status FROM tasks WHERE task_id=?", (tid,)).fetchone()
+            if row is not None:
+                st[key] = row[0]
+        if not st or st.get("local") in ("done", "failed"):
+            return False   # gone already, or the local model has read it: kept
+        if st.get("main") in ("done", "failed"):
+            if st.get("local") not in ("pending", "retry"):
+                return False
+            _drop_parts(cx, [parts["local"]])
+            return True
+        if "person" in st and _person_judged(cx, cid, parts["person"]):
+            drop = [parts[k] for k in ("main", "local") if k in st]
+        else:
+            drop = [parts[k] for k in st]
+            if terms_before is not None:
+                cx.execute("UPDATE user_claims SET terms_json=? WHERE claim_id=?", (terms_before, cid))
+        if not drop:
+            return False
+        _drop_parts(cx, drop)
+        return True
+
+
+def _undo_rounds(ws: Workspace, made: list[tuple[str, dict]]) -> bool:
+    """`_undo_unread` for every round a job made; whether anything was taken back."""
+    undone = False
+    for cid, parts in made:
+        try:
+            undone = _undo_unread(ws, cid, parts) or undone
+        except Exception:  # noqa: BLE001 - one round that cannot be reset never keeps the others waiting
+            pass
+    return undone
 
 
 def _read_local_part(ws: Workspace, task_id: str, readers, say=lambda *a, **k: None) -> None:
@@ -1167,6 +1250,7 @@ def continue_check(ws: Workspace, cid: str, backend, model: str, k: int = 8, ter
     say("rank", "Looking for further excerpts not read yet", {})
     own = readers is None
     readers = _readers(backend, model, readers)
+    terms_before = ws.scalar("SELECT terms_json FROM user_claims WHERE claim_id=?", (cid,)) if terms else None
     r = more_passages(ws, cid, k=k, model=used, terms=terms, embedder=embedder, doc_ids=doc_ids,
                       main_levels=tuple(readers.main_levels), local_reader=readers.local_configured())
     if not r["passages"]:
@@ -1179,17 +1263,15 @@ def continue_check(ws: Workspace, cid: str, backend, model: str, k: int = 8, ter
         ok = _run_round(ws, parts, backend, model, readers, say)
     except BaseException:
         with ws.connect() as cx:  # a round stopped by a backend problem is removed, so it can be asked again
-            for tid in parts.values():
-                pl = cx.execute("SELECT payload_json FROM tasks WHERE task_id=?", (tid,)).fetchone()
-                for p in (json.loads(pl[0])["passages"] if pl else []):
-                    cx.execute("DELETE FROM verifications WHERE ver_id=?", (f"v{tasks._h(tid, p['passage_id'])}",))
-                cx.execute("DELETE FROM results WHERE task_id=?", (tid,))
-                cx.execute("DELETE FROM tasks WHERE task_id=?", (tid,))
+            _drop_parts(cx, list(parts.values()))
         raise
     if own:
         _local_after(readers)  # 0.19.13: its local part, once the local model is started
+        # 0.19.17: stopped while its local part waited: the round is reset, and the job ends as stopped
+        if _was_stopped(should_stop, readers) and _undo_unread(ws, cid, parts, terms_before):
+            _stopper(lambda: True)()
     say("grade_done", "Read; every quote was checked against the document" if ok else "The AI's answers could not be used, even after three tries", {"ok": ok})
-    return {**r, "ok": ok}
+    return {**r, "ok": ok, "parts": parts}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1335,20 +1417,30 @@ def read_new_documents(ws: Workspace, hyp_id: str, backend, model: str, k: int =
     say = _adapt(progress)
     new = new_documents(ws, hyp_id)
     docs = [d["doc_id"] for d in new if d["matching"]]
-    total, rounds = 0, []
+    total, rounds, made = 0, [], []
     if docs:
         readers = _shared_in_job(backend, model)  # 0.19.13: in the app, every part's local part at one Start
         try:
-            for c in ws.query("SELECT claim_id FROM user_claims WHERE hyp_id=? ORDER BY part, rowid", (hyp_id,)):
-                r = continue_check(ws, c["claim_id"], backend, model, k=k, embedder=embedder, should_stop=should_stop,
-                                   doc_ids=docs, progress=lambda s, m, i=None: say(s, m, i or {}), readers=readers)
-                total += len(r["passages"])
-                rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
-                               "ok": r.get("ok")})
-            _local_after(readers)
-        finally:
-            if readers is not None:
-                _let_go(readers)
+            try:
+                for c in ws.query("SELECT claim_id FROM user_claims WHERE hyp_id=? ORDER BY part, rowid", (hyp_id,)):
+                    r = continue_check(ws, c["claim_id"], backend, model, k=k, embedder=embedder,
+                                       should_stop=should_stop, doc_ids=docs,
+                                       progress=lambda s, m, i=None: say(s, m, i or {}), readers=readers)
+                    made.append((c["claim_id"], r.get("parts") or {}))
+                    total += len(r["passages"])
+                    rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
+                                   "ok": r.get("ok")})
+                _local_after(readers)
+            finally:
+                if readers is not None:
+                    _let_go(readers)
+        except BaseException:
+            _undo_rounds(ws, made)   # 0.19.17: stopped or failed half-way: the documents wait for Read it again
+            raise
+        # 0.19.17: stopped while a local part waited: reset to before Read it (the documents still count as added
+        # since the check, so the card and its button come back), and the job ends as stopped
+        if _was_stopped(should_stop, readers) and _undo_rounds(ws, made):
+            _stopper(lambda: True)()
     with ws.connect() as cx:
         cx.execute("UPDATE hypotheses SET docs_checked_at=? WHERE hyp_id=?", (now(), hyp_id))
     return {"hyp_id": hyp_id, "documents": len(new), "matching": len(docs), "passages": total, "rounds": rounds}
@@ -1388,29 +1480,36 @@ def read_unread_documents(ws: Workspace, hyp_id: str, backend, model: str, k: in
     docs = split[1] if split else set()
     hyp_limit = set(json.loads(ws.scalar("SELECT options_json FROM hypotheses WHERE hyp_id=?", (hyp_id,)) or "{}")
                     .get("doc_ids") or [])
-    total, rounds = 0, []
+    total, rounds, made = 0, [], []
     readers = _shared_in_job(backend, model)  # 0.19.13: in the app, every part's local part at one Start
     try:
-        for c in ws.query("SELECT claim_id, text, terms_json, options_json FROM user_claims WHERE hyp_id=? "
-                          "ORDER BY part, rowid", (hyp_id,)) if docs else []:
-            limit = set(json.loads(c["options_json"] or "{}").get("doc_ids") or []) or hyp_limit
-            # each part reads the documents that hold its own words, within its limit
-            mine = sorted(docs_matching(ws, c["text"], json.loads(c["terms_json"] or "[]"),
-                                        docs & limit if limit else docs, min_words=UNREAD_MIN_WORDS))
-            if not mine:   # never an empty list: that would mean every document
-                continue
-            # one excerpt per document if need be (up to UNREAD_ROUND_MAX), not only the check's usual k: the button
-            # says "Read these"; what is left over stays on the card for the next press
-            r = continue_check(ws, c["claim_id"], backend, model, k=max(k, min(len(mine), UNREAD_ROUND_MAX)),
-                               embedder=embedder, should_stop=should_stop, doc_ids=mine,
-                               progress=lambda s, m, i=None: say(s, m, i or {}), readers=readers)
-            total += len(r["passages"])
-            rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
-                           "ok": r.get("ok")})
-        _local_after(readers)
-    finally:
-        if readers is not None:
-            _let_go(readers)
+        try:
+            for c in ws.query("SELECT claim_id, text, terms_json, options_json FROM user_claims WHERE hyp_id=? "
+                              "ORDER BY part, rowid", (hyp_id,)) if docs else []:
+                limit = set(json.loads(c["options_json"] or "{}").get("doc_ids") or []) or hyp_limit
+                # each part reads the documents that hold its own words, within its limit
+                mine = sorted(docs_matching(ws, c["text"], json.loads(c["terms_json"] or "[]"),
+                                            docs & limit if limit else docs, min_words=UNREAD_MIN_WORDS))
+                if not mine:   # never an empty list: that would mean every document
+                    continue
+                # one excerpt per document if need be (up to UNREAD_ROUND_MAX), not only the check's usual k: the
+                # button says "Read these"; what is left over stays on the card for the next press
+                r = continue_check(ws, c["claim_id"], backend, model, k=max(k, min(len(mine), UNREAD_ROUND_MAX)),
+                                   embedder=embedder, should_stop=should_stop, doc_ids=mine,
+                                   progress=lambda s, m, i=None: say(s, m, i or {}), readers=readers)
+                made.append((c["claim_id"], r.get("parts") or {}))
+                total += len(r["passages"])
+                rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
+                               "ok": r.get("ok")})
+            _local_after(readers)
+        finally:
+            if readers is not None:
+                _let_go(readers)
+    except BaseException:
+        _undo_rounds(ws, made)   # 0.19.17: stopped or failed half-way: the documents wait for Read these again
+        raise
+    if _was_stopped(should_stop, readers) and _undo_rounds(ws, made):
+        _stopper(lambda: True)()   # 0.19.17: reset to before Read these, and the job ends as stopped
     after = _unread_split(ws, hyp_id) if rounds else None
     left = after[1] if after else docs
     return {"hyp_id": hyp_id, "documents": len(docs), "documents_read": len(docs - left), "left": len(left & docs),
@@ -1441,6 +1540,9 @@ def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, 
             for t in _check_tasks(ws, c["claim_id"]):
                 if _is_person(t):
                     continue  # no model may read these excerpts
+                if t["status"] != "done":
+                    continue  # 0.19.17: not read yet (waits for the local model, Claude Code, or failed): no first
+                    # reading to compare with, and the excerpts are not shown as cards to find the difference on
                 with ws.connect() as cx:  # the setting of its documents now (it may have changed since)
                     lv = access.label_payload(cx, json.loads(t["payload_json"]))
                 if lv not in may:  # 0.11: a local excerpt has a second opinion only from a second local model
@@ -1546,7 +1648,8 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
             e["_changed"] = changed_by_person(v) and e["_mine"]
             e["_ai_judged"] = v["verdict"] in ("supports", "partially_supports", "refutes")
             ver.setdefault(v["subject_id"], []).append(e)
-            ai_of[(v["subject_id"], v["passage_id"])] = v["verdict"] if v["verdict"] in GRADES else None
+            if v["model"] != PERSON:  # 0.19.17: a second opinion differs only from a model's first reading
+                ai_of[(v["subject_id"], v["passage_id"])] = v["verdict"] if v["verdict"] in GRADES else None
 
     if not limit:
         load(None)
@@ -1610,7 +1713,7 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
                 for pid, did, *_title in shown:
                     shown_docs.add(did)
                     key = (c["claim_id"], pid)
-                    if key in second and second[key] != ai_of.get(key):
+                    if key in second and key in ai_of and second[key] != ai_of[key]:
                         disagree += 1
             limited = limited or bool(json.loads(c["options_json"] or "{}").get("doc_ids"))
             for v in ver.get(c["claim_id"], []):

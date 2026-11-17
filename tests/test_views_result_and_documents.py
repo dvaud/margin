@@ -68,6 +68,22 @@ await scenario("awaiting manual review, chosen", async (t) => {
     top: t.text(card(t, "p3").querySelector(".ev-top")) };
 });
 
+await scenario("second opinion differs: Show them", async (t) => {
+  const SO = { model: "qwen", verdict: "partially_supports", confidence: 0.7, agrees: false };
+  await result(t, RESULT([PX({ second: SO, user_verdict: "supports", reviewed: true, judged_by: "you" }), PX({ passage_id: "p4", title: "Third report" }),
+    PX({ passage_id: "p5", title: "Fifth report", second: SO })], { second_read: 3, disagreements: 2, excerpts_read: 3 }),
+    { ollama_model: "llama", second_model: "qwen" });
+  const ask = t.view.querySelector(".ask-card");
+  const fact = t.text(ask.querySelector(".ask-facts"));
+  const went = [];
+  for (let i = 0; i < 3; i++) {
+    const at = t.scrolls.length;
+    await t.click("Show them", { within: ask });
+    went.push(t.scrolls.slice(at).filter((x) => x.into).map((x) => x.into.label));
+  }
+  return { fact, went };
+});
+
 await scenario("awaiting manual review, no AI may read", async (t) => {
   await result(t, RESULT([PX(), WAITING({ by_choice: false, access: "none" }), WAITING({ passage_id: "p5", by_choice: false, access: "local" })]));
   return { heads: t.view.querySelectorAll(".evidence-head").map((x) => t.text(x)),
@@ -191,6 +207,17 @@ def test_after_a_judgement_the_keyboard_goes_on_from_show_it(page):
     assert j["focus"]["label"] == "Show it"
     assert j["showIt"] == [{"into": {"tag": "article", "label": "Not about this: Repair report", "cls": j["showIt"][0]["into"]["cls"]},
                             "how": {"behavior": "smooth", "block": "center"}}]
+
+
+@needs_node
+def test_show_them_goes_to_each_excerpt_where_the_second_opinion_differs_judged_or_not(page):
+    s = page["second opinion differs: Show them"]
+    assert "judged 2 differently" in s["fact"] and "Show them" in s["fact"]
+    # the judged one too ("Next to review" passes over it), then the other, then round again
+    labels = [w[-1] if w else None for w in s["went"]]
+    assert labels[0] and "Repair report" in labels[0]
+    assert labels[1] and "Fifth report" in labels[1]
+    assert labels[2] == labels[0]
 
 
 @needs_node

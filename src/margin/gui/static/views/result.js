@@ -244,6 +244,7 @@ export async function renderResult(view, [hypId], query) {
   const secondShown = new Set();   // 0.11.2: "claim|passage" whose passage highlights the second opinion's quote
   const pendingQuote = new Map();  // "claim|passage" -> {text, start, end}: a sentence marked before a judgement was chosen (not saved yet)
   const visitedNext = new Set();   // cards "Next to review" went to in this session, so it moves on and wraps around
+  let differAt = 0;                // 0.19.17: the card "Show them" (second opinion differs) went to last
   const wholeShown = new Set();    // 0.12: "claim|passage" whose whole excerpt is shown (otherwise the quote in its context)
   let oneReader = null;            // 0.12: who read every excerpt, when it is the same for all (said once, above the cards)
   let changingSecond = false;      // the second-model select is open to change the choice
@@ -874,6 +875,27 @@ export async function renderResult(view, [hypId], query) {
     el.classList.add("ev-flash"); setTimeout(() => el.classList.remove("ev-flash"), 1800);
     const first = el.querySelector(".judge button, .judge summary"); if (first) first.focus({ preventScroll: true });
   }
+  // 0.19.17: "Show them" beside "judged N differently": every card where the second opinion differs, in the page's
+  // order, reviewed or not ("Next to review" passes over excerpts you have judged), one per click, wrapping around
+  function differing() {
+    const out = [];
+    for (const part of (current && current.parts) || []) {
+      const L = partLists(part);
+      for (const p of [...L.shown, ...L.forYou, ...L.rest]) if (p.second && !p.second.agrees) out.push({ part, p });
+    }
+    return out;
+  }
+  function goToDiffering() {
+    if (evidenceView === "table") { evidenceView = "cards"; store("evidenceView", "cards"); draw(current); }
+    const list = differing();
+    if (!list.length) return;
+    const i = differAt % list.length;
+    differAt = i + 1;
+    const e = list[i];
+    const el = findCard(e.part.claim_id, e.p.passage_id);
+    if (el) goToCard(el);
+    if (list.length > 1) toast(`Where the second opinion differs: ${i + 1} of ${list.length}.`, "info", { small: true, ttl: 2500 });
+  }
   function nextToReview(opts = {}) {
     if (evidenceView === "table") { evidenceView = "cards"; store("evidenceView", "cards"); draw(current); }   // the cards are what it goes to
     const { list, key } = reviewOrder();
@@ -1068,14 +1090,18 @@ export async function renderResult(view, [hypId], query) {
     // the second opinion: compares
     const allSecond = secondRead >= read && read > 0;
     const secState = secondRead ? `The second opinion read ${secondRead === read ? `all ${read}` : `${secondRead} of the ${read}`} excerpts and ${disagree ? `judged ${disagree} differently` : "judged every one the same way"}.` : SECOND_WHAT;
+    // 0.19.17: where those excerpts are: a button that goes to each card in turn (the card's head says "Second opinion")
+    const secFact = () => disagree && secondRead ? [secState, " ", button({ kind: "quiet", sm: true, class: "ask-show-differ",
+      title: "Goes to each excerpt where the second opinion differs from the first AI, one per click. Each card says “Second opinion” in its head.",
+      onClick: goToDiffering }, icon("arrow-right", { size: 13 }), disagree === 1 ? "Show it" : "Show them")] : [secState];
     if (secondUsable && !changingSecond) {
       let secBtn = null;
       if (!allSecond) {
         secBtn = aiButton({ sm: true, disabled: busy.some((x) => x.kind === "second-opinion"), title: auditor ? null : ONE_MODEL_NOTE }, secondRead ? "Second opinion on the rest" : "Get a second opinion");
         secBtn.addEventListener("click", () => runSecondOpinion(secBtn));
       }
-      row(secBtn, secState);
-    } else if (secondRead) row(null, secState);
+      row(secBtn, ...secFact());
+    } else if (secondRead) row(null, ...secFact());
     if (noStronger) facts.push(noStronger);
     if (facts.length) card.appendChild(h("div", { class: "ask-facts" }, facts));
     // one AI mark for the row of buttons, and the card's AI line at its foot (docs/DESIGN.md 4.4)

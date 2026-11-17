@@ -449,7 +449,8 @@ def _result(ws: Workspace, claim_id: str, threshold: float | None = None) -> tup
         if earlier and is_tombstone(p["passage_id"]):
             item["not_placed"] = True  # its quote has no place in the document as it reads now
         so = seconds.get(p["passage_id"])
-        item["second"] = ({**so, "agrees": so["verdict"] == item["ai_verdict"]} if so else None)
+        # 0.19.17: only beside a model's first reading (an excerpt still waiting for its model has none to differ from)
+        item["second"] = ({**so, "agrees": so["verdict"] == item["ai_verdict"]} if so and item["ai_read"] else None)
         item["waiting_for_you"] = item["read_by"] == "you" and not item["user_verdict"]
         # 0.19.8: the person chose to judge it rather than start the local model ("Awaiting manual review")
         item["by_choice"] = item["read_by"] == "you" and bool(v) and v.get("prompt_version") == _cc.BY_CHOICE
