@@ -693,14 +693,25 @@ class _Gated:
             check(model)
 
     def complete(self, *a, **k):
-        from .llm import MemoryShort
+        from .llm import MemoryShort, local_urlopen
 
         self._readers.before_local()
+        g = self._readers.gate
+        # 0.19.15: what is in hand, so that Stop on the local side lets go of the model's memory once it is put down
+        # (only Ollama on its real connection can let go: a test's stand-in or another server is never asked)
+        model = a[3] if len(a) > 3 else k.get("model")
+        url = getattr(self._be, "base_url", None) if (hasattr(self._be, "unload")
+                                                      and getattr(self._be, "opener", None) is local_urlopen) else None
+        if g is not None:
+            g.hand(url, model)
         try:
             return self._be.complete(*a, **k)
         except MemoryShort as e:
             self._readers.memory_short = e   # the gate waits again, with the numbers
             raise
+        finally:
+            if g is not None:
+                g.put_down()
 
 
 class Readers:

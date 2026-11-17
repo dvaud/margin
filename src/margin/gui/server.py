@@ -155,12 +155,19 @@ class App(LibraryMixin, QueueMixin):
         except Exception as e:
             raise ApiError(409, f"Could not open project {name!r}: {e}") from e
 
-    def backend(self, kinds: tuple[str, ...] = ("check", "expand", "decompose", "reread"), k: int | None = None):
+    def backend(self, kinds: tuple[str, ...] = ("check", "expand", "decompose", "reread"), k: int | None = None,
+                wake: bool = False):
         """The main model. `k`: the excerpts a request reads at once, when more than Settings says (the automatic
-        context length must hold them)."""
+        context length must hold them). `wake` (0.19.15): the caller starts work a person just pressed for, so Ollama
+        on this computer is started first when it is not running (it must answer to choose the model and its context
+        length); a page that only looks (a plan, a status) never wakes it."""
         s = self.settings()
         if k and k > int(s.get("k") or 8):
             s = {**s, "k": k}
+        if wake and s.get("backend") in ("auto", "ollama"):
+            from .. import ollama_setup
+
+            ollama_setup.wake(s.get("ollama_url") or None)
         be, model = home.make_backend(s, self.api_key(), kinds=kinds)
         return be, model
 
@@ -929,7 +936,7 @@ class App(LibraryMixin, QueueMixin):
         if prepared:
             prepared["edited"] = body.get("edited") if isinstance(body.get("edited"), dict) else {}
         prepared.update(self._from_doc(ws, body))
-        be, model = self.backend(k=opts["k"])
+        be, model = self.backend(k=opts["k"], wake=True)
         emb = home.make_embedder(s) if opts.pop("semantic", True) else None
         if self.queue_mode():
             def qrun(job: Job):
@@ -1104,7 +1111,7 @@ class App(LibraryMixin, QueueMixin):
         decompose = bool(body["decompose"]) if "decompose" in body else bool(s["decompose"])
         expand = bool(body["expand"]) if "expand" in body else bool(s["expand"])
         origin = self._from_doc(ws, body)  # 0.19.0 (N3): words from a document keep its AI setting here too
-        be, model = self.backend()
+        be, model = self.backend(wake=True)
 
         def run(job: Job):
             tracker = Tracker(expand=expand, steps=("terms",))
@@ -1125,7 +1132,7 @@ class App(LibraryMixin, QueueMixin):
         note = body.get("note") if "note" in body else None
         if note is not None and not isinstance(note, str):
             raise ApiError(400, "note must be text.")
-        be, model = self.backend()
+        be, model = self.backend(wake=True)
         doc = ws.scalar("SELECT doc_id FROM passages WHERE passage_id=?", (passage_id,))
         level = access.levels(ws, [doc]).get(doc, "none") if doc else "none"
         if level == "none" or (level == "local" and not access.Readers(be, model).local_configured()):
@@ -1160,7 +1167,7 @@ class App(LibraryMixin, QueueMixin):
         ws = self.ws(name)
         if not ws.scalar("SELECT 1 FROM hypotheses WHERE hyp_id=?", (hyp_id,)):
             raise ApiError(404, "No such hypothesis.")
-        be, model = self.backend()
+        be, model = self.backend(wake=True)
 
         def run(job: Job):
             # 0.13.11: with progress and Stop, and not started when the computer has no room for the model
@@ -1225,7 +1232,7 @@ class App(LibraryMixin, QueueMixin):
         if not items:
             raise ApiError(400, "No hypotheses found. Give one per line, or a CSV with a 'hypothesis' column.")
         opts = _check_options(body, s)
-        be, model = self.backend(k=opts["k"])
+        be, model = self.backend(k=opts["k"], wake=True)
         emb = home.make_embedder(s) if opts.pop("semantic", True) else None
         if self.queue_mode():
             def qrun(job: Job):
@@ -1265,7 +1272,7 @@ class App(LibraryMixin, QueueMixin):
         terms = [str(t) for t in (body.get("terms") or []) if str(t).strip()] or None
         if isinstance(body.get("terms"), str):
             terms = [t.strip() for t in body["terms"].split(",") if t.strip()] or None
-        be, model = self.backend(k=max(1, min(k, 20)))
+        be, model = self.backend(k=max(1, min(k, 20)), wake=True)
         emb = home.make_embedder(s)
 
         def run(job: Job):
@@ -1303,7 +1310,7 @@ class App(LibraryMixin, QueueMixin):
         """Read the documents added since each check, one hypothesis after the other (their reviews are kept)."""
         ws = self.ws(name)
         s = self.settings()
-        be, model = self.backend()
+        be, model = self.backend(wake=True)
         emb = home.make_embedder(s)
 
         def run(job: Job):
@@ -1331,7 +1338,7 @@ class App(LibraryMixin, QueueMixin):
         limited to them (the check is not run again, so the reviews are kept)."""
         ws = self.ws(name)
         s = self.settings()
-        be, model = self.backend()
+        be, model = self.backend(wake=True)
         emb = home.make_embedder(s)
 
         def run(job: Job):
@@ -1355,7 +1362,7 @@ class App(LibraryMixin, QueueMixin):
         ws = self.ws(name)
         s = self.settings()
         ids = self._hyp_ids(ws, body)
-        main_be, main = self.backend()
+        main_be, main = self.backend(wake=True)
         be, second = home.make_second_backend(s, self.api_key())
         if second == main and not getattr(be, "router", None):
             raise ApiError(400, "The model for second opinions is the same as the main model. Choose another one in Settings.")

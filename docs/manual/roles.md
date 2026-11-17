@@ -3,7 +3,7 @@
 # Roles, proposals and what waits for your word
 
 > **In short**
-> - Open *Team* in the sidebar: on its *Activity* view, **Waiting for your word** is the first section,
+> - Open *Team* (under the project's name): on its *Activity* view, **Waiting for your word** is the first section,
 >   shown only when something waits. What needs a decision of yours is there as a card, the most serious first. Roles
 >   and the hand-over are on *People and settings*.
 > - A Member's change to the documents is a proposal. The owner and the Co-owners answer it. When two of them answer

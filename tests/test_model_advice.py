@@ -190,10 +190,10 @@ def test_the_start_call_starts_nothing_when_ollama_answers(api, monkeypatch, tmp
         srv.shutdown()
 
 
-def test_the_page_starts_ollama_by_itself_and_offers_the_choices():
+def test_the_page_waits_for_start_ollama_and_offers_the_choices():
     js = (STATIC / "views" / "local-model.js").read_text(encoding="utf-8")
-    # installed but not answering: started by the card (not only by its button), once a minute at most
-    assert "startByItself(area, btn0)" in js and "lastAutoStart" in js and "Margin is starting it" in js
+    # 0.19.15: installed but not answering: the card offers Start Ollama and starts nothing by itself (0.18.0rc2 did)
+    assert "startByItself(area, btn0)" not in js and "Margin is starting it" not in js and "Start Ollama" in js
     # after an install that did not answer: started again, nothing for the person to open
     assert "installed, but it did not answer yet" not in js and "Open it from" not in js
     # the choices: recommended, smaller and quicker, larger and more careful, from the advice

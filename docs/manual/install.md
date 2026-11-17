@@ -172,7 +172,8 @@ applications menu (Linux). On Linux desktops that ask for it, right-click the ic
 - **After an update**, the copy still running is the old version. The icon quits it and starts the new one, unless a
   check or documents being added still run in it: then every page says *Margin X is installed, but Y is still
   running*, with *Restart now*.
-- If your AI is Ollama on this computer and Ollama is not running, the icon starts it too.
+- The icon does not start Ollama (0.19.15): no AI loads until you press a Start. Ollama starts when a model is
+  first asked for, after your click, or from *Start Ollama* in *Settings → AI*.
 - **Quit** at the foot of the sidebar (with an update ready, in *Settings → Technical*) stops it (it asks first when
   a check is still running). What Margin would print goes to `logs/margin.log` in the data folder.
 

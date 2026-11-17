@@ -456,7 +456,7 @@ class QueueMixin:
         kinds = tuple(k for k in (body.get("kinds") or ["verify_set"]) if k in ("verify_set", "extract", "split", "label")) \
             or ("verify_set",)
         n = _body_int(body, "n", 10, 1, 100)
-        be, model = self.backend(kinds)
+        be, model = self.backend(kinds, wake=True)
         q = self.queue_mode()
         if q:  # 0.8.1: by queue, on a scratch copy of the reference; each kind on its routed model unless one is chosen
             from ..routing import ALIASES

@@ -61,9 +61,9 @@ highlights, the entries you write in the research log, and the links you decide 
 - **A project you shared before 0.17.0** counts as shared, item by item. A project you only kept to yourself starts
   private, even if you made zips of it to back it up or move it.
 
-*What you shared*, on *Team* › *Activity*, lists everything you shared, by kind, each with *Unshare*. *Team* is a place
-in the sidebar, under *Project*. In a project with a team, its entry says the team's state at its end (*synced 15:44*,
-*3 new*, *syncing now…*, *paused*, *offline*, *round did not work*); press it to open the Team page.
+*What you shared*, on *Team* › *Activity*, lists everything you shared, by kind, each with *Unshare*. *Team* is the line
+under the project's name, at the top of the sidebar. In a project with a team, it says the team's state at its end
+(*synced 15:44*, *3 new*, *syncing now…*, *paused*, *offline*, *round did not work*); press it to open the Team page.
 
 ### Through a storage space of your team's own
 
@@ -79,7 +79,7 @@ flowchart LR
     F -- "every couple of minutes" --> A
 ```
 
-**Setting it up.** One of you starts: on the *Team* page (*Team* in the sidebar), under *Start a team for this project*,
+**Setting it up.** One of you starts: on the *Team* page (*Team*, under the project's name), under *Start a team for this project*,
 choose *A folder you already share* and press *Choose the folder…*. A dialog, *Start with a folder you share*, offers
 the cloud folders of your computer by name, or opens the system's folder window, and a colleague is offered the team's
 folder by their own Margin. Step by step: [Choosing the shared

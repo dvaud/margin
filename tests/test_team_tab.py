@@ -103,7 +103,7 @@ def test_the_sections_come_in_order_with_room_for_the_owner():
 def test_the_team_place_draws_itself_for_its_state():
     """No team: the set-up with no tabs; with one: the view tabs Activity | People and settings. Each state has its own
     line under the title; a refresh that finds the project gained or lost its team, or another project, draws the page
-    again; the page's count goes to the sidebar's Team entry while it is open."""
+    again; the page's count goes to the team line while it is open."""
     fn = TEAM[TEAM.index("export async function renderTeam("):TEAM.index("// keepOut null: not touched here")]
     for key, words in (("setup", "Work on this project with colleagues. Each of you keeps your own copy on your own computer; Margin sends what you choose to share and brings in what they share."),
                        ("activity", "What your colleagues shared, what you shared, and whether your copies are in step."),

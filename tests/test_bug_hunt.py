@@ -310,27 +310,6 @@ def test_the_app_refuses_a_key_on_a_local_only_installation_and_speaks_plainly(t
         srv.server_close()
 
 
-def test_ollama_is_started_for_the_restricted_model_too(monkeypatch):
-    from margin.gui import launcher
-
-    asked = []
-
-    def urlopen(url, timeout=0):
-        asked.append(url)
-        raise OSError("not running")
-
-    monkeypatch.setattr("urllib.request.urlopen", urlopen)
-    monkeypatch.setattr(launcher.shutil, "which", lambda name: None)
-    monkeypatch.setattr(launcher.sys, "platform", "linux")
-    for s in ({"backend": "claude_code", "restricted_server": "ollama"},
-              {"backend": "claude_code", "embed_backend": "ollama", "embed_model": "nomic-embed-text"}):
-        launcher.start_ollama(s)
-    assert len(asked) == 2  # both settings made it look for Ollama
-    asked.clear()
-    launcher.start_ollama({"backend": "claude_code", "restricted_server": "", "embed_backend": "off"})
-    assert asked == []
-
-
 def test_a_stop_before_the_first_token_closes_the_response():
     """Ollama sends its headers with the first token; a Stop pressed while it still reads the prompt used to let
     it generate the whole answer."""

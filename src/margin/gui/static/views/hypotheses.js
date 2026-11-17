@@ -499,6 +499,7 @@ export async function renderHypotheses(view, params, query) {
         forgetDraft(text);
         navigate(`#/h/${encodeURIComponent(job.result.hyp_id)}`);
       } else if (job.state === "cancelled") {
+        progressBox.hidden = true;   // 0.19.15: a stopped check keeps no panel, nor the heading above it (the toast says it)
         // 0.19.13: a check whose Claude Code part was done is kept: only its local excerpts wait
         const kept = job.result && job.result.kept && job.result.kept.length;
         const n = kept ? job.result.waiting_local || 0 : 0;

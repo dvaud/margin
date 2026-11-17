@@ -1384,9 +1384,16 @@ def _mix_gate(ws: Workspace, t, backend, local):
     forced = gate.state == "force" and bool(getattr(be, "memory_guard", False))
     if forced:
         be.memory_guard = False   # this answer only: the model is shared by every job of the mix
+    # 0.19.15: in hand, so Stop on the local side lets go of the model once it is put down (only Ollama on its real
+    # connection)
+    from .llm import local_urlopen
+
+    url = getattr(be, "base_url", None) if (hasattr(be, "unload") and getattr(be, "opener", None) is local_urlopen) else None
+    gate.hand(url, model)
     try:
         yield
     finally:
+        gate.put_down()
         if forced:
             be.memory_guard = True
 

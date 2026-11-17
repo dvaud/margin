@@ -35,8 +35,8 @@ this computer needs no terminal:
 
 1. With no model server running, *Install Ollama* gets **Ollama** (free): it says the size of the download first
    (about 1.7 GB on Windows, 230 MB on a Mac), then installs and starts it, with a progress bar. If Ollama is on the
-   computer but not running (after an install, or on a later day), Margin starts it by itself and waits until it
-   answers: there is nothing to open and nothing to type. *Start Ollama* stays for when that did not work.
+   computer but not running (on a later day, say), press *Start Ollama*: Margin starts nothing AI by itself. The first
+   Start of a local model starts Ollama too, so there is nothing to open and nothing to type.
 2. With Ollama running but no model yet, Margin suggests the models that **fit this computer**, from its memory, free
    disk space and graphics card: one recommended, a smaller and quicker one, and a larger and more careful one
    beside it, each with its download size, how quick it will be here and what it is good for. *Download …* gets the
@@ -162,9 +162,9 @@ and other technical facts sit under *Technical details* and *Settings → Techni
 The **Write in the log** button at the top right of every page opens the research log in a panel beside the page: write an entry
 that is kept with the page you are on, and see that page's entries (*This page*) or all of them (*All*); its foot link,
 *The whole research log*, opens the page of the same name, a place under *Project*
-([The research log](notes-and-log.md#the-research-log)). **Team**, also under *Project*, is where you work with
-colleagues (0.17.0; [Work together](together.md#through-a-shared-folder)). In a project with a team, its entry in the
-sidebar says the team's state at its end (*synced 15:44*, *3 new*).
+([The research log](notes-and-log.md#the-research-log)). **Team**, the line under the project's name, is where you
+work with colleagues (0.17.0; [Work together](together.md#through-a-shared-folder)). In a project with a team, it says
+the team's state at its end (*synced 15:44*, *3 new*).
 
 A walk through a whole first project, from adding documents to the Excel file, is in [Your first project, start to finish](first-project.md).
 

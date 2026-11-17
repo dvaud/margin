@@ -78,7 +78,7 @@ export function mineHeading(list) {
   return list.every((p) => p.mine) ? `Your proposals (${n})` : `Proposals that wait (${n})`;
 }
 
-// The number on the sidebar's Team entry: the cards that wait for this person's word (a question put off with Not now in this
+// The number on the team line under the project's name: the cards that wait for this person's word (a question put off with Not now in this
 // browser no longer counts), and their own proposals declined and not seen yet.
 export function tabCount(v, seen = new Set()) {
   if (!v) return 0;

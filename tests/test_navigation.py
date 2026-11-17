@@ -1,5 +1,6 @@
 """0.17.0: the navigation. Thirteen sidebar entries became seven places, and nine since the team-navigation rework
-(the Research log and the Team are places of a Project group); a place's views are tabs on its pages; the groups say
+(the Research log and the Team are places of a Project group; since 0.19.15 the Team is the team line under the
+project's name); a place's views are tabs on its pages; the groups say
 once whether they use the AI, with the one AI mark; the foot has one status area of a fixed size, and an
 update takes Quit's place; Find opens the feature finder; old addresses open their new home. Checked as the browser
 files they are, like the other page tests."""
@@ -26,7 +27,8 @@ def _nav():
 def test_nine_places_in_three_groups_with_no_counts_and_no_tagline():
     nav = _nav()
     routes = re.findall(r'data-route="([a-z]+)"', nav)
-    assert routes == ["overview", "documents", "researchlog", "team", "search", "codes", "concepts", "themes", "hypotheses"]
+    # the ninth, the Team, is the team line under the project's name (test_sidebar.py), not an entry of the list
+    assert routes == ["overview", "documents", "researchlog", "search", "codes", "concepts", "themes", "hypotheses"]
     assert re.findall(r'data-section="([a-z]+)"', nav) == ["project", "explore", "check"]
     # every place but the Overview is in a group, and the groups' words are the page eyebrows' (SECTIONS[...].short)
     assert nav.index('data-route="overview"') < nav.index('data-section="project"') < nav.index('data-route="documents"')
@@ -90,7 +92,7 @@ def test_old_addresses_open_their_new_home():
                         ("profile", "codes"), ("codebooks", "codes"), ("notes", "documents"), ("bibliography", "documents"),
                         ("log", "researchlog"), ("hypotheses", "hypotheses")):
         assert re.search(rf'\[/\^\\/{path}\$/, "{place}", render', app), path
-    # the Team place: #/team (Activity, or the set-up) and #/team/settings light the Team entry
+    # the Team place: #/team (Activity, or the set-up) and #/team/settings light the team line
     assert '[/^\\/team(?:\\/(settings))?$/, "team", (view, params, query) => import("./views/team.js")' in app
     title = app[app.index("function pageTitle("):app.index("let cleanup = null;")]
     assert 'if (nav === "team" && pathPart === "/team") return "Team";' in title and '"/team": "Team"' not in title
@@ -165,7 +167,7 @@ def test_overview_card_state_shows_the_short_part_only():
 
 
 def test_the_drawer_button_carries_no_count():
-    """The drawer is the research log only: its button carries no count (the Team entry in the sidebar says what is
+    """The drawer is the research log only: its button carries no count (the team line under the project's name says what is
     new), and it keeps only its place."""
     assert not rule(".drawer-btn .tab-count") and not rule(".drawer-btn .tab-count", media="(max-width: 860px)")
     assert set(rule(".drawer-btn")) <= {"position", "top", "right", "z-index"}

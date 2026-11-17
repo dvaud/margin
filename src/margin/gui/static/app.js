@@ -27,10 +27,10 @@ import { renderHypotheses } from "./views/hypotheses.js";
 import { openFinder } from "./finder.js";
 import { renderDesign } from "./views/design.js";   // 0.17.0: the design guide's live reference, unlisted
 import { initLogDrawer } from "./views/logdrawer.js";
-import { initTeamEntry } from "./views/team-entry.js";   // the sidebar's Team entry and the team's state at its end
+import { initTeamLine } from "./views/team-line.js";   // the team line under the project's name and the team's state at its end
 
 // [pattern, the sidebar place it lights (features.js PLACES, or an add-on's feature key), render]. Nine places (the
-// Research log and the Team are places of the Project group); the old addresses stay and open their new home
+// Research log is a place of the Project group; the Team is the team line under the project's name); the old addresses stay and open their new home
 // (#/check, #/batch and #/history: Hypotheses; #/profile: Codes).
 const ROUTES = [
   [/^\/?$/, "overview", renderOverview],
@@ -143,7 +143,7 @@ async function route() {
 
 function setNav(name) {
   // 0.10.1: Settings sits at the foot of the sidebar, with Theme and Quit, outside the list of features
-  for (const a of document.querySelectorAll("#nav a, #nav-foot a")) {
+  for (const a of document.querySelectorAll("#nav a, #nav-foot a, #team-line")) {
     if (a.dataset.route === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
 }
@@ -165,12 +165,15 @@ function renderProjectSwitch() {
     trigger: [icon("folder", { size: 16 }),
       h("span", { class: "ps-name" }, h("span", { class: "ps-label" }, "Project"), h("span", { class: "ps-name-text" }, current ? current.name : "No project")),
       icon("chevron-down", { size: 14 })],
-    // Join a team… makes a new project from a colleague's invite link (the current project's team is the sidebar's
-    // Team place)
+    // Join a team… makes a new project from a colleague's invite link (the current project's team is the team line
+    // under the switch)
     items: [...items, items.length ? "sep" : null, { text: "New project…", icon: "plus", onClick: () => newProjectDialog() },
       { text: "Join a team…", icon: "link", onClick: () => joinDialog(null) },
       { text: "Manage projects", icon: "sliders", href: "#/projects" }].filter(Boolean) });
-  replace(box, details);
+  // the team line (views/team-line.js) is the switch's second row: kept across redraws, hidden while there is no project
+  const line = document.getElementById("team-line");
+  if (line) line.hidden = !current;
+  replace(box, details, line);
 }
 
 export async function switchProject(name) {
@@ -685,7 +688,7 @@ function drawerInit() {
 
 // 0.17.0: the sidebar's groups say once whether their places use the AI, with the one AI mark (features.js aiTag):
 // Explore "AI on request", Check "Uses the AI"; Project has none. The places themselves carry no marks and no counts
-// (the Team entry's state is the one exception, views/team-entry.js); each has a tooltip.
+// (the team's state is said by the team line under the project's name, views/team-line.js); each has a tooltip.
 const GROUP_AI = { explore: "optional", check: "uses" };
 function sectionOf(key) {
   return PLACES[key] ? PLACES[key].section : (FEATURES[key] || {}).section;
@@ -808,9 +811,10 @@ async function whatsNewInit() {
 
 // 0.18 (L3) what came in: a light look at the open project's poller every 30 s. When a round the app started by itself
 // brought something in, a small toast says so; when the count of what came in grows, the window event
-// "margin-sync-news" (detail: the poller's state) lets the Team page and the Team entry show it. After every look the
-// window event "margin-sync-state" carries the poller's state (null when it could not look), which the sidebar's Team
-// entry follows (views/team-entry.js); a change of project looks at once, so the entry follows it without waiting 30 s.
+// "margin-sync-news" (detail: the poller's state) lets the Team page and the team line show it. After every look the
+// window event "margin-sync-state" carries the poller's state (null when it could not look), which the team line under
+// the project's name follows (views/team-line.js); a change of project looks at once, so the line follows it without
+// waiting 30 s.
 // 0.18 stage 5: it also looks just after the next round is due (nextSyncLook), and while a round runs it redraws the
 // sidebar's work box, which shows a round the app started by itself once it has run 20 s (drawStatus).
 function syncNewsInit() {
@@ -870,7 +874,7 @@ async function boot() {
   drawerInit();
   sidebarScrollInit();
   navIcons();
-  initTeamEntry();
+  initTeamLine();
   App.onChange(() => { renderProjectSwitch(); renderPrivacy(); renderStatus(); renderUpdateBanner(); });
   onJobsChanged(() => renderStatus());
   window.addEventListener("hashchange", route);

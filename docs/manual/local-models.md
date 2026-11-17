@@ -18,9 +18,11 @@ offers **Ollama**, a free program that runs AI models on your computer:
   downloaded. Then Margin downloads Ollama's own installer from ollama.com, checks that it is signed by Ollama, installs
   it (Windows: in your user folder, no administrator rights; Mac: in *Applications*) and starts it, with a progress
   bar and *Stop*. On Linux, Ollama's installer asks for your password, so Margin opens a terminal window running it.
-- Ollama already on the computer but not running: Margin starts it by itself and waits until it answers (0.18.0rc2; on
-  Windows also right after the install, when Ollama's installer did not start it). *Start Ollama* stays for when that
-  did not work.
+- Ollama already on the computer but not running: press *Start Ollama*. Since 0.19.15 Margin starts nothing AI by
+  itself, not when it opens and not when a page is drawn: the first Start of a local model (or search by meaning, when
+  it needs it) starts Ollama, and right after an install Margin starts it when Ollama's installer did not.
+- **Stop lets go of the model.** The job's *Stop*, or *Stop* on the local side, frees the local model's memory at once
+  (after the item in hand), instead of Ollama keeping it for its next 15 minutes. A job that ends by itself keeps it.
 - Rather do it yourself? *Download Ollama's installer* gets the file itself (ollama.com's own download page now leads
   with a line to type in a terminal).
 

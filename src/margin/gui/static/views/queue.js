@@ -4,7 +4,7 @@
 // shows only the work's essentials, in its status area, and links here.)
 import { App, api, h, icon, replace, toast, showError, confirmDialog, P, watchJob, button, card, tag, withAI, readsLine, aiWhere, notice, queueAiLine, TERMINAL,
   aiButton, aiSide, aiSides, aiSeat, placeSide, redrawSide, sideFigures, modelFigures, cancelJob, setBusy } from "../lib.js";
-import { aiRun } from "./progress.js";
+import { aiRun, isStopped } from "./progress.js";
 
 export function queueSection() {
   const body = h("div", { class: "queue-section", "aria-live": "polite" });
@@ -26,7 +26,7 @@ export function queueSection() {
     const r = await api("POST", `/api/projects/${P(App.project)}/queue/run`, { local: which });
     localJob = r.job;
     const w = watchJob(r.job.id, (job) => { localJob = job; drawLocal(); });
-    w.promise.then((job) => { localJob = null; if (job.state === "done") toast("Your local model has answered its share.", "ok", { small: true }); draw(); }).catch(showError);
+    w.promise.then((job) => { localJob = null; if (isStopped(job)) toast("Stopped.", "info", { small: true, ttl: 2500 }); else if (job.state === "done") toast("Your local model has answered its share.", "ok", { small: true }); draw(); }).catch(showError);
     drawLocal();
   };
   function localOpts(q) {
@@ -129,7 +129,7 @@ export function queueSection() {
           const r = await api("POST", `/api/projects/${P(App.project)}/queue/run`, {});
           hereRun = aiRun({ size: "compact", title: `${App.state.backend_label} answers the queue` });
           const w = watchJob(r.job.id, (job) => { hereRun.job = job; hereRun.update(job); });
-          w.promise.then(() => draw()).catch(showError);
+          w.promise.then((job) => { if (isStopped(job)) toast("Stopped. The answers given so far are kept.", "info", { small: true, ttl: 2500 }); draw(); }).catch(showError);
           draw();
         } catch (e) { showError(e); setBusy(go, false); }
       } }, "Answer them here instead");

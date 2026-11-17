@@ -57,32 +57,48 @@ def test_a_wheel_over_the_sidebar_never_scrolls_the_page():
     assert boot.index("drawerInit();") < boot.index("sidebarScrollInit();") < boot.index("navIcons();")
 
 
-def test_the_team_entry_is_the_one_entry_with_a_state():
-    """The team-navigation rework: the team line under the project's name became the sidebar's Team entry, a link to
-    #/team like any entry, always there (also without a team, where it says nothing more). Its end says the team's
-    state; its rules are the sidebar's (components.css 5.1); still no counts beside the other entries."""
+def test_the_team_line_under_the_projects_name():
+    """0.19.15: the Team is back under the project's name, as before 0.19.7: the project switch's second row, a link to
+    #/team (the same page as the 0.19.7 Team entry, never a panel), there whenever a project is open (also without a
+    team, where it says nothing more). Its end says the team's state; current, it is soft teal; its rules are the
+    sidebar's (components.css 5.1); the sidebar's entries carry no counts."""
     css = _read("components.css")
     s51 = css[css.index("/* ==== 5.1 The sidebar */"):css.index("/* ==== 5.2")]
-    for sel in (".team-entry-state {", ".team-entry-state:empty", '.nav a.team-entry[aria-current="page"] .team-entry-state',
-                '.nav a.team-entry[data-kind="attention"], .nav a.team-entry[data-kind="attention"] .team-entry-state'):
+    for sel in (".project-switch:has(> .team-line:not([hidden])) summary", ".team-line {", ".team-line[hidden]", ".team-line-state {",
+                ".team-line-state:empty", '.team-line[aria-current="page"] {', '.team-line[aria-current="page"] .team-line-state',
+                '.team-line[data-kind="attention"] {', '.team-line[data-kind="attention"] .team-line-state'):
         assert sel in s51, sel
         assert len(re.findall(rf"^{re.escape(sel)}", css, flags=re.M)) == 1, sel   # one rule of its own
-    state = rule(".team-entry-state")
+    line = rule(".team-line")
+    assert line["margin-top"] == "-1px" and line["border-radius"] == "0 0 var(--radius-ctl) var(--radius-ctl)"
+    assert line["background"] == "var(--surface-2)" and line["text-decoration"] == "none"
+    assert rule(".project-switch:has(> .team-line:not([hidden])) summary")["border-bottom-left-radius"] == "0"
+    state = rule(".team-line-state")
     assert state["margin-left"] == "auto" and state["font-size"] == "var(--fs-xs)" and state["color"] == "var(--muted)"
-    assert rule('.nav a.team-entry[data-kind="attention"]')["color"] == "var(--attention)"
-    assert rule('.nav a.team-entry[data-kind="attention"] .team-entry-state')["color"] == "var(--attention)"
-    assert "team-line" not in css and "team-line" not in _read("app.js") and "team-line" not in _read("views/logdrawer.js")
-    # the project switch has no second row any more, and its menu no Manage the team (the place is in the sidebar)
+    current = rule('.team-line[aria-current="page"]')
+    assert current["background"] == "var(--accent-soft)" and current["color"] == "var(--accent-text)"
+    assert rule('.team-line[data-kind="attention"]')["color"] == "var(--attention)"
+    assert "team-entry" not in css and "team-entry" not in _read("app.js")
+    # the project switch keeps the line as its second row across redraws, hidden while no project is open
     app = _read("app.js")
     fn = app[app.index("function renderProjectSwitch("):app.index("export async function switchProject(")]
-    assert "replace(box, details);" in fn and "Manage the team" not in fn and '"Join a team…"' in fn
-    # the entry is index.html's plain link, drawn again by views/team-entry.js with lib.js teamEntry()
+    assert 'const line = document.getElementById("team-line");' in fn and "line.hidden = !current;" in fn
+    assert "replace(box, details, line);" in fn and "Manage the team" not in fn and '"Join a team…"' in fn
+    # the router marks it current like an entry
+    assert 'document.querySelectorAll("#nav a, #nav-foot a, #team-line")' in app
+    # the line is index.html's plain link inside the switch, drawn again by views/team-line.js with lib.js teamLine();
+    # the sidebar's list of places has no Team entry any more
     html = _read("index.html")
-    assert '<a href="#/team" data-route="team" id="team-entry">' in html
-    entry = _read("views/team-entry.js")
-    assert 'entry = teamEntry({ id: "team-entry" });' in entry and "plain.replaceWith(entry);" in entry
-    assert "initTeamEntry();" in app[app.index("async function boot()"):]
+    switch = html[html.index('<div class="project-switch" id="project-switch">'):]
+    switch = switch[:switch.index("</div>")]
+    assert '<a href="#/team" data-route="team" id="team-line" class="team-line">Team</a>' in switch
+    nav = html[html.index('<nav class="nav" aria-label="Main" id="nav">'):]
+    assert 'data-route="team"' not in nav[:nav.index("</nav>")]
+    line_js = _read("views/team-line.js")
+    assert 'entry = teamLine({ id: "team-line" });' in line_js and "plain.replaceWith(entry);" in line_js
+    assert "entry.hidden = plain.hidden;" in line_js
+    assert "initTeamLine();" in app[app.index("async function boot()"):]
     # a link moves you: the phone's menu closes on the route like any entry (no listener of its own)
     assert 'closest("#team-line")' not in app
-    # no counts beside the sidebar's entries, but the Team entry's, in words
+    # no counts beside the sidebar's entries
     assert "count" not in rule(".nav a") and ".nav a .chip" not in css

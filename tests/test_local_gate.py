@@ -34,7 +34,9 @@ def _until(cond, timeout: float = 30, step: float = 0.02) -> None:
 
 
 def _ended(job) -> bool:
-    return job.state in ("done", "error", "cancelled")
+    # the job's end state is set before its `finally` ends the gate and stamps `finished`: wait for all of it (a CI
+    # runner once read the state "error" while the gate had not ended yet)
+    return job.state in ("done", "error", "cancelled") and job.finished is not None
 
 
 @pytest.fixture

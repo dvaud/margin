@@ -65,6 +65,7 @@ class Job:
         # 0.19.13: whether the local model may start in this job (localgate): it waits for its own Start when the job
         # also has work for Claude
         self.gate = LocalGate()
+        self.used_models: set[tuple[str, str]] = set()   # 0.19.15: (address, model) of the local models it asked
 
     def view(self, full: bool = True) -> dict:
         end = self.finished or time.time()
@@ -72,7 +73,9 @@ class Job:
                "created_at": self.created, "started_at": self.started, "finished_at": self.finished,
                "seconds": round(end - (self.started or end), 1), "error": self.error, "error_kind": self.error_kind,
                "scope": self.scope, "queue": self.queue, "waiting_for": self.waiting_for(),
-               "background": self.background, "where": job_where(self)}
+               "background": self.background, "where": job_where(self),
+               # 0.19.15: the person pressed Stop (many jobs then end "done" with what they had): its panel goes
+               "stopped": self.cancel.is_set()}
         local = local_reader(self)
         if local is not None:   # 0.19.6: the local model reads for it now, whatever Settings' AI is
             out["local_model"] = local
@@ -296,10 +299,12 @@ class Jobs:
 
                     token = access.FORCE_LOCAL.set(job.force_local)   # 0.19.4: Start it anyway, for this job only
                     gate_token = GATE.set(job.gate)                   # 0.19.13: the local model waits for its Start
+                    used_token = llm.USED.set(job.used_models)        # 0.19.15: the local models it asks, for Stop
                     try:
                         job.result = fn(job)
                         job.gate.drain(job.cancel.is_set)   # local items a feature handed over and did not wait for
                     finally:
+                        llm.USED.reset(used_token)
                         GATE.reset(gate_token)
                         access.FORCE_LOCAL.reset(token)
                     job.state = "cancelled" if job.cancel.is_set() and job.result is None else "done"
@@ -325,6 +330,17 @@ class Jobs:
                 job.state, job.error, job.error_kind = "error", f"Unexpected problem: {e}", "internal"
             finally:
                 job.gate.end()   # 0.19.13: its local part reads nothing more once the job has ended (an error, say)
+                if job.cancel.is_set() and job.used_models:
+                    # 0.19.15: Stop lets go of the local models this job loaded, at once (not after Ollama's 15
+                    # minutes): nothing stays in memory that the person did not ask to keep working. A model another
+                    # job of the app still waits for or reads with is kept (it would only be loaded again)
+                    with self.lock:
+                        busy = set().union(*(j.used_models for j in self.jobs.values()
+                                             if j is not job and j.state in ("queued", "running")))
+                    free = set(job.used_models) - busy
+                    if free:
+                        threading.Thread(target=llm.let_go, args=(free,), daemon=True,
+                                         name=f"let-go-{job.id}").start()
                 job.finished = time.time()
                 if job.tracker is not None:
                     job.tracker.finish()

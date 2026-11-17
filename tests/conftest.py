@@ -90,6 +90,24 @@ def _no_real_margin_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_ollama_start(monkeypatch):
+    """0.19.15: Ollama starts at the first request of a model a person started (`ollama_setup.wake`). No test ever
+    starts the real Ollama of the computer it runs on: `start` refuses, as when Ollama is not installed, and `let_go`
+    unloads nothing, unless a test puts a stand-in of its own in their place."""
+    from margin import ollama_setup
+
+    def refuse(sys_name=None):
+        raise ValueError("A test never starts the real Ollama.")
+
+    monkeypatch.setattr(ollama_setup, "start", refuse)
+    monkeypatch.setitem(ollama_setup._STARTED, "at", 0.0)
+    # nor lets go of a model the real Ollama holds (a test that stops a job asks its own stand-in, if any)
+    from margin import llm
+
+    monkeypatch.setattr(llm, "let_go", lambda models: [])
+
+
+@pytest.fixture(autouse=True)
 def _read_one_file_at_a_time(monkeypatch):
     """0.16: adding documents reads several files at once in reading processes (`ingest.read_workers`). Tests read
     them here, one at a time, so what a test changes in this process (a stand-in for OCR, say) is what reading sees;

@@ -1,5 +1,5 @@
 """The Team page run in Node with tests/_views.py (0.19.7): its set-up without a team, joining, the step-by-step
-storage-space dialog, and the two views of a team (views/team.js, team-setup.js, team-space.js, team-entry.js).
+storage-space dialog, and the two views of a team (views/team.js, team-setup.js, team-space.js, team-line.js).
 """
 from __future__ import annotations
 
@@ -149,14 +149,14 @@ await scenario("people and settings", async (t) => {
   return { headings: headings(t), people: t.text(t.view.querySelector(".team-sec-people")) };
 });
 
-await scenario("the sidebar's Team entry", async (t) => {
-  const m = await t.module("views/team-entry.js");
-  const a = document.createElement("a"); a.id = "team-entry"; a.setAttribute("aria-current", "page"); a.textContent = "Team";
+await scenario("the team line", async (t) => {
+  const m = await t.module("views/team-line.js");
+  const a = document.createElement("a"); a.id = "team-line"; a.setAttribute("aria-current", "page"); a.textContent = "Team";
   document.body.appendChild(a);
-  m.initTeamEntry();
-  const read = () => { const e = document.getElementById("team-entry"); return [t.text(e), e.getAttribute("aria-label"), e.getAttribute("data-kind")]; };
+  m.initTeamLine();
+  const read = () => { const e = document.getElementById("team-line"); return [t.text(e), e.getAttribute("aria-label"), e.getAttribute("data-kind")]; };
   const send = (type, detail) => window.dispatchEvent(new CustomEvent(type, { detail }));
-  const out = { before: read(), current: document.getElementById("team-entry").getAttribute("aria-current") };
+  const out = { before: read(), current: document.getElementById("team-line").getAttribute("aria-current") };
   send("margin-sync-state", { project: "Study", folder: "/x", state: "idle", came_in: { count: 3 } });
   out.news = read();
   send("margin-sync-state", { project: "Other", folder: "/y", state: "offline" });
@@ -293,8 +293,8 @@ def test_people_and_settings_lists_the_people(page):
 
 
 @needs_node
-def test_the_sidebars_team_entry_says_the_teams_state_and_the_open_pages_count(page):
-    e = page["the sidebar's Team entry"]
+def test_the_team_line_says_the_teams_state_and_the_open_pages_count(page):
+    e = page["the team line"]
     assert e["before"] == ["Team", "Team", "none"] and e["current"] == "page"
     assert e["news"] == ["Team 3 new", "Team, 3 new", "ok"]
     assert e["otherProject"] == e["news"]                      # another project's state is not this one's

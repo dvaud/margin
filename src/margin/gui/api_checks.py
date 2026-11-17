@@ -402,7 +402,7 @@ class ChecksApi:
         from ..llm import repeatable
 
         self._body()
-        be, model = self.app.backend()
+        be, model = self.app.backend(wake=True)
         return {"model": model, **repeatable(be, model)}
 
     def put_judgement(self, name, claim_id, passage_id, q):

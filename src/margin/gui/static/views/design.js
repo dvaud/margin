@@ -11,7 +11,7 @@ import {
   h, icon, toast, dialog, confirmDialog, popNote, helpMark, field, switchControl, rangeControl, spinner, emptyState,
   statusBadge, gradeBadge, codeChip, pageHead, downloadLinks, heatCell, heatGrid, heatHead, strongerMark,
   button, downloadButton, fileButton, iconButton, link, tag, notice, card, fold, choice, optionCards, input, select,
-  textarea, searchField, menu, workState, aiWhere, drawer, drawerButton, teamEntry, personMark, reviewedMark, severityTag, compare, guidedSteps,
+  textarea, searchField, menu, workState, aiWhere, drawer, drawerButton, teamLine, personMark, reviewedMark, severityTag, compare, guidedSteps,
   shareState, absentDocument, listRow, listGroup, noticeList, tabs, judgementIcon, readsLine, stopButton, proposalCard, decisionCard, inset,
   passageNode, foundWords, aiButton, aiSide, aiSides, aiStart
 } from "../lib.js";
@@ -45,20 +45,20 @@ const tokenSample = (cls, property, token) => {
 };
 // a piece of the sidebar, on the sidebar's ground and at its width
 const side = (...el) => h("div", { class: "dz-side" }, ...el);
-// the project switch as the sidebar draws it (app.js renderProjectSwitch)
-const projectSwitch = () => h("div", { class: "project-switch" }, menu({ label: "Project: Demo", listClass: "ps-menu",
+// the project switch as the sidebar draws it (app.js renderProjectSwitch), with its second row when one is given
+const projectSwitch = (line = null) => h("div", { class: "project-switch" }, menu({ label: "Project: Demo", listClass: "ps-menu",
   trigger: [icon("folder", { size: 16 }), h("span", { class: "ps-name" }, h("span", { class: "ps-label" }, "Project"),
     h("span", { class: "ps-name-text" }, "Demo")), icon("chevron-down", { size: 14 })],
   items: [{ text: "Demo", icon: "folder", current: true, meta: "3 documents · 3 answers" }, "sep",
-    { text: "New project…", icon: "plus" }, { text: "Join a team…", icon: "link" }, { text: "Manage projects", icon: "sliders", href: HERE }] }));
-// the sidebar's Team entry in one state (teamEntry().set(); none: a project without a team), in a list of places
-const teamEntryIn = (state, current) => {
-  const t = teamEntry();
+    { text: "New project…", icon: "plus" }, { text: "Join a team…", icon: "link" }, { text: "Manage projects", icon: "sliders", href: HERE }] }), line);
+// the team line in one state (teamLine().set(); none: a project without a team), under the project switch
+const teamLineIn = (state, current) => {
+  const t = teamLine();
   t.href = HERE;
   t.removeAttribute("data-route");
   if (current) t.setAttribute("aria-current", "page");
   if (state) t.set(state);
-  return side(h("nav", { class: "nav", "aria-label": "A sample of the Team entry" }, t));
+  return side(projectSwitch(t));
 };
 // an item's sharing on its own page, for its maker: the choice as views/share.js shareChoice() builds it, the help mark,
 // and while it is shared the line that says where it goes
@@ -506,10 +506,10 @@ export async function renderDesign(page) {
         side(h("nav", { class: "nav", "aria-label": "A sample of the places" }, navEntry("grid", "Overview"),
           h("span", { class: "nav-group", role: "presentation" }, "Project"), navEntry("book-open", "Documents", true),
           h("span", { class: "nav-group", role: "presentation" }, "Explore", aiTag("optional")), navEntry("text-search", "Search")))),
-      sample("The Team entry (teamEntry()), the one entry with a state: no team; in step; news waiting; a round running; offline; current",
-        teamEntryIn(null), teamEntryIn({ words: "synced 15:44" }), teamEntryIn({ count: "3 new" }),
-        teamEntryIn({ kind: "running", words: "syncing now…" }), teamEntryIn({ kind: "attention", words: "offline" }),
-        teamEntryIn({ words: "synced 15:44" }, true))),
+      sample("The team line (teamLine()) under the project's name, with the team's state: no team; in step; news waiting; a round running; offline; current",
+        teamLineIn(null), teamLineIn({ words: "synced 15:44" }), teamLineIn({ count: "3 new" }),
+        teamLineIn({ kind: "running", words: "syncing now…" }), teamLineIn({ kind: "attention", words: "offline" }),
+        teamLineIn({ words: "synced 15:44" }, true))),
 
     section("5.2", "The status area and the last row", "One fixed size: the AI line's card, or the work box in exactly that space.",
       sample("The AI line", side(aiCard("privacy-cloud", "cloud", "Claude, on your plan", "Only the passages of AI tasks leave this computer"))),
@@ -563,7 +563,7 @@ export async function renderDesign(page) {
         listGroup("Today", listRow({ person: personMark(["Anna de Vries"]), title: "Remote work lowers the quality of public services.", serif: true, href: HERE, time: "10:02",
           actions: [button({ kind: "quiet", sm: true }, "Say why")] }),
         listRow({ person: personMark(["Ben Okafor"]), title: "Ben Okafor", sub: "Margin 0.16.1: needs a newer Margin to read your changes", warn: true, time: "09:40" })))),
-      sample("News since last time: the Team entry's count, What came in, Seen before", teamEntryIn({ count: "3 new" }), h("div", { class: "dz-block" },
+      sample("News since last time: the team line's count, What came in, Seen before", teamLineIn({ count: "3 new" }), h("div", { class: "dz-block" },
         listGroup({ text: "What came in", action: button({ kind: "quiet", sm: true, icon: "check" }, "Mark as seen") },
           listRow({ person: personMark(["Anna de Vries"]), title: "Anna judged 3 excerpts of “Hybrid work improves wellbeing”", href: HERE, time: "10:02" }),
           listRow({ person: personMark(["Ben Okafor"]), title: "Ben added a note to “Rush hour is back in Rivermouth”", href: HERE, time: "09:15" })),

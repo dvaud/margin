@@ -70,7 +70,7 @@ def test_a_queued_job_stamps_each_report_so_the_later_one_wins():
     seen: dict = {}
 
     class App(LibraryMixin):
-        def backend(self):
+        def backend(self, **_kw):   # 0.19.15: start_queued_job asks backend(wake=True)
             return be, "claude"
 
         def _wire(self, job, b):

@@ -6,7 +6,7 @@
 > - A private storage space online, free at a team's size, at Backblaze (most research groups) or Cloudflare (large
 >   teams that grow quickly), or a folder in your institution's drive (SURFdrive, SURF Research Drive, a university's
 >   Nextcloud). Margin fills and reads it by itself; nobody installs anything or looks for a folder.
-> - The owner sets it up once, on the *Team* page (*Team* in the sidebar), in about five minutes; colleagues join from
+> - The owner sets it up once, on the *Team* page (*Team*, under the project's name), in about five minutes; colleagues join from
 >   a link, with *Join a team…* in the project menu.
 > - Everything is locked on your computer before it leaves it: the storage company cannot read your work.
 > - The owner can remove a colleague (their keys stop working) or move the team to another storage space.
@@ -29,7 +29,7 @@ the same drive.
 
 ## Setting it up (the owner, once, about five minutes)
 
-Open *Team* in the sidebar (a project without a team shows three cards). Under *Start a team for this project*, pick *A
+Open *Team*, under the project's name (a project without a team shows three cards). Under *Start a team for this project*, pick *A
 storage space at Backblaze* (marked *Recommended*), *A storage space at Cloudflare* or *Your institution's drive*, and
 press the button under the options, whose words follow your choice (*Set up at Backblaze…*, *Set up at Cloudflare…*,
 *Set up in your institution's drive…*). A dialog walks you through it in numbered steps: one is open at a time, each has

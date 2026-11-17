@@ -11,7 +11,7 @@
 
 ## The one who starts
 
-1. Open *Team* in the sidebar. In a project without a team, under *Start a team for this project*, pick *A folder you
+1. Open *Team*, under the project's name. In a project without a team, under *Start a team for this project*, pick *A folder you
    already share* and press *Choose the folder…*. (A colleague who only joins presses *Choose the shared folder…* under
    *Join a colleague's team*, which opens the same dialog under the title *Join through a folder your colleague
    shared*.) A dialog opens, *Start with a folder you share*.

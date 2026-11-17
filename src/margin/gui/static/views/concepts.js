@@ -3,7 +3,7 @@
 // (a person accepts or rejects the links proposed by search by meaning or by the AI).
 import { featureEyebrow, withAI, viewTabs } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, failedLoad, noDocuments, addDocumentsFirst, fmt, pageHead, watchJob, P, emptyState, debounce, switchControl, plural, shortTitle, runningJob, button, link, notice, card, tag, input, select, textarea, fold, readsLine, inset, searchHref, jobFailed, aiButton, setBusy } from "../lib.js";
-import { MiniJob, jobCard as jobCardOf } from "./progress.js";
+import { MiniJob, isStopped, jobCard as jobCardOf } from "./progress.js";
 import { pathsCard, timeCard } from "./concept-paths.js";   // 0.18.1: D3 and D4
 import { shareInline, sharingOf } from "./share.js";   // 0.18 (L1)
 
@@ -159,7 +159,8 @@ export async function renderConcepts(view, params, query) {
       const w = watchJob(r.job.id, (job) => m.update(job));
       watchers.push(w);
       w.promise.then((job) => {
-        if (job.state === "done") { const res = job.result || {}; toast(`The AI judged ${plural(res.judged || 0, "pair")}${res.failed ? `; ${res.failed} could not be judged` : ""}. Open a concept to see its links.`, "ok"); }
+        if (isStopped(job)) toast("Stopped. The pairs judged so far are kept.", "info", { small: true, ttl: 2500 });
+        else if (job.state === "done") { const res = job.result || {}; toast(`The AI judged ${plural(res.judged || 0, "pair")}${res.failed ? `; ${res.failed} could not be judged` : ""}. Open a concept to see its links.`, "ok"); }
         else if (job.state === "error") jobFailed(job);
         setBusy(btn, false);
         load();
@@ -354,7 +355,8 @@ export async function renderConcept(view, [termId], query) {
       watchers.push(w);
       w.promise.then(async (job) => {
         jobRunning = false;
-        if (job.state === "done") {
+        if (isStopped(job)) toast("Stopped.", "info", { small: true, ttl: 2500 });
+        else if (job.state === "done") {
           const n = ((job.result || {}).suggested || []).length;
           toast(n ? `${plural(n, "other wording")} ${n === 1 ? "is" : "are"} used in the documents.` : "The AI proposed no other wording that the documents use.", n ? "ok" : "info");
         } else if (job.state === "error") jobFailed(job);
@@ -431,7 +433,8 @@ export async function renderConcept(view, [termId], query) {
       watchers.push(w);
       w.promise.then(async (job) => {
         jobRunning = false;
-        if (job.state === "done") toast(job.result && job.result.judged ? "The AI has judged the pair: see what it says below." : "The AI could not judge the pair.", job.result && job.result.judged ? "ok" : "warn");
+        if (isStopped(job)) toast("Stopped.", "info", { small: true, ttl: 2500 });
+        else if (job.state === "done") toast(job.result && job.result.judged ? "The AI has judged the pair: see what it says below." : "The AI could not judge the pair.", job.result && job.result.judged ? "ok" : "warn");
         else if (job.state === "error") jobFailed(job);
         clear(linkJob);
         await reload();

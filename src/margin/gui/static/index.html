@@ -34,17 +34,17 @@
         <img src="/static/logo.svg" alt="" width="34" height="34">
         <span class="brand-text"><strong>Margin</strong></span>
       </a>
-      <div class="project-switch" id="project-switch"></div>
+      <!-- the project switch (app.js renderProjectSwitch) and its second row, the team line: views/team-line.js draws it
+           again with lib.js teamLine() -->
+      <div class="project-switch" id="project-switch"><a href="#/team" data-route="team" id="team-line" class="team-line">Team</a></div>
       <!-- 0.17.0: Find a feature or page by name (finder.js); Ctrl+K or Cmd+K from anywhere -->
       <button class="find-btn" id="find-btn" type="button" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K"><span class="nav-icon" data-icon="search"></span><span class="find-text">Find a feature or page</span><kbd class="find-key" id="find-key">Ctrl K</kbd></button>
-      <!-- the places (features.js PLACES): Overview, then three groups named by the pages' eyebrows. A place's views are tabs on its pages, never links here. -->
+      <!-- the places (features.js PLACES): Overview, then three groups named by the pages' eyebrows. A place's views are tabs on its pages, never links here. The Team is the team line under the project's name. -->
       <nav class="nav" aria-label="Main" id="nav">
         <a href="#/overview" data-route="overview"><span class="nav-icon" data-icon="grid"></span><span>Overview</span></a>
         <span class="nav-group" role="presentation" data-section="project">Project</span>
         <a href="#/sources" data-route="documents"><span class="nav-icon" data-icon="book-open"></span><span>Documents</span></a>
         <a href="#/log" data-route="researchlog"><span class="nav-icon" data-icon="notebook"></span><span>Research log</span></a>
-        <!-- the one entry that carries a state: views/team-entry.js draws it again with lib.js teamEntry() -->
-        <a href="#/team" data-route="team" id="team-entry"><span class="nav-icon" data-icon="users"></span><span>Team</span></a>
         <span class="nav-group" role="presentation" data-section="explore">Explore</span>
         <a href="#/search" data-route="search"><span class="nav-icon" data-icon="text-search"></span><span>Search</span></a>
         <a href="#/profile" data-route="codes"><span class="nav-icon" data-icon="tag"></span><span>Codes</span></a>

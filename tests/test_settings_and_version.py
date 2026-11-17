@@ -39,7 +39,7 @@ def test_settings_is_at_the_foot_with_theme_and_quit():
 
 def test_settings_still_shows_as_the_current_page():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
-    assert 'document.querySelectorAll("#nav a, #nav-foot a")' in js
+    assert 'document.querySelectorAll("#nav a, #nav-foot a, #team-line")' in js   # 0.19.15: and the team line under the project
     assert 'nav.querySelector(".nav-sep")' not in js  # the legend no longer looks for the removed separator
 
 

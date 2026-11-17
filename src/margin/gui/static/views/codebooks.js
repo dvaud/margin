@@ -10,7 +10,7 @@ import { featureEyebrow, viewTabs, withAI } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, P, plural, confirmDialog, download,
   dialog, field, switchControl, watchJob, emptyState, shortTitle, session, button, iconButton, downloadButton, link, menu, notice, card, tag, input, select, textarea, choice, optionCards, readsLine, aiWhere, inset, workState, personMark, compare, readTextFile, setBusy, aiButton, jobFailed } from "../lib.js";
 import { forgetFrameworks } from "./options.js";
-import { MiniJob } from "./progress.js";
+import { MiniJob, isStopped } from "./progress.js";
 import { showHistory, askWhy } from "./versions.js";
 import { shareBar } from "./share.js";   // 0.18 (L1)
 import { decisionCard } from "../lib.js";   // roles (H8)
@@ -828,6 +828,7 @@ export async function renderCodebook(view, [name]) {
       if (box) box.appendChild(m.el);
       const job = await watchJob(jobId, (j) => m.update(j)).promise;
       if (job.state === "error") { jobFailed(job, (j) => followDraft(k, j.id, null)); return; }
+      if (isStopped(job)) { toast("Stopped.", "info", { small: true, ttl: 2500 }); return; }
       if (job.state !== "done") return;
       const got = job.result || {};
       if (got.stopped) return;
@@ -1009,7 +1010,8 @@ export async function renderCodebook(view, [name]) {
       const w = watchJob(r.job.id, (job) => m.update(job));
       w.promise.then((job) => {
         relabelRuns.delete(code);
-        if (job.state === "done") toast(`The passages of “${code}” are labelled again, with its new wording.`, "ok", { small: true, action: { text: "See them on Profile", href: `#/profile?framework=${encodeURIComponent(name)}` } });
+        if (isStopped(job)) toast("Stopped. The passages labelled so far keep their new labels.", "info", { small: true, ttl: 2500 });
+        else if (job.state === "done") toast(`The passages of “${code}” are labelled again, with its new wording.`, "ok", { small: true, action: { text: "See them on Profile", href: `#/profile?framework=${encodeURIComponent(name)}` } });
         else if (job.state === "error") jobFailed(job);
         if (body.isConnected) drawNotices();
       }).catch(showError);

@@ -1,11 +1,12 @@
-// The sidebar's Team entry (docs/DESIGN.md 5.1): the link to the Team place (#/team), always there, and in a project
-// with a team the team's state at its end in fixed words (lib.js teamEntry().set()). It follows the window events
+// The team line (docs/DESIGN.md 5.1): the project switch's second row, under the project's name, a link to the Team
+// page (#/team), there whenever a project is open, and in a project with a team the team's state at its end in fixed
+// words (lib.js teamLine().set()). It follows the window events
 // app.js fires after each look at the project's poller ("margin-sync-state", "margin-sync-news"); while the Team page
 // is open, the page's own count of what is new (teamPanel({ onCount }), setTeamPageCount()) takes the poller's place.
-import { App, teamEntry } from "../lib.js";
+import { App, teamLine } from "../lib.js";
 import { whenText } from "./team-state.js";
 
-// What the Team entry says, from the poller's answer (GET …/sync-poller) and what is new: the first that holds of a
+// What the team line says, from the poller's answer (GET …/sync-poller) and what is new: the first that holds of a
 // round running, offline, the last round not working, paused, what is new, when the last round was; and before the
 // first round since Margin started (the poller knows only its own rounds, so it cannot say when the copies were last in
 // step), when the next one comes: "no round yet" would read as never, beside a Team page that says when.
@@ -30,7 +31,7 @@ function syncedWords(t, now) {
   return `synced ${w.slice(0, w.lastIndexOf(" "))}`;
 }
 
-let entry = null;        // the entry (lib.js teamEntry()), in place of index.html's plain one
+let entry = null;        // the line (lib.js teamLine()), in place of index.html's plain one
 let sync = null;         // the poller's last answer for this project, or null (no team, not read yet)
 let pollCount = 0;       // what came in and was not seen, as the poller counts it
 let pageCount = null;    // … as the open Team page counts it (with what waits for your word), or null
@@ -56,14 +57,14 @@ export function teamFoundOnPage(project, has) {
   draw();
 }
 
-export function initTeamEntry() {
+export function initTeamLine() {
   if (entry) return;
-  const plain = document.getElementById("team-entry");
+  const plain = document.getElementById("team-line");
   if (!plain) return;
-  entry = teamEntry({ id: "team-entry" });
+  entry = teamLine({ id: "team-line" });
   const current = plain.getAttribute("aria-current");
   if (current) entry.setAttribute("aria-current", current);
-  entry.dataset.marked = "1";   // app.js navIcons: its tooltip is its own (it says the state)
+  entry.hidden = plain.hidden;   // app.js renderProjectSwitch hides it while there is no project
   plain.replaceWith(entry);
   countFor = App.project;
   // after each look (null when it could not look): the state of a project with a team; none without

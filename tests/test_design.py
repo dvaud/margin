@@ -597,7 +597,7 @@ def test_every_helper_is_on_the_reference_page():
                "drawerButton", "field", "switchControl", "rangeControl", "spinner", "emptyState", "statusBadge", "gradeBadge",
                "codeChip", "pageHead", "downloadLinks", "helpMark", "popNote", "toast", "dialog", "confirmDialog", "heatCell", "heatGrid",
                "strongerMark", "aiTag", "viewTabs", "featureEyebrow", "personMark", "reviewedMark", "severityTag", "compare",
-               "shareState", "absentDocument", "listRow", "listGroup", "noticeList", "teamEntry", "guidedSteps"]
+               "shareState", "absentDocument", "listRow", "listGroup", "noticeList", "teamLine", "guidedSteps"]
     for name in helpers:
         assert re.search(rf"export function {name}\(", LIB + (STATIC / "features.js").read_text(encoding="utf-8")), name
         assert re.search(rf"\b{name}\(", ref), f"{name} is not drawn on the reference page (views/design.js)"
@@ -852,7 +852,7 @@ def test_the_project_switch_spans_the_sidebar():
     assert rule(".project-switch summary").get("width") == "100%"
     ref = VIEW_JS["design.js"]
     sample = ref[ref.index('sample("The project switch"'):ref.index('sample("Entries')]
-    switch = ref[ref.index("const projectSwitch = "):ref.index("const teamEntryIn = ")]
+    switch = ref[ref.index("const projectSwitch = "):ref.index("const teamLineIn = ")]
     assert "projectSwitch()" in sample   # the reference draws it as the sidebar does
     assert "menu(" in switch and 'listClass: "ps-menu"' in switch
 
@@ -1528,30 +1528,32 @@ def test_a_field_under_its_label_is_the_standard_size():
     assert small_fields_in_a_form('const x = input({ sm: true });\nfield("Leave out", x, { help })') == ["x"]
 
 
-def test_the_team_entry_is_a_helper_the_guide_and_the_reference_name():
-    """The team-navigation rework: the team line became the sidebar's Team entry (lib.js teamEntry()), a link to #/team
-    like any entry, the one entry that carries a state; the guide names it in 1 (its row), 5.1 (its row and the named
-    exception to "no counts beside entries") and 9.3 (the helpers), and #/design draws it in each state. (The test
-    kept its place: it was test_the_team_line_is_a_helper_the_guide_and_the_reference_name.)"""
-    assert re.search(r"export function teamEntry\(\{ id \} = \{\}\)", LIB)
-    entry = LIB[LIB.index("export function teamEntry("):LIB.index("export function setDrawerOpen(")]
-    assert 'h("a", { href: "#/team", "data-route": "team"' in entry and "btn-opens" not in entry and "aria-expanded" not in entry
-    assert 'icon(said && kind === "attention" ? "alert-triangle" : "users", { size: 18 })' in entry
-    assert '"team-entry-state"' in entry and '"running-dot"' in entry and 'tag({ kind: "count", class: "tab-count" }, count)' in entry
-    assert "teamLine" not in LIB and "team-line" not in LIB
+def test_the_team_line_is_a_helper_the_guide_and_the_reference_name():
+    """0.19.15: the Team went back under the project's name (lib.js teamLine()), the project switch's second row, a
+    link to #/team (no button that opens a panel) that carries the team's state; the guide names it in 1 (its row),
+    5.1 (its row, and where the team's state lives) and 9.3 (the helpers), and #/design draws it under the project
+    switch in each state. (0.19.7 to 0.19.14 had it as the sidebar's Team entry, teamEntry().)"""
+    assert re.search(r"export function teamLine\(\{ id \} = \{\}\)", LIB)
+    line = LIB[LIB.index("export function teamLine("):LIB.index("export function setDrawerOpen(")]
+    assert 'h("a", { href: "#/team", "data-route": "team"' in line and "btn-opens" not in line and "aria-expanded" not in line
+    assert 'icon(said && kind === "attention" ? "alert-triangle" : "users", { size: 15 })' in line
+    assert '"team-line-state"' in line and '"running-dot"' in line and 'tag({ kind: "count", class: "tab-count" }, count)' in line
+    assert "teamEntry" not in LIB and "team-entry" not in LIB
     s419 = GUIDE[GUIDE.index("### 4.19 The drawer"):GUIDE.index("### 4.20")]
     s51 = GUIDE[GUIDE.index("### 5.1 The sidebar"):GUIDE.index("### 5.2")]
     s93 = GUIDE[GUIDE.index("### 9.3 The helpers"):GUIDE.index("### 9.4")]
-    assert "team line" not in GUIDE.lower() and "teamLine" not in GUIDE and "Team tab" not in GUIDE
-    assert "Research log page" in s419 and "teamEntry" not in s419
-    assert "| Team entry |" in s51 and "The Team entry is the one exception" in s51 and "`teamEntry({ id })`" in s51
-    assert "`teamEntry()`" in s93
-    assert "| My team on this project, and its state | The sidebar's *Team* entry" in GUIDE
-    assert "[Team entry](#51-the-sidebar)" in GUIDE
+    assert "Team entry" not in GUIDE and "teamEntry" not in GUIDE and "Team tab" not in GUIDE
+    assert "Research log page" in s419 and "teamLine" not in s419
+    assert "| Team line |" in s51 and "The team's state lives in the team" in s51 and "`teamLine({ id })`" in s51
+    assert "*Research log*, *Team*" not in s51
+    assert "`teamLine()`" in s93
+    assert "| My team on this project, and its state | The team line under the project's name" in GUIDE
+    assert "[Team line](#51-the-sidebar)" in GUIDE
     ref = VIEW_JS["design.js"]
-    sample = ref[ref.index('sample("The Team entry (teamEntry())'):ref.index('section("5.2"')]
-    for state in ("teamEntryIn(null)", 'words: "synced 15:44"', 'count: "3 new"', 'kind: "running", words: "syncing now…"',
-                  'kind: "attention", words: "offline"', 'teamEntryIn({ words: "synced 15:44" }, true)'):
+    assert "return side(projectSwitch(t));" in ref[ref.index("const teamLineIn = "):]
+    sample = ref[ref.index('sample("The team line (teamLine())'):ref.index('section("5.2"')]
+    for state in ("teamLineIn(null)", 'words: "synced 15:44"', 'count: "3 new"', 'kind: "running", words: "syncing now…"',
+                  'kind: "attention", words: "offline"', 'teamLineIn({ words: "synced 15:44" }, true)'):
         assert state in sample, state
     # the sharing samples of 5.5: the maker's choice (built with choice(), as share.js shareChoice() builds it), and the
     # tag with the small buttons for rows and a colleague's item

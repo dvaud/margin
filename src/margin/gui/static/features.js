@@ -108,14 +108,15 @@ export { aiTag, withAI } from "./lib.js";
 export const PLACES = {
   overview: { title: "Overview", icon: "grid", href: "#/overview", section: null,
     what: "Your project: what is made so far and where to go next.", views: [] },
-  // the Project group: the project's own places (the documents, the research log, the team)
+  // the Project group: the project's own places (the documents, the research log; the team is the team line under the
+  // project's name, not an entry of the group, but its pages carry the Project eyebrow)
   documents: { title: "Documents", icon: "book-open", href: "#/sources", section: "project",
     what: "Your reports, papers and web pages: add them, read one, your notes on them, and your Zotero library.",
     views: [["sources", "Documents", "#/sources", "book-open"], ["annotations", "Notes", "#/notes", "highlighter"], ["bibliography", "Bibliography", "#/bibliography", "library"]] },
   researchlog: { title: "Research log", icon: "notebook", href: "#/log", section: "project",
     what: "A dated record of what was decided in this project; add your own entries and say why.", views: [] },
-  // the one entry that carries a state (the team's, in a few fixed words: views/team-entry.js); its views show only in
-  // a project with a team (without one, the page is the set-up)
+  // reached by the team line under the project's name, which carries the team's state in a few fixed words
+  // (views/team-line.js); its views show only in a project with a team (without one, the page is the set-up)
   team: { title: "Team", icon: "users", href: "#/team", section: "project",
     what: "Work on this project with colleagues: set up a team, see what came in and what you shared, the people and the settings.",
     views: [["activity", "Activity", "#/team", "refresh"], ["settings", "People and settings", "#/team/settings", "sliders"]] },

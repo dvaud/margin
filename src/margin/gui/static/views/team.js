@@ -20,7 +20,7 @@ import { App, api, h, clear, replace, toast, showError, P, plural, field, switch
   TERMINAL, store, shortTitle, helpMark, navigate, button, link, input, select, fold, tag, noticeList, notice, workState, dialog,
   listRow, listGroup, absentDocument, personMark, card, pageHead } from "../lib.js";
 import { featureEyebrow, viewTabs } from "../features.js";
-import { setTeamPageCount, teamFoundOnPage } from "./team-entry.js";   // the sidebar's Team entry: the page's count while it is open
+import { setTeamPageCount, teamFoundOnPage } from "./team-line.js";   // the team line: the page's count while it is open
 import { itemHref, shareButton, KIND_WORDS, KIND_MANY, zipButton, ZIP_WORDS, SHARING_HELP } from "./share.js";
 import { pollerState, syncLine, myShared, personLine, whenText, whenPhrase, newsLines, whoseWork, folderAsSeen, POLLER_API, EVERY_CHOICES, KEEP_OUT_LABEL, KEEP_OUT_HELP } from "./team-state.js";
 import { OWNER_SECTION, ownerMarks, ownerPerson } from "./owner.js";   // 0.18 L2
@@ -88,7 +88,7 @@ function section(key, title, ...children) {
 // the panel
 // ---------------------------------------------------------------------------------------------
 // Makes the Team panel. `onCount(n)`: how many things came in that were not seen yet, with what waits for your word
-// (for the sidebar's Team entry). `sections`: what it draws (one of the lists above); `page`: each section a card.
+// (for the team line under the project's name). `sections`: what it draws (one of the lists above); `page`: each section a card.
 // `onStatus(status, project)`: called with each answer before drawing; false stops the drawing (the page draws itself
 // again: the project gained or lost its team).
 export function teamPanel({ onCount, onStatus, sections = TEAM_ACTIVITY_SECTIONS, page = false } = {}) {

@@ -78,10 +78,24 @@ class OllamaEmbedder:
         if opener is None:
             opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
+        self._woken = False
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
+        if not self._woken and self.opener is local_urlopen:
+            # 0.19.15: Margin no longer starts Ollama when it opens; search by meaning starts it when it needs it (once
+            # it answers: a start that failed is tried again at the next request)
+            from .llm import _WAKE_LOCK
+            from .ollama_setup import wake
+
+            with _WAKE_LOCK:
+                if not self._woken:
+                    self._woken = wake(self.base_url)
+        if self.opener is local_urlopen:
+            from .llm import note_used
+
+            note_used(self.base_url, self.model)   # 0.19.15: its job's Stop lets go of it
         try:
             out = _post(self.opener, f"{self.base_url}/api/embed", {"model": self.model, "input": list(texts),
                                                                     "truncate": True}, self.timeout)

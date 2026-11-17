@@ -291,7 +291,7 @@ class LibraryMixin:
 
         `fn(job, backend, model, progress)` does the work; `progress(done, total)` updates the bar. Stop takes the
         tasks of the kinds in `withdraw` that wait in the queue back out (0.13.6: public; `_model_job` before)."""
-        be, model = self.backend()  # one context length for every kind: Ollama never reloads the model
+        be, model = self.backend(wake=True)  # one context length for every kind: Ollama never reloads the model
 
         def run(job: Job):
             job.progress = {"done": 0, "total": 0}

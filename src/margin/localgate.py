@@ -59,6 +59,10 @@ class LocalGate:
         self._worker: threading.Thread | None = None
         self._error: BaseException | None = None
         self._stop: Callable[[], bool] | None = None   # a feature's own Stop, given to `drain`
+        # 0.19.15: the local model's requests in hand now, and the models asked ((address, model)): Stop on the local
+        # side lets go of their memory once nothing is in hand (`put_down`), not after Ollama's 15 minutes
+        self.in_hand = 0
+        self.asked: set[tuple[str, str]] = set()
 
     # -- state ----------------------------------------------------------------------------------------------------
     @property
@@ -101,11 +105,39 @@ class LocalGate:
             self.cond.notify_all()
 
     def close(self) -> None:
-        """Stop on the local side: back to waiting after the item in hand (the job's own Stop ends everything)."""
+        """Stop on the local side: back to waiting after the item in hand (the job's own Stop ends everything). 0.19.15:
+        the local model lets go of its memory as soon as nothing is in hand."""
         with self.cond:
             if self.is_open:
                 self.state = WAIT
+            if not self.in_hand:
+                self._let_go()
             self.cond.notify_all()
+
+    def hand(self, url: str | None, model: str | None) -> None:
+        """0.19.15: a request of the local model begins (`access._Gated`)."""
+        with self.cond:
+            self.in_hand += 1
+            if url and model:
+                self.asked.add((url.rstrip("/"), model))
+
+    def put_down(self) -> None:
+        """0.19.15: a request of the local model has ended: after Stop on the local side, the model lets go of its
+        memory now that nothing is in hand."""
+        with self.cond:
+            self.in_hand = max(0, self.in_hand - 1)
+            if not self.in_hand and not self.is_open and not self.ended:
+                self._let_go()
+
+    def _let_go(self) -> None:
+        """Free the memory of the local models this job asked (in a thread of its own: one short request to Ollama).
+        Called with `cond` held."""
+        if not self.asked:
+            return
+        from .llm import let_go
+
+        models, self.asked = set(self.asked), set()
+        threading.Thread(target=let_go, args=(models,), daemon=True, name="local-let-go").start()
 
     def refused(self, e) -> None:
         """The local model was not started: too little memory free (`llm.MemoryShort`). It waits again, with the

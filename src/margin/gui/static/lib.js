@@ -1499,19 +1499,19 @@ export function drawerButton({ id, controls, label, icon: ic, onClick, title }) 
   return h("button", { class: `${UI.button.standard} ${UI.sm} btn-opens drawer-btn`, id, type: "button", "aria-expanded": "false",
     "aria-controls": controls, title: title || null, onClick }, icon(ic, { size: 15 }), h("span", { class: "drawer-btn-text" }, label));
 }
-// The Team entry: the sidebar's entry of the Team place (#/team), the one entry that carries a state. A link like any
-// entry (current: soft teal, set by the router's aria-current); in a project with a team its end says the team's
-// state in fixed words. set({ kind, words, count }): kind "ok" | "running" | "attention" (amber, the triangle in place
-// of the users icon); count: what is new, in words ("3 new"). set() with nothing: no team, no state.
-export function teamEntry({ id } = {}) {
-  const ic = h("span", { class: "nav-icon" });
-  const name = h("span", {}, "Team");
-  const state = h("span", { class: "team-entry-state" });
-  const el = h("a", { href: "#/team", "data-route": "team", id: id || null, class: "team-entry" }, ic, name, state);
+// The team line: the project switch's second row, under the project's name, a link to the Team page (#/team), always
+// there (current: soft teal, set by the router's aria-current). In a project with a team its end says the team's state
+// in fixed words. set({ kind, words, count }): kind "ok" | "running" | "attention" (amber, the triangle in place of the
+// users icon); count: what is new, in words ("3 new"). set() with nothing: no team, no state.
+export function teamLine({ id } = {}) {
+  const ic = h("span", { class: "team-line-icon" });
+  const name = h("span", { class: "team-line-name" }, "Team");
+  const state = h("span", { class: "team-line-state" });
+  const el = h("a", { href: "#/team", "data-route": "team", id: id || null, class: "team-line" }, ic, name, state);
   el.set = ({ kind = "ok", words = "", count = null } = {}) => {
     const said = count || words;
     el.setAttribute("data-kind", said ? kind : "none");
-    replace(ic, icon(said && kind === "attention" ? "alert-triangle" : "users", { size: 18 }));
+    replace(ic, icon(said && kind === "attention" ? "alert-triangle" : "users", { size: 15 }));
     replace(state, said && kind === "running" ? h("span", { class: "running-dot", "aria-hidden": "true" }) : null,
       count ? tag({ kind: "count", class: "tab-count" }, count) : words);
     el.setAttribute("aria-label", said ? `Team, ${said}` : "Team");

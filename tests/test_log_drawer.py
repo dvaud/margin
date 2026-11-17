@@ -3,7 +3,7 @@ rework the research log only (no tabs), hidden on the Research log page.
 
 - the JS: the export, the page-to-filter mapping (also run in Node when it is installed), the subject in the POST body,
   the fallback line;
-- the sidebar's Team entry (views/team-entry.js): its words from the poller's state, run in Node;
+- the team line under the project's name (views/team-line.js): its words from the poller's state, run in Node;
 - the API: an entry written with a subject comes back from the subject filter, and from no other.
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ from _static import all_css, css_blocks, rule
 
 STATIC = Path(__file__).resolve().parents[1] / "src" / "margin" / "gui" / "static"
 JS = (STATIC / "views" / "logdrawer.js").read_text(encoding="utf-8")
-ENTRY = (STATIC / "views" / "team-entry.js").read_text(encoding="utf-8")
+ENTRY = (STATIC / "views" / "team-line.js").read_text(encoding="utf-8")
 # 0.17.0: the drawer's rules are collected from the cascade (tests/_static.py css_blocks) by what they name, not read from
 # a stylesheet's tail, so they are found wherever the design guide puts them
 # 0.17.0 (design guide): the frame is the general drawer component (.drawer*, body[data-drawer]); the log fills it
@@ -184,7 +184,7 @@ def test_the_research_log_page_test_in_node(tmp_path):
     assert got == [True, True, True, False, False, False]
 
 
-# ------------------------------------------------------------------ the sidebar's Team entry (views/team-entry.js)
+# ------------------------------------------------------------------ the team line (views/team-line.js)
 def test_the_team_entry_follows_the_pollers_state():
     assert 'window.addEventListener("margin-sync-state", (e) => {' in ENTRY and 'window.addEventListener("margin-sync-news", (e) => {' in ENTRY
     listen = ENTRY[ENTRY.index('window.addEventListener("margin-sync-state"'):]
@@ -198,11 +198,11 @@ def test_the_team_entry_follows_the_pollers_state():
     # the count: the poller's, or while the Team page is open the page's own
     assert "entry.set(teamWords(sync, pageCount !== null ? pageCount : pollCount));" in ENTRY
     assert "export function setTeamPageCount(n)" in ENTRY
-    # the helper (lib.js teamEntry()): a link to #/team, the users icon or, when it needs you, the triangle
+    # the helper (lib.js teamLine()): a link to #/team, the users icon or, when it needs you, the triangle
     lib = (STATIC / "lib.js").read_text(encoding="utf-8")
-    fn = lib[lib.index("export function teamEntry("):lib.index("export function setDrawerOpen(")]
-    assert 'h("a", { href: "#/team", "data-route": "team", id: id || null, class: "team-entry" }, ic, name, state);' in fn
-    assert 'icon(said && kind === "attention" ? "alert-triangle" : "users", { size: 18 })' in fn
+    fn = lib[lib.index("export function teamLine("):lib.index("export function setDrawerOpen(")]
+    assert 'h("a", { href: "#/team", "data-route": "team", id: id || null, class: "team-line" }, ic, name, state);' in fn
+    assert 'icon(said && kind === "attention" ? "alert-triangle" : "users", { size: 15 })' in fn
     assert 'tag({ kind: "count", class: "tab-count" }, count)' in fn and '"running-dot"' in fn
 
 
@@ -234,12 +234,12 @@ TEAM_CASES = [
 def test_the_team_entrys_words_in_node(tmp_path):
     (tmp_path / "views").mkdir()
     (tmp_path / "package.json").write_text('{"type": "module"}')
-    (tmp_path / "views" / "team-entry.js").write_text(ENTRY)
+    (tmp_path / "views" / "team-line.js").write_text(ENTRY)
     # "synced 15:44" comes from team-state.js's whenText (a module with no imports of its own)
     (tmp_path / "views" / "team-state.js").write_text((STATIC / "views" / "team-state.js").read_text(encoding="utf-8"))
-    (tmp_path / "lib.js").write_text("export const App = {}, teamEntry = () => null;")
+    (tmp_path / "lib.js").write_text("export const App = {}, teamLine = () => null;")
     (tmp_path / "run.mjs").write_text(
-        'import { teamWords } from "./views/team-entry.js";\n'
+        'import { teamWords } from "./views/team-line.js";\n'
         f"const cases = {json.dumps([[s, n] for s, n, _ in TEAM_CASES])};\n"
         "const now = new Date(2026, 10, 13, 18, 0);\n"
         "console.log(JSON.stringify(cases.map(([s, n]) => teamWords(s, n, now))));\n")

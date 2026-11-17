@@ -110,7 +110,7 @@ def test_ask_a_stronger_model_for_a_whole_result_over_the_api(api, corpus, monke
     api("PUT", "/api/settings", {"allow_cloud": True, "backend": "anthropic", "embed_backend": "off"})
     ehome.remember_key("sk-test")
     be = Hedging()
-    monkeypatch.setattr(server.App, "backend", lambda self: (be, "claude-sonnet"))
+    monkeypatch.setattr(server.App, "backend", lambda self, **_kw: (be, "claude-sonnet"))
     ws = ehome.create_project("S")
     ingest.ingest(ws, [corpus])
     hid = claimcheck.check_hypothesis(ws, HYP, be, "claude-sonnet", k=4, per_doc=2)

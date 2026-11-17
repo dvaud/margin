@@ -303,8 +303,8 @@ def _install_mac(app: Path) -> Path:
 
 
 def start(sys_name: str | None = None) -> dict:
-    """Start the Ollama that is on this computer, hidden; it keeps running when Margin quits. Also what the icon does
-    when Ollama is the AI and not running (launcher.start_ollama)."""
+    """Start the Ollama that is on this computer, hidden; it keeps running when Margin quits. Only for a person's
+    click (0.19.15: the icon no longer starts it): the Start Ollama button, and `wake` for model work they started."""
     name = sys_name or system()
     path = app_path(name)
     if not path:
@@ -333,7 +333,7 @@ _STARTED: dict = {"at": 0.0}
 
 def start_once(url: str | None = None, within: float = 45.0) -> dict:
     """0.18.0rc2 (M8): start Ollama unless it answers already or was started by Margin within the last `within` seconds
-    (the card asks again whenever it is drawn: two starts would only race each other). {"started", "running"}."""
+    (two presses, or two requests of a model, would only race each other). {"started", "running"}."""
     if not app_path():
         raise ValueError("Ollama is not on this computer.")
     if answers(url):
@@ -343,6 +343,33 @@ def start_once(url: str | None = None, within: float = 45.0) -> dict:
     out = start()
     _STARTED["at"] = time.time()
     return {**out, "running": False}
+
+
+def wake(url: str | None = None, wait: float = 30.0, should_stop: Callable[[], bool] = lambda: False) -> bool:
+    """0.19.15: start Ollama for model work a person has just asked for, and wait until it answers. Margin never
+    starts Ollama by itself (not when it opens, not when a page is drawn): only here, at the first request of a model
+    the person started (a chat model's request passes the job's local gate first), and from the Start Ollama and
+    Install Ollama buttons. True when Ollama answers; False when it is not on this computer, the address is another
+    computer's, or it did not answer within `wait` seconds (the request then says plainly that Ollama is not there)."""
+    from urllib.parse import urlparse
+
+    url = (url or DEFAULT_URL).rstrip("/")
+    where = urlparse(url if "//" in url else "http://" + url)
+    if where.hostname not in ("localhost", "127.0.0.1", "::1"):
+        return False
+    # only where Ollama listens: its own port, or the one OLLAMA_HOST names (another server, or a test's stand-in on
+    # some other port, never starts the Ollama app)
+    env = os.environ.get("OLLAMA_HOST") or ""
+    ports = {11434} | ({urlparse(env if "//" in env else "http://" + env).port} if env else set())
+    if (where.port or 80) not in ports:
+        return False
+    if answers(url):
+        return True
+    try:
+        st = start_once(url)
+    except ValueError:
+        return False
+    return bool(st.get("running")) or _wait(lambda: answers(url), wait, should_stop)
 
 
 def answers(url: str | None = None) -> bool:

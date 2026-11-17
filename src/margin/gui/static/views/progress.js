@@ -41,6 +41,11 @@ export function timeLeft(spent, finished, total, since = 0) {
 // "passage", "excerpt", "theme"), engines (["local", "cloud"]: which seats have work; by default read from the job and
 // kept once seen), onStop (after the job's Stop), stop (false: no Stop of its own, the card around it has one),
 // label(job) (compact: the line's words, in place of the title's), onLocalStart (after this computer's Start).
+/** 0.19.15: whether the person stopped this job: "cancelled", or ended (done, error) after Stop was pressed. */
+export function isStopped(job) {
+  return !!job && (job.state === "cancelled" || (!!job.stopped && job.state !== "queued" && job.state !== "running"));
+}
+
 export class AiRun {
   constructor(o = {}) {
     this.o = o;
@@ -164,6 +169,10 @@ export class AiRun {
     const p = job.progress || {};
     const running = job.state === "queued" || job.state === "running";
     this.el.classList.toggle("progress-done", job.state === "done");
+    // 0.19.15: a job that was stopped keeps no panel (its head, its steps, its two sides and the bar all go); the page
+    // says so once, in its own words or a quiet toast. A job stopped between two items ends "done" with what it had:
+    // `stopped` says Stop was pressed
+    this.el.hidden = isStopped(job);
     if (this.stopBtn) this.stopBtn.hidden = !running;
     const m = p.model;
     let message;

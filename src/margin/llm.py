@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
@@ -372,9 +373,23 @@ class OllamaBackend:
         self._caps: dict[str, list[str] | None] = {}
         self.seed = seed
         self._digests: dict[str, str] = {}
+        self._woken = False                  # 0.19.15: Ollama was started (or found running) for a request already
         if opener is None:
             opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
+
+    def wake(self) -> None:
+        """0.19.15: start Ollama on this computer when it is not running, at the first request of a model only: Margin
+        no longer starts it when it opens, and a chat model is asked only after a person's click (in the app, the job's
+        local gate). Once per backend; not with an opener of the caller's own (a test's stand-in)."""
+        if self._woken or self.opener is not local_urlopen:
+            return
+        from .ollama_setup import wake
+
+        with _WAKE_LOCK:   # two requests at once: the second waits for the first's start, not beside it
+            if not self._woken:
+                # only once it answers: a start stopped or timed out is tried again at the next request
+                self._woken = wake(self.base_url, should_stop=lambda: bool(self.should_stop and self.should_stop()))
 
     def digest(self, model: str) -> str | None:
         """The digest Ollama reports for the model (/api/tags): the exact weights, whatever the tag points to."""
@@ -448,6 +463,9 @@ class OllamaBackend:
 
         from .schema import output_schema
 
+        self.wake()   # 0.19.15: Ollama starts here, for this request, not before
+        if self.opener is local_urlopen:
+            note_used(self.base_url, model)   # 0.19.15: its job's Stop lets go of it
         can_think = self._can_think(model)
         want = self._think_for(kind)
         thinks = want is True or (want is None and can_think is True)
@@ -1059,6 +1077,39 @@ def pull_error(model: str, error: str) -> str:
 OPENAI_PORTS = ("http://localhost:1234/v1", "http://localhost:8080/v1", "http://localhost:1337/v1",
                 "http://localhost:8000/v1", "http://localhost:5001/v1")
 _DETECTED: dict = {}
+
+
+_WAKE_LOCK = __import__("threading").Lock()   # 0.19.15: one start of Ollama at a time (OllamaBackend.wake, embed)
+
+# 0.19.15: the local models a job of the app asked, as (server address, model), so that its Stop lets go of their memory
+# at once instead of leaving them in Ollama for its next 15 minutes. The app's job sets a set of its own here (copied into
+# the threads it starts); outside a job there is none and nothing is noted.
+USED: contextvars.ContextVar["set[tuple[str, str]] | None"] = contextvars.ContextVar("margin_used_models", default=None)
+
+
+def note_used(url: str, model: str) -> None:
+    got = USED.get()
+    if got is not None and model:
+        got.add((url.rstrip("/"), model))
+
+
+def let_go(models) -> list[str]:
+    """Free the memory of these Ollama models, those still held (`/api/ps`): nothing is loaded to unload it. Returns
+    the models let go of."""
+    done: list[str] = []
+    by_url: dict[str, set[str]] = {}
+    for url, model in models or ():
+        by_url.setdefault(url, set()).add(model)
+    for url, names in by_url.items():
+        be = OllamaBackend(base_url=url, timeout=10)
+        try:
+            held = set(be.loaded(timeout=5))
+        except BackendError:
+            continue
+        for m in sorted(names):
+            if any(be._same(m, h) for h in held) and be.unload(m):
+                done.append(m)
+    return done
 
 
 def ollama_version(url: str, timeout: float = 1.5) -> str | None:
