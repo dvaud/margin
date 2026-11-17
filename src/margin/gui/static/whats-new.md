@@ -1,4 +1,3 @@
-# 0.19.17: Stop starts over, and second opinions you can find
-*Stopping a reading now starts it over.*
-- A second opinion differs only from a first reading, and Show them finds it
-- Stop puts a further reading back as it was
+# 0.19.18: See what is sent while Claude Code works
+*See what is sent now shows what Claude Code is working on.*
+- See what is sent no longer says nothing is sent while Claude Code is working
