@@ -285,12 +285,13 @@ class LibraryMixin:
                        "resolve": ("resolve",)}  # the task kinds Stop withdraws from the queue; others: none
 
     def start_queued_job(self, kind: str, title: str, name: str, fn, steps=("grade",),
-                         withdraw: tuple[str, ...] | None = None) -> Job:
+                         withdraw: tuple[str, ...] | None = None, local_start: str | None = None) -> Job:
         """A job that uses the chat model: progress as done/total, the model's own progress, Stop. By queue (0.8)
         the progress also says what waits for Claude Code, and the job is "not running" while nothing answers.
 
         `fn(job, backend, model, progress)` does the work; `progress(done, total)` updates the bar. Stop takes the
-        tasks of the kinds in `withdraw` that wait in the queue back out (0.13.6: public; `_model_job` before)."""
+        tasks of the kinds in `withdraw` that wait in the queue back out (0.13.6: public; `_model_job` before).
+        `local_start`: begun by the local model's own Start (see `start_job`)."""
         be, model = self.backend(wake=True)  # one context length for every kind: Ollama never reloads the model
 
         def run(job: Job):
@@ -303,7 +304,7 @@ class LibraryMixin:
 
         return self.start_job(kind, title, name, run,
                               withdraw=self.MODEL_JOB_KINDS.get(kind, ()) if withdraw is None else tuple(withdraw),
-                              ws=self._ws_or_none(name))
+                              ws=self._ws_or_none(name), local_start=local_start)
 
     _model_job = start_queued_job  # the name before 0.13.6
 

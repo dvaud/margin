@@ -92,7 +92,7 @@ def test_model_names():
         assert llm.valid_model_name(good), good
     for bad in ("", "qwen3:8b; rm -rf /", "../etc", "a b", "-flag", "x" * 121, "http://evil/x", None, 3):
         assert not llm.valid_model_name(bad), bad
-    assert [m["name"] for m in llm.SUGGESTED_MODELS] == ["qwen3:8b", "nomic-embed-text"]
+    assert [m["name"] for m in llm.SUGGESTED_MODELS] == ["qwen3.5:4b", "nomic-embed-text"]   # I6: the 16 GB tier
     assert [m["use"] for m in llm.SUGGESTED_MODELS] == ["chat", "embed"]
 
 
@@ -107,7 +107,7 @@ def test_download_from_the_app(ollama, api, monkeypatch):  # noqa: F811
     assert api("PUT", "/api/settings", {"backend": "auto", "ollama_url": url, "ollama_model": ""})[0] == 200
     info, row = _ollama_row(api)
     assert row["chat_models"] == [] and row["embedding_models"] == []
-    assert [m["name"] for m in info["suggested"]] == ["qwen3:8b", "nomic-embed-text"]
+    assert [m["name"] for m in info["suggested"]] == ["qwen3.5:4b", "nomic-embed-text"]   # I6: the 16 GB tier
     st, r = api("POST", "/api/servers/pull", {"models": ["qwen3:8b", "nomic-embed-text"], "url": row["url"]})
     assert st == 200 and r["job"]["kind"] == "model-pull" and r["job"]["project"] is None
     assert r["job"]["title"] == "Downloading qwen3:8b and nomic-embed-text"

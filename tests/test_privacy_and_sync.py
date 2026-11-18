@@ -71,6 +71,16 @@ def test_a_local_main_models_summary_does_not_reach_the_chat(mixed, monkeypatch)
     assert any(LOCAL_MARK.lower() in (p.get("scope_note") or "").lower() for p in r["passages"]
                if p["doc_id"] == ids["cloud"]), "no note on a cloud excerpt names restricted text: proves nothing"
     s = mcp_server._summary(ws, cid)
+    # I6: a local model's gradings are suggestions, kept from the evidence until the person judges them: only the
+    # summary is held back then
+    assert s["summary"] is None and "(the summary)" in s["restricted_note"] and not s["evidence"]
+    assert LOCAL_MARK.lower() not in json.dumps(s).lower()
+    # the person judges the excerpts of the document Claude may read: they are evidence now, and the local model's
+    # notes on them (which name restricted text) are held back with the summary
+    with ws.connect() as cx:
+        cx.execute("UPDATE verifications SET user_verdict='supports', user_at='2026-11-18T12:00:00+00:00' "
+                   "WHERE subject_id=? AND doc_id=?", (cid, ids["cloud"]))
+    s = mcp_server._summary(ws, cid)
     assert s["summary"] is None and "the summary and its notes on excerpts" in s["restricted_note"]
     assert s["evidence"] and not any("about_another_group" in e for e in s["evidence"])
     assert LOCAL_MARK.lower() not in json.dumps(s).lower()
@@ -291,11 +301,21 @@ def test_a_colleague_on_a_version_with_more_columns_is_no_sync_clash(anna_and_be
     assert rep["checks"]["updated"] == 1 and not rep["checks"]["clash"]
 
 
+def _fp_0142(unit, canon) -> str:
+    """A unit's fingerprint as 0.14.0 to 0.14.2 made it: over every column of their tables."""
+    def then(t, r):
+        cols = sync._COLS_0142_SETS.get(t)
+        return r if cols is None else {k: v for k, v in r.items() if k in cols or k in sync._HOW}
+
+    return sync._fp(unit, canon, then)
+
+
 def _legacy_record_seen(ws, cx):
-    """What 0.14.0 to 0.14.2 wrote down: one fingerprint per unit, over every column (`SELECT *`)."""
+    """What 0.14.0 to 0.14.2 wrote down: one fingerprint per unit, over every column (`SELECT *`) those versions had
+    (0.20.1: a column added since, such as I6's `verifications.suggestion_json`, was not in their tables)."""
     canon = sync._canon(cx)
-    rows = [("check", h, sync._fp(sync._check_unit(cx, h), canon)) for (h,) in cx.execute("SELECT hyp_id FROM hypotheses")]
-    rows += [("themes", r, sync._fp(sync._themes_unit(cx, r), canon)) for (r,) in cx.execute("SELECT run_id FROM theme_runs")]
+    rows = [("check", h, _fp_0142(sync._check_unit(cx, h), canon)) for (h,) in cx.execute("SELECT hyp_id FROM hypotheses")]
+    rows += [("themes", r, _fp_0142(sync._themes_unit(cx, r), canon)) for (r,) in cx.execute("SELECT run_id FROM theme_runs")]
     cx.executemany("INSERT OR IGNORE INTO sync_seen(kind, key, fp) VALUES (?,?,?)", rows)
 
 
@@ -344,7 +364,7 @@ def test_a_0142_colleagues_change_is_brought_up_to_date(anna_on_0142):
     ben.send()
     with ben:
         cx = ben.ws._conn()
-        legacy = sync._fp(sync._check_unit(cx, anna.hid), sync._canon(cx))
+        legacy = _fp_0142(sync._check_unit(cx, anna.hid), sync._canon(cx))
         assert ben.ws.scalar("SELECT 1 FROM sync_seen WHERE kind='check' AND key=? AND fp=?", (anna.hid, legacy))
 
 

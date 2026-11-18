@@ -65,6 +65,18 @@ def _gb(n: int) -> str:
 # tokens. Some models need more (qwen3:8b about 2.4 GB at 16,384), so a model's need is a lower bound: the check
 # stops only a model that clearly cannot fit, such as a 7.6 GB model with 2.7 GB free.
 KV_BYTES_PER_TOKEN = 64 * 1024
+# I6: the memory guard of long local runs (OllamaBackend._guard): free the model's memory once it has grown this much
+# past its first reading, or when free memory falls below this share; every GUARD_EVERY requests on MLX when Ollama
+# does not say what it holds
+GUARD_GROW_MIN = int(1.5 * (1 << 30))
+GUARD_GROW_SHARE = 0.10
+GUARD_FREE_SHARE = 0.20
+GUARD_EVERY = 20
+# "short of free memory" frees only an MLX model that has grown at least this much past its first reading (unloading a
+# llama.cpp build, or a model on a graphics card, frees nothing that grows); and nothing is freed again within
+# GUARD_COOLDOWN requests of the last free (each free costs a reload of about 3 s and the prompt cache)
+GUARD_SHORT_GROWN = int(0.5 * (1 << 30))
+GUARD_COOLDOWN = 5
 
 
 def _windows_memory():
@@ -383,6 +395,16 @@ class OllamaBackend:
         self.seed = seed
         self._digests: dict[str, str] = {}
         self._woken = False                  # 0.19.15: Ollama was started (or found running) for a request already
+        # I6: the memory guard of long runs (`_guard`): on for the app's backends (home._ollama); the model's memory
+        # after its first answer, the requests answered, and what /api/tags says of each model (runner, quantisation)
+        self.memory_watch = False
+        self._base_vram: dict[str, int] = {}
+        self._requests = 0
+        self._details: dict[str, dict] = {}
+        self._version: str | None = None
+        self.freed = 0                       # how often the guard freed the memory in this run
+        self._freed_at: int | None = None    # the request count at the last free (the cooldown)
+        self.on_freed = None                 # optional callable(str) told when it did (the job's log line)
         if opener is None:
             opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
@@ -481,6 +503,10 @@ class OllamaBackend:
         budget = int(self.think_budget or 0) if thinks else 0
         allowance = (budget + 64 if budget else THINK_ALLOWANCE) if thinks else 0
         answer_cap = OUTPUT_CAP.get(kind, 2000)
+        if kind == "point":   # I6: the pointer's limit follows its number of excerpts (pointing.cap)
+            from .pointing import cap as point_cap
+
+            answer_cap = point_cap(len(payload.get("passages") or []))
         cap = answer_cap + allowance
         prompt_tokens = estimate_tokens(system) + estimate_tokens(user)
         need = prompt_tokens + cap + budget  # a forced answer carries the reasoning so far as notes
@@ -488,7 +514,7 @@ class OllamaBackend:
             hint = " or switch reasoning off" if thinks else ""
             raise BackendError(f"This task needs about {need:,} tokens of context, but the context length is "
                                f"{self.num_ctx:,}. Raise it in Settings{hint}.")
-        body = {"model": model, "stream": True, "format": output_schema(kind), "keep_alive": self.keep_alive,
+        body = {"model": model, "stream": True, "format": output_schema(kind, payload), "keep_alive": self.keep_alive,
                 "options": {"temperature": 0, "num_ctx": self.num_ctx, "num_predict": cap,
                             **({"seed": int(self.seed)} if self.seed is not None else {})},
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
@@ -496,9 +522,10 @@ class OllamaBackend:
             body["think"] = want  # sent only to models that can think; others may reject the field
         info = {"task": kind, "model": model, "phase": "waiting", "prompt_tokens": prompt_tokens, "thinking_tokens": 0,
                 "answer_tokens": 0, "seconds": 0.0, "first_token_after": None, "rate": None, "tail": "", "cap": cap,
-                "thinks": thinks, "budget": budget or None, "budget_reached": False}
+                "thinks": thinks, "budget": budget or None, "budget_reached": False, "memory_freed": self.freed}
         t0 = time.time()
         self._report(info, t0, force=True)  # 0.13.11: said before loading starts, not after the first second
+        self._guard(model)   # I6: frees the model's memory when its runner's cache has grown (it reloads for this request)
         self.check_memory(model)
         try:
             content, final = self._stream(body, model, info, t0, budget)
@@ -524,6 +551,7 @@ class OllamaBackend:
                  "total_seconds": time.time() - t0, "thinking_tokens": info["thinking_tokens"],
                  "budget_reached": info["budget_reached"]}
         self.last_stats = stats
+        self._requests += 1
         info.update(phase="done", stats=stats)
         self._report(info, t0, force=True)
         evaluated = int(final.get("prompt_eval_count") or 0)
@@ -699,6 +727,121 @@ class OllamaBackend:
             return None
         free += sum(int(m.get("size") or 0) for m in held)
         return {"loaded": False, "need": int(need), "free": int(free), "short": free < need}
+
+    # -- I6: the engine, and the memory guard of long runs -----------------------------------------
+    def details(self, model: str) -> dict:
+        """What Ollama's list says of a model (`/api/tags` `details`): {"runner": "mlx" | "llamacpp" | …,
+        "quantization", "format"}; {} when it does not say. Loads nothing."""
+        if model not in self._details:
+            try:
+                rows = self._call("/api/tags", timeout=10).get("models", []) or []
+            except BackendError:
+                return {}
+            for m in rows:
+                name = m.get("name") or m.get("model") or ""
+                det = m.get("details") or {}
+                self._details[name] = {"runner": det.get("runner") or "", "quantization": det.get("quantization_level")
+                                       or "", "format": det.get("format") or ""}
+                if m.get("digest"):
+                    self._digests.setdefault(name, m["digest"])
+        return self._details.get(model) or self._details.get(f"{model}:latest") or {}
+
+    def engine_version(self) -> str | None:
+        """Ollama's version (`/api/version`), asked once per backend; None when it does not answer."""
+        if self._version is None:
+            try:
+                self._version = self.version() or ""
+            except BackendError:
+                return None
+        return self._version or None
+
+    def _vram(self, model: str) -> int | None:
+        """The memory Ollama says the model holds now (`/api/ps` size_vram, else size); None when it is not loaded or
+        Ollama does not answer. Loads nothing."""
+        try:
+            held = self._call("/api/ps", timeout=5).get("models", []) or []
+        except BackendError:
+            return None
+        row = next((m for m in held if self._same(m.get("name") or m.get("model") or "", model)), None)
+        if row is None:
+            return None
+        return int(row.get("size_vram") or row.get("size") or 0) or None
+
+    def _guard(self, model: str) -> bool:
+        """I6 (research section 2): Ollama's MLX runner keeps a prompt cache that grows by about 0.17 GB a check up to
+        8 GiB, which a 16 GB computer cannot spare. Before each request of a long run, the model's memory is freed
+        (`let_go`: only a model Ollama holds; nothing is loaded to unload it) when it has grown past its first reading
+        by GROW (`max(1.5 GB, 10 % of the memory)`), or, for an MLX model that has grown at least GUARD_SHORT_GROWN, when
+        free memory is below a fifth; when /api/ps does not answer, every GUARD_EVERY-th request of an MLX model. Never
+        within GUARD_COOLDOWN requests of the last free. The next request, part of the same job the person started,
+        loads it again (about 3 s). Returns whether it freed it."""
+        if not self.memory_watch:
+            return False
+        # within the cooldown the model's first reading after the reload is still noted (below), nothing is freed
+        cooling = self._freed_at is not None and self._requests - self._freed_at < GUARD_COOLDOWN
+        total = total_memory() or 0
+        grow = max(GUARD_GROW_MIN, int(GUARD_GROW_SHARE * total))
+        why = None
+        try:
+            held = self._call("/api/ps", timeout=5).get("models", []) or []
+            row = next((m for m in held if self._same(m.get("name") or m.get("model") or "", model)), None)
+        except BackendError:
+            row, held = None, None
+        if held is None:   # Ollama did not say: the fallback, by count, on MLX only
+            if self._requests and self._requests % GUARD_EVERY == 0 and self.details(model).get("runner") == "mlx":
+                why = "every"
+        elif row is not None:
+            now = int(row.get("size_vram") or row.get("size") or 0)
+            base = self._base_vram.get(model)
+            if base is None or now < base:
+                self._base_vram[model] = now
+            elif now > base + grow:
+                why = "grown"
+            elif now >= base + GUARD_SHORT_GROWN and self.details(model).get("runner") == "mlx":
+                free = free_memory()
+                if total and free is not None and free < GUARD_FREE_SHARE * total:
+                    why = "short"
+        if why is None or cooling:
+            return False
+        # only a model Ollama lists as held (or, when it does not answer, the one this run's last request used): the
+        # unload never loads it (let_go's rule)
+        if held is not None and row is None:
+            return False
+        if not self.unload(model):
+            return False
+        self._base_vram.pop(model, None)
+        self.freed += 1
+        self._freed_at = self._requests
+        if self.on_freed:
+            try:
+                self.on_freed("Freed the local model's memory; it loads again for the next excerpts (about 3 s).")
+            except Exception:  # noqa: BLE001 - a log line never stops the model
+                pass
+        return True
+
+    def p_yes(self, model: str, question: str) -> float | None:
+        """I6 (off until measured: pointing.LEAN): the model's probability of answering "yes" to a yes/no question, from
+        the log-probabilities of its first token (one token, no format, no reasoning). None when Ollama gives none."""
+        import math
+
+        body = {"model": model, "stream": False, "keep_alive": self.keep_alive, "think": False,
+                "logprobs": True, "top_logprobs": 10,
+                "options": {"temperature": 0, "num_ctx": self.num_ctx, "num_predict": 1,
+                            **({"seed": int(self.seed)} if self.seed is not None else {})},
+                "messages": [{"role": "user", "content": question + "\nAnswer yes or no."}]}
+        out = self._call("/api/chat", body, timeout=120)
+        lps = out.get("logprobs") or []
+        if not lps:
+            return None
+        yes = no = 0.0
+        for alt in lps[0].get("top_logprobs") or []:
+            tok = str(alt.get("token") or "").strip().lower()
+            p = math.exp(float(alt.get("logprob") or -1e9))
+            if tok == "yes":
+                yes += p
+            elif tok == "no":
+                no += p
+        return yes / (yes + no) if yes + no > 0 else None
 
     def check_memory(self, model: str) -> None:
         """0.13.11: raise MemoryShort when the model is not in memory yet and this computer has clearly too little
@@ -890,7 +1033,7 @@ class LocalBackend:
             body = dict(base)
             if fmt == "json_schema":
                 body["response_format"] = {"type": "json_schema",
-                                           "json_schema": {"name": kind, "schema": output_schema(kind), "strict": False}}
+                                           "json_schema": {"name": kind, "schema": output_schema(kind, payload), "strict": False}}
             elif fmt == "json_object":
                 body["response_format"] = {"type": "json_object"}
             try:
@@ -1291,7 +1434,7 @@ class CloudBackend(LocalBackend):
 # 0.13.7: the models the app offers to download into Ollama with one button, so a model on this computer needs no
 # terminal. The first reads and judges; the second is for search by meaning (optional).
 SUGGESTED_MODELS = (
-    {"name": "qwen3:8b", "use": "chat", "size": "about 5 GB"},
+    {"name": "qwen3.5:4b", "use": "chat", "size": "about 3.7 GB"},   # I6: modeladvice.MEDIUM_MODEL
     {"name": "nomic-embed-text", "use": "embed", "size": "about 0.3 GB"},
 )
 _MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*){0,2}(:[A-Za-z0-9][A-Za-z0-9._-]*)?")
@@ -1333,9 +1476,10 @@ def note_used(url: str, model: str) -> None:
         got.add((url.rstrip("/"), model))
 
 
-def let_go(models) -> list[str]:
+def let_go(models, runner: str | None = None) -> list[str]:
     """Free the memory of these Ollama models, those still held (`/api/ps`): nothing is loaded to unload it. Returns
-    the models let go of."""
+    the models let go of. I6: with `runner` ("mlx"), only the models Ollama runs on that runner (`/api/tags`): at the
+    end of a local job its MLX model's prompt cache is not kept for Ollama's 15 minutes."""
     done: list[str] = []
     by_url: dict[str, set[str]] = {}
     for url, model in models or ():
@@ -1347,6 +1491,8 @@ def let_go(models) -> list[str]:
         except BackendError:
             continue
         for m in sorted(names):
+            if runner is not None and be.details(m).get("runner") != runner:
+                continue
             if any(be._same(m, h) for h in held) and be.unload(m):
                 done.append(m)
     return done
@@ -1554,6 +1700,16 @@ class BaselineBackend:
         sa = set(a["label"].lower().split()) & set(b["label"].lower().split())
         qa = " ".join(a["snippets"][0]["text"].split()[:8]) if a["snippets"] else a["label"]
         qb = " ".join(b["snippets"][0]["text"].split()[:8]) if b["snippets"] else b["label"]
+        # link-v2: needs, shapes, clashes with, when a passage says so in the text patterns' words (either way round)
+        from .textrelations import stated
+
+        texts = [sn["text"] for sn in a["snippets"] + b["snippets"]]
+        fwd = next((r for r in (stated(x, a["label"], b["label"]) for x in texts) if r), None)
+        back = None if fwd else next((r for r in (stated(x, b["label"], a["label"]) for x in texts) if r), None)
+        if fwd or back:
+            one, two, q1, q2 = (1, 2, qa, qb) if fwd else (2, 1, qb, qa)
+            return {"relations": [{"a": one, "b": two, "relation": fwd or back, "confidence": 0.5,
+                                   "quote_a": q1, "quote_b": q2}]}
         return {"relations": [{"a": 1, "b": 2, "relation": "related" if sa else "different", "confidence": 0.5,
                                "quote_a": qa, "quote_b": qb}]}
 
@@ -1669,6 +1825,12 @@ class AgentCliBackend(ClaudeCodeBackend):
         raise BackendError(f"{self.title} answers through the task queue: press Start {self.title} in Margin.")
 
 
+NOT_REPEATABLE_MLX = ("Not guaranteed: this model runs on Ollama's MLX engine, which can word an answer differently "
+                      "when asked again, even with no randomness and a fixed seed (it does its sums in a slightly "
+                      "different order depending on what it read just before). In our tests the same words came back "
+                      "about 6 times in 10, and the same overall suggestion 19 times in 20.")
+
+
 def provenance(backend, model: str) -> dict:
     """What exactly answers: {"digest", "seed", "settings": {backend, num_ctx, think, think_budget, temperature}}."""
     name = getattr(backend, "name", "") or ""
@@ -1703,6 +1865,20 @@ def provenance(backend, model: str) -> dict:
         settings["think"] = ("judging" if getattr(backend, "think_kinds", None) else
                              {True: "on", False: "off", None: "default"}[getattr(backend, "think", None)])
         settings["think_budget"] = int(getattr(backend, "think_budget", 0) or 0)
+        # I6 (research section 3): the engine that ran it, as the results' Engine column says it: the runner Ollama
+        # chose for the build (mlx, llamacpp), its quantisation and Ollama's version. Asked once per backend; nothing
+        # loads a model
+        try:
+            det = backend.details(model) if hasattr(backend, "details") else {}
+            ver = backend.engine_version() if hasattr(backend, "engine_version") else None
+        except Exception:  # noqa: BLE001 - the record is made without them rather than not at all
+            det, ver = {}, None
+        if det.get("runner"):
+            settings["runner"] = det["runner"]
+        if det.get("quantization"):
+            settings["quantization"] = det["quantization"]
+        if ver:
+            settings["ollama"] = ver
     seed = backend.seed_sent(model) if name == providers.CLOUD_ROUTE else getattr(backend, "seed", None)
     return {"digest": digest, "seed": seed, "settings": settings}
 
@@ -1723,6 +1899,17 @@ def repeatable(backend, model: str) -> dict:
                 "note": "Claude Code takes no seed and no temperature: answers are not guaranteed to be the same "
                         "twice. Measure how much two readings differ with the acceptance runs (--again), or compare "
                         "a sample of labels."}
+    if name == "ollama" and hasattr(backend, "details"):
+        # I6 (research section 3): Ollama's MLX runner sums in another order depending on what it read just before
+        # (its prompt cache, ollama/ollama#16860), so two short questions in a row would look repeatable when a long
+        # run is not. Said without asking the model (which would load it).
+        try:
+            runner = backend.details(model).get("runner")
+        except Exception:  # noqa: BLE001
+            runner = None
+        if runner == "mlx":
+            return {"repeatable": False, "seed": getattr(backend, "seed", None) is not None, "runner": "mlx",
+                    "digest": backend.digest(model), "note": NOT_REPEATABLE_MLX}
     payload = {"claim": "Green hydrogen production can increase water stress in arid regions."}
     if name == providers.CLOUD_ROUTE:  # another cloud provider: asked like a server, and named
         a = backend.complete("expand", system_prompt("expand"), user_prompt("expand", payload), model, payload)

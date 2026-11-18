@@ -5,7 +5,7 @@ only, and Codex answers) no longer waits in silence.
   not counted as waiting for Codex, and once OpenAI is allowed for the project the same job goes on and finishes;
 - the project's AI access counts the documents that allow the main route's company (GET …/ai-access);
 - views/ai-access.js providerAllowLine: "Codex reads only documents that allow OpenAI: 0 of 3 do.", with its Allow
-  button, the shared project's note instead, and nothing when every document allows it or the route is Claude's;
+  button, the owner's limit's note instead (I7 stage 3), and nothing when every document allows it or the route is Claude's;
 - the names follow the agent: the status "waiting", the steps of a check by queue.
 """
 from __future__ import annotations
@@ -90,23 +90,34 @@ def test_a_check_held_for_its_company_says_why_and_goes_on_once_allowed(api, hom
     assert ws.scalar("SELECT COUNT(*) FROM tasks WHERE kind='check' AND task_id LIKE '%:person'") == 0
 
 
-def test_a_shared_project_cannot_allow_it_and_the_check_finishes_with_the_reason(api, home, corpus, codex,  # noqa: F811
-                                                                                 monkeypatch):
-    from margin import access, claimcheck, ingest
+def test_the_owners_limit_holds_the_check_with_a_note_naming_it(api, home, corpus, codex,  # noqa: F811
+                                                                 monkeypatch):
+    """I7 stage 3: in a shared project the person's own allowance holds; the owner's limit holds the excerpts as a
+    missing allowance does, with a note that names the limit and who set it, and no Allow (only the owner can)."""
+    from margin import access, ingest, taskqueue, teamproviders
 
     ws = home.create_project("Q")
     ingest.ingest(ws, [corpus])
     home.update_settings({"allow_codex": True, "backend": "codex", "project": "Q"})
     monkeypatch.setattr(access, "is_shared", lambda *a, **k: True)
+    st, r = api("PUT", "/api/projects/Q/ai-access", {"providers_default": ["anthropic", "openai"]})
+    assert st == 200, r      # allowed in a shared project: the person's own choice
+    # the owner's limit, as a real row (the project's maker owns it): the fake Codex runs in its own process, and
+    # its connector reads the same database
+    teamproviders.set_limit(ws, ["anthropic"])
     st, r = api("POST", "/api/projects/Q/checks", {"text": "Electrolysers need large amounts of fresh water."})
     jid = r["job"]["id"]
     _until(lambda: api("GET", "/api/projects/Q/queue")[1]["waiting"])
     _run_agent(api, codex)
-    job = _until(lambda: (lambda j: j if j["state"] in ("done", "failed") else None)(_job(api, jid)))
-    assert job["state"] == "done"
-    notes = str(job.get("progress"))
-    assert "Codex may not read this shared project's documents" in notes
-    assert ws.scalar("SELECT COUNT(*) FROM tasks WHERE kind='check' AND model=?", (claimcheck.PERSON,)) >= 1
+    job = _until(lambda: (lambda j: j if ((j.get("progress") or {}).get("model") or {}).get("phase") == "held"
+                          else None)(_job(api, jid)))
+    m = job["progress"]["model"]
+    assert m["limit"] is True and m["plain"].startswith("The team uses Anthropic only (set by you)")
+    assert "OpenAI reads none of this project's documents" in m["plain"] and job["state"] == "running"
+    st, info = api("GET", "/api/projects/Q/ai-access")
+    assert info["ai_access"]["team_limit"]["providers"] == ["anthropic"]
+    assert taskqueue.status(ws, "Q")["waiting"] == 0       # nothing waits for Codex
+    api("POST", f"/api/jobs/{jid}/cancel", {})
 
 
 PROBE = r"""
@@ -127,8 +138,13 @@ await scenario("Codex: the line, its counts and its button", async (t) => {
   out.put = t.calls.filter((c) => c.method === "PUT").map((c) => c.body);
   out.saved = !!saved;
   out.allowed = m.providerAllowLine("Study", { ...INFO, route_allowed: 3 }) === null;
-  out.shared = t.text(m.providerAllowLine("Study", { ...INFO, shared: true, providers_note: "Only Anthropic may read a shared project's documents." }));
-  out.sharedButtons = t.buttons(m.providerAllowLine("Study", { ...INFO, shared: true }));
+  // I7 stage 3: a shared project without a limit offers Allow as any other; the owner's limit says why, without it
+  const shown = (el) => { document.getElementById("view").appendChild(el); return el; };
+  out.sharedButtons = t.buttons(shown(m.providerAllowLine("Study", { ...INFO, shared: true })));
+  const LIM = { ...INFO, shared: true, team_limit: { providers: ["anthropic"] }, providers_note: "The team uses Anthropic only (set by Anna): OpenAI reads none of this project's documents." };
+  out.shared = t.text(m.providerAllowLine("Study", LIM));
+  out.limitButtons = t.buttons(shown(m.providerAllowLine("Study", LIM)));
+  out.inside = t.buttons(shown(m.providerAllowLine("Study", { ...LIM, team_limit: { providers: ["anthropic", "openai"] } })));
   t.state({ settings: { backend: "claude_code" }, providers: { ...CODEX, route: "anthropic" } });
   out.claude = m.providerAllowLine("Study", INFO) === null;
   return out;
@@ -159,7 +175,9 @@ def test_the_line_names_the_agent_its_company_and_the_counts(views):
     assert [b["label"] for b in r["buttons"]] == ["Allow OpenAI for this project"]
     assert r["put"] == [{"providers_default": ["anthropic", "openai"]}] and r["saved"]
     assert r["allowed"] is True and r["claude"] is True
-    assert "Only Anthropic may read a shared project's documents." in r["shared"] and r["sharedButtons"] == []
+    assert [b["label"] for b in r["sharedButtons"]] == ["Allow OpenAI for this project"]
+    assert "The team uses Anthropic only (set by Anna)" in r["shared"] and r["limitButtons"] == []
+    assert [b["label"] for b in r["inside"]] == ["Allow OpenAI for this project"]
 
 
 @needs_node

@@ -8,7 +8,7 @@
 // when *Make the codebook* turns the concepts in the codebook into codes. Every change is kept in the draft as you work.
 import { forgetFrameworks } from "./options.js";
 import { aiRun } from "./progress.js";
-import { App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, P, plural, confirmDialog, dialog, field, watchJob, emptyState, shortTitle, session, debounce, button, setButtonKind, iconButton, stopButton, link, notice, card, tag, inset, input, select, textarea, choice, fold, readsLine, aiWhere, workState, withAI, aiTag, foundWords, searchHref, setBusy, spinner, cap, aiButton, jobFailed } from "../lib.js";
+import { App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, P, plural, confirmDialog, dialog, field, watchJob, emptyState, shortTitle, session, debounce, button, setButtonKind, iconButton, stopButton, link, notice, card, tag, inset, input, select, textarea, choice, fold, readsLine, aiWhere, ownStartNote, workState, withAI, aiTag, foundWords, searchHref, setBusy, spinner, cap, aiButton, jobFailed } from "../lib.js";
 
 const MAX_CONCEPTS = 60;   // theoryframe.MAX_CONCEPTS
 const MAX_EXAMPLES = 8;    // a code keeps at most this many examples (codebooks.MAX_EXAMPLES)
@@ -194,7 +194,7 @@ export async function renderTheoryDraft(view) {
     const n = offered().length, parts = offer ? offer.parts : 0;
     return `${n === 1 ? "this whole document" : `these ${n} whole documents`}${parts > 1 ? `, in ${parts} parts` : ""}`;
   };
-  const localLine = () => `The AI on this computer reads ${readsWhat()}: the text never leaves it.`;
+  const localLine = () => `The AI on this computer reads ${readsWhat()}: the text never leaves it.${ownStartNote()}`;
   // the documents no AI may read, one line each
   const docLines = () => (offer ? offer.documents.filter((d) => !d.offered).map((d) => h("p", { class: "muted small" },
     d.level === "none" ? `“${d.title}” is marked No AI: only the terms it defines outright are used.` : `“${d.title}”: ${d.why}`)) : []);

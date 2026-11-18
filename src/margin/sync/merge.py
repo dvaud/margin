@@ -176,6 +176,7 @@ class _Merge(CodebookRules, ReadingRules, ShareRules, OwnerRules):
             self._themes(cx)
             self._reviews(cx)
             links = self._links(cx)
+            self._group_names(cx)
             self._bibliography(cx)
             self._log_and_notes(cx)
             self._follow_codebooks(cx)
@@ -318,6 +319,8 @@ class _Merge(CodebookRules, ReadingRules, ShareRules, OwnerRules):
                 row["role"] = None
             if "nonscientific" in row:  # 0.18.6: the Non-scientific mark too (docrole.py)
                 row["nonscientific"] = None
+            if "ai_providers" in row:  # I7 stage 3: which cloud providers may read it is each person's own consent
+                row["ai_providers"] = None  # (teamproviders.py): this copy's project choice applies, never theirs
             if row["sha1"] in sha_here:  # the file is here already (another reading of it): sha1 is unique
                 row["sha1"] = f"{(row['sha1'] or '').split('~')[0]}~{fp[:6]}"
             sha_here.add(row["sha1"])
@@ -452,8 +455,17 @@ class _Merge(CodebookRules, ReadingRules, ShareRules, OwnerRules):
                                          if self._id("task_id", r["task_id"]) in added])
         sent = [r for r in _rows(self.icx, "SELECT * FROM ai_sent") if self._doc_ok(r) and r["doc_id"] in self.docs]
         have = {tuple(r) for r in cx.execute("SELECT passage_id, task_id, route, sent_at FROM ai_sent")}
-        self._insert(cx, "ai_sent", sent, verb="",
-                     fix=lambda t: None if (t["passage_id"], t["task_id"], t["route"], t["sent_at"]) in have else t)
+
+        def fix_sent(t: dict) -> dict | None:
+            if (t["passage_id"], t["task_id"], t["route"], t["sent_at"]) in have:
+                return None
+            # I7 stage 3 (the AI log): a row in this person's name comes from this copy only; one a file brings that
+            # this copy does not hold still counts as read (the cap), but names nobody
+            if t.get("person_id") is not None and t.get("person_id") == self.me:
+                t["person_id"] = None
+            return t
+
+        self._insert(cx, "ai_sent", sent, verb="", fix=fix_sent)
 
     # checks and theme runs --------------------------------------------------------------------
     def _units(self, cx: sqlite3.Connection, kind: str) -> None:
@@ -883,6 +895,31 @@ class _Merge(CodebookRules, ReadingRules, ShareRules, OwnerRules):
         n = self._insert(cx, "concept_links", _rows(self.icx, "SELECT * FROM concept_links"))
         self.r["links"] = n
         return n
+
+    def _group_names(self, cx: sqlite3.Connection) -> None:
+        """D1, the last part: the names of the concept map's groups (groupnames.merge has the rules). A quote comes in
+        only for a document this copy holds, under its id here."""
+        from .. import groupnames
+
+        there = {r[0] for r in self.icx.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "concept_group_names" not in there:
+            return
+        names = _rows(self.icx, "SELECT * FROM concept_group_names")
+        quotes = _rows(self.icx, "SELECT * FROM concept_group_quotes") if "concept_group_quotes" in there else []
+        removed = _rows(self.icx, "SELECT * FROM sync_removed WHERE kind=?", (groupnames.REMOVED,))
+
+        def doc_here(q: dict) -> dict | None:
+            if not self._doc_ok(q):
+                return None
+            cols = list(q)
+            q = dict(zip(cols, self._row(q, cols)))
+            d = self.docs.get(q.get("doc_id"), q.get("doc_id"))
+            if not cx.execute("SELECT 1 FROM passages WHERE passage_id=? AND doc_id=?", (q.get("passage_id"),
+                                                                                         d)).fetchone():
+                return None
+            return {**q, "doc_id": d}
+
+        self.r["group_names"] = groupnames.merge(cx, names, quotes, removed, self.sender["id"], self.me, doc_here)
 
     def _bibliography(self, cx: sqlite3.Connection) -> None:
         theirs = self.inc.meta("bibliography")

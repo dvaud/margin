@@ -704,7 +704,9 @@ def held_parts(ws: Workspace, hyp_ids: list[str]) -> list[dict]:
     """Stage 2: the parts of these checks by queue held out of the queue: open main parts of a round not in the queue
     because a document in them may not be read by the queue's provider now. Each {"task_id", "passages", "why"}:
     "provider" (its documents are marked for cloud AI but do not allow that provider: allowing it lets the check go
-    on), or "setting" (a document's setting or cap keeps it from any cloud AI now)."""
+    on), "limit" (I7 stage 3: they would, but the owner's limit of the providers the team may use leaves that provider
+    out: the note says so, teamproviders.note), or "setting" (a document's setting or cap keeps it from any cloud AI
+    now)."""
     if not hyp_ids:
         return []
     prov = tasks.queue_provider()
@@ -720,6 +722,14 @@ def held_parts(ws: Workspace, hyp_ids: list[str]) -> list[dict]:
                 mine = access.levels(cx, docs, provider=prov, budget=False)
                 chosen = access.levels(cx, docs, provider=None, budget=False)
             why = "provider" if any(chosen.get(d) == "cloud" and mine.get(d) != "cloud" for d in docs) else "setting"
+            if why == "provider" and prov is not None:
+                from .teamproviders import allows as team_allows
+
+                try:
+                    if not team_allows(ws._conn(), prov):
+                        why = "limit"
+                except Exception:  # noqa: BLE001 - read as the person's own consent
+                    pass
             out.append({"task_id": t["task_id"], "passages": len(json.loads(t["payload_json"])["passages"]),
                         "why": why})
     return out
@@ -1264,8 +1274,11 @@ def _run_check(ws, cid, backend, model, used, k, per_doc, expand, doc_ids, say, 
     graded = ws.scalar("SELECT COUNT(*) FROM verifications WHERE subject_kind='user_claim' AND subject_id=? "
                        "AND verdict != 'not_enough_info'", (cid,)) or 0
     attempts = ws.scalar("SELECT attempts FROM tasks WHERE task_id=?", (f"check:{cid}",)) or 1
+    # I6: with the local model's suggestions, which wait for the person's judgement too
     waiting = ws.scalar("SELECT COUNT(*) FROM verifications WHERE subject_kind='user_claim' AND subject_id=? AND "
-                        "model=? AND user_verdict IS NULL", (cid, PERSON)) or 0
+                        "(model=? OR suggestion_json IS NOT NULL) AND user_verdict IS NULL", (cid, PERSON)) or 0
+    graded -= ws.scalar("SELECT COUNT(*) FROM verifications WHERE subject_kind='user_claim' AND subject_id=? AND "
+                        "suggestion_json IS NOT NULL AND verdict != 'not_enough_info'", (cid,)) or 0
     say("grade_done", (f"{graded} of {len(picked)} excerpts are about the hypothesis; every quote was checked against "
                        "the document" if ok else "The AI's answers could not be used, even after three tries")
         + (f" ({attempts} tries)" if attempts > 1 and ok else "")
@@ -1358,8 +1371,11 @@ def _shown(payload: dict) -> list[dict]:
 
 def open_check(ws: Workspace, text: str, terms: list[str] | None = None, target: str | None = None, k: int = 8,
                per_doc: int = 2, doc_ids: list[str] | None = None, model: str = CHAT_MODEL,
-               framework: str | None = None) -> dict:
-    """Pick the passages for a claim and return them; the grades come back through `submit_grades`."""
+               framework: str | None = None, provider: str | None = access.ANTHROPIC,
+               route: str | None = None) -> dict:
+    """Pick the passages for a claim and return them; the grades come back through `submit_grades`. I7 stage 3:
+    `provider` is the connector's (Codex's: OpenAI), for the split and the ledger; `route` the name the ledger
+    gives it (mcp_server.sent_route)."""
     if not ws.scalar("SELECT COUNT(*) FROM passages WHERE section='body'"):
         raise ValueError("This project has no readable documents yet. Add sources first.")
     terms = clean_terms(terms)
@@ -1373,18 +1389,20 @@ def open_check(ws: Workspace, text: str, terms: list[str] | None = None, target:
     if not picked:
         return {"check_id": cid, "round": 1, "passages": []}
     payload = _payload(ws, cid, uc["text"], uc["target"], uc["framework"], picked, terms)
-    parts = _add_round(ws, cid, f"check:{cid}", payload, model, ("cloud",), _local_configured())
-    return {"check_id": cid, "round": 1, **_chat_round(ws, parts)}
+    parts = _add_round(ws, cid, f"check:{cid}", payload, model, ("cloud",), _local_configured(), provider=provider)
+    return {"check_id": cid, "round": 1, **_chat_round(ws, parts, provider, route)}
 
 
-def _chat_round(ws: Workspace, parts: dict[str, str]) -> dict:
+def _chat_round(ws: Workspace, parts: dict[str, str], provider: str | None = access.ANTHROPIC,
+                route: str | None = None) -> dict:
     """The excerpts of a round a Claude chat may read (the main part), and how many others there are (0.11)."""
     main = ws.scalar("SELECT payload_json FROM tasks WHERE task_id=?", (parts["main"],)) if "main" in parts else None
     shown = _shown(json.loads(main)) if main else []
     if main:
         with ws.connect() as cx:
             # the chat sees the excerpts alone (`_shown`): no context passage enters the ledger (0.11.1)
-            access.record_sent(cx, parts["main"], json.loads(main), access.ROUTE_NAMES["chat"], "check", context=False)
+            access.record_sent(cx, parts["main"], json.loads(main), route or access.ROUTE_NAMES["chat"], "check",
+                               context=False, provider=provider)
     n = _part_counts(ws, {k: v for k, v in parts.items() if k != "main"})
     out: dict = {"passages": shown}
     if n:
@@ -1399,7 +1417,8 @@ def _chat_round(ws: Workspace, parts: dict[str, str]) -> dict:
 
 def more_passages(ws: Workspace, cid: str, k: int = 8, model: str = CHAT_MODEL, terms: list[str] | None = None,
                   embedder=None, doc_ids: list[str] | None = None, main_levels=("cloud",),
-                  local_reader: bool | None = None, provider: str | None = access.ANTHROPIC) -> dict:
+                  local_reader: bool | None = None, provider: str | None = access.ANTHROPIC,
+                  route: str | None = None) -> dict:
     """The next best passages, none of them shown before, as a new round of the same check.
 
     With `terms`, the ranking uses these new search terms (with the claim) instead of the earlier ones, and only
@@ -1434,7 +1453,7 @@ def more_passages(ws: Workspace, cid: str, k: int = 8, model: str = CHAT_MODEL, 
     parts = _add_round(ws, cid, f"check:{cid}:r{n}" if groups else f"check:{cid}", payload, model, tuple(main_levels),
                        _local_configured() if local_reader is None else local_reader, provider=provider)
     if model == CHAT_MODEL:  # a Claude chat (the connector): it is shown the excerpts it may read
-        return {"check_id": cid, "round": n, **_chat_round(ws, parts)}
+        return {"check_id": cid, "round": n, **_chat_round(ws, parts, provider, route)}
     return {"check_id": cid, "round": n, "passages": _shown(payload), "parts": parts}
 
 
@@ -1688,7 +1707,7 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
         if _checks is None:
             rounds.update(_light_checks(ws, cids))
         sql = ("SELECT subject_id, passage_id, verdict, confidence, doc_id, user_verdict, model, ai_history_json, "
-               "user_by FROM verifications WHERE subject_kind='user_claim'")
+               "user_by, suggestion_json FROM verifications WHERE subject_kind='user_claim'")
         if cids is None:
             vs = ws.query(sql)
         else:

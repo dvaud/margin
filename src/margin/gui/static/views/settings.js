@@ -43,25 +43,33 @@ export const AGENT_CHOICE = {
 // the honest state of the agent CLIs (docs/manual/other-agents.md says the same)
 const untried = (title) => `Built from ${title}’s documentation and not yet tried with real accounts, nor measured with Margin.`;
 
-// Whether the open project is shared with a team: only Anthropic may read a shared project's documents (privacy.md)
+// Whether the open project is shared with a team, and the team's limit of providers when its owner set one (I7 stage 3:
+// each person chooses their own provider; privacy.md). {shared, limit: [ids] | null, note}
 async function projectShared() {
-  if (!App.project) return false;
-  try { const r = await api("GET", `/api/projects/${P(App.project)}`); return !!((r && r.ai_access) || {}).shared; } catch (_) { return false; }
+  if (!App.project) return { shared: false };
+  try { const a = ((await api("GET", `/api/projects/${P(App.project)}`)) || {}).ai_access || {}; return { shared: !!a.shared, limit: (a.team_limit && a.team_limit.providers) || null, note: a.providers_note || "" }; }
+  catch (_) { return { shared: false }; }
 }
-const sharedLine = (who) => h("p", { class: "small", id: "consent-shared" }, `This project is shared with a team: only Anthropic may read its documents, so ${who} reads none of them here.`);
+// one line in the consent dialog of a provider in a shared project: the choice is the person's own, and the team's
+// limit, when the owner set one that leaves this provider out
+const sharedLine = (who, prov, team) => {
+  if (!team || !team.shared) return null;
+  if (team.limit && prov && !team.limit.includes(prov)) return h("p", { class: "small", id: "consent-shared" }, `${team.note} So ${who} reads none of this project’s documents.`);
+  return h("p", { class: "small", id: "consent-shared" }, `This project is shared with a team: the provider is your own choice, for your copy. Your colleagues see in the research log which provider you allowed, and the AI log shows who ran what with which provider.`);
+};
 
 // The yes-first dialog of Codex or Antigravity (as Claude Code's): what is sent where, the maker's terms, which
 // documents, the honest state. `stay`: the words of the way out. Resolves true for yes. Used by Settings and the first run.
 export async function agentConsent(key, { stay = "Keep the AI on this computer" } = {}) {
   const a = AGENTS[key], c = AGENT_CHOICE[key];
-  const shared = await projectShared();
+  const team = await projectShared();
   return !!(await dialog({
     title: `Let ${a.title} read the excerpts, on ${a.plan}?`,
     body: h("div", {}, h("p", {}, `The AI buttons of Margin then prepare tasks; ${a.title} answers them, started by Margin when you press Start ${a.title}.`),
       h("p", {}, h("strong", {}, `The passages inside the tasks ${a.title} takes are sent to ${a.company}.`), " Your documents, results and reviews stay on this computer, and every answer is checked here against the text."),
       h("p", {}, h("strong", {}, c.terms)),
       h("p", {}, h("strong", {}, `Only documents that allow ${c.box} are sent.`), ` Every document allows Anthropic only until you tick ${c.box} for it on the Documents page; the others wait for another AI, or for you.`),
-      shared ? sharedLine(a.title) : null,
+      sharedLine(a.title, { codex: "openai", antigravity: "gemini" }[key], team),
       h("p", { class: "muted small" }, `Margin never sees your login and never runs on anyone else’s plan. ${untried(a.title)}`)),
     actions: [{ text: stay, value: false, id: "dlg-safe" }, { text: `Use ${a.title}`, value: true, primary: true }],
   }));
@@ -72,7 +80,7 @@ export async function agentConsent(key, { stay = "Keep the AI on this computer" 
 // the AI tab wears the icon of the sidebar's AI line (where text goes): the chip is the AI mark's only (DESIGN.md 3.3)
 const TABS = [["model", "AI", "cloud"], ["basics", "Checking", "flask"], ["explore", "Exploring", "network"], ["documents", "Documents", "book-open"], ["advanced", "Technical", "sliders"]];
 const TAB_OF = { model: "model", ai: "model", speed: "model", queue: "model", basics: "basics", calibration: "basics", notify: "basics", explore: "explore", frameworks: "explore", documents: "documents", ocr: "documents", embeddings: "documents",
-  advanced: "advanced", routing: "advanced", second: "advanced", context: "advanced", repeatable: "advanced", test: "advanced", updates: "advanced", data: "advanced", link: "advanced" };
+  advanced: "advanced", localmodel: "advanced", routing: "advanced", second: "advanced", context: "advanced", repeatable: "advanced", test: "advanced", updates: "advanced", data: "advanced", link: "advanced" };
 
 export async function renderSettings(view, [section]) {
   const s = { ...App.settings() };
@@ -108,7 +116,7 @@ export async function renderSettings(view, [section]) {
   else {
     // a local model's own settings (second model, context length) only when a local model answers
     const local = ["auto", "ollama", "openai"].includes(s.backend || "auto");
-    main.append(...[routingSection(s, servers), local ? secondModelSection(s, servers) : null, local ? contextSection(s) : null, reproSection(s), testSection(s, watchers), ledgerSection(), updatesSection(), linkSection(), dataSection()].filter(Boolean));
+    main.append(...[local ? localTierSection(s, info) : null, routingSection(s, servers), local ? secondModelSection(s, servers) : null, local ? contextSection(s) : null, reproSection(s), testSection(s, watchers), ledgerSection(), updatesSection(), linkSection(), dataSection()].filter(Boolean));
     if (!local) main.appendChild(h("p", { class: "muted small" }, icon("info", { size: 13 }), " The settings of a model on this computer (the model for second opinions, the context length) show here when a local model is chosen under AI."));
   }
   // a link to one setting (#/settings/speed): it comes into view clear of the top bar, and its control takes the focus
@@ -404,12 +412,12 @@ function modelSection(s, servers, watchers, info = { servers }) {
       if (!ok) { select(prev); return; }
     }
     if (key === "cloud_api" && prev !== "cloud_api") {
-      const shared = await projectShared();
+      const team = await projectShared();
       const ok = await dialog({
         title: "Use another cloud provider with your API key?",
         body: h("div", {}, h("p", {}, "The hypothesis and the excerpts the AI reads are then sent to the provider you choose below (OpenAI, Google, Mistral, Microsoft or OpenRouter), and the use is billed to your key."),
           h("p", {}, h("strong", {}, "Only documents that allow that provider are sent."), " Every document allows Anthropic only until you tick another provider for it on the Documents page; the others are read by your local model, or wait for you."),
-          shared ? sharedLine("that provider") : null,
+          sharedLine("that provider", null, team),
           h("p", { class: "muted small" }, "Nothing is sent before you also switch on “Allow cloud models”, store a key and save. Margin's models and settings were measured with Claude only.")),
         actions: [{ text: "Back", value: false, primary: true, id: "dlg-safe" }, { text: "Continue with another provider", value: true }],
         onOpen(dlg) { const b = dlg.querySelector("#dlg-safe"); if (b) b.focus(); },
@@ -467,7 +475,7 @@ function modelSection(s, servers, watchers, info = { servers }) {
     });
     const list = servers.length ? h("div", { class: "server-list" }, servers.map((sv) => inset({ class: "server small" }, icon("check", { size: 14 }),
       h("div", {}, h("strong", {}, sv.kind === "ollama" ? `Ollama ${sv.version || ""}` : `OpenAI-compatible server`), h("span", { class: "muted" }, ` at ${sv.url}`),
-        h("div", { class: "sv-models" }, `Chat: ${(sv.chat_models || []).join(", ") || "none"} · Embedding: ${(sv.embedding_models || []).join(", ") || "none"}`))))) : null;
+        h("div", { class: "sv-models" }, `${(sv.chat_models || []).length ? `${(sv.chat_models || []).length === 1 ? "A model" : `${sv.chat_models.length} models`} for reading` : "No model for reading yet"} · ${(sv.embedding_models || []).length ? "search by meaning set up" : "no search by meaning"} (names under Technical)`))))) : null;
     return help ? h("div", { class: "stack" }, list, help) : list;
   }
 
@@ -498,13 +506,16 @@ function modelSection(s, servers, watchers, info = { servers }) {
         if (line) replace(farBox, line);
       }).catch(() => { /* the line without the button stays */ });
     }
+    // I6: the model is chosen for this computer; its name and the choice of another are under Technical
     if (backend === "auto") {
-      detail.append(serverList(), h("p", { class: "muted small" }, "The first server found is used. If a chat model is named below for Ollama or an OpenAI-compatible server, it is preferred when that server has it."),
-        fields.ollamaModel = modelPicker("m-ollama", s.ollama_model, ollamaSrv ? ollamaSrv.chat_models : [], "e.g. qwen3:8b"), thinkRow());
+      detail.append(...[tierLine(info), serverList()].filter(Boolean), fold({ class: "set-tech-fold" }, "Technical: the server and the model",
+        h("p", { class: "muted small" }, "The first server found is used. If a chat model is named below for Ollama or an OpenAI-compatible server, it is preferred when that server has it."),
+        fields.ollamaModel = modelPicker("m-ollama", s.ollama_model, ollamaSrv ? ollamaSrv.chat_models : [], "chosen for this computer"), thinkRow()));
       fields.ollamaModel.querySelector(".field-label").textContent = "Preferred Ollama model";
     } else if (backend === "ollama") {
-      detail.append(serverList(), h("div", { class: "fields-2" }, field("Ollama address", fields.ollama_url), fields.ollamaModel = modelPicker("m-ollama", s.ollama_model, ollamaSrv ? ollamaSrv.chat_models : [], "e.g. qwen3:8b")),
-        thinkRow(), h("p", { class: "muted small" }, "Context length: set automatically; see Settings → Technical."));
+      detail.append(...[tierLine(info), serverList()].filter(Boolean), fold({ class: "set-tech-fold" }, "Technical: the server and the model",
+        h("div", { class: "fields-2" }, field("Ollama address", fields.ollama_url), fields.ollamaModel = modelPicker("m-ollama", s.ollama_model, ollamaSrv ? ollamaSrv.chat_models : [], "chosen for this computer")),
+        thinkRow(), h("p", { class: "muted small" }, "Context length: set automatically; see Settings → Technical.")));
     } else if (backend === "openai") {
       detail.append(serverList(), h("div", { class: "fields-2" }, field("Server address", fields.openai_url, { help: "The /v1 base URL of LM Studio, llama.cpp, Jan, vLLM…" }), fields.openaiModel = modelPicker("m-openai", s.openai_model, openaiSrv ? openaiSrv.chat_models : [], "leave empty for the first model listed")));
     } else if (backend === "anthropic") {
@@ -1078,6 +1089,42 @@ function routingSection(s, servers) {
   }
   draw();
   return sectionCard("routing", "AI model per task", "Which model answers each kind of task. Most people never change this.", body);
+}
+
+// ---------------------------------------------------------------------------------------------
+// I6: the local model chosen for this computer, in plain words (no model name: those are under Technical)
+function tierLine(info) {
+  const t = info && info.advice && info.advice.tier;
+  if (!t) return null;
+  return h("p", { class: "small set-tier-line" }, icon("house", { size: 13 }), ` ${t.words} on this computer is chosen for you (${t.size}). ${t.what} It only suggests: you judge every excerpt it reads, and only your judgements count.`);
+}
+
+// I6: Technical → the local model: which tier this computer gets and its model's name, the model in use, and (for a
+// person who set up an older model) the tier's model offered beside it; nothing is downloaded until Download is pressed
+function localTierSection(s, info) {
+  const adv = info && info.advice;
+  const pick = adv && adv.chat && adv.chat.pick;
+  const older = info && info.older_model;
+  const area = h("div", { "aria-live": "polite" });
+  const ollama = (info.servers || []).find((x) => x.kind === "ollama");
+  const rows = pick ? h("dl", { class: "tech-dl" },
+    h("div", {}, h("dt", {}, "Chosen for this computer"), h("dd", {}, `${pick.name} · ${pick.size} · ${pick.answers === "explorer" ? "explorer: points at sentences" : "suggestions"}`)),
+    h("div", {}, h("dt", {}, "In use now"), h("dd", {}, s.ollama_model || "chosen automatically")),
+    h("div", {}, h("dt", {}, "Context length, reasoning, seed"), h("dd", {}, `set by Margin: ${pick.num_ctx.toLocaleString()} tokens, reasoning off for checks, seed ${s.seed ?? 42}`)),
+    adv.computer && adv.computer.words ? h("div", {}, h("dt", {}, "This computer"), h("dd", {}, adv.computer.words)) : null) : h("p", { class: "muted small" }, (adv && adv.chat && adv.chat.reason) || "This computer could not be read just now.");
+  const offer = older && ollama ? h("div", { class: "stack" },
+    h("p", { class: "small" }, `You use ${older.chosen}, set up before Margin chose models for you. It keeps working. ${older.offer} (${older.size}) is the one chosen for this computer now; download it if you want it (it is then used for new checks).`),
+    h("div", { class: "btn-row" }, button({ sm: true, onClick: async (e) => {
+      setBusy(e.currentTarget, true);
+      try {
+        const r = await api("POST", "/api/servers/pull", { models: [older.offer], url: ollama.url, use: older.use || "ai" });
+        replace(area, h("p", { class: "muted small" }, `Downloading ${older.offer}; it is chosen when the download is done.`));
+        if (r && r.job) watchJob(r.job.id, () => {}, 2000).promise.then((j) => replace(area, j.state === "done" ? notice({ kind: "done" }, h("p", {}, `${older.offer} reads your documents now.`)) : notice({ kind: "error", live: false }, h("p", {}, j.error || "The download did not finish.")))).catch(showError);
+      } catch (err) { showError(err); }
+      setBusy(e.currentTarget, false);
+    } }, icon("download", { size: 13 }), `Download ${older.offer}`))) : null;
+  return sectionCard("localmodel", "The local model", "Margin picks the local model from this computer's memory and graphics card, and sets its context length, reasoning and seed. Change the model under AI → Technical: the server and the model.",
+    rows, offer, area);
 }
 
 // ---------------------------------------------------------------------------------------------

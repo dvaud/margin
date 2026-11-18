@@ -958,8 +958,20 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .cm-key { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
 .cm-swatch { flex: none; }
 .cm-how { margin: 0; }
-.cm-svg-wrap { width: 100%; overflow: hidden; }
+.cm-svg-wrap { width: 100%; overflow: hidden; touch-action: pan-x pan-y; }   /* a pinch zooms the map, not the page */
 .cm-svg { display: block; width: 100%; height: auto; }
+/* D1, the last part: the zoom (concept-map.js mapZoom). Zoomed in, the map is dragged to move it; lines keep their
+   width, and words grow by the square root of the zoom: the map's own font size, set while it runs, is --fs-xs over
+   that root, and each word's size is in em of it (the sizes of --fs-xs, --fs-label and --fs-small) */
+.cm-zoom { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin-bottom: var(--space-2); }
+.cm-zoom-status { margin-left: var(--space-1); }
+.cm-svg-wrap[data-zoomed="true"] { cursor: grab; touch-action: none; }
+.cm-svg-wrap[data-panning="true"] { cursor: grabbing; user-select: none; }
+.cm-svg[data-zoom="near"] .cm-label[data-hidden="true"] { display: inline; }
+.cm-svg[data-zoomed="true"] .cm-label { font-size: 1em; }
+.cm-svg[data-zoomed="true"] .cm-rel { font-size: .9em; }
+.cm-svg[data-zoomed="true"] .cm-gname text { font-size: 1.09em; }
+.cm-edge, .cm-link, .cm-hit { vector-effect: non-scaling-stroke; }
 .cm-edge { stroke: var(--border-strong); stroke-linecap: round; }
 .cm-link { stroke: var(--text-2); stroke-width: 2px; stroke-linecap: round; }
 .cm-arrow { fill: var(--text-2); }
@@ -1023,6 +1035,10 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .cm-groups-kept { margin-top: var(--space-3); }
 .cm-kept-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .cm-kept-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px var(--space-3); }
+/* D1, the last part: another name a person gave the group, under it and in the rename dialog */
+.cm-group-also { margin: 0; overflow-wrap: anywhere; }
+.cm-also-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.cm-also-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--space-2); }
 .cm-link-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: var(--space-1); }
 
 /* ==== Themes */

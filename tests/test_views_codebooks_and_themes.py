@@ -62,10 +62,10 @@ for (const reader of ["local", "claude"]) {
 
 // ---- themes the AI could not name ---------------------------------------------------------------------------
 const TH = "/api/projects/Study/themes";
-async function themes(t, list) {
+async function themes(t, list, readers) {
   t.state({ settings: { backend: "claude_code" } });
   t.answer(`GET ${TH}`, { runs: [{ run_id: "r1" }], frameworks: [] });
-  t.answer(`GET ${TH}/r1?*`, { run: { run_id: "r1", created_at: "2026-11-15T10:00:00Z", passages: 40, mode: "meaning" }, documents: [{ doc_id: "d1" }], themes: list, removed: [] });
+  t.answer(`GET ${TH}/r1?*`, { run: { run_id: "r1", created_at: "2026-11-15T10:00:00Z", passages: 40, mode: "meaning" }, documents: [{ doc_id: "d1" }], themes: list, removed: [], readers });
   t.answer("GET /api/projects/Study/frameworks", { frameworks: [] });
   t.answer("GET /api/projects/Study/sharing/themes/r1", { shared: false });
   t.answer("GET /api/projects/Study/shared-folder", { folder: null });
@@ -92,6 +92,18 @@ await scenario("themes all named", async (t) => {
   await themes(t, [THEME({ name: "Cafés", name_source: "model" })]);
   return t.view.querySelector(".th-not-named-notice") === null;
 });
+// 0.20.1: the head's AI line says who names the themes, as their documents allow
+const READERS = { claude: { main: 3, local: 0, none: 0, local_model: "qwen3.5:4b" },
+  local: { main: 0, local: 3, none: 0, local_model: "qwen3.5:4b" },
+  both: { main: 2, local: 1, none: 1, local_model: "qwen3.5:4b" },
+  nobody: { main: 0, local: 0, none: 3, local_model: null }, absent: undefined };
+for (const [k, rd] of Object.entries(READERS)) {
+  await scenario(`themes ai line, ${k}`, async (t) => {
+    await themes(t, [THEME({ name: "Cafés", name_source: "model" })], rd);
+    const line = t.view.querySelector(".page-head .ai-where");
+    return { line: t.text(line), local: !!line.querySelector(".icon-house") };
+  });
+}
 """
 
 
@@ -152,3 +164,20 @@ def test_themes_not_named_for_several_reasons_say_each_says_why_below(page):
 @needs_node
 def test_no_notice_when_every_theme_is_named(page):
     assert page["themes all named"] is True
+
+
+@needs_node
+def test_the_themes_ai_line_names_the_ai_that_names_them(page):
+    """0.20.1 (the owner's video of 18 November 2026): every theme only the local model may read, and the line said
+    "Claude, on your plan, reads the passages of each theme"."""
+    assert page["themes ai line, claude"]["line"] == "Claude, on your plan, reads the passages of each theme."
+    assert page["themes ai line, absent"]["line"] == "Claude, on your plan, reads the passages of each theme."
+    local = page["themes ai line, local"]
+    assert local["line"] == ("The AI on this computer (qwen3.5:4b) reads the passages of each theme: their documents may "
+                             "only be read on this computer. It starts when you press its own Start.")
+    assert local["local"] is True and "Claude" not in local["line"]
+    assert page["themes ai line, both"]["line"] == (
+        "Claude, on your plan, reads the passages of 2 themes. The AI on this computer (qwen3.5:4b) reads the other 1 "
+        "theme once you press its own Start. 1 theme may be read by no AI and keeps the name of its key terms.")
+    assert page["themes ai line, nobody"]["line"] == ("No AI may read the passages of these themes: they keep the names of "
+                                                      "their key terms.")

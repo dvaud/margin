@@ -42,7 +42,10 @@ def summary(r: dict) -> list[str]:
         one = (r.get("log") or 0) + (r.get("notes") or 0) == 1
         out.append(f"{' and '.join(extra)} of {who}'s came in or {'was' if one else 'were'} brought up to date, under "
                    "their name.")
-    both = [x for x in (_n(len(c["clash"]), "result") if c["clash"] else "",
+    if r.get("group_names"):  # D1, the last part (groupnames.merge)
+        out.append(f"{_n(r['group_names'], 'name')} of the concept map's groups came in or changed. Where two people "
+                   "named one group, the map shows the later name and the group shows the other beside it.")
+    both =[x for x in (_n(len(c["clash"]), "result") if c["clash"] else "",
                         _n(len(t["clash"]), "set of themes", "sets of themes") if t["clash"] else "",
                         _n(len(cb["clash"]), "codebook") if cb["clash"] else "") if x]
     for m in cb.get("merged") or []:  # 0.18: a codebook both changed, merged code by code

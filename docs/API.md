@@ -276,7 +276,14 @@ as the icon starts it (`--launcher`, output to `logs/margin.log`), without openi
 `suggested` (0.13.7): the models the page offers to download into Ollama with one button. `ollama_app` (0.15.6):
 whether Ollama is on this computer, running or not: `{"installed", "path", "system": "windows" | "mac" | "linux",
 "how": "app" | "terminal", "line", "manual"}` (`how`: the app installs it itself, or on Linux opens a terminal window
-running Ollama's own `line`; `manual`: Ollama's installer file, for doing it by hand).
+running Ollama's own `line`; `manual`: Ollama's installer file, for doing it by hand). `advice` (0.18.0rc2) gives the
+models that fit this computer; I6 adds `advice.tier` (`{"tier": "small" | "medium" | "large", "answers": "explorer" |
+"suggestions", "words", "size", "what"}`, the chosen tier in plain words, no model name), each chat option's `tier`,
+`answers`, `need` (bytes), `num_ctx` and `runner` (`mlx` | `llamacpp`), and `older_model`: `{"chosen", "offer", "size"}`
+when the model set up is not the tier's (null otherwise). Since I6 a check's result (`GET …/hypotheses/<id>`) carries
+per excerpt `suggestion` (`{"form": "check" | "point", "lean", "marked", "rank", "order"}`, a local model's reading,
+which counts for nothing until judged) and `local_counted`, and per part and hypothesis the counts `suggestions` and
+`local_counted`.
 
 `POST /api/jobs/<id>/again` (0.19.5) → runs again a job the local model was refused in for memory (its view says
 `error_kind: "memory"`, `memory: {"need", "free", "short", "model"}` and `can_run_again`): the same work, from where it
@@ -720,6 +727,14 @@ question or document), 409 (a proposal that no longer waits; nothing to make her
   before changes either way). `default`: the project's default codebook (null: none); the owner's own private
   codebook is shared first. Both are rows of `team_settings`, which travel to every copy and count only when their
   writer owned the project when they wrote them (`teamcodebooks.py`); each change is in the research log.
+- `GET owner/providers` → the providers the team may use (`teamproviders.view`, I7 stage 3): `{"team", "can_set" (this
+  person is the owner), "label", "no_limit", "limit": {"providers", "titles", "by": person, "at"} | null, "choices":
+  [{"id", "title", "company"}]}`. Everyone in the team may read it.
+- `PUT owner/providers {"providers": [ids] | null}` → the same. Only the owner (403); a missing key or another type →
+  400; an empty list or an unknown provider → 409. null: no limit (the default: each person uses the provider they
+  choose). A row of `team_settings` (key `team_providers`), which travels and counts as the codebook settings do; each
+  change is in the research log. A person whose route's provider is outside the limit has that work held (a check's
+  job reports phase `held` with `limit: true` and the note as its words).
 - `POST owner/proposals/<id>/accept {"reason"?}` and `…/decline {"reason"?}` → the view. Only the owner or a Co-owner (403); an
   unknown id → 404; one that no longer waits → 409. Accepted, the change is made in the owner's copy at once (a
   document not here is fetched from the shared folder; a new reading is made by a job, below) and reaches every copy
@@ -998,7 +1013,10 @@ project's default. The setting is enforced where tasks are made and run (see `ac
   list; the default is `["anthropic"]`). In `GET /api/projects/<p>/documents` each document has `providers` (in
   force), `providers_own` (its own list, or null) and, when a provider other than Anthropic has read some of it,
   `sent_by` (`{provider: share}`). In a shared project (a shared folder, a storage space, an owner, or work from a
-  colleague) only `anthropic` holds, and a change of providers is refused with 400. A document that does not allow
+  colleague) the lists are this person's own (I7 stage 3): they are kept in this copy and never travel; when the owner
+  limited the providers the team may use (`PUT owner/providers`), a provider outside the limit reads none of the
+  project's documents, and the project's AI access says so (`team_limit`: `{"providers", "note"}` or null, and
+  `providers_note`: the note, naming the limit and who set it). A document that does not allow
   the provider of the main route is treated as `local` for that route; Claude Code's queue and the connector always
   count as `anthropic`. A model server on another computer is a provider (`other`, or a known one by its address).
 - `PUT /api/projects/<p>/ai-access` `{"default": "cloud"|"local"|"none"}` and/or `{"dismiss_banner": true}` →
@@ -1824,6 +1842,14 @@ the change exists (`version_id`, see *Earlier versions*).
   "groups": {group: count}, "group_names"}`, newest first (`limit` up to 2000, default 200). `q` matches the text,
   the title and the reason. `groups` counts only the groups that have entries; `group_names` names every group for
   the page's filter (`entries`: *Your own entries*, `colleagues`: *Your colleagues' entries*, …).
+- `GET /api/projects/<p>/ai-log?person=&provider=&offset=&limit=` → the AI log (I7 stage 3, `ailog.entries`): one
+  row per sending to a cloud provider, newest first: `{"rows": [{"at", "person": {"id", "name", "me"} | null,
+  "provider", "provider_title", "route", "model", "kind", "kind_words", "excerpts", "documents", "subject": {"kind"
+  (check | codebook | themes | document), "word", "id", "title", "href" (only when the item is in this copy)} | null,
+  "task_id", "answered"}], "total", "team", "people": [{"id", "name", "me", "n"}], "providers": [{"id", "title",
+  "n"}]}`. `person`: a person id, `me`, or `unknown` (rows sent before the AI log, which name nobody in a team).
+  Read from the ledger (`ai_sent`, with `person_id` and `model` since I7 stage 3), which the sync brings from
+  colleagues for the documents this copy holds.
 - `POST /api/projects/<p>/log {"text", "subject_kind"?, "subject_id"?, "title"?}` → `{"entry"}`: an entry of your own
   (at most 10,000 characters; empty is a 400).
 - `PUT /api/projects/<p>/log/<entry_id> {"text"?, "why"?}` → `{"entry"}`. `why` (at most 2,000 characters; `""`

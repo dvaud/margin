@@ -146,10 +146,15 @@ installation ([Switching everything off](#switching-everything-off)).
 - **A model server on another computer** is a provider too (see *Local models* below): this closes a gap in versions
   before this one, where such a server, typed into the local server field (an OpenAI address, or a lab's GPU server),
   could read every document marked *Claude may read it*. Documents now wait until the researcher allows it.
-- **Shared projects.** The allowance does not travel with a shared project yet. In a project that is shared (a shared
-  folder, a storage space, an owner, or work exchanged with a colleague) only Anthropic may read documents marked
-  *Claude may read it*, whatever this copy allows, and setting another provider there is refused: the colleagues have
-  not agreed to it.
+- **Shared projects (I7 stage 3).** Each person chooses their own provider. In a project that is shared (a shared
+  folder, a storage space, an owner, or work exchanged with a colleague) the providers a person ticks are their own
+  consent: kept in their copy, never sent to a colleague's, and not taken from a colleague's documents or project file
+  (`sync/merge.py`, `bundle._forget_folder`). Lists that earlier versions copied from a colleague are cleared once, in
+  a shared project, unless this person set them (their own research-log entry), and the person is told on the
+  Documents page (`access.settle_own_providers`). Which documents may go to cloud AI at all stays the team's. The
+  owner may limit the providers the team may use (`teamproviders.py`, off by default): a provider outside it reads
+  none of the project's documents in any copy. The limit is not signed (as the roles are not): a changed app could
+  send one in the owner's name until the owner's next round, and the research log names whose file it came in.
 - **Not measured.** Margin's default models and routing were measured on Claude only.
 
 ## Codex and Antigravity
@@ -166,8 +171,9 @@ and are not measured with Margin.
   provider of the agent that takes a task (`access.py`, `taskqueue.next_tasks`): Codex is OpenAI, Antigravity is Google,
   Claude Code is Anthropic. A document that allows OpenAI but not Anthropic reaches Codex and never Claude Code, and the
   reverse. The connector each agent uses answers for that agent (`MARGIN_ROUTE`), so what it shows and hands out follows
-  the same rule. In a shared project only Anthropic may read, as above. The ledger records the provider and the agent
-  for each passage.
+  the same rule. In a shared project each person's own choice holds, within the owner's limit, as above. The ledger
+  records the provider and the agent for each passage, and since I7 stage 3 who sent it and on which model (the AI
+  log); a colleague's work they have not shared leaves without the task, the person or the model.
 - **Codex is closed in.** It starts in an empty folder, read-only, with the researcher's own Codex settings left out
   (`--ignore-user-config`). Its command, web search and image tools are switched off, it may not ask for approval, and
   Margin's connector, the only one it is given, offers it three tools: `next_tasks`, `submit_answers` and `release`.

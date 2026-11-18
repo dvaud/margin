@@ -21,6 +21,13 @@ class RecordApi:
         return researchlog.entries(ws, _str(q, "group"), _str(q, "q"), _str(q, "subject_kind"), _str(q, "subject_id"),
                                    _int(q, "offset", 0, 0, 10 ** 7), _int(q, "limit", 200, 1, 2000))
 
+    def get_ai_log(self, name, q):
+        """I7 stage 3: the AI log (ailog.py), filtered by person ("me", a person id, "unknown") and provider."""
+        from .. import ailog
+
+        return ailog.entries(self.app.ws(name), _str(q, "person"), _str(q, "provider"),
+                             _int(q, "offset", 0, 0, 10 ** 7), _int(q, "limit", 200, 1, 2000))
+
     def post_log(self, name, q):
         body = self._body()
         return {"entry": researchlog.add(self.app.ws(name), str(body.get("text") or ""), body.get("subject_kind") or None,

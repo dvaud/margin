@@ -249,7 +249,8 @@ def test_a_new_owner_writes_the_settings_again_under_their_own_place(team):
         ownership.settle(ben.ws)
         cur = teamcodebooks._counting(ben.ws._conn())
         assert {k: (r["by"], r["value"]) for k, r in cur.items()} == {
-            teamcodebooks.SHARE: (ben.id, False), teamcodebooks.DEFAULT: (ben.id, "sdg_goals")}
+            teamcodebooks.SHARE: (ben.id, False), teamcodebooks.DEFAULT: (ben.id, "sdg_goals"),
+            teamcodebooks.PROVIDERS: (ben.id, None)}   # I7 stage 3: the providers' limit too (none: no limit)
         assert teamcodebooks.view(ben.ws)["can_set"]
     with anna:  # the former owner may no longer set them
         with pytest.raises(ownership.NotAllowed):

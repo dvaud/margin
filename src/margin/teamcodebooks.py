@@ -1,4 +1,6 @@
 """Team codebooks: two settings of the project's owner about codebooks (People and settings, the *Codebooks* card).
+(I7 stage 3: a third setting of the owner, the cloud providers the team may use, travels in the same table by the same
+rules: teamproviders.py.)
 
 1. **Codebooks made in this project are shared with the team** (`SHARE`): on by default in a team project. While it is
    on, a codebook kept in the project's `frameworks/` folder is shared as soon as it is made (fresh, from themes, from
@@ -42,7 +44,8 @@ from typing import Any
 
 SHARE = "share_codebooks"
 DEFAULT = "default_codebook"
-KEYS = (SHARE, DEFAULT)
+PROVIDERS = "team_providers"   # I7 stage 3 (teamproviders.py): the cloud providers the team may use; null: no limit
+KEYS = (SHARE, DEFAULT, PROVIDERS)
 TABLE = "team_settings"
 STEP = 2 ** 32  # an answer is not written above a number this far over what this copy holds (owner_merge.STEP)
 WHY_SETTING = "The team's setting: codebooks made in this project are shared with the team."
@@ -92,6 +95,16 @@ def _value(key: str, raw: str | None) -> tuple[bool, Any]:
         return isinstance(v, bool), v
     if key == DEFAULT:
         return isinstance(v, str) and bool(NAME_RE.match(v)), v
+    if key == PROVIDERS:   # a list of providers.ALLOWABLE, at least one, in the table's order
+        from .providers import clean_list
+
+        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+            return False, None
+        try:
+            got = clean_list(v)
+        except ValueError:
+            return False, None
+        return got == v, v
     return False, None
 
 

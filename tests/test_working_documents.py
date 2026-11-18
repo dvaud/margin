@@ -455,7 +455,8 @@ def test_an_excerpt_waiting_for_a_person_says_why():
     """N3C-1: on the result, an excerpt of a document Claude may read can wait because the hypothesis's words come
     from a draft kept here; the card says so instead of blaming the excerpt's document."""
     res = _js("views/result.js")
-    # 0.19.8: or that you chose to judge it rather than start the local model
-    assert 'fact(p.by_choice ? "you chose to judge it instead of the local model" : waitReason(p.access, current && current.words_access))' in res
+    # 0.19.8: or that you chose to judge it rather than start the local model; I6: or the local model's suggestion
+    assert ('fact(p.suggestion ? suggestionWords(p) : p.by_choice ? "you chose to judge it instead of the local model" : '
+            'waitReason(p.access, current && current.words_access)') in res
     reason = _block(res, "export function waitReason(", "\n}\n")
     assert '"the hypothesis comes from a document marked No AI"' in reason

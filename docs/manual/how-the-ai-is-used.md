@@ -44,6 +44,10 @@ go to the company of the agent you chose ([Codex and Antigravity](other-agents.m
 real account yet, nor measured them: its defaults were measured on Claude only. For other providers there are API keys
 ([Settings](settings.md#another-cloud-provider-with-an-api-key)).
 
+In a shared project each person chooses their own route and provider, within the providers the owner allows (no limit
+unless the owner sets one). The **AI log** (from the research log's line under its title) says who ran which AI work,
+with which provider and model, when, about what, and how many excerpts were sent ([below](#the-ai-log)).
+
 For a shared installation that runs unattended, use the **Claude API** with the team's key instead: the same queue and
 the same models per task (`margin queue run --backend anthropic`).
 
@@ -64,12 +68,27 @@ thought each task gets and the mix of local and Claude models: [Which model does
 
 - **Every quote is checked** against the source, word for word. A quote that is not in the text is sent back and is
   never used ([How a check reaches its answer](how-a-check-works.md#what-a-check-does)).
-- **Your judgement wins.** You review the AI as you would a co-coder; yours replace its own and always count.
+- **Your judgement wins.** You review the AI as you would a co-coder; yours replace its own and always count. A
+  local model on your computer only suggests: every excerpt it reads waits for your judgement, and only yours count
+  ([Suggestions only](local-models.md#suggestions-only)).
 - **Every answer records how it was made**: the model, the prompt version, the route and the Margin version. Claude Code
-  and the Claude API take no seed, so their answers are not repeatable the way a seeded local model's are
+  and the Claude API take no seed, so their answers are not repeatable the way a seeded local model's are (a local
+  model's are not guaranteed either: its engine, recorded with each answer, can word an answer differently when asked
+  again)
   ([What every answer records](models.md#what-every-answer-records)).
 - **Margin redoes nothing by itself** when a new version comes: results stay as they were made
   ([Results across versions](models.md#results-across-versions)).
+
+## The AI log
+
+The research log's line under its title leads to the **AI log**: one row each time AI work sent excerpts of the
+project's documents to a cloud provider. A row says who sent them (you, or a colleague by name), to which provider,
+through which route (Claude Code, Codex, an API key…) and on which model, what kind of task it was (a check, the
+Profile's AI pass, theme names…), when, how many excerpts from how many documents, and what it was about: the
+hypothesis, codebook, themes or document, as a link when this copy holds it. Filter it by person and by provider.
+In a team, colleagues' rows arrive with the sync, for the documents your copy holds; a colleague's work they have not
+shared says only *work not shared with the team*. Rows written before the AI log existed name nobody in a team (*not recorded*);
+in a project you work on alone they are yours. Nothing on the page is a setting, and it never sends anything.
 
 ## What it cannot promise
 

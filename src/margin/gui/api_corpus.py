@@ -65,9 +65,7 @@ NOT_A_CHANGE: set[str] = {
     # K2, the framework draft: the draft is a file of this computer's project folder that the shared folder does not
     # carry (only the codebook made from it is shared), and the evidence is a search
     "post_codebook_theory_draft", "put_codebook_theory_draft", "delete_codebook_theory_draft",
-    "post_codebook_theory_draft_evidence",
-    # D1 rest: the names of the concept map's groups stay on this computer (sync.common.LOCAL_ONLY)
-    "post_concept_map_names"}
+    "post_codebook_theory_draft_evidence"}
 
 
 class CorpusApi:
@@ -433,7 +431,7 @@ class CorpusApi:
 
     def post_concept_map_names(self, name, q):
         """{"action", …}: a change to the name of one of the map's groups (rename, use_concepts, accept, unaccept,
-        keep, forget, restore; groupnames.save) -> {"record"}. The names stay on this computer."""
+        keep, forget, restore; groupnames.save) -> {"record"}. The names travel with the project (groupnames.merge)."""
         from .. import groupnames
 
         body = self._body()

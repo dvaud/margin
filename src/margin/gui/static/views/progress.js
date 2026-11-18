@@ -402,13 +402,14 @@ export class AiRun {
       // while the local model read, and each run found nothing to do
       const jqNow = wq || (this.lastQ && { ...this.lastQ, stale: true }) || null;
       if (held) {
-        const key = `held:${held.provider}:${held.excerpts}`;
+        const key = `held:${held.provider}:${held.excerpts}:${held.limit ? 1 : 0}`;
         if (this.sideKey.cloud !== key || !side) {
           this.sideKey.cloud = key;
           const n = held.excerpts || 0;
           const o = { state: "need", what: `${plural(n, "excerpt")} ${n === 1 ? "waits" : "wait"} for ${held.agent_title || agentTitle(s)}`,
-            muted: `It may read only documents that allow ${held.company || "its company"}`,
-            line: providerAllowLine(App.project, null, () => {}), onState: onState("cloud") };
+            // I7 stage 3: the team's limit (set by its owner) holds it: its note, and no Allow (only the owner can)
+            muted: held.limit ? held.plain : `It may read only documents that allow ${held.company || "its company"}`,
+            line: held.limit ? null : providerAllowLine(App.project, null, () => {}), onState: onState("cloud") };
           if (side && !side.arSetQueue) redrawSide(side, o);
           else { side = this.sides.cloud = aiSide({ where: "cloud", ...o }); placeSide(this.block, "cloud", side); }
         }

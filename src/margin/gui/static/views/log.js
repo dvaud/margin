@@ -51,7 +51,9 @@ export async function renderLog(view) {
   // 0.19.7: the page's head says what the log is; its downloads are the head's small quiet buttons (DESIGN.md 4.14)
   view.appendChild(pageHead("Research log", {
     eyebrow: featureEyebrow("researchlog"),
-    sub: "What was decided in this project, and when. Margin writes down what happens; you add your own entries and say why.",
+    // I7 stage 3: the way to the AI log (who ran which AI work, with which provider) is a link in this line
+    sub: ["What was decided in this project, and when. Margin writes down what happens; you add your own entries and say why. ",
+      link({ href: "#/log/ai" }, "AI log: who ran which AI work, with which provider")],
     actions: downloadLinks([
       { text: "Markdown (.md)", title: "The whole log, oldest first, a heading per day: for an appendix or an audit", onClick: () => download(`${base}.md`).catch(showError) },
       { text: "Excel (.xlsx)", onClick: () => download(`${base}.xlsx`).catch(showError) },

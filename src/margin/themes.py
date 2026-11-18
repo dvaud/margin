@@ -1200,6 +1200,42 @@ def _allowed_reps(ws: Workspace, run_id: str, theme: dict, allowed: set[str], lv
     return reps
 
 
+def readers(ws: Workspace, run_id: str, settings: dict, themes: list[dict] | None = None) -> dict | None:
+    """0.20.1: who would name each theme with the AI chosen in Settings, for the page's AI line, without starting any
+    model: {"main": themes the main AI may read, "local": themes only the local model for restricted documents may
+    read, "none": themes no AI may read, "local_model": that model's name or None, and "local_problem" when that model
+    cannot be used now: its themes count as "none"}. None when the main AI is a model on
+    this computer (it reads every theme an AI may read). Worked out as `name_with_model` makes its tasks."""
+    from . import access
+    from .home import main_reads_local, restricted_choice
+
+    if main_reads_local(settings):
+        return None
+    choice = restricted_choice(settings)
+    local_model = (choice.get("model") or None) if choice and not choice.get("same_as_main") else None
+    lv = access.levels(ws, provider=access.route_provider(settings))
+    out = {"main": 0, "local": 0, "none": 0, "local_model": local_model}
+    for t in themes if themes is not None else view(ws, run_id)["themes"]:
+        if _allowed_reps(ws, run_id, t, {"cloud"}, lv):
+            out["main"] += 1
+        elif local_model and _allowed_reps(ws, run_id, t, {"cloud", "local"}, lv):
+            out["local"] += 1
+        else:
+            out["none"] += 1
+    if out["local"]:   # a local model chosen but not usable now (not installed, server elsewhere) names nothing
+        from .home import make_restricted_backend
+        from .llm import BackendError
+
+        try:
+            usable = make_restricted_backend(settings) is not None
+            problem = None if usable else "The local model chosen in Settings → AI is not on this computer."
+        except BackendError as e:
+            problem = str(e)
+        if problem:
+            out.update(none=out["none"] + out["local"], local=0, local_problem=problem)
+    return out
+
+
 def make_name_tasks(ws: Workspace, run_id: str, model: str, allowed: set[str] | None = None,
                     theme_ids: set[int] | None = None, provider: str | None = None) -> int:
     """A naming task per theme, with representatives from documents of the `allowed` settings only (0.11: the

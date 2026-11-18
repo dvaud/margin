@@ -372,7 +372,20 @@ def _decision(ws: Workspace, task_id: str, kind: str):
     if kind == "label":
         return tuple(sorted(str(x.get("code")) for x in o.get("labels") or [] if isinstance(x, dict)))
     if kind == "link":
-        return tuple(sorted(str(x.get("relation")) for x in o.get("relations") or [] if isinstance(x, dict)))
+        # link-v2 may give a pair turned round ("2 needs 1"): the same decision as "1 needed_by 2", so each pair is
+        # read from its smaller term number, as benchmark._decisions does
+        from .terms import _INVERSE
+
+        out = set()
+        for x in o.get("relations") or []:
+            if not isinstance(x, dict):
+                continue
+            try:
+                a, b, rel = int(x.get("a")), int(x.get("b")), str(x.get("relation"))
+            except (TypeError, ValueError):
+                continue
+            out.add((b, a, _INVERSE.get(rel, rel)) if a > b else (a, b, rel))
+        return tuple(sorted(out))
     if kind == "check":
         return tuple(sorted((int(x.get("passage") or 0), str(x.get("verdict"))) for x in o.get("evidence") or []
                             if isinstance(x, dict)))

@@ -28,8 +28,6 @@ LOCAL_ONLY = {"meta", "embeddings", "code_vectors", "terms", "term_mentions", "c
               # a file brought under this copy's own id
               "owner_pins", "removed_docs", "sync_via", "sync_from", "sync_refused",
               "concept_link_sentences",  # 0.18.1 (D2): made again with each copy's glossary, from its own readings
-              # D1 rest (groupnames.py): the names of the concept map's groups stay on this computer, in this release
-              "concept_group_names", "concept_group_quotes",
               # 0.18.1 (H4): answers this copy keeps so as not to ask again; raw AI answers with their quotes, also of
               # documents a colleague's setting may keep from them: never sent (each copy keeps its own)
               "ai_cache",
@@ -46,7 +44,9 @@ OWN_RULES = {"documents", "pages", "paragraphs", "headings", "passages", "blocks
              # accepted; a person's Leave out / Restore no longer travels row by row (it is a proposal)
              "ownership", "proposals", "decisions", "canon", "block_choices",
              "roles",  # roles (DESIGN-roles §3.1): the Owner's word on who is a Co-owner (ownership.py, owner_merge.py)
-             "team_settings"}  # the owner's settings about codebooks, merged like roles (teamcodebooks.py)
+             "team_settings",  # the owner's settings about codebooks, merged like roles (teamcodebooks.py)
+             # D1, the last part: the names of the concept map's groups (groupnames.merge)
+             "concept_group_names", "concept_group_quotes"}
 # the columns that hold ids of documents, passages, tasks, checks, runs (rewritten when an id changes in a merge)
 ID_COLS = {"doc_id", "passage_id", "task_id", "claim_id", "subject_id", "ver_id", "hyp_id", "run_id", "item_id",
            "label_id", "window", "payload_json", "options_json", "parts_json", "key", "of_key", "origin_id"}

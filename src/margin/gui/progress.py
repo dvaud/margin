@@ -205,7 +205,7 @@ class Tracker:
             elif self.model and self.model.get("phase") == "held":   # stage 2: its company not allowed yet
                 m = self.model
                 model = {"phase": "held", "seconds": round(float(m.get("seconds") or 0), 1), "plain": m.get("text"),
-                         **{k: m.get(k) for k in ("agent", "agent_title", "provider", "company", "excerpts")}}
+                         **{k: m.get(k) for k in ("agent", "agent_title", "provider", "company", "excerpts", "limit")}}
             elif self.model:
                 m = self.model
                 model = {k: m.get(k) for k in ("phase", "prompt_tokens", "thinking_tokens", "answer_tokens", "cap",

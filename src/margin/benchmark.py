@@ -343,9 +343,14 @@ def _decisions(kind: str, payload: dict, out: dict, other: dict | None = None) -
         for r in out.get("relations") or []:
             if isinstance(r, dict):
                 try:
-                    got[(int(r["a"]), int(r["b"]))] = str(r.get("relation"))
+                    a, b, rel = int(r["a"]), int(r["b"]), str(r.get("relation"))
                 except (KeyError, TypeError, ValueError):
                     continue
+                if a > b:  # link-v2: a pair turned round ("2 needs 1") is the same decision as "1 needed_by 2"
+                    from .terms import _INVERSE
+
+                    a, b, rel = b, a, _INVERSE.get(rel, rel)
+                got[(a, b)] = rel
         return {f"{a}-{b}": got.get((a, b), "none") for a in range(1, n + 1) for b in range(a + 1, n + 1)}
     raise ValueError(f"There is no decision to compare for {kind} tasks.")
 

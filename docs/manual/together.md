@@ -55,6 +55,10 @@ highlights, the entries you write in the research log, and the links you decide 
   and has no choice. An item made before Margin 0.16 in a project shared before 0.17.0 says *maker not known*: anyone
   in the team may share it or take it back.
 - **Whose is what.** A colleague's judgements, notes and entries carry a small mark with their initials.
+- **Which cloud provider reads is each person's own.** You may use Codex while a colleague uses Claude Code; the
+  providers you tick for the documents stay in your copy and never reach a colleague's. The owner may limit the
+  providers the team may use ([Roles](roles.md#on-the-activity-view)), and the [AI log](how-the-ai-is-used.md#the-ai-log) shows
+  who ran which AI work, with which provider and model.
 - **What is no one's own stays shared**, as before: the documents, who may read each with AI, the bibliography, and the
   AI's work on the documents with people's reviews of it. Which documents the project holds is for the owner and the Co-owners to decide
   ([below](#the-owner-and-proposals-0170)).

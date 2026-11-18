@@ -124,6 +124,16 @@ await scenario("a shared project in the consent", async (t) => {
   return out;
 });
 
+await scenario("a shared project with the owner's limit in the consent", async (t) => {
+  await settingsPage(t, { backend: "claude_code", allow_claude_code: true }, { shared: true, limit: ["anthropic"] });
+  await t.click(t.view.querySelector('#agent-choice [data-value="antigravity"]'));
+  await t.settle(50);
+  const d = t.dialog();
+  const out = { says: t.text(d.querySelector(".dialog-body")) };
+  await t.click(d.querySelector("#dlg-safe"));
+  return out;
+});
+
 await scenario("Antigravity's sign-in and what is added", async (t) => {
   t.state({ settings: {}, providers: NONE });
   const m = await t.module("views/agent-setup.js");
@@ -191,7 +201,8 @@ async function settingsPage(t, settings, extra = {}) {
   t.answer("GET /api/local-status", {});
   t.answer("GET /api/projects/Study/queue", { kinds: [], waiting: 0 });
   t.answer("GET /api/projects/Study/agreement/plan?*", { kinds: [], problem: null, kept: [], plan: null });
-  t.answer("GET /api/projects/Study", { ai_access: { shared: !!extra.shared } });
+  t.answer("GET /api/projects/Study", { ai_access: { shared: !!extra.shared, team_limit: extra.limit ? { providers: extra.limit } : null,
+    providers_note: extra.limit ? "The team uses Anthropic only (set by Anna)." : null } });
   t.answer("PUT /api/settings", (b) => ({ settings: { ...settings, ...b }, backend_label: "x", providers: NONE }));
   await t.render("views/settings.js", "renderSettings", ["model"]);
   await t.settle(200);
@@ -373,7 +384,11 @@ def test_the_fixes_of_the_final_review(page):
     assert "every task uses gemini-3.8-flash; a second opinion then comes from the same model." in r["one"].replace(" ;", ";")
     assert r["noAllow"] is None
     r = page["a shared project in the consent"]
-    assert "This project is shared with a team: only Anthropic may read its documents, so Antigravity reads none of them here." in r["says"]
+    # I7 stage 3: the provider is the person's own choice in a shared project; the owner's limit, when set, is named
+    assert "This project is shared with a team: the provider is your own choice, for your copy." in r["says"]
+    assert "AI log" in r["says"]
+    lim = page["a shared project with the owner's limit in the consent"]["says"]
+    assert "The team uses Anthropic only (set by Anna). So Antigravity reads none of this project’s documents." in lim
     assert "the Enable Telemetry setting is on (in Antigravity’s settings)" in r["says"] and "Only documents that allow Google Gemini are sent" in r["says"]
     r = page["Antigravity's sign-in and what is added"]
     assert "switch off Enable Telemetry in Antigravity’s settings, under AI credits and feedback" in r["intro"]

@@ -660,6 +660,7 @@ def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, mod
     o, held = order(ws)
     lent = mix_kinds()
     kinds = [kind] if kind else [k for k in o if k not in held]
+    me = access.sender()   # I7 stage 3: who sends, for the ledger, looked up once for the batch
     if kind and kind not in KINDS:
         raise ValueError(f"Unknown kind of task {kind!r}. Kinds: {', '.join(KINDS)}.")
     for k in kinds:
@@ -743,7 +744,7 @@ def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, mod
                     budget += cost
                     # 0.11: the passages of this task leave the computer now, with the batch
                     access.record_sent(cx, t["task_id"], json.loads(full["payload_json"]), title, k,
-                                       provider=prov)
+                                       provider=prov, person=me)
             if not picked:
                 continue
             cx.execute("INSERT INTO task_claims(claim_id, kind, model, helper, route, taken_by, task_ids_json, claimed_at, "

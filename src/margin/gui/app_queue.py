@@ -287,7 +287,9 @@ class QueueMixin:
         job = self._model_job("label", f"The AI labels passages ({fw})", name, lambda job, be, model, prog:
                                profile.run_labels(ws, fw, be, model, docs, bool(body.get("all_passages")), limit,
                                                   progress=prog, should_stop=job.cancel.is_set, passage_ids=pids,
-                                                  force=bool(body.get("force"))))
+                                                  force=bool(body.get("force"))),
+                               # 0.20.1: the local model's own panel started it (its Start is the one start)
+                               local_start=body.get("local") if body.get("local") in ("go", "force") else None)
         job.scope = ",".join(docs) if docs else fw
         return job
 

@@ -5,10 +5,12 @@
 // its page; a line shows the passages that join its two concepts. D1, the rest: every group has a name (made from its
 // two most central concepts, yours, or the AI's draft on request, marked until used), kept in the Groups section
 // under the map; the map downloads as a picture (SVG or PNG), always light. The lines are given as lists under it
-// (docs/DESIGN.md 8). Rules and layout: conceptmap.py, groupnames.py; routes: gui/api_corpus.py.
+// (docs/DESIGN.md 8). D1, the last part: the names travel with a team (each says who gave it; another name a person
+// gave the same group shows beside it), and the map zooms (mapZoom). Rules and layout: conceptmap.py, groupnames.py;
+// routes: gui/api_corpus.py.
 import { featureEyebrow, viewTabs } from "../features.js";
 import { App, api, h, P, replace, clear, showError, failedLoad, noDocuments, addDocumentsFirst, fmt, pageHead, emptyState, plural, shortTitle, button, link, notice, card, select, field, fold, spinner,
-  tag, input, dialog, toast, setBusy, aiButton, withAI, readsLine, aiWhere, watchJob, runningJob, jobFailed, downloadLinks, saveBlob } from "../lib.js";
+  tag, input, dialog, toast, setBusy, aiButton, withAI, readsLine, aiWhere, ownStartNote, watchJob, runningJob, jobFailed, downloadLinks, saveBlob } from "../lib.js";
 import { MiniJob, isStopped, timeLeft } from "./progress.js";
 
 const NS = "http://www.w3.org/2000/svg";
@@ -37,7 +39,10 @@ const HEAD_WORDS = { part: "a line that ends in a diamond", leads: "a line that 
   clashes: "a line with a bar across each end", related: "a plain line" };
 const SOURCE_WORDS = { person: "added or accepted by you", meaning: "accepted by you", model: "judged by the AI",
   abbreviation: "an abbreviation in the documents", pattern: "found in the text, accepted" };
-const NAMED_BY = { concepts: "named by its concepts", person: "named by you", ai: "named by the AI, accepted by you" };
+// D1, the last part: names travel with a team, so "you" is whoever named it ("by" from groupnames.attach)
+const namedBy = (g) => (g.name_source === "person" ? `named by ${g.by || "you"}` : g.name_source === "ai" ? `named by the AI, accepted by ${g.by || "you"}` : "named by its concepts");
+// another name a person gave the same group (on this copy or a colleague's): "Also named “Hybrid work” by Anna, 12 Nov 2026"
+const alsoWords = (x) => `Also named “${x.name}” by ${x.by || "a colleague"}${x.at ? `, ${fmt.date(x.at)}` : ""}`;
 const TOGETHER_WORDS = "mentioned together more often than by chance (the thicker, the more)";
 const SIZES = [30, 60, 100, 150];
 const FILTER_KEYS = ["doc", "theme", "framework", "code", "year_from", "year_to", "n"];
@@ -312,7 +317,7 @@ export function drawMap(m, wrapW, opts = {}) {
       mark(n.group, A.x, A.y, A.r),
       (lab.shown || live) ? s("text", { class: "cm-label", x: lab.x.toFixed(1), y: lab.y.toFixed(1), "text-anchor": lab.anchor, "data-hidden": lab.shown ? null : "true" }, lab.text) : null];
     if (!live) { nodesG.appendChild(s("g", { class: "cm-node" }, ...kids)); continue; }
-    const a = s("a", { class: "cm-node", href: conceptHref(n.id), "data-id": n.id,
+    const a = s("a", { class: "cm-node", href: conceptHref(n.id), "data-id": n.id, "data-x": A.x.toFixed(1), "data-y": A.y.toFixed(1),
       "aria-label": `${n.label}: ${plural(n.passages, "passage")}, ${inWords}${(near[n.id] || new Set()).size ? `, joined to ${plural(near[n.id].size, "concept")}` : ""}` }, ...kids);
     a.addEventListener("mouseenter", () => focus(n.id));
     a.addEventListener("mouseleave", () => focus(null));
@@ -321,6 +326,150 @@ export function drawMap(m, wrapW, opts = {}) {
     nodesG.appendChild(a);
   }
   return { svg, W, H, unnamed, namesLeft };
+}
+
+// ---- the zoom (D1, the last part) --------------------------------------------------------------------------------------
+// The page's map only: Zoom in / Zoom out / Whole map beside it, Ctrl or ⌘ and the wheel (a trackpad's pinch comes as
+// the same), keys + − 0 anywhere in the map, and, zoomed in, a drag or the arrow keys (on the map itself) move it. A
+// zoom changes the svg's viewBox only: the downloaded picture is drawn anew (pictureSvg) and is always the whole map.
+// Words grow more slowly than the map (by the square root of the zoom), and a concept's name that had no room is shown
+// from twice the size on; the lines keep their width. The zoom stays through a redraw (a rename, a new width) until
+// Whole map, or a map of other filters.
+export const ZOOM_MAX = 4, ZOOM_STEP = 1.5;
+
+// the part of the map in view at zoom k around (cx, cy), kept inside the map
+export function zoomBox(W, H, k, cx, cy) {
+  const w = W / k, hh = H / k;
+  const x = Math.max(0, Math.min(W - w, cx - w / 2)), y = Math.max(0, Math.min(H - hh, cy - hh / 2));
+  return { x, y, w, h: hh };
+}
+
+export function mapZoom(state = { k: 1, fx: 0.5, fy: 0.5 }) {
+  let svg = null, W = 0, H = 0, panned = false, drag = null;
+  const wrap = h("div", { class: "cm-svg-wrap", tabindex: "0",
+    "aria-label": "The concept map. Plus and minus zoom in and out, 0 shows the whole map; zoomed in, the arrow keys move it." });
+  const outBtn = button({ sm: true, kind: "quiet", icon: "minus", title: "Zoom out (−)", onClick: () => by(1 / ZOOM_STEP) }, "Zoom out");
+  const inBtn = button({ sm: true, kind: "quiet", icon: "plus", title: "Zoom in (+)", onClick: () => by(ZOOM_STEP) }, "Zoom in");
+  const fitBtn = button({ sm: true, kind: "quiet", icon: "minimize", title: "The whole map (0)", onClick: () => set(1) }, "Whole map");
+  const status = h("span", { class: "muted small cm-zoom-status", "aria-live": "polite" });
+  const bar = h("div", { class: "cm-zoom", role: "toolbar", "aria-label": "Zoom the map" }, outBtn, inBtn, fitBtn, status);
+  const box = () => zoomBox(W, H, state.k, state.fx * W, state.fy * H);
+  function apply(say) {
+    if (!svg) return;
+    const b = box();
+    svg.setAttribute("viewBox", `${+b.x.toFixed(1)} ${+b.y.toFixed(1)} ${+b.w.toFixed(1)} ${+b.h.toFixed(1)}`);
+    // words grow by the square root of the zoom (views.css: their sizes are in em of the map's, zoomed in)
+    svg.style.fontSize = state.k > 1 ? `calc(var(--fs-xs) / ${Math.sqrt(state.k).toFixed(3)})` : "";
+    if (state.k > 1) svg.dataset.zoomed = "true"; else delete svg.dataset.zoomed;
+    if (state.k >= 2) svg.dataset.zoom = "near"; else delete svg.dataset.zoom;
+    if (state.k > 1) wrap.dataset.zoomed = "true"; else delete wrap.dataset.zoomed;
+    outBtn.disabled = fitBtn.disabled = state.k <= 1;
+    inBtn.disabled = state.k >= ZOOM_MAX;
+    const words = state.k <= 1 ? "The whole map" : `Zoomed in ${Math.round(state.k * 100)} %`;
+    if (say !== false || !status.textContent) status.textContent = words;
+  }
+  // zoom to k, keeping the map's point (px, py) where it is on the screen (default: the middle of the view)
+  function set(k, px, py) {
+    k = Math.max(1, Math.min(ZOOM_MAX, k));
+    const b = box();
+    if (px === undefined) { px = b.x + b.w / 2; py = b.y + b.h / 2; }
+    const r = (W / k) / b.w;                       // the new width over the old
+    const nx = px - (px - b.x) * r, ny = py - (py - b.y) * r;
+    state.k = k;
+    const nb = zoomBox(W, H, k, nx + W / k / 2, ny + H / k / 2);
+    state.fx = (nb.x + nb.w / 2) / W; state.fy = (nb.y + nb.h / 2) / H;
+    apply();
+  }
+  const by = (f, px, py) => set(state.k * f, px, py);
+  function moveBy(dx, dy) {                        // in map units
+    const b = box();
+    const nb = zoomBox(W, H, state.k, b.x + b.w / 2 + dx, b.y + b.h / 2 + dy);
+    state.fx = (nb.x + nb.w / 2) / W; state.fy = (nb.y + nb.h / 2) / H;
+    apply(false);
+  }
+  const toMap = (e) => {                           // a pointer's place on the map
+    const rc = svg.getBoundingClientRect ? svg.getBoundingClientRect() : null;
+    const b = box();
+    if (!rc || !rc.width) return [b.x + b.w / 2, b.y + b.h / 2];
+    return [b.x + (e.clientX - rc.left) / rc.width * b.w, b.y + (e.clientY - rc.top) / rc.height * b.h];
+  };
+  wrap.addEventListener("wheel", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || !svg) return;   // a plain wheel scrolls the page
+    e.preventDefault();
+    const [px, py] = toMap(e);
+    by(Math.exp(-Math.max(-50, Math.min(50, e.deltaY)) * 0.01), px, py);
+  }, { passive: false });
+  wrap.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || !svg) return;   // Ctrl + and Ctrl − stay the browser's
+    if (e.key === "+" || e.key === "=") { e.preventDefault(); by(ZOOM_STEP); }
+    else if (e.key === "-" || e.key === "_") { e.preventDefault(); by(1 / ZOOM_STEP); }
+    else if (e.key === "0") { e.preventDefault(); set(1); }
+    else if (e.target === wrap && state.k > 1 && e.key.startsWith("Arrow")) {
+      e.preventDefault();
+      const b = box(), step = 0.15;
+      moveBy(e.key === "ArrowLeft" ? -b.w * step : e.key === "ArrowRight" ? b.w * step : 0,
+        e.key === "ArrowUp" ? -b.h * step : e.key === "ArrowDown" ? b.h * step : 0);
+    }
+  });
+  // zoomed in, a concept reached by Tab comes into view
+  wrap.addEventListener("focusin", (e) => {
+    const a = e.target && e.target.closest ? e.target.closest(".cm-node") : null;
+    if (!a || state.k <= 1) return;
+    const x = +a.getAttribute("data-x"), y = +a.getAttribute("data-y"), b = box();
+    if (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h) { state.fx = x / W; state.fy = y / H; apply(false); }
+  });
+  // a press, a drag (one pointer, zoomed in) and a pinch (two fingers on a touch screen: the browser's own pinch is
+  // off over the map, views.css). Each pointer is followed by its id, so a second finger never takes over a drag
+  const down = new Map();   // pointer id -> where it is
+  let pinch = null;         // two fingers: their distance and the zoom when the pinch began
+  wrap.addEventListener("pointerdown", (e) => {
+    panned = false;         // a new press: a drag before it is over (a touch drag has no click after it)
+    if (!svg || (e.button !== undefined && e.button !== 0)) return;
+    down.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (down.size === 2) {
+      const [p, q] = [...down.values()];
+      pinch = { d: Math.hypot(p.x - q.x, p.y - q.y) || 1, k: state.k };
+      drag = null;
+      delete wrap.dataset.panning;
+      return;
+    }
+    if (down.size > 2 || state.k <= 1) return;
+    drag = { x: e.clientX, y: e.clientY, b: box(), id: e.pointerId, on: false };
+  });
+  wrap.addEventListener("pointermove", (e) => {
+    if (down.has(e.pointerId)) down.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && down.size >= 2) {
+      const [p, q] = [...down.values()];
+      const [px, py] = toMap({ clientX: (p.x + q.x) / 2, clientY: (p.y + q.y) / 2 });
+      set(pinch.k * (Math.hypot(p.x - q.x, p.y - q.y) || 1) / pinch.d, px, py);
+      panned = true;
+      return;
+    }
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.on && Math.hypot(dx, dy) < 4) return;
+    if (!drag.on) { drag.on = true; wrap.dataset.panning = "true"; if (wrap.setPointerCapture && drag.id !== undefined) try { wrap.setPointerCapture(drag.id); } catch (_) { /* gone */ } }
+    const rc = svg.getBoundingClientRect ? svg.getBoundingClientRect() : { width: W };
+    const per = drag.b.w / (rc.width || W);
+    const nb = zoomBox(W, H, state.k, drag.b.x + drag.b.w / 2 - dx * per, drag.b.y + drag.b.h / 2 - dy * per);
+    state.fx = (nb.x + nb.w / 2) / W; state.fy = (nb.y + nb.h / 2) / H;
+    apply(false);
+  });
+  const endDrag = (e) => {
+    down.delete(e.pointerId);
+    if (down.size < 2) pinch = null;
+    if (drag && e.pointerId === drag.id) { if (drag.on) panned = true; drag = null; delete wrap.dataset.panning; }
+  };
+  wrap.addEventListener("pointerup", endDrag);
+  wrap.addEventListener("pointercancel", endDrag);
+  // the click that ends a drag opens nothing (a concept, a line)
+  wrap.addEventListener("click", (e) => { if (panned) { panned = false; e.preventDefault(); e.stopPropagation(); } }, true);
+  return {
+    bar, wrap, state,
+    attach(d) { svg = d.svg; W = d.W; H = d.H; clear(wrap); wrap.appendChild(svg); apply(false); return wrap; },
+    reset() { state.k = 1; state.fx = 0.5; state.fy = 0.5; },
+    zoomIn: () => by(ZOOM_STEP), zoomOut: () => by(1 / ZOOM_STEP), fit: () => set(1),
+  };
 }
 
 // ---- the map as a picture (D1 rest, c) -------------------------------------------------------------------------------
@@ -539,7 +688,7 @@ export async function renderConceptMap(view, params, query) {
     return field("Code", codeSel);
   }
   function onPick(key, extra) {
-    return (e) => { const v = e.currentTarget.value; if (v) f[key] = v; else delete f[key]; if (extra) extra(v); keepUrl(); load(); };
+    return (e) => { const v = e.currentTarget.value; if (v) f[key] = v; else delete f[key]; if (extra) extra(v); keepUrl(); zoom.reset(); load(); };
   }
   function drawFilters() {
     clear(filtersBox);
@@ -583,6 +732,7 @@ export async function renderConceptMap(view, params, query) {
   let seq = 0;
   let edgeSeq = 0;   // the latest line asked for: an older answer arriving late is dropped
   let lastWidth = 0;
+  const zoom = mapZoom();   // D1, the last part: stays through redraws of the same map
   let refocus = null;   // after a change to a name: the row whose Rename takes the focus again (its first concept)
   // while a map is counted (seconds on a large project), a line says so and the map before it stays, dimmed
   let loadTimer = null;
@@ -635,7 +785,7 @@ export async function renderConceptMap(view, params, query) {
     if (!m.edges.length && !m.links.length) {
       factsBox.appendChild(notice({ kind: "info", class: "cm-note" }, h("p", {}, "No two of these concepts are mentioned together often enough to be joined (in two passages or more, more often than by chance).")));
     }
-    mapBox.appendChild(card({ class: "section cm-card", "aria-label": "The concept map" }, legend(), h("div", { class: "cm-svg-wrap" }, svgMap())));
+    mapBox.appendChild(card({ class: "section cm-card", "aria-label": "The concept map" }, legend(), zoom.bar, svgMap()));
     drawGroups();
     drawLists();
     if (refocus) {
@@ -647,7 +797,7 @@ export async function renderConceptMap(view, params, query) {
 
   // the tags of where a name comes from (DESIGN 4.10): words, never colour alone
   const draftTag = (g) => tag({ icon: "sparkles", title: `Drafted by the AI${g.model ? ` (${g.model})` : ""}. It is a draft until you use it or rename it.` }, "AI draft");
-  const sourceTag = (g) => (g.name_source === "ai_draft" ? draftTag(g) : tag({ icon: g.name_source === "concepts" ? null : "user" }, NAMED_BY[g.name_source] || NAMED_BY.concepts));
+  const sourceTag = (g) => (g.name_source === "ai_draft" ? draftTag(g) : tag({ icon: g.name_source === "concepts" ? null : "user" }, namedBy(g)));
 
   function legend() {
     const kinds = KIND_ORDER.filter((k) => m.links.some((lk) => linkTypes(lk).some((t) => t.kind === k)));
@@ -674,7 +824,7 @@ export async function renderConceptMap(view, params, query) {
   function svgMap() {
     const wrapW = Math.max(320, Math.min(1200, mapBox.clientWidth || view.clientWidth || 900));
     lastWidth = wrapW;
-    return drawMap(m, wrapW, { onEdge: showEdge }).svg;
+    return zoom.attach(drawMap(m, wrapW, { onEdge: showEdge }));
   }
 
   // ---- one line of the map: its link, how often together, the passages ----
@@ -724,9 +874,13 @@ export async function renderConceptMap(view, params, query) {
     const actions = [{ text: "Cancel", value: null }];
     if (g.name_source !== "concepts") actions.push({ text: "Use its concepts as the name", value: "" });
     actions.push({ text: "Save", value: "save", primary: true });
+    // the other names people gave this group: one press puts one in the field (Save makes it the group's name)
+    const also = (g.also_named || []).length ? h("ul", { class: "cm-also-list", "aria-label": "Other names given to this group" },
+      g.also_named.map((x) => h("li", {}, h("span", { class: "small" }, alsoWords(x)),
+        button({ kind: "quiet", sm: true, "aria-label": `Use “${x.name}” as the new name`, onClick: () => { nameIn.value = x.name; nameIn.focus(); nameIn.select(); } }, "Use this one")))) : null;
     const r = await dialog({ title: "Rename the group",
       body: h("div", {}, h("label", { class: "field" }, h("span", { class: "field-label" }, "New name"), nameIn),
-        labs.length ? h("p", { class: "muted small" }, `Its concepts: ${firstSix(labs)}`) : null),
+        labs.length ? h("p", { class: "muted small" }, `Its concepts: ${firstSix(labs)}`) : null, also),
       actions, onOpen: () => { nameIn.select(); nameIn.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); nameIn.closest("dialog").querySelector(".btn-primary").click(); } }); } });
     const back = () => { const b = groupsBox.querySelector(`button[data-rename="${CSS.escape((g.concepts || [""])[0])}"]`); if (b) b.focus(); };
     if (r === null || r === undefined) { back(); return; }
@@ -818,14 +972,14 @@ export async function renderConceptMap(view, params, query) {
       section.appendChild(h("p", { class: "muted cm-groups-lead" }, "No two concepts on this map are mentioned together often enough to form a group."));
       return;
     }
-    section.appendChild(h("p", { class: "muted cm-groups-lead" }, "Each group is named by its two most central concepts until you rename it. A name stays with its group between visits, and when the groups are found again, as long as the group still holds most of the same concepts."));
+    section.appendChild(h("p", { class: "muted cm-groups-lead" }, "Each group is named by its two most central concepts until you rename it. A name stays with its group between visits, and when the groups are found again, as long as the group still holds most of the same concepts. Names go to your team with the rest of the project."));
     const can = m.can_name || { offered: false };
     if (can.offered) {
       const [words, which] = askWords();
       const ask = aiButton({ sm: true, onClick: (e) => askNames(e.currentTarget, which) }, words);
       if (naming) setBusy(ask, true);
       section.append(h("div", { class: "btn-row cm-groups-ask" }, withAI(ask)),
-        can.reader === "local" ? aiWhere("The AI on this computer reads a few passages of each group: the text never leaves it.", "local")
+        can.reader === "local" ? aiWhere(`The AI on this computer reads a few passages of each group: the text never leaves it.${ownStartNote()}`, "local")
           : readsLine("a few passages of each group, where its concepts are mentioned together"));
     } else if (can.why) section.appendChild(h("p", { class: "muted small cm-groups-why" }, can.why));
     section.appendChild(jobBox);
@@ -868,7 +1022,9 @@ export async function renderConceptMap(view, params, query) {
         h("td", { "data-label": "Group" }, h("div", { class: "cm-group-cell" },
           h("div", { class: "cm-group-title" }, swatch(g.group), h("span", { class: "serif cm-group-words" }, groupName(g)), h("span", { class: "visually-hidden" }, ` (${groupMark(g.group).words}${g.group > OWN_MARKS ? `, as every group from ${OWN_MARKS + 1} on` : ""})`)),
           h("div", { class: "cm-group-facts" }, sourceTag(g), ch ? tag({ kind: "attention" }, "changed since it was named") : null),
-          changeLine, rests)),
+          changeLine, (g.also_named || []).map((x) => h("p", { class: "muted small cm-group-also" }, `${alsoWords(x)}. `,
+            // the other name, removed on every copy (a removal travels like a forgotten name); Undo puts it back
+            button({ kind: "quiet", sm: true, "aria-label": `Remove the other name “${x.name}”`, onClick: () => act({ action: "forget", name_id: x.id }, "The other name is removed.", { refocus: first, undo: (r) => ({ action: "restore", record: r.record }) }) }, "Remove"))), rests)),
         conceptsCell(ordered),
         h("td", {}, acts));
     });
@@ -971,8 +1127,7 @@ export async function renderConceptMap(view, params, query) {
       if (!m || !m.nodes || !m.nodes.length) return;
       const w = mapBox.clientWidth;
       if (Math.abs(w - lastWidth) < 40) return;
-      const wrap = mapBox.querySelector(".cm-svg-wrap");
-      if (wrap) replace(wrap, svgMap());
+      if (mapBox.querySelector(".cm-svg-wrap")) svgMap();
     }, 200);
   });
   ro.observe(mapBox);

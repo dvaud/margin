@@ -80,6 +80,11 @@ allows: a document that allows OpenAI but not Anthropic reaches Codex and never 
 document allows Anthropic only until you tick OpenAI or Google for it ([Privacy](privacy.md#other-cloud-providers)).
 *What was sent* records the company and the agent for each passage.
 
+**In a shared project** each person chooses their own agent: you may use Codex while a colleague uses Claude Code. The
+companies you tick are yours and stay in your copy. The project's owner may limit the providers the team may use; a
+task for an agent outside that limit waits, and the check says which limit holds and who set it. Who ran what, with
+which agent and model, is in the [AI log](how-the-ai-is-used.md#the-ai-log).
+
 ## How each agent is closed in
 
 Each agent Margin starts works in a box, as far as the agent allows, so a passage that tries to give it instructions can

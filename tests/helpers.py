@@ -121,3 +121,23 @@ def manual_text() -> str:
     """The manual as documented: the hub docs/MANUAL.md and its pages in docs/manual/ (one file until 0.15.4)."""
     docs = Path(__file__).resolve().parent.parent / "docs"
     return "\n".join(f.read_text(encoding="utf-8") for f in [docs / "MANUAL.md", *sorted((docs / "manual").glob("*.md"))])
+
+
+def agree_with_suggestions(api, project: str, hyp_ids) -> int:
+    """I6 (suggestions only): a local model's readings set no status until a person judges each excerpt. For tests whose
+    subject is what comes after a check (the map, highlighted copies, exports), the person agrees with every lean the
+    local model suggested, through the app's own judgement call. Returns the number of judgements given."""
+    from urllib.parse import quote
+
+    n = 0
+    for hid in ([hyp_ids] if isinstance(hyp_ids, str) else hyp_ids):
+        h = api("GET", f"/api/projects/{project}/hypotheses/{hid}")[1]
+        for part in h["parts"]:
+            for x in part["passages"]:
+                lean = (x.get("suggestion") or {}).get("lean")
+                if lean and not x.get("user_verdict"):
+                    st, _r = api("PUT", f"/api/projects/{project}/claims/{part['claim_id']}/judgements/"
+                                        f"{quote(x['passage_id'], safe='')}", {"verdict": lean})
+                    assert st == 200, _r
+                    n += 1
+    return n

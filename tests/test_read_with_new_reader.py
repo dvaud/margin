@@ -291,7 +291,7 @@ def test_a_move_never_changes_which_judgements_count(tmp_path, monkeypatch):
         assert all(any(q.startswith(e["quote"][:60]) for q in quotes) for e in rep["left_out"])
         it = next(p for part in claimcheck.hypothesis_result(ws, by_model)["parts"] for p in part["passages"]
                   if (p["quote"] or "").startswith("Katalin Marsh"))
-        assert it["counted"] and it["in_corpus"]
+        assert (it["counted"] or it["suggestion"]) and it["in_corpus"]   # I6: by_model's reader is a local model
     finally:
         srv.shutdown()
 

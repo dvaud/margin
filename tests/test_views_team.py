@@ -20,6 +20,8 @@ function team(t, status, o = {}) {
   // team codebooks (after 0.19.10): the Codebooks card of People and settings asks for the owner's two settings
   t.answer("GET /api/projects/Study/owner/codebooks", { team: true, can_set: false,
     share_codebooks: { on: false, set: false, by: null, at: null }, default: null, choices: [], private_mine: [] });
+  // I7 stage 3: the AI providers card asks for the owner's limit (none here)
+  t.answer("GET /api/projects/Study/owner/providers", { team: true, can_set: false, limit: null, choices: [] });
   t.answer("GET /api/cloud-folders", { folders: [{ name: "OneDrive", path: "/Users/anna/OneDrive" }], picker: false });
   t.answer(`GET ${FOLDER}/find`, { found: o.found || [] });
   t.answer("GET /api/space/links", { b2_signup: "https://example.org/b2" });

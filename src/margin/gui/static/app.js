@@ -36,6 +36,8 @@ const ROUTES = [
   [/^\/?$/, "overview", renderOverview],
   [/^\/overview$/, "overview", renderOverview],
   [/^\/log$/, "researchlog", renderLog],                  // the Research log (the drawer hides on it)
+  // I7 stage 3: the AI log, a record reached from the Research log's line under its title (no sidebar entry)
+  [/^\/log\/ai$/, "researchlog", (view) => import("./views/ailog.js").then((m) => m.renderAiLog(view))],
   [/^\/sources$/, "documents", renderSources],
   [/^\/doc\/([^/]+)$/, "documents", renderDocument],
   [/^\/notes$/, "documents", renderNotes],                 // Documents › Notes
@@ -70,6 +72,7 @@ const ROUTES = [
 function pageTitle(nav, pathPart) {
   if (nav === "settings") return "Settings";
   if (nav === "team" && pathPart === "/team") return "Team";   // Activity, or the set-up in a project without a team
+  if (pathPart === "/log/ai") return "AI log · Research log";   // I7 stage 3
   const place = PLACES[nav];
   if (place) {
     const v = place.views.find(([, , href]) => href === `#${pathPart}`);

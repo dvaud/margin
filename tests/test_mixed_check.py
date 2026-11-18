@@ -41,14 +41,19 @@ def test_one_round_three_readers(mixed, monkeypatch):
         who.setdefault(x["doc_id"], set()).add(x["read_by"])
     assert who == {ids["cloud"]: {"claude"}, ids["local"]: {"local"}, ids["none"]: {"you"}}
     assert all(x["waiting_for_you"] for x in part["passages"] if x["doc_id"] == ids["none"])
-    assert res["waiting_for_you"] == sum(1 for x in part["passages"] if x["doc_id"] == ids["none"])
+    # I6: the local model's readings are suggestions only: they wait for the person too, and count for nothing yet
+    local_x = [x for x in part["passages"] if x["doc_id"] == ids["local"]]
+    assert all(x["suggestion"] and x["waiting_for_you"] and not x["counted"] and x["confidence"] is None for x in local_x)
+    assert res["waiting_for_you"] == sum(1 for x in part["passages"] if x["doc_id"] in (ids["none"], ids["local"]))
+    assert res["suggestions"] == len(local_x)
     # each model was told how many excerpts of the round it is not shown
     assert "from documents you are not shown" in cloud.sent[-1] and "from documents you are not shown" in local.sent[-1]
     # the progress said who reads what
     grade = [m for s, m in steps if s == "grade"][0]
     assert "Claude is reading" in grade and "local model" in grade and "your judgement" in grade
-    # the overall answer counts the local model's grades too
-    assert res["status"] in ("supported", "partially_supported", "contested", "uncertain")
+    # the overall answer rests on Claude's grades (and the person's), never on the local model's suggestions
+    assert res["status"] in ("supported", "partially_supported", "contested", "uncertain", "unsupported")
+    assert all(not x["counted"] for x in local_x)
     # a further round is split the same way
     r = claimcheck.continue_check(ws, part["claim_id"], cloud, "claude-opus", k=12)
     if r["passages"]:

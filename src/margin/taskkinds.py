@@ -277,7 +277,7 @@ _core(name="label", prompt_version="label-v1", certainty="labels", claude=("haik
       helper="margin-labeller", row="label", row_title="Codebook labels (profile)", batch=20, order=8,
       noun=("passage to label", "passages to label"), short="labels", title="Codebook labels",
       run_name="Codebook labels", output_cap=1500, corpus=True)
-_core(name="link", prompt_version="link-v1", certainty="relations", claude=("haiku", "sonnet"), local="small", bulk=True,
+_core(name="link", prompt_version="link-v2", certainty="relations", claude=("haiku", "sonnet"), local="small", bulk=True,
       helper="margin-linker", row="link", row_title="How concepts relate", batch=10, order=7,
       noun=("pair of terms", "pairs of terms"), short="pairs of terms", title="How concepts relate",
       run_name="How concepts relate", output_cap=700, corpus=True)
@@ -332,6 +332,11 @@ _core(name="check", prompt_version="check-v5", certainty="evidence", claude=("so
       row_title="Judging excerpts (checks, reading again)", batch=1, order=3,
       noun=("set of excerpts to judge", "sets of excerpts to judge"), short="sets of excerpts",
       title="Judging excerpts", run_name="Checking hypotheses", output_cap=1500)
+# I6: the small local model's answer to a check (pointing.py): numbered sentences, no judgement; never queued for
+# Claude Code (no helper, no Claude model), answered only by a local model in the place of `check` (tasks.run_one)
+_core(name="point", prompt_version="point-v1", noun=("set of excerpts to point at", "sets of excerpts to point at"),
+      short="sets of excerpts", title="Pointing at sentences", run_name="Checking hypotheses (the small local model)",
+      output_cap=24 + 14 * 60)   # pointing.OUTPUT_CAP: a task's own follows its excerpts (pointing.cap)
 _core(name="reread", prompt_version="check-v5", certainty="evidence", claude=("sonnet", "auditor"), local="large",
       to_auditor=True, judging=True, helper="margin-checker", row="check", batch=1, order=4,
       noun=("excerpt to read again", "excerpts to read again"), short="excerpts to read again",

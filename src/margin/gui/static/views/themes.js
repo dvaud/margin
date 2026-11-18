@@ -4,7 +4,7 @@
 // A theme that is not relevant can be removed (its passages are left out until it is brought back), and a new theme
 // found in its place, on this computer without AI (POST …/new, job "theme-new").
 import { featureEyebrow, withAI } from "../features.js";
-import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks, button, choice, link, tag, notice, card, input, select, textarea, fold, readsLine, aiWhere, stopButton, menu, inset, searchHref, drawInSteps, heatGrid, heatHead, jobFailed, workState, aiButton, setBusy } from "../lib.js";
+import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, fmt, pageHead, watchJob, P, emptyState, TERMINAL, dialog, download, rangeControl, passageNode, navigate, store, plural, shortTitle, runningJob, heatCell, downloadLinks, button, choice, link, tag, notice, card, input, select, textarea, fold, readsLine, aiWhere, ownStartNote, stopButton, menu, inset, searchHref, drawInSteps, heatGrid, heatHead, jobFailed, workState, aiButton, setBusy } from "../lib.js";
 import { simpleProgress, MiniJob, jobError, timeLeft } from "./progress.js";
 import { historyButton, askWhy } from "./versions.js";
 import { shareBar } from "./share.js";   // 0.18 (L1)
@@ -187,6 +187,22 @@ async function renderRun(view, runId, info, query) {
     window.scrollTo(0, y);  // stay where the person was
   }
 
+  // 0.20.1: who names the themes: the AI chosen in Settings, or the local model where the themes' documents may only be
+  // read on this computer (it starts only with its own Start), or nobody (the themes keep their key terms)
+  function themeReaders(rd) {
+    const what = "the passages of each theme";
+    if (!rd || (!rd.local && !rd.none)) return readsLine(what);
+    const local = `the AI on this computer${rd.local_model ? ` (${rd.local_model})` : ""}`;
+    const keep = rd.none ? `${plural(rd.none, "theme")} may be read by no AI and ${rd.none === 1 ? "keeps" : "keep"} the name of ${rd.none === 1 ? "its" : "their"} key terms.` : "";
+    const why = rd.local_problem ? ` ${rd.local_problem}` : "";
+    if (!rd.main && !rd.local) return aiWhere(`No AI may read the passages of these themes: they keep the names of their key terms.${why}`, "local");
+    if (!rd.main) return aiWhere(`${local[0].toUpperCase()}${local.slice(1)} reads ${what}: their documents may only be read on this computer.${ownStartNote()}${keep ? ` ${keep}` : ""}`, "local");
+    const el = readsLine(`the passages of ${plural(rd.main, "theme")}`);
+    const more = [rd.local ? `${local[0].toUpperCase()}${local.slice(1)} reads the other ${plural(rd.local, "theme")}${ownStartNote() ? " once you press its own Start" : ""}.` : "", keep].filter(Boolean).join(" ");
+    el.appendChild(h("span", {}, ` ${more}${why}`));
+    return el;
+  }
+
   function draw() {
     const r = v.run;
     const nDocs = (v.documents || []).length;
@@ -200,7 +216,7 @@ async function renderRun(view, runId, info, query) {
       eyebrow: latest ? featureEyebrow("themes") : h("span", {}, icon("history", { size: 12 }), ` An earlier set of themes, found ${fmt.date(r.created_at)} · `, link({ href: "#/themes" }, "Show the newest")),
       sub: `${plural(v.themes.length, "theme")}${(v.removed || []).length ? ` (${(v.removed || []).length} removed)` : ""} in ${plural(r.passages, "passage")} of ${plural(nDocs, "document")}, found ${modeWords(r.mode)} on ${fmt.date(r.created_at)}. Open a theme to read its passages.`,
       actions: [withAI(nameBtn), historyButton("themes", runId, { onRestored: () => reload() }), xlsx],   // 0.16 (F5)
-      ai: readsLine("the passages of each theme"),
+      ai: themeReaders(v.readers),   // 0.20.1: the AI that names them, as their documents allow
       facts: [madeWithFact(v.made_with)],   // 0.18.1 (J4.2)
     }), sharing);
     clear(notes);

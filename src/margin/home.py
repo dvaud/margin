@@ -710,6 +710,8 @@ def task_tokens(kind: str, k: int = 8, thinks: bool = False, max_chars: int = 11
         user = 300 + 3 * (max_chars + 40) + retry
     elif kind in ("expand", "decompose"):
         user = 4000 + retry
+    elif kind == "point":   # I6: the claim and the k excerpts, each sentence numbered
+        user = 600 + k * (max_chars + 120) + retry
     else:  # 0.13.6: an add-on's kind says how long its prompt can be
         k_ = taskkinds.get(kind)
         user = (k_.size(k, max_chars) if k_ is not None and k_.size else 4000) + retry
@@ -760,6 +762,7 @@ def _seed(settings: dict) -> int | None:
 def _ollama(settings: dict, url: str, model: str, think, kinds=("check", "expand", "decompose")) -> OllamaBackend:
     _t, only, budget = thinking(settings)
     be = OllamaBackend(base_url=url, think=think, think_kinds=only, think_budget=budget, seed=_seed(settings))
+    be.memory_watch = True   # I6: frees a long run's grown memory (llm.OllamaBackend._guard)
     thinks = None
     if str(settings.get("num_ctx", "auto")).lower() == "auto":
         if think is not None:

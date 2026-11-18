@@ -8,7 +8,7 @@
 // words are marked *AI draft* until you rewrite them.
 import { featureEyebrow, viewTabs, withAI } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, P, plural, confirmDialog, download,
-  dialog, field, switchControl, watchJob, emptyState, shortTitle, session, button, iconButton, downloadButton, link, menu, notice, card, tag, input, select, textarea, choice, optionCards, readsLine, aiWhere, inset, workState, personMark, compare, readTextFile, setBusy, aiButton, jobFailed } from "../lib.js";
+  dialog, field, switchControl, watchJob, emptyState, shortTitle, session, button, iconButton, downloadButton, link, menu, notice, card, tag, input, select, textarea, choice, optionCards, readsLine, aiWhere, ownStartNote, inset, workState, personMark, compare, readTextFile, setBusy, aiButton, jobFailed } from "../lib.js";
 import { forgetFrameworks } from "./options.js";
 import { MiniJob, isStopped } from "./progress.js";
 import { showHistory, askWhy } from "./versions.js";
@@ -792,7 +792,7 @@ export async function renderCodebook(view, [name]) {
       if (definingNow.has(keyNow(k))) setBusy(btn, true);
       const what = `the ${offer.passages} passages that hold this code’s examples, and its name`;
       replace(box, h("div", { class: "btn-row" }, withAI(btn)),
-        offer.reader === "local" ? aiWhere(`The AI on this computer reads ${what}: the text never leaves it.`, "local") : readsLine(what),
+        offer.reader === "local" ? aiWhere(`The AI on this computer reads ${what}: the text never leaves it.${ownStartNote()}`, "local") : readsLine(what),
         offer.left_line ? h("p", { class: "muted small" }, offer.left_line) : null,
         h("p", { class: "muted small" }, "A draft to rewrite: it is shown here first, and nothing changes until you take it."));
     };

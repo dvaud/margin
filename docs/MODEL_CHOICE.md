@@ -39,6 +39,17 @@ The recommendation for a **Pro** plan (and for a plan Claude Code does not name)
 A model chosen in *Settings → Technical → AI model per task* comes first, on every plan and setting below. The
 Claude API and local models do not follow the plan.
 
+## The local model (roadmap I6)
+
+Margin chooses the local model from the computer (`modeladvice.py`; the bench of 16 November 2026, roadmap I6): about
+8 GB of memory or no graphics card gets `ifm/k2-horizon:0.9b`, an explorer that answers a check in the short `point`
+form (`pointing.py`: the sentence numbers of the excerpts that bear on it, no judgement); 16 GB gets `qwen3.5:4b` and
+about 24 GB or more `qwen3.5:9b`, both answering in the check form. Each tag is one constant
+(`SMALL_MODEL`, `MEDIUM_MODEL`, `LARGE_MODEL`): the GGUF builds (`qwen3.5:4b-q4_K_M`, which run on llama.cpp with flat
+memory and steadier answers) replace them once they are benched. Whatever the tier, a local model's judgement of an
+excerpt is a suggestion only (`verifications.suggestion_json`): it sets no status until a person judges the excerpt.
+A model earns a stronger role only by measurement on the bench.
+
 ### What moves the defaults
 
 - **The Claude plan** (0.13.10, `routing.tier_defaults`; Settings' `claude_plan`, found in the background as

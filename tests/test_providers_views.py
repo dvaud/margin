@@ -46,14 +46,18 @@ await scenario("OpenAI is set up: the project's choice", async (t) => {
   return out;
 });
 
-await scenario("a shared project: Anthropic only, and why", async (t) => {
+// I7 stage 3: in a shared project the person ticks their own; the owner's limit turns the others off and says why
+await scenario("a shared project: your own choice, within the owner's limit", async (t) => {
   t.state({ settings: {}, providers: OPENAI });
   const m = await t.module("views/ai-access.js");
-  const card = m.providersDefaultCard("Study", { providers_default: ["anthropic"], shared: true,
-    providers_note: "Other providers come to shared projects later: your colleagues have not agreed to them. Only Anthropic may read this project's documents." }, () => {});
-  document.getElementById("view").appendChild(card);
+  const free = m.providersDefaultCard("Study", { providers_default: ["anthropic"], shared: true, team_limit: null }, () => {});
+  const card = m.providersDefaultCard("Study", { providers_default: ["anthropic", "openai"], shared: true,
+    team_limit: { providers: ["anthropic"] }, providers_note: "The team uses Anthropic only (set by Anna)." }, () => {});
+  document.getElementById("view").append(free, card);
+  await t.click(free.querySelector("summary"));
   await t.click(card.querySelector("summary"));
-  return { boxes: card.querySelectorAll("input[type=checkbox]").map((b) => [b.value, !!b.checked, !!b.disabled]), text: t.text(card) };
+  const boxes = (c) => c.querySelectorAll("input[type=checkbox]").map((b) => [b.value, !!b.checked, !!b.disabled]);
+  return { free: boxes(free), freeText: t.text(free), boxes: boxes(card), text: t.text(card) };
 });
 
 await scenario("one document's own providers", async (t) => {
@@ -98,6 +102,8 @@ await scenario("a server on another computer: the Documents page's line", async 
   out.saved = !!saved;
   out.allowed = t.text(m.remoteServerLine("Study", { providers_default: ["anthropic", "other"] }));
   out.shared = t.text(m.remoteServerLine("Study", { providers_default: ["anthropic"], shared: true }));
+  out.limited = t.text(m.remoteServerLine("Study", { providers_default: ["anthropic"], shared: true, team_limit: { providers: ["anthropic"] },
+    providers_note: "The team uses Anthropic only (set by Anna)." }));
   t.state({ settings: {}, providers: NONE });
   out.claude = m.remoteServerLine("Study", {}) === null;
   return out;
@@ -275,10 +281,12 @@ def test_the_words_stay_claude_until_another_provider_is_set_up(page):
 
 
 @needs_node
-def test_a_shared_project_offers_anthropic_only_and_says_why(page):
-    r = page["a shared project: Anthropic only, and why"]
-    assert r["boxes"] == [["anthropic", True, False], ["openai", False, True]]
-    assert "your colleagues have not agreed to them" in r["text"]
+def test_a_shared_project_offers_your_own_choice_within_the_owners_limit(page):
+    r = page["a shared project: your own choice, within the owner's limit"]
+    assert r["free"] == [["anthropic", True, False], ["openai", False, False]]
+    assert "This is your own choice: each person in the team chooses theirs" in r["freeText"]
+    assert r["boxes"] == [["anthropic", True, False], ["openai", True, True]]   # given before: kept, off now
+    assert "The team uses Anthropic only (set by Anna)." in r["text"]
 
 
 @needs_node
@@ -331,7 +339,8 @@ def test_a_server_on_another_computer_says_so_in_place_with_a_button(page):
     assert r["dialogs"] == 0                                          # no pop-up
     assert r["put"] == [{"providers_default": ["anthropic", "other"]}] and r["saved"]
     assert "This project allows it." in r["allowed"]
-    assert "your colleagues have not agreed to them" in r["shared"]
+    assert "Allow it for this project" in r["shared"]   # I7 stage 3: a shared project allows it as any other
+    assert "The team uses Anthropic only (set by Anna)." in r["limited"] and "Allow it" not in r["limited"]
     assert r["claude"] is True                                        # on Claude's routes: no line
     r = page["Settings: a server on another computer says what it reads"]
     assert "reads only documents you allow it to" in r["text"] and "Allow it for this project" in r["text"]

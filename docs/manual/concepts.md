@@ -82,6 +82,13 @@ link, its sentences); *The lines as lists* gives every line and the links as lis
 each. Pointing at a concept dims everything it is not joined to. Marks that would cover each other are
 pushed apart a little, and on a narrow screen they are smaller.
 
+**Zoom.** *Zoom in*, *Zoom out* and *Whole map* stand over the map (up to four times the size). You can also hold
+*Ctrl* (or *⌘* on a Mac) and turn the wheel, pinch on a trackpad, or press **+**, **−** and **0** (the whole map)
+anywhere in the map. Zoomed in, drag the map to move around it, or press the arrow keys when the map itself has the
+keyboard's focus; a concept you reach with *Tab* comes into view. Words grow more slowly than the map, so they stay
+readable, and from twice the size on every concept's name shows. The zoom stays while you rename groups and is undone
+by other filters. A downloaded picture is always the whole map.
+
 When fewer than 30 passages are counted (one short document, a narrow filter), the page says so: a line that rests on
 two or three passages can look strong by chance.
 
@@ -95,7 +102,7 @@ line: `margin --ws myproject concept-map`.
 its two most central concepts (*Office days and team days*) until you rename it. A name stays with its group between
 visits, and when the groups are found again (new documents, other filters, another number of concepts), as long as
 the group still holds most of the same concepts. Each name says where it comes from: *named by its concepts*, *named
-by you*, *AI draft* or *named by the AI, accepted by you*.
+by you* (or by a colleague, by name), *AI draft* or *named by the AI, accepted by you*.
 
 - *Rename* opens *Rename the group*: type a *New name* (up to 60 characters) and *Save*, or *Use its concepts as the
   name* to go back to the name made from its concepts.
@@ -116,8 +123,28 @@ by you*, *AI draft* or *named by the AI, accepted by you*.
 - A name whose group is not on this map is kept under *2 names kept for groups that are not on this map*, and comes
   back with its group; *Forget this name* removes it.
 
-Group names stay on this computer in this release: they are not shared with a team, not sent in a copy for a
-colleague, and a colleague's copy does not bring theirs.
+**Group names with a team.** Group names go with the rest of the project: in a copy for a colleague, through the
+shared folder and a team's storage space. The groups themselves are not sent: each copy finds them from its own
+counts, so a group can differ a little between two copies. A name keeps its group's concepts, and on another copy it
+goes to the group there that holds most of them, by the same rule as on yours; a name that fits no group there is kept
+under *names kept for groups that are not on this map*, and comes back with its group.
+
+- When two people name the **same group**, the map shows the later name on every copy, and the group says *Also named
+  “…” by …* with the other name, its author and the date; *Rename* lists it too, with *Use this one*, and *Remove*
+  takes the other name away on every copy (with *Undo*). Nothing a person typed is lost by itself: when two people
+  changed the same name at the same time, each on their own copy, the later change counts and the other stays as a name
+  of its own. A change made after seeing the other (a rename of a colleague's name) simply replaces it.
+- Between two different names for one group, a name a person gave (or an AI draft a person used) comes before an AI
+  draft, whenever the draft was made.
+- *Keep the name* keeps it its author's name; the group says who named it, not who kept it.
+- A name you remove (*Use its concepts as the name*, *Forget this name*) is removed on your colleagues' copies too,
+  unless someone renamed it after you removed it.
+- The AI's quote for its name goes with the name, but only to a copy that holds the quoted document. The AI's work
+  that drafted it (its task) stays on the computer it ran on.
+- Times are compared as each copy records them, but a change made after seeing another is always counted as later,
+  whatever the computer's clock says; a name dated more than ten minutes ahead of your clock waits until it is not.
+- Names are trusted as your team's other work is: a colleague's file may carry names in a third person's name (as it
+  carries their reviews), but never changes one you changed last in yours.
 
 **Download the map.** *PNG* and *SVG* at the top right save the map as a picture, made in the page (nothing is sent
 anywhere): the title (*Concept map of* and the project's name), what was counted, the filters when one is set, the
@@ -128,6 +155,12 @@ slides and documents. The file is named after the project and the day: `my-proje
 `-filtered` before the date when a filter is set.
 
 Theory and working documents are left out of the glossary, of key terms, of both cards and of the map.
+
+**The AI's links.** When the AI judges how two terms relate (*How concepts relate*, link tasks), it may now propose
+any kind the text patterns and you can give: *same*, *broader*, *narrower*, *needs*, *shapes*, *clashes with*,
+*related* or *different*, each with a quote from the passages of both terms. Its proposals are marked as the AI's
+(with how sure it is), drawn on the map in their kind's line when it is confident, and yours to accept, change or
+reject on the concept's page, as before.
 
 ### Words the glossary leaves out
 

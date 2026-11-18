@@ -230,7 +230,8 @@ class Jobs:
         `if_free`: start only when it would not have to wait; None (nothing started) otherwise.
 
         0.19.13: `local_start` the job's local gate at the start ("go": the person's own Start of the local model,
-        "force": Start it anyway); by default it opens by itself only for a job whose work is all the local model's."""
+        "force": Start it anyway); by default it waits for that Start (0.20.1: also in a job whose work is all the
+        local model's)."""
         job = Job(kind, title, project)
         job.again_args = (kind, title, project, fn, uses_model, lane, serial, scope)
         job.force_local = force_local
@@ -342,6 +343,17 @@ class Jobs:
                     if free:
                         threading.Thread(target=llm.let_go, args=(free,), daemon=True,
                                          name=f"let-go-{job.id}").start()
+                elif job.used_models:
+                    # I6: a job that ended by itself lets go of an MLX model at once too: Ollama's MLX runner holds its
+                    # prompt cache (up to 8 GiB) for the 15 minutes the model is kept; a llama.cpp model stays, as it
+                    # does not grow. Nothing is loaded to unload it, and a model another job uses is kept
+                    with self.lock:
+                        busy = set().union(*(j.used_models for j in self.jobs.values()
+                                             if j is not job and j.state in ("queued", "running")))
+                    free = set(job.used_models) - busy
+                    if free:
+                        threading.Thread(target=llm.let_go, args=(free,), kwargs={"runner": "mlx"}, daemon=True,
+                                         name=f"let-go-mlx-{job.id}").start()
                 job.finished = time.time()
                 if job.tracker is not None:
                     job.tracker.finish()

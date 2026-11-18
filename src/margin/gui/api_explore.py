@@ -307,6 +307,8 @@ class ExploreApi:
         if isinstance(out, dict) and "made_with" not in out:
             out["made_with"] = runs.made_with_one(ws.scalar("SELECT app_version FROM theme_runs WHERE run_id=?",
                                                             (run_id,)))
+        if isinstance(out, dict) and "readers" not in out:   # 0.20.1: who names the themes, for the page's AI line
+            out["readers"] = themes.readers(ws, run_id, self.app.settings(), out.get("themes"))
         return out
 
     def delete_theme_run(self, name, run_id, q):

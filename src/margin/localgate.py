@@ -11,8 +11,10 @@ itself inside such a job; now starting Claude and starting the local model are t
             button);
 - ``force`` as ``go``, whatever memory this computer has free ("Start it anyway").
 
-A gate starts ``auto``: a feature that has work for both engines says so (`mixed`, ``auto`` becomes ``wait``); a job
-whose only reader is the local model opens it at its first request (``auto`` becomes ``go``). Nothing loads the model
+A gate starts ``auto``, which waits like ``wait`` (0.20.1: also in a job whose only reader is the local model, such as
+*Name the themes* when every theme may only be read on this computer: the button that asked for the work is not the
+local model's own Start). A job started by that Start opens its gate at once (`Jobs.start(local_start="go")`); when the
+local model is the main AI itself, no gate stands before it (`access.Readers.before_local`). Nothing loads the model
 while the gate waits: every request of the local model passes `wait_open` first (`access.Readers` wraps the model), and
 the features that have both kinds of work hand the local items to the gate's worker (`later`), which reads them as soon
 as the gate opens, beside Claude, and goes back to waiting after the item in hand when the person presses Stop on the
@@ -223,13 +225,17 @@ class LocalGate:
             self.cond.notify_all()
 
     def wait_open(self, should_stop: Callable[[], bool] | None = None) -> bool:
-        """Wait until the local model may read. True: it may; False: the job was stopped meanwhile. A gate still
-        ``auto`` opens (``go``): the job's work is all the local model's (no feature said it has Claude's too)."""
+        """Wait until the local model may read. True: it may; False: the job was stopped meanwhile. 0.20.1: a gate
+        still ``auto`` waits too (before, it opened when no feature had said the job has work for Claude, so the
+        button that asked for the work started the local model)."""
         with self.cond:
             if self.state == AUTO:
-                self.state = GO
+                self.state = WAIT
             if self.is_open:
                 return True
+            assumed = not self.waiting
+            if assumed:   # its Start is offered only while something waits: a request that nobody counted is one
+                self.counted = 1
         self.say_ready()
         released = self._release()
         try:
@@ -238,6 +244,8 @@ class LocalGate:
                     if self.stopped(should_stop):
                         return False
                     self.cond.wait(self.POLL)
+                if assumed and self.counted == 1:
+                    self.counted = 0
             return True
         finally:
             if released:
@@ -247,7 +255,7 @@ class LocalGate:
     def later(self, fn: Callable[[], Any], n: int = 1, noun: str | None = None, mixed: bool = True, ws=None) -> None:
         """Read one item with the local model as soon as the gate opens (at once when it is open), in the gate's
         worker, beside the job's own thread. `n`: how many things it counts as waiting (excerpts of a part, say).
-        `mixed`: the job has work for Claude too (so a gate still ``auto`` waits). An item the model was refused for
+        `mixed`: the job has work for Claude too (0.20.1: every gate waits for its Start; kept to say so). An item the model was refused for
         (memory) waits for the next opening and is read again; it must be safe to run again."""
         from . import tasks
 

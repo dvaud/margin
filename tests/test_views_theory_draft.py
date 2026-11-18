@@ -245,7 +245,8 @@ def test_the_line_under_read_the_theory_says_who_reads_how_much(page):
 @needs_node
 def test_a_document_only_a_local_ai_may_read_is_read_on_this_computer_and_the_others_say_why(page):
     r = page["reads line, local"]
-    assert r["line"] == "The AI on this computer reads this whole document: the text never leaves it."
+    assert r["line"] == ("The AI on this computer reads this whole document: the text never leaves it. It starts when you "
+                         "press its own Start.")   # 0.20.1: Claude is the main AI here
     assert r["local"] is True
     assert "“Caring” is marked No AI: only the terms it defines outright are used." in r["docs"]
     assert "“Scan”: Its text could not be read." in r["docs"]

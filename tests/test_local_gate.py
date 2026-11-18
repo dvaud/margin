@@ -71,9 +71,19 @@ def test_the_gate_waits_until_its_start():
     assert got == [True] and g.state == "go"
 
 
-def test_an_all_local_gate_opens_by_itself_and_a_mixed_one_never_does():
+def test_an_all_local_gate_waits_for_its_start_too():
+    """0.20.1: a job whose only reader is the local model waits for its own Start as well (before, the button that
+    asked for the work started it). A request nobody counted counts as one, so the panel offers the Start."""
     alone = LocalGate()
-    assert alone.wait_open() and alone.state == "go"   # the job's only reader is the local model: one click
+    got: list[bool] = []
+    t = threading.Thread(target=lambda: got.append(alone.wait_open()))
+    t.start()
+    _until(lambda: alone.state == "wait")
+    time.sleep(0.2)
+    assert got == [] and alone.waiting == 1
+    alone.open()
+    t.join(5)
+    assert got == [True] and alone.state == "go" and alone.waiting == 0
     both = LocalGate()
     both.mixed()
     stop = threading.Event()
@@ -210,20 +220,72 @@ def test_stopping_the_job_leaves_the_local_passages_waiting(mixed, monkeypatch):
     assert job.result is None or job.result["local_waiting"] > 0
 
 
-def test_an_all_local_job_needs_no_second_click(mixed, monkeypatch):
-    """Labels of documents only the local model may read, started by their own button: one click."""
+def test_an_all_local_job_waits_for_the_local_start(mixed, monkeypatch):
+    """0.20.1: labels of documents only the local model may read, asked for by Label passages, load nothing until the
+    local model's own Start; a job started by that Start (local_start="go") reads at once."""
     ws, ids = mixed
     local, cloud = Watched(free=64 * GB), Cloud()
     use_local_model(monkeypatch, local)
 
     def run(job):
-        return profile.run_labels(ws, "sdg", cloud, "claude-haiku", doc_ids=[ids["local"]], all_passages=True)
+        return profile.run_labels(ws, "sdg", cloud, "claude-haiku", doc_ids=[ids["local"]], all_passages=True,
+                                  should_stop=job.cancel.is_set)
 
-    job = Jobs().start("label", "Labels", "Mixed", run, uses_model=True)
+    jobs = Jobs()
+    job = jobs.start("label", "Labels", "Mixed", run, uses_model=True)
+    _until(lambda: job.gate.involved and job.gate.public == "wait" and job.gate.waiting > 0)
+    time.sleep(0.3)
+    v = job.view()["local"]
+    assert job.state == "running" and local.sent == [] and cloud.sent == [] and v["gate"] == "wait"
+    job.gate.open()
     _until(lambda: _ended(job))
     assert job.state == "done", job.error
     assert cloud.sent == [] and local.sent and _labelled(ws, ids["local"]) > 0
-    assert job.view()["local"]["gate"] == "go"
+    again = jobs.start("label", "Labels", "Mixed", run, uses_model=True, local_start="go")
+    _until(lambda: _ended(again))
+    assert again.state == "done" and again.gate.state == "go"
+
+
+def test_naming_themes_only_the_local_model_may_read_waits_for_its_start(mixed, monkeypatch):
+    """The owner's video of 18 November 2026: Name the themes, every theme of documents marked Only a local AI, started
+    qwen3.5:4b at once. It now waits for the local model's own Start, and the page's AI line names the local model."""
+    ws, ids = mixed
+    local, cloud = Watched(free=64 * GB), Cloud()
+    use_local_model(monkeypatch, local)
+    terms.ensure(ws)
+    run_id = themes.run(ws, k=3, mode="words")
+    settings = {"backend": "claude_code"}
+    access.set_documents(ws, [ids["cloud"]], "local")   # every document an AI may read: only on this computer
+    assert themes.readers(ws, run_id, settings) == {"main": 0, "local": 3, "none": 0, "local_model": "local-model"}
+    job = Jobs().start("theme-names", "Names", "Mixed",
+                       lambda j: themes.name_with_model(ws, run_id, cloud, "claude-sonnet",
+                                                        should_stop=j.cancel.is_set), uses_model=True)
+    _until(lambda: job.gate.involved and job.gate.public == "wait" and job.gate.waiting > 0)
+    time.sleep(0.3)
+    v = job.view()["local"]
+    assert job.state == "running" and local.sent == [] and cloud.sent == []
+    assert v["gate"] == "wait" and v["waiting"] == 3 and v["noun"] == "theme"
+    job.gate.open()
+    _until(lambda: _ended(job))
+    assert job.state == "done", job.error
+    assert local.sent and cloud.sent == []
+
+
+def test_the_themes_ai_line_counts_who_names_them(mixed, monkeypatch):
+    ws, ids = mixed
+    use_local_model(monkeypatch, Watched(free=64 * GB))
+    terms.ensure(ws)
+    run_id = themes.run(ws, k=3, mode="words")
+    got = themes.readers(ws, run_id, {"backend": "claude_code"})
+    assert got["main"] + got["local"] + got["none"] == 3 and got["main"] > 0
+    assert themes.readers(ws, run_id, {"backend": "baseline"}) is None   # a model on this computer reads them all
+    access.set_documents(ws, [ids["cloud"]], "local")
+    monkeypatch.setattr(home_mod, "make_restricted_backend", lambda s: None)   # chosen, but not on this computer
+    got = themes.readers(ws, run_id, {"backend": "claude_code"})
+    assert got["main"] == 0 and got["local"] == 0 and got["none"] == 3 and "not on this computer" in got["local_problem"]
+    use_local_model(monkeypatch, None)
+    assert themes.readers(ws, run_id, {"backend": "claude_code"}) == {"main": 0, "local": 0, "none": 3,
+                                                                      "local_model": None}
 
 
 def test_outside_the_app_the_local_model_reads_at_once(mixed, monkeypatch):
@@ -533,3 +595,22 @@ def test_reading_the_local_excerpts_counts_down_and_says_excerpts(tmp_path, monk
     assert n > 0 and seen and seen[0] == n
     v = job.view()["local"]
     assert v["noun"] == "excerpt" and v["waiting"] == 0
+
+
+def test_the_local_panels_own_start_is_the_jobs_one_start(monkeypatch):
+    """0.20.1 (review): the Profile page's local panel ("Start qwen…", every passage left is the local model's) started
+    a labelling job whose gate then waited for a second Start. The panel's press reaches the job as its own Start."""
+    app = server.App.__new__(server.App)
+    app.jobs = Jobs()
+    monkeypatch.setattr(server.App, "queue_mode", lambda self: False)
+    monkeypatch.setattr(server.App, "backend", lambda self, *a, **k: (Cloud(), "x"), raising=False)
+    monkeypatch.setattr(server.App, "_wire", lambda self, job, be: None, raising=False)
+    monkeypatch.setattr(server.App, "_ws_or_none", lambda self, name: None, raising=False)
+    for start, state in ((None, "auto"), ("go", "go"), ("force", "force")):
+        job = app.start_queued_job("label", "Labels", None, lambda job, be, model, prog: {"ok": 1}, local_start=start)
+        _until(lambda: _ended(job))
+        assert job.gate.state == state
+    from pathlib import Path
+
+    js = (Path(server.__file__).parent / "static" / "views" / "profile.js").read_text(encoding="utf-8")
+    assert 'onStart: (force) => start(startBtn, force, true)' in js and 'payload.local = force ? "force" : "go"' in js

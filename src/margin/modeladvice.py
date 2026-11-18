@@ -1,11 +1,20 @@
-"""0.18.0rc2 (M8): which local model to suggest on THIS computer.
+"""0.18.0rc2 (M8), I6 (tiers): which local model THIS computer gets.
 
-Until now every computer was offered the same model (qwen3:8b, about 5 GB). Here a small pure function, `advise`, takes
-what the computer has (memory, free disk space, the system, a graphics card's memory) and gives, for reading and
-judging ("chat") and for search by meaning ("embed"), one recommended model with a smaller, quicker one and a larger,
-more careful one beside it, each in plain words: its download size, how quick it will be here and what it is good for.
-A model is offered only when it fits the memory and the disk with room to spare (the same measure the app uses before it
-starts a model: the size of the model plus the memory its context needs, llm.KV_BYTES_PER_TOKEN).
+I6: a researcher never picks a model. Margin reads the computer (memory, a graphics card's memory, free disk space) and
+picks one of three tiers itself; the person only presses Set up (no model is downloaded or started before that click):
+
+| Computer | Model | What it does |
+| Small (about 8 GB, or no graphics card) | `SMALL_MODEL` (K2 Horizon 0.9B) | Explorer only: points at sentences |
+| 16 GB | `MEDIUM_MODEL` (Qwen 3.5 4B) | Suggestions only |
+| about 24 GB or more | `LARGE_MODEL` (Qwen 3.5 9B) | Suggestions only (not measured yet) |
+
+Each tag is one constant here: switching to the GGUF builds (`qwen3.5:4b-q4_K_M`, which run on llama.cpp with flat
+memory) once they are benched is a one-line change. Model names show only under Settings → Technical.
+
+What a model needs of the memory (`_need`), from the bench of 16 November 2026 (I6 research, section 2): its file, a
+load overhead measured beyond the context (the vision tower of Qwen 3.5, say), its context (`num_ctx` tokens at
+`llm.KV_BYTES_PER_TOKEN`) and, on Ollama's MLX runner (Apple silicon), the prompt cache it keeps growing until the
+memory guard (`llm.OllamaBackend._guard`) frees it: `growth()`. Without the guard that cache grows to 8 GiB.
 
 `computer()` reads the facts (cheap, kept for a minute: the page asks every few seconds); `advise()` decides and does no
 reading, so it can be tested with made-up computers."""
@@ -17,7 +26,7 @@ import subprocess
 import time
 
 GB = 1 << 30
-# the context the advice reckons with: the app's smallest working length (llm.py: it picks the smallest that fits)
+# the context the advice reckons with when a model says none (the app's smallest working length)
 CONTEXT_TOKENS = 8192
 # a model is offered when what it needs is at most this share of the memory it would run in ("room to spare": the system,
 # the browser and the documents need the rest); the recommended one stays within COMFORT, a larger one may go to TIGHT
@@ -27,26 +36,68 @@ GPU_SHARE = 0.9          # of a graphics card's own memory a model may take
 DISK_MARGIN = 2 * GB     # free space to leave after the download
 SMALL_DISK_SHARE = 1.2   # a download is unpacked beside the files Ollama already holds
 
-# Ollama's library, sizes as the library lists them (4-bit builds). `good` is for a researcher who does not program.
+# I6: the three tiers' models, one constant each (see above). After the GGUF builds are benched (roadmap I6, "Left to
+# try"), MEDIUM_MODEL may become "qwen3.5:4b-q4_K_M" and LARGE_MODEL "qwen3.5:9b-q4_K_M": change only these lines
+# (and `mlx` below to False for them).
+SMALL_MODEL = "ifm/k2-horizon:0.9b"
+MEDIUM_MODEL = "qwen3.5:4b"
+LARGE_MODEL = "qwen3.5:9b"
+MLX_CACHE = 8 * GB       # what that cache grows to without the guard (Ollama's fixed budget, ollama/ollama#18131)
+
+# The tiers, smallest first. `bytes`: the file Ollama lists (/api/tags, 18 November 2026); `overhead`: memory measured
+# beyond the file and the context; `num_ctx`: the context the tier runs at; `mlx`: on Apple silicon this build runs on
+# Ollama's MLX runner (a safetensors build), else on llama.cpp; `role`: what its answers are for. `good` is for a
+# researcher who does not program, and names no model.
 CHAT = (
-    {"name": "qwen3:1.7b", "bytes": int(1.4 * GB), "label": "small",
-     "good": "Short, simple checks. It misses more and can misread a long passage."},
-    {"name": "qwen3:4b", "bytes": int(2.6 * GB), "label": "small",
-     "good": "Everyday checks on a modest computer: careful enough for a first look at your documents."},
-    {"name": "qwen3:8b", "bytes": int(5.2 * GB), "label": "medium",
-     "good": "A good balance: it reads and judges passages well, and is the one most people choose."},
-    {"name": "qwen3:14b", "bytes": int(9.3 * GB), "label": "large",
-     "good": "The most careful: best for long or difficult passages, and the slowest."},
+    {"name": SMALL_MODEL, "tier": "small", "bytes": int(1.07 * GB), "overhead": 0, "num_ctx": 8192, "mlx": False,
+     "label": "small", "role": "explorer", "form": "point",
+     "good": "Explorer: it points at the sentences that bear on your hypothesis and sorts the reading order. You "
+             "judge every excerpt yourself."},
+    {"name": MEDIUM_MODEL, "tier": "medium", "bytes": int(3.7 * GB), "overhead": int(0.4 * GB), "num_ctx": 16384,
+     "mlx": True, "label": "medium", "role": "suggestions", "form": "check",
+     "good": "Suggestions: it marks the sentences that bear on your hypothesis and suggests a judgement for each "
+             "excerpt. You decide each one."},
+    {"name": LARGE_MODEL, "tier": "large", "bytes": int(7.11 * GB), "overhead": int(1.0 * GB), "num_ctx": 16384,
+     "mlx": True, "label": "large", "role": "suggestions", "form": "check",
+     "good": "Suggestions, read more carefully (not measured yet): it suggests a judgement for each excerpt. You "
+             "decide each one."},
 )
+TIER_WORDS = {"small": "The small local model", "medium": "The local model", "large": "The larger local model"}
 EMBED = (
     {"name": "nomic-embed-text", "bytes": int(0.3 * GB), "label": "small",
      "good": "Search by meaning for documents in English. Small and quick."},
     {"name": "bge-m3", "bytes": int(1.2 * GB), "label": "medium",
      "good": "Search by meaning across many languages (Hungarian, Dutch, German and more), more precise; a bigger download."},
 )
-WHAT_IS_A_MODEL = ("A model is the program that does the reading and judging. It is one large file kept on this "
-                   "computer, so nothing you read with it leaves the computer; a bigger model reads more carefully, "
-                   "but needs more memory and answers more slowly.")
+WHAT_IS_A_MODEL = ("A model is the program that does the reading. It is one large file kept on this computer, so "
+                   "nothing you read with it leaves the computer. The local model only suggests: you judge every "
+                   "excerpt it reads, and only your judgements count.")
+
+
+def tier_of(model: str | None) -> dict | None:
+    """The tier whose model this is (a tag with or without `:latest`), or None for a model outside the tiers."""
+    name = (model or "").strip()
+    full = name if ":" in name else f"{name}:latest"
+    return next((t for t in CHAT if t["name"] in (name, full)), None)
+
+
+def answer_form(model: str | None) -> str:
+    """I6: how a local model answers a check: "point" (the small tier: numbered sentences, Margin cuts the quote, no
+    judgement; K2's check answers ran past their length limit) or "check" (the judgements of check-v5)."""
+    t = tier_of(model)
+    if t is not None:
+        return t["form"]
+    return "point" if (model or "").startswith("ifm/k2-horizon") else "check"
+
+
+def growth(model: dict, facts: dict) -> int:
+    """What the runner adds over a long run: on Apple silicon an MLX build's prompt cache up to the guard's threshold
+    (the guard frees it there; I6 research section 2), nothing on llama.cpp."""
+    from .llm import GUARD_GROW_MIN, GUARD_GROW_SHARE
+
+    if not (model.get("mlx") and facts.get("unified")):
+        return 0
+    return max(GUARD_GROW_MIN, int(GUARD_GROW_SHARE * (facts.get("memory") or 0)))
 
 
 def computer(home_dir: str | None = None) -> dict:
@@ -96,11 +147,15 @@ def _gpu_memory(system: str) -> int | None:
         return None
 
 
-def _need(model: dict, use: str) -> int:
-    """What running the model asks of the memory: its size, and for a chat model the memory its context takes."""
+def _need(model: dict, use: str, facts: dict | None = None) -> int:
+    """What running the model asks of the memory: its size, and for a chat model its load overhead, the memory its
+    context takes (at the tier's own context length) and what its runner grows by over a long run (`growth`)."""
     from .llm import KV_BYTES_PER_TOKEN
 
-    return model["bytes"] + (CONTEXT_TOKENS * KV_BYTES_PER_TOKEN if use == "chat" else 0)
+    if use != "chat":
+        return model["bytes"]
+    return (model["bytes"] + model.get("overhead", 0) + model.get("num_ctx", CONTEXT_TOKENS) * KV_BYTES_PER_TOKEN
+            + growth(model, facts or {}))
 
 
 def _gb(n: int) -> str:
@@ -118,7 +173,7 @@ def _fit(model: dict, use: str, facts: dict) -> dict | None:
     mem, gpu, disk = facts.get("memory"), facts.get("gpu"), facts.get("disk_free")
     if disk is not None and disk < model["bytes"] * SMALL_DISK_SHARE + DISK_MARGIN:
         return None
-    need = _need(model, use)
+    need = _need(model, use, facts)
     options = []
     if gpu and need <= GPU_SHARE * gpu:
         options.append({"where": "graphics card", "share": need / gpu})
@@ -139,7 +194,7 @@ def _speed(model: dict, use: str, facts: dict, fit: dict) -> tuple[str, str]:
     if facts.get("unified"):
         big = model["bytes"] > 8 * GB
         return ("fair", "Fair: about half a minute for an answer on this Mac.") if big else \
-            ("quick", "Quick: it runs on this Mac's own memory. An answer takes seconds.")
+            ("quick", "Quick: it runs on this Mac's own memory. A check takes a few seconds.")
     gb = model["bytes"] / GB
     if gb <= 2:
         return "fair", "Fair: it runs on the processor, about half a minute for an answer."
@@ -151,10 +206,22 @@ def _speed(model: dict, use: str, facts: dict, fit: dict) -> tuple[str, str]:
 def _option(model: dict, use: str, role: str, facts: dict, fit: dict) -> dict:
     speed, speed_text = _speed(model, use, facts, fit)
     share = fit["share"]
-    return {"name": model["name"], "use": use, "role": role, "size": _size_text(model["bytes"]), "bytes": model["bytes"],
-            "speed": speed, "speed_text": speed_text, "good_for": model["good"], "tight": share > COMFORT,
-            "note": ("It takes most of this computer's memory: close other programs while it works."
-                     if share > COMFORT else "")}
+    out = {"name": model["name"], "use": use, "role": role, "size": _size_text(model["bytes"]), "bytes": model["bytes"],
+           "speed": speed, "speed_text": speed_text, "good_for": model["good"], "tight": share > COMFORT,
+           "note": ("It takes most of this computer's memory: close other programs while it works."
+                    if share > COMFORT else "")}
+    if use == "chat":   # I6: the tier, what its answers are for, and what it needs of the memory here
+        out.update(tier=model["tier"], answers=model["role"], words=TIER_WORDS[model["tier"]],
+                   need=_need(model, use, facts), num_ctx=model["num_ctx"],
+                   runner="mlx" if model.get("mlx") and facts.get("unified") else "llamacpp")
+    return out
+
+
+def no_graphics(facts: dict) -> bool:
+    """A computer without a graphics card a model can use: not Apple silicon, and no NVIDIA card's memory read (an
+    Intel Mac included). Such a computer gets the small tier (I6): a larger model on the processor alone takes minutes
+    a check."""
+    return not facts.get("unified") and not facts.get("gpu")
 
 
 def _ladder(rungs: tuple, use: str, facts: dict) -> dict:
@@ -173,6 +240,9 @@ def _ladder(rungs: tuple, use: str, facts: dict) -> dict:
         return {"pick": None, "smaller": None, "larger": None, "options": [], "reason": why}
     comfy = [t for t in ok if t[2]["share"] <= COMFORT] or ok[:1]
     pi, pm, pf = comfy[0] if use == "embed" else comfy[-1]   # search by meaning starts with the small one
+    if use == "chat" and (no_graphics(facts) or (facts.get("memory") is None and not facts.get("gpu"))):
+        # I6: no graphics card, or memory that cannot be read: the small tier (the others stay offered under Technical)
+        pi, pm, pf = ok[0]
     pick = _option(pm, use, "recommended", facts, pf)
     smaller = next((_option(m, use, "smaller", facts, f) for i, m, f in reversed(ok) if i < pi), None)
     larger = next((_option(m, use, "larger", facts, f) for i, m, f in ok if i > pi), None)
@@ -198,7 +268,28 @@ def advise(facts: dict) -> dict:
     words = "This computer has " + ", ".join(parts) + "." if parts else ""
     return {"computer": {"memory": facts.get("memory"), "disk_free": facts.get("disk_free"), "gpu": facts.get("gpu"),
                          "system": facts.get("system"), "unified": bool(facts.get("unified")), "words": words},
-            "chat": chat, "embed": embed, "what_is_a_model": WHAT_IS_A_MODEL}
+            "chat": chat, "embed": embed, "what_is_a_model": WHAT_IS_A_MODEL, "tier": _tier_words(chat)}
+
+
+def _tier_words(chat: dict) -> dict | None:
+    """I6: the tier chosen for this computer in plain words, for the pages outside Settings → Technical (no model name):
+    {"tier", "answers", "words", "size", "what"}."""
+    pick = chat.get("pick")
+    if not pick:
+        return None
+    what = ("It points at the sentences that bear on your hypothesis, for you to judge." if pick["answers"] == "explorer"
+            else "It suggests a judgement for each excerpt it reads, for you to decide.")
+    return {"tier": pick["tier"], "answers": pick["answers"], "words": pick["words"], "size": pick["size"],
+            "what": what}
+
+
+def older_model(chosen: str | None, advice: dict) -> dict | None:
+    """I6: a person who set up an older model (qwen3:8b, say) keeps it; Settings → Technical offers the tier's model
+    beside it, never downloading it unasked. {"chosen", "offer", "size"} when the chosen model is not the tier's."""
+    pick = (advice.get("chat") or {}).get("pick")
+    if not chosen or not pick or tier_of(chosen) is not None and tier_of(chosen)["name"] == pick["name"]:
+        return None
+    return {"chosen": chosen, "offer": pick["name"], "size": pick["size"]}
 
 
 def suggested(advice: dict | None = None) -> list[dict]:

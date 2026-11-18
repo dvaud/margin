@@ -1598,6 +1598,12 @@ export function aiWhere(text, where = "cloud", attrs = {}) {
   return h("p", withClass(where === "attention" ? "ai-where ai-where-attention" : "ai-where", attrs), icon(ic, { size: 13 }), h("span", {}, text));
 }
 
+// 0.20.1: after a line that says the local model for restricted documents reads something: it starts only with its own
+// Start (nothing when the local model is the main AI: then the feature's own button starts it)
+export function ownStartNote() {
+  return App.privacy().where === "local" ? "" : " It starts when you press its own Start.";
+}
+
 // The AI line of the AI chosen in Settings: who reads `what`, and where the text goes. opts.model: the model that reads
 // when it is not the main one (a second local model); opts.class: the page's own class for placement.
 export function readsLine(what = "the excerpts it needs", opts = {}) {

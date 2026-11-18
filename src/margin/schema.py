@@ -281,7 +281,11 @@ class LabelOut(BaseModel):
     note: Optional[str] = None
 
 
-LINK_RELATIONS = ("same", "broader", "narrower", "related", "different")
+LINK_RELATIONS = ("same", "broader", "narrower", "related", "different",
+                  # link-v2 (D1, the last part): the kinds the text patterns and a person could already give. From the
+                  # first term (a) to the second (b); needed_by and shaped_by are the same seen from b (accepted, so an
+                  # answer that turns the pair round in words is not sent back); clashes is the same from both ends
+                  "needs", "needed_by", "shapes", "shaped_by", "clashes")
 
 
 class TermLink(BaseModel):
@@ -298,7 +302,12 @@ class TermLink(BaseModel):
         v = _norm_enum(v)
         return {"synonym": "same", "equivalent": "same", "identical": "same", "parent": "broader",
                 "child": "narrower", "hypernym": "broader", "hyponym": "narrower", "unrelated": "different",
-                "co_occurs": "related"}.get(v, v)
+                "co_occurs": "related",
+                # link-v2: other words for the three new kinds
+                "requires": "needs", "depends_on": "needs", "relies_on": "needs", "need": "needs",
+                "required_by": "needed_by", "influences": "shapes", "shape": "shapes", "affects": "shapes",
+                "influenced_by": "shaped_by", "clashes_with": "clashes", "clash": "clashes", "conflicts": "clashes",
+                "conflicts_with": "clashes", "conflict": "clashes", "at_odds": "clashes"}.get(v, v)
 
 
 class LinkOut(BaseModel):
@@ -548,10 +557,19 @@ def _require_all(node):
     return node
 
 
-def output_schema(kind: str) -> dict:
-    """The JSON schema a model's answer for this task kind must follow."""
+EXPAND_MAX_TERMS = 20   # I6: the prompt says "at most 20"; the grammar now holds a small model to it
+EXPAND_MAX_CHARS = 60
+
+
+def output_schema(kind: str, payload: dict | None = None) -> dict:
+    """The JSON schema a model's answer for this task kind must follow. I6: `payload` bounds the `point` form's answer
+    by the task (its number of excerpts and sentences; pointing.schema)."""
     from .taxonomy import targets
 
+    if kind == "point":
+        from .pointing import schema
+
+        return schema(payload)
     if kind == "extract":
         claim = _inline(ImpactClaimOut.model_json_schema())
         claim["properties"]["targets"]["items"]["properties"]["target"] = {"type": "string", "enum": sorted(targets())}
@@ -571,6 +589,11 @@ def output_schema(kind: str) -> dict:
         s = _inline(CheckOut.model_json_schema())
     elif kind == "expand":
         s = _inline(ExpandOut.model_json_schema())
+        # I6: bounded, so a small model cannot add search words until the length limit cuts it off (llama.cpp's grammar
+        # honours both; whether Ollama's MLX runner does is not checked yet: roadmap I6, "Left to try")
+        s["properties"]["terms"]["maxItems"] = EXPAND_MAX_TERMS
+        s["properties"]["terms"]["items"] = {**s["properties"]["terms"].get("items", {}), "type": "string",
+                                             "maxLength": EXPAND_MAX_CHARS}
     elif kind == "decompose":
         s = _inline(DecomposeOut.model_json_schema())
     elif kind == "label":

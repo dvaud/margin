@@ -143,6 +143,23 @@ _INV = {"broader": "narrower", "narrower": "broader", "effect": "effect_of", "ef
         "shapes": "shaped_by", "shaped_by": "shapes"}
 
 
+def stated(text: str, x: str, y: str, kinds: tuple[str, ...] = ("needs", "shapes", "clashes")) -> str | None:
+    """The relation of these kinds the text states from the words `x` to the words `y` (the words between them alone,
+    as `find` reads them; any case), or None. For the offline demo's link answers (llm.BaselineBackend)."""
+    low, x, y = text.lower(), x.lower().strip(), y.lower().strip()
+    if not x or not y:
+        return None
+    for mx in re.finditer(re.escape(x), low):
+        for my in re.finditer(re.escape(y), low):
+            if my.start() < mx.end():
+                continue
+            gap = text[mx.end():my.start()]
+            for rx, rel in _BETWEEN:
+                if rel in kinds and rx.match(gap):
+                    return rel
+    return None
+
+
 def find(cx: sqlite3.Connection) -> int:
     """Propose the links the sentences state, anew (source `pattern`): returns how many pairs. Run in the glossary's
     build transaction, after its mentions are written."""

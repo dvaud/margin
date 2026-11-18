@@ -197,6 +197,23 @@ class OwnerApi:
                 raise ApiError(409, str(e)) from e
         return teamcodebooks.view(ws)
 
+    def get_owner_providers(self, name, q):
+        """I7 stage 3 (teamproviders.py): the owner's limit of the cloud providers the team may use, for everyone."""
+        from .. import teamproviders
+
+        return teamproviders.view(self.app.ws(name))
+
+    def put_owner_providers(self, name, q):
+        """{"providers": [ids] | null}: only the owner (403); null lifts the limit; an empty or unknown list 409."""
+        from .. import teamproviders
+
+        body = self._body()
+        if "providers" not in body or not (body["providers"] is None or isinstance(body["providers"], list)):
+            raise ApiError(400, "Send {\"providers\": a list of providers} or {\"providers\": null} (no limit).")
+        ws = self.app.ws(name)
+        _guard(teamproviders.set_limit, ws, body["providers"])
+        return teamproviders.view(ws)
+
     def post_proposal_accept(self, name, pid, q):
         body = self._body()
         _guard(ownership.accept, self.app.ws(name), pid, str(body.get("reason") or "") or None)

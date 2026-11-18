@@ -104,10 +104,12 @@ and nothing reaches OpenAI, Google, Mistral, Azure or OpenRouter, nor Codex or A
   was sent* records the company and the agent.
 - **A model server on another computer** (not `localhost`, `127.0.0.1` or `::1`) counts as a cloud provider too: an
   OpenAI address as OpenAI, any other as *a server on another computer*, which no document allows until you do.
-- **In a shared project** only Anthropic may read documents marked *Claude may read it* (so not Codex or Antigravity),
-  whatever your copy allows,
-  and the page says why: *Other providers come to shared projects later: your colleagues have not agreed to them.*
-  Setting another provider there is refused.
+- **In a shared project each person chooses their own provider.** The providers you tick stay in your copy: they
+  never travel to a colleague's, nor theirs to yours; the team shares each document's AI setting, as before. The owner
+  may limit the providers the team may use (no limit by default): a provider outside it reads none of the project's
+  documents in anyone's copy, and its work waits with a note naming the limit and who set it ([Roles](roles.md#on-the-activity-view),
+  which also says what is not signed yet). A colleague's older Margin allows Anthropic only. The
+  [AI log](how-the-ai-is-used.md#the-ai-log) shows who ran which AI work, with which provider.
 - **Your key** is kept in the system's keychain, never in a project, a log or a moving file. Each provider's terms
   decide what it keeps and whether it trains on it: check them first.
 
@@ -338,10 +340,8 @@ them; an older Claude Code is only denied the file, shell and web tools by name.
 
 ### How each agent is closed in
 
-Claude Code, as above. **Codex** runs read-only in an empty folder, without its command, web and image tools and with
-only Margin's three queue tools. **Antigravity**'s own tools cannot be switched off from outside, so Margin starts it in
-an empty folder in its sandbox, adds one permission line after keeping a copy of its settings, and refuses to start it
-while it is set to run every tool without asking. The details: [Codex and Antigravity](other-agents.md#how-each-agent-is-closed-in).
+Codex and Antigravity are closed in as far as each allows, like Claude Code: [Codex and
+Antigravity](other-agents.md#how-each-agent-is-closed-in).
 
 ## Your Claude account and licences
 

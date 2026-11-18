@@ -25,7 +25,7 @@ SNAPSHOT_014 = {
     'routing.LOCAL_DEFAULTS': {'label': 'small', 'link': 'small', 'expand': 'large', 'decompose': 'large', 'theme': 'large', 'resolve': 'large', 'check': 'large', 'reread': 'large', 'second': 'second', 'extract': 'large', 'split': 'large', 'verify': 'large', 'verify_set': 'large', 'audit': 'second'},
     'routing.HELPERS': {'label': 'margin-labeller', 'link': 'margin-linker', 'theme': 'margin-namer', 'expand': 'margin-namer', 'resolve': 'margin-reader', 'decompose': 'margin-reader', 'check': 'margin-checker', 'reread': 'margin-checker', 'second': 'margin-auditor', 'extract': 'margin-extractor', 'split': 'margin-extractor', 'verify': 'margin-checker', 'verify_set': 'margin-checker', 'audit': 'margin-auditor'},
     'routing.TO_AUDITOR': ('check', 'reread', 'split', 'verify', 'verify_set'),
-    'prompts.VERSIONS': {'extract': 'extract-v1', 'split': 'split-v2', 'verify': 'verify-v2', 'verify_set': 'verify-set-v2', 'expand': 'expand-v2', 'check': 'check-v5', 'decompose': 'decompose-v1', 'reread': 'check-v5', 'second': 'check-v5', 'label': 'label-v1', 'link': 'link-v1', 'theme': 'theme-v1', 'resolve': 'resolve-v1'},
+    'prompts.VERSIONS': {'extract': 'extract-v1', 'split': 'split-v2', 'verify': 'verify-v2', 'verify_set': 'verify-set-v2', 'expand': 'expand-v2', 'check': 'check-v5', 'decompose': 'decompose-v1', 'reread': 'check-v5', 'second': 'check-v5', 'label': 'label-v1', 'link': 'link-v2', 'theme': 'theme-v1', 'resolve': 'resolve-v1'},
     'tasks.KINDS': ('split', 'extract', 'verify', 'verify_set', 'expand', 'check', 'decompose', 'reread', 'second', 'label', 'link', 'theme', 'resolve'),
     'tasks.CORPUS_KINDS': ('label', 'link', 'theme', 'resolve'),
     'taskqueue.BATCH': {'label': 20, 'link': 10, 'theme': 5, 'expand': 5, 'decompose': 5, 'resolve': 4, 'check': 1, 'reread': 1, 'second': 1, 'split': 5, 'extract': 8, 'verify': 10, 'verify_set': 3},
@@ -109,6 +109,15 @@ for _key, _value in {"routing.ROW_OF": _GN, "routing.CLAUDE_DEFAULTS": ("haiku",
                      "taskqueue.KIND_TITLE": "Names of groups of concepts", "llm.OUTPUT_CAP": 400}.items():
     SNAPSHOT[_key][_GN] = _value
 
+# I6: the small local model's short answer to a check (pointing.py): answered only on this computer (no Claude model,
+# helper, batch or row of its own), so it appears only in the tables of its names, prompt version and limit
+_PT = "point"
+SNAPSHOT["tasks.KINDS"] += (_PT,)
+for _key, _value in {"prompts.VERSIONS": "point-v1", "llm.OUTPUT_CAP": 24 + 14 * 60,
+                     "taskqueue.NOUN": ("set of excerpts to point at", "sets of excerpts to point at"),
+                     "taskqueue.SHORT": "sets of excerpts", "taskqueue.KIND_TITLE": "Pointing at sentences"}.items():
+    SNAPSHOT[_key][_PT] = _value
+
 
 def _table(key):
     mod, name = key.split(".")
@@ -134,6 +143,7 @@ def test_the_other_tables_too():
         "extract": "Extracting claims (SDG pack)", "verify_set": "Checking VCA claims (SDG pack)",
         "verify": "Checking claims (SDG pack)", "split": "Splitting justifications (SDG pack)",
         "theory_codes": "Codes from a theory document", "code_definition": "A code's definition from its examples",
+        "point": "Checking hypotheses (the small local model)",
         "theory_frame": "A framework from theory documents", "group_name": "Names of groups of concepts"}
     assert dict(tasks.HANDLERS) == {"extract": tasks._store_extract, "split": tasks._store_split,
                                     "verify": tasks._store_verify, "verify_set": tasks._store_verify_set,
@@ -144,7 +154,7 @@ def test_the_other_tables_too():
                                     "resolve": tasks._store_resolve, "theory_codes": tasks._store_theory_codes,
                                     "code_definition": tasks._store_code_definition,
                                     "group_name": tasks._store_group_name,
-                                    "theory_frame": tasks._store_theory_frame}
+                                    "theory_frame": tasks._store_theory_frame, "point": tasks._store_point}
     assert dict(routing.HELPER_MODEL)["margin-checker"] == "sonnet" and len(routing.HELPER_MODEL) == 7
     # the certainty of an answer, as 0.13.5 read it
     assert routing.certainty("verify", {"confidence": 0.4}) == 0.4

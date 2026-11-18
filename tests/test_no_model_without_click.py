@@ -204,14 +204,16 @@ def test_a_stop_keeps_a_model_another_job_still_uses(monkeypatch):
 
 
 def test_a_job_that_ends_by_itself_keeps_its_model(monkeypatch):
+    # I6: except an MLX model, whose prompt cache grows: only those are let go of (let_go's runner="mlx")
     freed = []
-    monkeypatch.setattr(llm, "let_go", lambda models: freed.append(set(models)) or [])
+    monkeypatch.setattr(llm, "let_go", lambda models, runner=None: freed.append((set(models), runner)) or [])
     jobs = Jobs()
     job = jobs.start("theme-names", "The AI names the themes", None,
                      lambda job: llm.note_used("http://localhost:11434", "qwen3.5:4b"), uses_model=True)
     assert _wait(lambda: job.state == "done")
     time.sleep(0.1)
-    assert freed == [] and job.used_models == {("http://localhost:11434", "qwen3.5:4b")}
+    assert freed == [({("http://localhost:11434", "qwen3.5:4b")}, "mlx")]
+    assert job.used_models == {("http://localhost:11434", "qwen3.5:4b")}
 
 
 def test_outside_a_job_nothing_is_noted():

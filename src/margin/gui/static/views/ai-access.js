@@ -18,7 +18,15 @@ const cloudWords = () => (othersSetUp() ? CLOUD_ANY : CLOUD_CLAUDE);
 export const sentToWords = () => (othersSetUp() ? "cloud AI" : "Claude");
 const isDefault = (list) => !list || (list.length === 1 && list[0] === "anthropic");
 // the provider tick boxes show once another provider is set up, or while any allowance differs from the default
-export const providersInPlay = (info = {}, docs = []) => othersSetUp() || !isDefault(info.providers_default) || docs.some((d) => d.providers_own != null);
+export const providersInPlay = (info = {}, docs = []) => othersSetUp() || !isDefault(info.providers_default) || !!info.providers_reset || docs.some((d) => d.providers_own != null);
+// I7 stage 3: provider ticks that came with colleagues' documents were cleared once in a shared project; said in place
+// (the Documents page's providers line, the line about the route) until the person ticks providers again
+export function providersResetWords(info = {}) {
+  const r = info.providers_reset;
+  if (!r) return "";
+  const n = r.documents || 0;
+  return `Your provider ticks for ${n} ${n === 1 ? "document" : "documents"} of this shared project were cleared: they had come with a colleague’s copy, and each person now chooses their own. Tick again the ones you want.`;
+}
 
 export const LEVEL = {
   cloud: { get title() { return cloudWords().title; }, get many() { return cloudWords().many; },
@@ -93,20 +101,23 @@ const tickable = (allowed = []) => {
 };
 
 // Checkboxes of the cloud providers that may read (a document, or the project's documents without their own choice).
-// In a shared project only Anthropic may read: the others are off, and one line says why.
+// I7 stage 3: in a shared project too they are this person's own choice. When the team's owner limited the providers
+// the team may use (`limit`, a list), the others are off and one line says which limit holds and who set it; a tick
+// given before stays given (it counts again if the owner lifts the limit).
 let checksMade = 0;
-export function providerChecks({ value = ["anthropic"], shared = false, note = "", legend = "Which cloud providers may read it", onChange } = {}) {
+export const teamLimit = (info = {}) => (info.team_limit && info.team_limit.providers) || null;
+export function providerChecks({ value = ["anthropic"], limit = null, note = "", legend = "Which cloud providers may read it", onChange } = {}) {
   const wrap = h("fieldset", { class: "provider-checks" }, h("legend", { class: "field-label" }, legend));
   const boxes = [];
   const n = ++checksMade;
   for (const id of tickable(value)) {
-    const off = shared && id !== "anthropic";
-    const box = h("input", { type: "checkbox", id: `prov-${n}-${id}`, value: id, checked: value.includes(id) && !off, disabled: off });
+    const off = !!limit && !limit.includes(id);
+    const box = h("input", { type: "checkbox", id: `prov-${n}-${id}`, value: id, checked: value.includes(id), disabled: off });
     box.addEventListener("change", () => { if (onChange) onChange(wrap.picked()); });
     boxes.push(box);
     wrap.append(h("label", { class: "it small provider-check", for: box.id }, box, " ", providerTitle(id)));
   }
-  if (shared) wrap.append(h("p", { class: "muted small" }, icon("info", { size: 13 }), " ", note || "Other providers come to shared projects later: your colleagues have not agreed to them."));
+  if (limit && note) wrap.append(h("p", { class: "muted small" }, icon("info", { size: 13 }), " ", note));
   wrap.picked = () => boxes.filter((b) => b.checked).map((b) => b.value);
   return wrap;
 }
@@ -127,7 +138,7 @@ export function providersDefaultCard(project, info, onSaved, docs = []) {
   let picked = info.providers_default || ["anthropic"];
   const st = h("span", { class: "save-state", "aria-live": "polite" });
   const btn = button({ sm: true, disabled: true }, icon("check", { size: 13 }), "Save");
-  const checks = providerChecks({ value: picked, shared: !!info.shared, note: info.providers_note || "", legend: "Cloud providers that may read this project's documents",
+  const checks = providerChecks({ value: picked, limit: teamLimit(info), note: info.providers_note || "", legend: info.shared ? "Cloud providers that may read this project's documents on your computer" : "Cloud providers that may read this project's documents",
     onChange: (v) => { picked = v; btn.disabled = !v.length; st.textContent = v.length ? "Not saved yet." : "Tick at least one, or mark the documents Only a local AI."; } });
   btn.addEventListener("click", async () => {
     btn.disabled = true;
@@ -135,9 +146,12 @@ export function providersDefaultCard(project, info, onSaved, docs = []) {
     catch (e) { showError(e); btn.disabled = false; }
   });
   const now = (info.providers_default || ["anthropic"]).map(providerTitle).join(", ");
-  return fold({ class: "providers-default" }, `${CLOUD_ANY.title}: ${now}`,
-    h("div", { class: "stack" }, h("p", { class: "muted small" }, "For the documents marked Cloud AI may read it without a choice of their own. A document not ticked for the AI you chose is read as Only a local AI. Change one document in its AI setting."),
+  const reset = providersResetWords(info);
+  const box = fold({ class: "providers-default" }, `${CLOUD_ANY.title}: ${now}`,
+    h("div", { class: "stack" }, h("p", { class: "muted small" }, "For the documents marked Cloud AI may read it without a choice of their own. A document not ticked for the AI you chose is read as Only a local AI. Change one document in its AI setting.",
+      info.shared ? " This is your own choice: each person in the team chooses theirs, and your colleagues see it in the research log." : ""),
       checks, h("div", { class: "row" }, btn, st)));
+  return reset ? h("div", { class: "stack providers-default-wrap" }, h("p", { class: "muted small providers-reset" }, icon("info", { size: 13 }), " ", reset), box) : box;
 }
 
 // A model server on another computer as the main route (stage 1 of other cloud providers): it reads only the documents
@@ -157,7 +171,8 @@ function infoSlot(project, make, cls) {
 // Stage 2: the main route's agent (Codex, Antigravity) or another cloud provider's API reads only the documents that
 // allow its company. A project allows Anthropic only until the person says more, so its work would wait for an agent
 // that is never handed it: this line says so, with the counts, and allows the company for the project in one press
-// (a shared project: why it cannot). null when every document marked for cloud AI allows it, or the route is
+// (I7 stage 3: in a shared project too; when the team's owner limited the providers and this one is outside, the note
+// says so and there is no button: only the owner can widen it). null when every document marked for cloud AI allows it, or the route is
 // Claude's, on this computer, or a server on another computer (remoteServerLine). `info`: the project's AI access
 // (GET /api/projects/<p>/ai-access, or the documents' `ai_access`); null: fetched here (an element is returned at once,
 // hidden until it has something to say). `onAllowed(r)`: after the company was allowed (r: the PUT's answer).
@@ -174,9 +189,9 @@ export function providerAllowLine(project, info, onAllowed) {
   const ok = same ? (info.route_allowed || 0) : ((info.providers_default || ["anthropic"]).includes(prov) ? total : 0);
   if (!total || ok >= total) return null;
   const words = `${name} reads only documents that allow ${company}: ${ok} of ${total} ${total === 1 ? "does" : "do"}.`;
-  if (info.shared) {
-    return notice({ kind: "attention", class: "provider-allow-line" }, h("p", {}, words, " ",
-      info.providers_note || "Other providers come to shared projects later: your colleagues have not agreed to them."));
+  const lim = teamLimit(info);
+  if (lim && !lim.includes(prov)) {
+    return notice({ kind: "attention", class: "provider-allow-line" }, h("p", {}, words, " ", info.providers_note || ""));
   }
   let box = null;
   const btn = button({ sm: true, kind: "main", onClick: async () => {
@@ -188,7 +203,8 @@ export function providerAllowLine(project, info, onAllowed) {
     } catch (e) { showError(e); btn.disabled = false; }
   } }, `Allow ${company} for this project`);
   box = notice({ kind: "attention", class: "provider-allow-line" },
-    h("p", {}, words, " Until you allow it, their work waits; documents with a choice of their own keep it (Documents page)."),
+    h("p", {}, words, " Until you allow it, their work waits; documents with a choice of their own keep it (Documents page).",
+      providersResetWords(info) ? ` ${providersResetWords(info)}` : ""),
     h("div", { class: "row" }, btn));
   return box;
 }
@@ -203,7 +219,8 @@ export function remoteServerLine(project, info = {}, onAllowed) {
   const words = `A server on another computer (${address}) reads only documents you allow it to.`;
   if (!project) return notice({ kind: "info", class: "remote-server-line" }, h("p", {}, words, " Allow it for a project on its Documents page."));
   if (allowed) return notice({ kind: "info", class: "remote-server-line" }, h("p", {}, words, " This project allows it."));
-  if (info.shared) return notice({ kind: "info", class: "remote-server-line" }, h("p", {}, words, " ", info.providers_note || "Other providers come to shared projects later: your colleagues have not agreed to them."));
+  const lim = teamLimit(info);
+  if (lim && !lim.includes(route)) return notice({ kind: "info", class: "remote-server-line" }, h("p", {}, words, " ", info.providers_note || ""));
   const btn = button({ sm: true, onClick: async () => {
     btn.disabled = true;
     try { const r = await api("PUT", `/api/projects/${P(project)}/ai-access`, { providers_default: [...(info.providers_default || ["anthropic"]), route] }); toast(`${providerTitle(route)} may read this project's documents marked ${CLOUD_ANY.title}.`, "ok"); if (onAllowed) onAllowed(r); }
@@ -222,7 +239,7 @@ export async function docAccessDialog(project, doc, projectDefault, onSaved, inf
   // stage 1 of other cloud providers: which ones may read this document (its own choice, or the project's)
   const projectProviders = info.providers_default || ["anthropic"];
   let provs = doc.providers || projectProviders;
-  const provBox = showProviders ? providerChecks({ value: provs, shared: !!info.shared, note: info.providers_note || "", onChange: (v) => { provs = v; } }) : null;
+  const provBox = showProviders ? providerChecks({ value: provs, limit: teamLimit(info), note: info.providers_note || "", onChange: (v) => { provs = v; } }) : null;
   if (provBox) provBox.hidden = level !== "cloud";
   const note = input({ maxlength: 300, value: doc.note || "", placeholder: "e.g. publisher licence, contains interview data", id: "acc-note" });
   const cap = input({ sm: true, type: "number", min: 1, max: 100, step: 1, value: doc.budget ?? "", placeholder: "none", id: "acc-cap", class: "aia-cap" });

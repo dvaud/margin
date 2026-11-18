@@ -162,7 +162,7 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
         sub: only ? null : short ? `Claude labels the other ${fmt.num(rest)} meanwhile; ${n === 1 ? "this one waits" : "these wait"} until there is room.` : `Once the labelling begins, ${n === 1 ? "it waits" : "they wait"} for this computer’s own Start; Claude labels the other ${fmt.num(rest)}.`,
         anywayText: only ? null : `Label all ${fmt.num(toRead)}, the local ${n === 1 ? "one" : "ones"} too`,
         status: only && lastLocal && lastLocal.memory ? `Still only ${(lastLocal.memory.free / 2 ** 30).toFixed(1)} GB free: it was not started.` : null,
-        onStart: (force) => start(startBtn, force) });
+        onStart: (force) => start(startBtn, force, true) });   // 0.20.1: its own Start: no second one in the job
     }
     if (toRead && !localOnly) bits.push(h("div", { class: "btn-row pf-start-actions" }, withAI(startBtn)));
     else if (!toRead) bits.push(h("p", { class: "it pf-read-all" }, icon("check", { size: 14 }), all ? " The AI has read every passage." : " The AI has read every passage with a candidate code."));
@@ -200,11 +200,12 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
     }, { small: true, plain: true, ai: true, noun: "passage", stoppedText: "Stopped. Nothing was stored." }));
   }
 
-  async function start(btn, force) {
+  async function start(btn, force, ownStart) {
     btn.disabled = true;
     const lim = Number(limit) > 0 ? Math.floor(Number(limit)) : undefined;
     const payload = { framework, all_passages: all };
     if (force) payload.force = true;   // 0.19.4: Start it anyway (the local model, with too little memory free)
+    if (ownStart) payload.local = force ? "force" : "go";   // 0.20.1: pressed in the local model's own panel
     if (docIds) payload.doc_ids = docIds;
     if (lim) payload.limit = lim;
     let r;

@@ -180,10 +180,13 @@ def _forget_folder(ws: Workspace, sender: str | None) -> None:
                   # 0.18.1: the sender's kept AI answers (they would answer here as this copy's) and the sentences of
                   # links found in the text (made again with this copy's glossary)
                   "ai_cache", "concept_link_sentences",
-                  "agreement_runs",  # I5: the sender's comparisons of their own local model
-                  "concept_group_names", "concept_group_quotes"):  # D1 rest: the sender's names of the map's groups
+                  "agreement_runs"):  # I5: the sender's comparisons of their own local model
             cx.execute(f"DELETE FROM {t}")
         cx.execute("UPDATE canon_seen SET ai_offer=NULL")  # roles-p1: offers made to the sender are the sender's
+        # I7 stage 3: the cloud providers the sender allowed for a document are their own consent (teamproviders.py);
+        # this copy starts with its own project choice (config.json's is dropped by `_clean_config` too)
+        cx.execute("UPDATE documents SET ai_providers=NULL")
+        cx.execute("DELETE FROM meta WHERE key='ai_providers_reset'")  # (nothing of this person's was cleared)
         # the bibliography's attachments name files on the colleague's computer: a path here could name a file of
         # this one, which *Add the files the bibliography has* would then add to the project (as a merge clears them)
         for key, files in cx.execute("SELECT item_key, files_json FROM bib_items").fetchall():

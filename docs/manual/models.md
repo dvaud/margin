@@ -73,7 +73,9 @@ local and Claude* shares the work:
 The local model's answer goes up to Claude, who reads the task again, when the local model is unsure (certainty under
 0.6), when its answers fail the quote check three times, or when it judges an excerpt as contradicting the hypothesis
 (a contradiction decides an answer). Only tasks of documents Claude may read go up; the local answer counts
-meanwhile. Without a local model that answers, Claude answers as before. Claude Code's helpers leave the local
+meanwhile, except a judgement of an excerpt: since I6 a local model's judgement of an excerpt is a suggestion only,
+which counts for nothing, so under *Mostly local* every check of documents Claude may read also goes up to Claude,
+whose reading counts ([A model on your own computer](local-models.md#suggestions-only)). Without a local model that answers, Claude answers as before. Claude Code's helpers leave the local
 model's share alone; the queue lists it as *for your local model*, and *Answer here* lets the local model answer it
 when no check is open. In work Claude also does, the local model's share waits for the local model's own *Start*
 (0.19.13): it never starts by itself. Can change results.

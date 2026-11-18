@@ -3,8 +3,8 @@
 Every group has a name: made from its two most central concepts (no AI), the researcher's own, or the AI's draft (on
 request only, marked until used). A kept name stays with its group when the groups are found again, as long as the
 group holds most of the same concepts; under the same filters and size, a group that changed by a third is flagged.
-The AI reads only passages of documents it may read; drawing the map asks nothing of it. Names stay on this
-computer."""
+The AI reads only passages of documents it may read; drawing the map asks nothing of it. Names travel with the
+project (D1, the last part: tests/test_group_names_team.py)."""
 from __future__ import annotations
 
 import json
@@ -116,12 +116,16 @@ def test_matching_is_by_most_of_the_concepts_and_the_same_every_time():
     # a, b, c of a, b, c, x: most of those on the map (x is not) -> group 0; e, z: only one on the map, too few
     got = groupnames.match([rec("n1", ["a", "b", "c", "x"]), rec("n2", ["e", "z"])], groups, on)
     assert {k: v["name_id"] for k, v in got.items()} == {0: "n1"}
-    # two names for one group: the one that fits it better; then the newer
-    got = groupnames.match([rec("n1", ["a", "b"]), rec("n2", ["a", "b", "c", "d"])], groups, on)
-    assert got[0]["name_id"] == "n2"
+    # two names for one group (D1, the last part: the same answer on every copy, whose groups differ, so never by how
+    # well each fits): a person's decision before an AI draft; then the newer; then the id
+    got = groupnames.match([rec("n1", ["a", "b"], "2026-11-10"), rec("n2", ["a", "b", "c", "d"], "2026-11-01")], groups, on)
+    assert got[0]["name_id"] == "n1"
     got = groupnames.match([rec("n1", ["a", "b", "c"], "2026-11-01"), rec("n2", ["a", "b", "c"], "2026-11-10")],
                            groups, on)
     assert got[0]["name_id"] == "n2"
+    got = groupnames.match([{**rec("n1", ["a", "b", "c"], "2026-11-01"), "source": "person"},
+                            {**rec("n2", ["a", "b", "c"], "2026-11-10"), "source": "ai_draft"}], groups, on)
+    assert got[0]["name_id"] == "n1"
     # half is not most
     assert groupnames.match([rec("n1", ["a", "b", "e", "f"])], groups, on) == {}
 
@@ -182,7 +186,7 @@ def test_the_ai_drafts_a_name_for_each_group_marked_until_used(project):
     # (the fake gives the same name again, which the check sends back: none named, each failed after its tries)
     assert r["named"] == 0 and r["failed"] == len(m["groups"]) - 1
     log = project.query("SELECT text FROM research_log WHERE kind='concept-groups-named'")
-    assert log and "stay on this computer" in log[0]["text"]
+    assert log and log[0]["text"].endswith("Each is a draft until it is used or renamed.")   # (and travels with the project)
 
 
 def test_a_group_the_ai_could_not_name_keeps_its_concepts_and_says_why(project):
@@ -225,14 +229,10 @@ def test_documents_the_ai_may_not_read_are_never_sent(project):
     assert "Only a local AI may read" in _map(project)["can_name"]["why"]
 
 
-def test_names_stay_on_this_computer_and_a_quote_goes_with_its_document(project):
+def test_names_travel_with_the_project_and_a_quote_goes_with_its_document(project):
+    # D1, the last part: no longer this computer's own (tests/test_group_names_team.py has the merge's rules)
     for t in ("concept_group_names", "concept_group_quotes"):
-        assert t in common.LOCAL_ONLY and t in sharing._LOCAL_TABLES
-    import inspect
-
-    from margin import bundle
-
-    assert "concept_group_names" in inspect.getsource(bundle)
+        assert t not in common.LOCAL_ONLY and t in common.OWN_RULES and t not in sharing._LOCAL_TABLES
     groupnames.name_groups(project, Filters(), 30, "unnamed", FakeModel(), "claude-haiku-5-5")
     doc = project.scalar("SELECT doc_id FROM concept_group_quotes LIMIT 1")
     n = project.scalar("SELECT COUNT(*) FROM concept_group_names")
@@ -360,7 +360,10 @@ def test_undo_of_use_this_name_puts_back_what_it_overwrote(project):
     back = groupnames.save(project, "unaccept", {"name_id": d["name_id"], "before": json.loads(json.dumps(r["before"]))})
     assert back["record"]["source"] == "ai_draft"
     now = dict(project.query("SELECT * FROM concept_group_names WHERE name_id=?", (d["name_id"],))[0])
-    assert now == was
+    # the name as it was; the Undo itself is a new change (its time, who made it, what it replaced: review of 18 Nov)
+    stamps = ("updated_at", "changed_by", "history_json")
+    assert {k: v for k, v in now.items() if k not in stamps} == {k: v for k, v in was.items() if k not in stamps}
+    assert now["updated_at"] > was["updated_at"] and len(json.loads(now["history_json"])) == 2
     # all at once, and back
     items = [{"name_id": x["name_id"], "concepts": x["concepts"][:2]} for x in m["groups"]]
     r = groupnames.save(project, "accept", {"items": items, "filters": {}, "n": 90})

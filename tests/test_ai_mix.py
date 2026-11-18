@@ -103,11 +103,24 @@ def _row(ws, tid):
 
 def test_a_sure_local_answer_stands(mixed):
     ws, _s = mixed
-    tid = _check_task(ws)
+    cid = claimcheck.new_claim(ws, CLAIM)
+    tid = f"expand:{cid}"
+    with ws.connect() as cx, tasks.queueing(True):
+        tasks._insert_task(cx, tid, "expand", "sonnet", {"claim": CLAIM, "claim_id": cid})
     assert tasks.answer_locally_first(ws, tid, _Local(), "small") is None
     r = _row(ws, tid)
     assert (r["status"], r["step"], r["again"]) == ("done", 0, 0)
     assert ws.scalar("SELECT route FROM results WHERE task_id=? ORDER BY attempt DESC LIMIT 1", (tid,)) != "Claude Code"
+
+
+def test_a_sure_local_check_still_goes_up_to_claude(mixed):
+    # I6: a local model's judgements of excerpts are suggestions only, so a check of documents Claude may read is
+    # always read again by Claude; the local reading waits beside it as a suggestion
+    ws, _s = mixed
+    tid = _check_task(ws)
+    assert tasks.answer_locally_first(ws, tid, _Local(), "small") == "again"
+    r = _row(ws, tid)
+    assert (r["status"], r["step"], r["again"], r["queued"]) == ("done", 1, 1, 1)
 
 
 @pytest.mark.parametrize("local, why", [(_Local(confidence=0.4), "unsure"), (_Local(verdict="refutes"), "decides")])
@@ -146,10 +159,15 @@ def test_an_app_run_on_claude_code_asks_the_local_model_first(mixed, monkeypatch
     tid = _check_task(ws)
     local = _Local()
     monkeypatch.setattr(tasks, "mix_local", lambda settings=None: (local, "small"))
+    waited = []
+    monkeypatch.setattr(taskqueue, "wait_for", lambda ws_, task_id, be: waited.append(task_id) or (True, []))
     from margin.llm import ClaudeCodeBackend
 
-    ok, _e = tasks.run_one(ws, tid, ClaudeCodeBackend())  # answered here: nothing waits for Claude Code
-    assert ok and local.calls == 1 and _row(ws, tid)["status"] == "done"
+    ok, _e = tasks.run_one(ws, tid, ClaudeCodeBackend())
+    # I6: the local model reads it first; a check then always waits for Claude Code's reading (its own counts)
+    assert ok and local.calls == 1 and waited == [tid]
+    r = _row(ws, tid)
+    assert (r["status"], r["step"], r["again"], r["queued"]) == ("done", 1, 1, 1)
 
 
 def test_the_follower_answers_the_mix_share_of_a_check(mixed, monkeypatch):
@@ -199,7 +217,7 @@ def test_answer_mix_waiting_takes_only_the_mix_kinds(mixed):
         tasks._insert_task(cx, "second:x", "second", "opus", json.loads(ws.scalar(
             "SELECT payload_json FROM tasks WHERE task_id=?", (tid,))))
     out = tasks.answer_mix_waiting(ws, _Local(), "small")
-    assert out == {"answered": 1, "to_claude": 0}
+    assert out == {"answered": 0, "to_claude": 1}   # I6: read locally, and then always by Claude (a check)
     assert _row(ws, "second:x")["status"] == "pending"
 
 

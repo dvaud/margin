@@ -89,7 +89,11 @@ class OwnerRules:
             if "roles" in there:
                 self._own_rows(cx, "roles", ("person", "by"), lambda r: (_n1(r.get("n")),), refused)
             if "team_settings" in there:  # the owner's settings about codebooks: as roles (teamcodebooks.py)
+                from .. import teamproviders  # I7 stage 3: and the providers the team may use
+
+                lim_before = teamproviders.limit(cx)
                 self._own_rows(cx, "team_settings", ("key", "by"), lambda r: (_n1(r.get("n")),), refused)
+                teamproviders.arrived(cx, lim_before, via)
             refused += self._events_in_my_name(cx)
             for kind, key, row, n in refused:
                 ownership.record_refused(cx, kind, key, row, via, n)

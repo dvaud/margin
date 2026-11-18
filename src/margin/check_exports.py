@@ -63,8 +63,8 @@ def evidence_map(ws: Workspace, threshold: float | None = None, batch_id: str | 
     # 0.19.0 (K3): the judgements of non-scientific documents set aside, kept to draw them with a mark of their own
     # (read, not counted): they change no count, colour or answer of the map
     ns_ver: dict[str, list[dict]] = {}
-    for v in ws.query("SELECT subject_id, passage_id, verdict, confidence, doc_id, user_verdict, model FROM "
-                      "verifications WHERE subject_kind='user_claim'"):
+    for v in ws.query("SELECT subject_id, passage_id, verdict, confidence, doc_id, user_verdict, model, suggestion_json "
+                      "FROM verifications WHERE subject_kind='user_claim'"):
         if counting.get(v["subject_id"], lambda _v: True)(v):
             e = effective(v)
             if nonsci and v["doc_id"] in nonsci and v["subject_id"] not in ns_cids:
@@ -196,9 +196,11 @@ def calibration(ws: Workspace) -> dict:
     from .people import me
 
     rows = []
-    # 0.14: your own judgements only (a colleague's in force where you made none says nothing about you)
+    # 0.14: your own judgements only (a colleague's in force where you made none says nothing about you). I6: not the
+    # local model's suggestions: its certainty counts for nothing (it is not shown), so no strictness is set by it
     for r in ws.query("SELECT verdict, confidence, user_verdict, ai_history_json FROM verifications "
-                      "WHERE subject_kind='user_claim' AND user_verdict IS NOT NULL AND COALESCE(user_by, ?) = ?",
+                      "WHERE subject_kind='user_claim' AND user_verdict IS NOT NULL AND COALESCE(user_by, ?) = ? "
+                      "AND suggestion_json IS NULL",
                       (me(), me())):
         first = json.loads(r["ai_history_json"] or "[]")
         if first:  # read again (perhaps with the person's hint): the AI's own first judgement is the one to compare
@@ -332,7 +334,8 @@ def export_table(ws: Workspace, threshold: float | None = None, hyp_ids: list[st
     for res in results:
         n_parts = len(res["parts"])
         for part in res["parts"]:
-            chosen = [p for p in part["passages"] if every_excerpt or p["verdict"] or p["user_verdict"]] or [None]
+            chosen = [p for p in part["passages"] if every_excerpt or p["verdict"] or p["user_verdict"]
+                      or p.get("suggestion")] or [None]   # I6: the local model's suggestions await review
             for p in chosen:
                 # 0.14.3: an excerpt no AI judged (its document may not be read by any AI, or its part waits or
                 # failed) says so, instead of "Judged by: the AI / Not about the hypothesis"
@@ -347,7 +350,7 @@ def export_table(ws: Workspace, threshold: float | None = None, hyp_ids: list[st
                              else JUDGEMENT_TEXT.get(p["verdict"], "")) if p else ""
                 if p and p.get("round_failed") and not unread:
                     unread = f"{JUDGEMENT_TEXT.get(p['ai_verdict'])} (not counted: the check did not work)"
-                cert = certainty_word(p["confidence"]) if p and p["ai_verdict"] else ""
+                cert = certainty_word(p["confidence"]) if p and p["ai_verdict"] and p["confidence"] is not None else ""
                 rows.append({
                     "Checked on": _local_dt(res["created_at"]),
                     "Hypothesis": res["text"],
@@ -393,6 +396,11 @@ def export_table(ws: Workspace, threshold: float | None = None, hyp_ids: list[st
 def not_read_text(p: dict) -> str | None:
     """0.14.3: why no AI judged an excerpt of a result (`result` passages), in words for a spreadsheet; None when a
     model did judge it."""
+    if p.get("suggestion") and not p.get("user_verdict") and not p.get("round_failed"):   # I6: no confidence
+        sug = p["suggestion"]
+        said = (f"it suggests {JUDGEMENT_TEXT.get(sug['lean'], sug['lean']).lower()}" if sug.get("lean") else
+                "it marked a sentence" if sug.get("marked") else "it marked nothing in it")
+        return f"Read by the local model on this computer ({said}): awaits your judgement, counts for nothing until then"
     if p.get("ai_read", True):
         return None
     if p.get("by_choice"):  # 0.19.8: you chose to judge it rather than start the local model

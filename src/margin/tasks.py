@@ -476,10 +476,37 @@ def _errs(e: ValidationError) -> list[str]:
     return [f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}" for err in e.errors()]
 
 
+LOCAL_ROUTE = "local model server"   # routing.ROUTE_NAMES of a model on this computer (Ollama, LM Studio…)
+
+
+def is_local_route(route: str | None) -> bool:
+    """I6: an answer of a model on this computer, asked now or kept from before ("local model server (kept answer)")."""
+    return (route or "").startswith(LOCAL_ROUTE)
+SUGGESTING_KINDS = ("check", "reread")  # the kinds whose answer judges excerpts of a check (`point` keeps its own)
+
+
+def mark_suggestions(cx, t, payload: dict, route: str | None) -> None:
+    """I6, suggestions only: the judgements a local model on this computer stored for a check's excerpts are its
+    suggestions (`verifications.suggestion_json`): they wait for the person's judgement and set no status
+    (verdicts.effective). Read again by another model (Claude, a stronger cloud model) they are its judgements again.
+    Only rows of hypothesis checks; the SDG pack's VCA claims keep their own rules."""
+    from .verdicts import PERSON
+
+    if t["kind"] not in SUGGESTING_KINDS or payload.get("subject_kind") != "user_claim":
+        return
+    ids = [p["passage_id"] for p in payload.get("passages") or []]
+    if not ids:
+        return
+    sug = json.dumps({"by": "local", "form": "check"}) if is_local_route(route) else None
+    q = ",".join("?" * len(ids))
+    cx.execute(f"UPDATE verifications SET suggestion_json=? WHERE subject_kind='user_claim' AND subject_id=? AND "
+               f"passage_id IN ({q}) AND COALESCE(model, '') != ?", [sug, payload["subject_id"], *ids, PERSON])
+
+
 def ingest_result(ws: Workspace, task_id: str, raw: Any, model: str | None = None,
                   provenance: dict | None = None, route: str | None = None, helper: str | None = None,
                   claimed_at: str | None = None, problem: str | None = None, claim: str | None = None,
-                  free: bool = False, cached: bool = False) -> tuple[bool, list[str]]:
+                  free: bool = False, cached: bool = False, as_kind: str | None = None) -> tuple[bool, list[str]]:
     """Validate and store one answer. `provenance` (0.7): the model's digest, the seed and the settings that
     produced it (`llm.provenance`), kept with the raw answer. 0.8: `route` (Claude Code, Claude API, local model
     server, file queue), the plugin's `helper` agent and when its batch was claimed, kept with it too.
@@ -496,11 +523,17 @@ def ingest_result(ws: Workspace, task_id: str, raw: Any, model: str | None = Non
     `claim`: the answer comes from that claim of the queue, and is stored only while the claim holds the task and
     the task waits for an answer; `free`: the answer comes from outside the queue (a Claude chat), and is stored only
     while the task is neither in the queue nor held by a claim. Both are checked in the transaction that stores the
-    answer, so two callers never both store one; otherwise `NotHeld` is raised and nothing is stored."""
+    answer, so two callers never both store one; otherwise `NotHeld` is raised and nothing is stored.
+
+    I6: `as_kind` ("point"): the answer is in another kind's form than the task's (the small local model answers a check
+    by pointing at sentences); it is stored, versioned and recorded as that kind. An excerpt judgement a local model on
+    this computer makes is a suggestion only (`mark_suggestions`)."""
     with ws.connect() as cx:
         t = cx.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         if not t:
             return False, [f"unknown task {task_id}"]
+        if as_kind:
+            t = {**dict(t), "kind": as_kind}
         again = t["status"] == "done" and bool(t["again"])
         if claim is not None or free:
             _check_holder(t, again, claim, free)
@@ -521,6 +554,8 @@ def ingest_result(ws: Workspace, task_id: str, raw: Any, model: str | None = Non
                 raise ValueError(problem)
             obj = parse_json(raw)
             ok, errors = _store_answer(cx, t, payload, obj, model)
+            if ok:
+                mark_suggestions(cx, t, payload, route or (provenance or {}).get("settings", {}).get("route"))
         except (ValueError, ValidationError) as e:
             errors = _errs(e) if isinstance(e, ValidationError) else [str(e)]
             ok = False
@@ -531,7 +566,7 @@ def ingest_result(ws: Workspace, task_id: str, raw: Any, model: str | None = Non
         if not ok:
             cx.execute("ROLLBACK TO handler")
         cx.execute("RELEASE handler")
-        if ok and not problem:  # 0.18.1 (H4): kept by the question asked, or counted as a task avoided
+        if ok and not problem and not as_kind:  # 0.18.1 (H4): kept by the question asked, or counted as a task avoided
             _cache_store(cx, t, payload, model, version, raw, cached)
         if again:  # a second reading by the stronger model: the first answer stays unless this one is accepted
             status = "done"
@@ -831,6 +866,12 @@ def _history_entry(b, at: str | None = None, why: str | None = None) -> dict:
     """The AI's earlier grade of an excerpt (a row of `verifications`) as one entry of `ai_history_json`."""
     e = {"verdict": b["verdict"], "confidence": b["confidence"], "quote": b["quote"], "scope_note": b["scope_note"],
          "model": b["model"], "prompt_version": b["prompt_version"], "at": at, "replaced_at": now()}
+    try:
+        sug = b["suggestion_json"]
+    except (KeyError, IndexError):
+        sug = None
+    if sug:   # I6: that reading was a local model's suggestion: it never counted, nor does it as a first reading
+        e["suggestion"] = sug
     if why is not None:
         e["why"] = why
     return e
@@ -1005,13 +1046,16 @@ def _store_label(cx, t, payload, obj, model):
 
 
 def _store_link(cx, t, payload, obj, model) -> tuple[bool, list[str]]:
-    """How two (or more) terms relate (link-v1): each quote must come from the passages shown for its term."""
+    """How two (or more) terms relate (link-v2, D1's last part: also needs, shapes and clashes with): each quote must
+    come from the passages shown for its term. Stored from the smaller term id, the relation turned round with it (as
+    the text patterns and a person's links are), as the AI's proposal (source `model`): a person accepts, changes or
+    rejects it on the Concepts page."""
     from .schema import LinkOut
+    from .terms import _INVERSE as inverse
 
     out = LinkOut.model_validate(obj)
     terms = {x["n"]: x for x in payload["terms"]}
     errors, rows = [], []
-    inverse = {"broader": "narrower", "narrower": "broader"}
     for i, r in enumerate(out.relations):
         if r.a not in terms or r.b not in terms or r.a == r.b:
             errors.append(f"relations[{i}]: a and b must be two different term numbers shown (1 to {len(terms)})")
@@ -1048,11 +1092,46 @@ def _store_resolve(cx, t, payload, obj, model):
     return store_resolve(cx, t, payload, obj, model)
 
 
+def _store_point(cx, t, payload, obj, model) -> tuple[bool, list[str]]:
+    """I6: the small local model's answer to a check in the `point` form (pointing.py): for each excerpt it marked, the
+    sentence Margin cuts from the excerpt as its quote; no judgement (verdict not_enough_info) for any excerpt. Every
+    excerpt is kept as a suggestion (`suggestion_json`: the form, its rank in the model's reading order), so all of them
+    wait for the person's judgement. A person's own judgement stays, as for any answer."""
+    from .pointing import marks, reading_order
+
+    if not isinstance(obj, dict) or not isinstance(obj.get("marks"), list):
+        return False, ['give "marks": a list of {"p": passage number, "s": sentence number}']
+    passages = payload["passages"]
+    got = marks(obj, payload)
+    by = {m["passage"]: m for m in got}
+    order = {i: n for n, i in enumerate(reading_order(len(passages), got), 1)}
+    why = "stepped up" if t["status"] == "done" else "answered again"
+    for i, p in enumerate(passages):
+        vid = f"v{_h(t['task_id'], p['passage_id'])}"
+        before = cx.execute("SELECT * FROM verifications WHERE ver_id=?", (vid,)).fetchone()
+        m = by.get(i)
+        quote, start, end = None, None, None
+        if m is not None:
+            quote = m["quote"]
+            start, end = doc_span(cx, p["passage_id"], p["text"], m["start"], m["end"], missing=0, anchor=p.get("anchor"))
+        sug = {"by": "local", "form": "point", "rank": m["rank"] if m else None, "order": order[i]}
+        cx.execute("INSERT OR REPLACE INTO verifications(ver_id, subject_kind, subject_id, passage_id, doc_id, verdict, "
+                   "confidence, quote, start, end, page, model, prompt_version, suggestion_json) "
+                   "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (vid, payload["subject_kind"], payload["subject_id"], p["passage_id"], p["doc_id"], "not_enough_info",
+                    None, quote, start, end, p.get("page"), model, t["prompt_version"], json.dumps(sug)))
+        if before is not None:
+            _keep_person_and_history(cx, vid, before, why)
+    if t["task_id"] == round_base(t["task_id"]):
+        cx.execute("UPDATE user_claims SET rationale=NULL, model=? WHERE claim_id=?", (model, payload["subject_id"]))
+    return True, []
+
+
 for _kind, _store in {"extract": _store_extract, "split": _store_split, "verify": _store_verify,
                      "verify_set": _store_verify_set, "expand": _store_expand, "check": _store_check,
                      "decompose": _store_decompose, "reread": _store_reread, "second": _store_second,
                      "label": _store_label, "link": _store_link, "theme": _store_theme,
-                     "resolve": _store_resolve}.items():
+                     "resolve": _store_resolve, "point": _store_point}.items():
     taskkinds.attach(_kind, store=_store)
 # 0.18.4 (K2 part 2): the AI's draft of a theory document's concepts (theorycodes.py), its offline answer and size
 from . import theorycodes as _theorycodes  # noqa: E402 - after the store functions it may import
@@ -1186,6 +1265,16 @@ def step_up(ws: Workspace, t, router, ok: bool, raw: Any) -> tuple[str | None, f
     return None, None
 
 
+def answer_form(t, backend, model: str | None) -> str | None:
+    """I6: the form a check is answered in when it is not its own: "point" when a local model on this computer whose
+    tier answers by pointing (the small tier, modeladvice.answer_form) answers a check; else None."""
+    if t["kind"] != "check" or _route_name(backend) != LOCAL_ROUTE:
+        return None
+    from .modeladvice import answer_form as form_of
+
+    return "point" if form_of(model) == "point" else None
+
+
 def run_one(ws: Workspace, task_id: str, backend, model: str | None = None) -> tuple[bool, list[str]]:
     """Answer one task now, retrying with the problems listed, up to three attempts. Backend errors (connection,
     settings, Stop) propagate; an answer the model could not finish (0.14.3: `llm.AnswerError`) is a rejected
@@ -1222,18 +1311,22 @@ def run_one(ws: Workspace, task_id: str, backend, model: str | None = None) -> t
         if t["status"] == "failed":
             break
         call = model_for(t, backend, model)
+        form = answer_form(t, backend, call)   # I6: "point" for the small local model
         # a kept answer only where this backend may read the task (the guard first: a document marked No AI, or one
         # whose setting changed, is never answered from an AI's answer to the same text)
         if not t["attempts"] and t["status"] != "done" and access.require(backend, t, ws) is None \
-                and answer_from_cache(ws, task_id, call, _route_name(backend)):
+                and not form and answer_from_cache(ws, task_id, call, _route_name(backend)):
             return True, []  # 0.18.1 (H4): the same question was answered before, and the answer fits this text
-        system, user = render(ws, t)
+        asked = {**dict(t), "kind": form} if form else t
+        system, user = render(ws, asked)
         _send(ws, t, backend)
-        raw, problem = _complete(backend, t, system, user, call)
+        raw, problem = _complete(backend, asked, system, user, call)
         used = "baseline" if getattr(backend, "name", "") == "baseline" else call
         was_again = t["status"] == "done"
         ok, errors = ingest_result(ws, task_id, raw, model=used, provenance=_provenance(backend, used),
-                                   route=_route_name(backend), problem=problem)
+                                   route=_route_name(backend), problem=problem, as_kind=form)
+        if form and ok:
+            return True, errors   # a pointer has no certainty to step up on: the person judges every excerpt
         if was_again:
             if ok or ws.scalar("SELECT again FROM tasks WHERE task_id=?", (task_id,)) == 0:
                 return True, errors  # the first answer is kept when the stronger model's does not pass
@@ -1489,7 +1582,8 @@ def answer_locally_first(ws: Workspace, task_id: str, backend, model: str) -> st
         return None  # answered, or held by Claude Code or another local run
     try:
         t0 = ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))[0]
-        kept = cached_answer(ws, t0, model) if not t0["attempts"] else None
+        form = answer_form(t0, backend, model)   # I6: the small tier answers a check by pointing, here too
+        kept = cached_answer(ws, t0, model) if not t0["attempts"] and not form else None
         if kept is not None:
             ok, _e = ingest_result(ws, task_id, kept, model=model, provenance={"settings": {"from_cache": True}},
                                    route=f"{_route_name(backend)} (kept answer)", claim=claim, cached=True)
@@ -1500,11 +1594,12 @@ def answer_locally_first(ws: Workspace, task_id: str, backend, model: str) -> st
             t = ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))[0]
             if t["status"] in ("done", "failed") or t["claimed_by"] != claim:
                 break
-            system, user = render(ws, t)
+            asked = {**dict(t), "kind": form} if form else t
+            system, user = render(ws, asked)
             _send(ws, t, backend)
-            raw, problem = _complete(backend, t, system, user, model)
+            raw, problem = _complete(backend, asked, system, user, model)
             ok, _e = ingest_result(ws, task_id, raw, model=model, provenance=_provenance(backend, model),
-                                   route=_route_name(backend), problem=problem, claim=claim)
+                                   route=_route_name(backend), problem=problem, claim=claim, as_kind=form)
             if ok:
                 break
     except NotHeld:
@@ -1527,6 +1622,11 @@ def answer_locally_first(ws: Workspace, task_id: str, backend, model: str) -> st
             obj = None
         c = certainty(t["kind"], obj)
         if (c is not None and c < STEP_UP_BELOW) or judging_changes(task_kind(t), obj):
+            how = "again"
+        elif t["kind"] == "check" and is_local_route(_route_name(backend)):
+            # I6: a local model's judgements of excerpts are suggestions only, so a check of documents Claude may read
+            # always goes up to Claude, who reads it again; the local reading stays a suggestion meanwhile (and in the
+            # excerpt's history once Claude has read it)
             how = "again"
     elif t["status"] != "done":
         how = "retry"
@@ -1755,6 +1855,7 @@ def export(ws: Workspace, kind: str, batch_size: int = 25, limit: int | None = N
     todo: list[str] = []
     with ws.connect() as cx:
         dflt = access.default(ws)
+        me = access.sender()   # I7 stage 3: for the ledger, once for the export
         for c in range(0, len(cand), _EXPORT_CHUNK):
             if limit and len(todo) >= limit:
                 break
@@ -1767,7 +1868,8 @@ def export(ws: Workspace, kind: str, batch_size: int = 25, limit: int | None = N
                 # the file queue's tasks are for Claude (a chat, or Claude Code), as "Claude may read it" said
                 if access.recheck(cx, tid, dflt, provider=access.ANTHROPIC) != "cloud":
                     continue
-                access.record_sent(cx, tid, json.loads(payloads[tid]), "file queue", kind, provider=access.ANTHROPIC)
+                access.record_sent(cx, tid, json.loads(payloads[tid]), "file queue", kind, provider=access.ANTHROPIC,
+                                   person=me)
                 todo.append(tid)
     out_dir = ws.root / "tasks" / kind
     out_dir.mkdir(parents=True, exist_ok=True)

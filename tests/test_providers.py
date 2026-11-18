@@ -4,7 +4,7 @@
   or `other`; it may read only the documents that allow it (Anthropic alone by default);
 - R3: a project without the new setting means what it meant: "Claude may read it" is Anthropic only;
 - R4: the work split and the queue follow the main route's provider; the ledger names the provider;
-- R5: in a shared project only Anthropic may read, whatever this copy allows;
+- R5 (I7 stage 3): in a shared project each person's own allowance holds, within the owner's limit of providers;
 - R6: the cloud chat backend (key, HTTPS, quirks, plain errors, no key anywhere it should not be);
 - R7: settings and keys.
 """
@@ -189,9 +189,11 @@ def test_the_connector_and_the_file_queue_read_as_anthropic(mixed):
 
 
 # ---------------------------------------------------------------------------------------------
-# R5: shared projects allow Anthropic only
+# R5 (I7 stage 3): in a shared project each person's own allowance holds, within the owner's limit
 # ---------------------------------------------------------------------------------------------
-def test_a_shared_project_lets_only_anthropic_read(mixed, tmp_path):
+def test_a_shared_project_follows_the_persons_own_allowance_and_the_owners_limit(mixed, tmp_path, monkeypatch):
+    from margin import teamproviders
+    from margin.llm import CloudBackend
     from margin.sync.folder import FOLDER
 
     ws, ids, pid = mixed
@@ -199,19 +201,21 @@ def test_a_shared_project_lets_only_anthropic_read(mixed, tmp_path):
     access._write_config(ws, {FOLDER: str(tmp_path / "team")})
     assert access.is_shared(ws._conn(), ws)
     _use_openai()
-    assert access.levels(ws, [ids["cloud"]], provider="openai") == {ids["cloud"]: "local"}
-    assert access.levels(ws, [ids["cloud"]], provider="anthropic") == {ids["cloud"]: "cloud"}
-    assert access.levels(ws, [ids["cloud"]]) == {ids["cloud"]: "cloud"}   # as the person chose it
-    with pytest.raises(ValueError, match="colleagues have not agreed"):
-        access.set_providers_default(ws, ["anthropic", "openai"])
-    with pytest.raises(ValueError, match="colleagues have not agreed"):
-        access.set_documents(ws, [ids["cloud"]], allow=["openai"])
+    assert access.levels(ws, [ids["cloud"]], provider="openai") == {ids["cloud"]: "cloud"}   # the person's own choice
+    access.set_providers_default(ws, ["anthropic", "mistral"])                              # no longer refused
+    access.set_documents(ws, [ids["cloud"]], allow=["anthropic", "openai", "gemini"])
     info = access.project_info(ws)
-    assert info["shared"] and "colleagues have not agreed" in info["providers_note"]
+    assert info["shared"] and info["team_limit"] is None and info["providers_note"] is None
     row = _insert(ws, "label:sdg:s", _label(pid["cloud"]))
-    from margin.llm import CloudBackend
-
-    with pytest.raises(access.AccessError, match="OpenAI may not read"):
+    access.require(CloudBackend("openai", "k"), row, ws)
+    # the owner limited the team to Anthropic (a row of the owner's settings; here as it reads)
+    monkeypatch.setattr(teamproviders, "limit", lambda cx: {"providers": ["anthropic"], "by": "p000000000001",
+                                                            "at": "2026-11-18"})
+    assert access.levels(ws, [ids["cloud"]], provider="openai") == {ids["cloud"]: "local"}
+    assert access.levels(ws, [ids["cloud"]]) == {ids["cloud"]: "cloud"}   # as the person chose it
+    info = access.project_info(ws)
+    assert info["team_limit"]["providers"] == ["anthropic"] and "Anthropic only" in info["providers_note"]
+    with pytest.raises(access.AccessError, match="OpenAI may not read: The team uses Anthropic only"):
         access.require(CloudBackend("openai", "k"), row, ws)
 
 

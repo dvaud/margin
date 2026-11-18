@@ -120,7 +120,7 @@ def _no_real_ollama_start(monkeypatch):
     # nor lets go of a model the real Ollama holds (a test that stops a job asks its own stand-in, if any)
     from margin import llm
 
-    monkeypatch.setattr(llm, "let_go", lambda models: [])
+    monkeypatch.setattr(llm, "let_go", lambda models, runner=None: [])
 
 
 @pytest.fixture(autouse=True)

@@ -211,6 +211,17 @@ export function waitReason(docAccess, wordsAccess) {
   return "the hypothesis comes from a document marked Only a local AI, and no local model is chosen";
 }
 
+// I6 (suggestions only): what the local model on this computer made of an excerpt, in words, with no confidence. It is
+// shown before the person's own judgement (the owner's decision: the tool speeds research up) and decides nothing.
+export function suggestionWords(p) {
+  const s = p.suggestion;
+  if (!s) return "";
+  if (s.form === "point") return s.marked ? "The local model points at the highlighted sentence" : "The local model marked nothing in it";
+  return s.lean ? `The local model suggests: ${GRADE_TEXT[s.lean].toLowerCase()}` : "The local model found nothing about it here";
+}
+// I6: a suggestion without a judgement to agree with (the pointer's, or "nothing here"): judged like an excerpt no AI read
+const ownToJudge = (p) => p.read_by === "you" || (!!p.suggestion && !p.suggestion.lean && !p.user_verdict);
+
 export async function renderResult(view, [hypId], query) {
   const project = App.project;
   await loadRetractions(project);
@@ -1376,6 +1387,12 @@ export async function renderResult(view, [hypId], query) {
         h("div", { class: "btn-row" }, readLocalButton("Read them again")), aiWhere(localReads(), "local"),
         part.local_failed.errors.length ? foldBox({}, "Technical details", h("ul", { class: "errors-list" }, part.local_failed.errors.map((e) => h("li", {}, e)))) : null));
     }
+    if (part.local_counted) {
+      // I6: the local model's judgements of before suggestions-only still count here (an old answer is not changed in
+      // silence); reviewing them makes them yours
+      const n = part.local_counted;
+      card.appendChild(notice({ kind: "attention", icon: "house" }, h("p", {}, `${n === 1 ? "One judgement" : `${n} judgements`} here ${n === 1 ? "was" : "were"} made by the local model before its readings became suggestions only, and ${n === 1 ? "it still counts" : "they still count"} in this answer. Review ${n === 1 ? "it" : "them"} (Agree, or judge differently): new readings by the local model count only once you judge them.`)));
+    }
     if (part.status === "no_passages") {
       card.appendChild(notice({ kind: "attention", icon: "search-x" }, h("p", {}, "No part of your documents uses words close to this. Try other words below, rephrase the hypothesis, or add documents.")));
     }
@@ -1391,8 +1408,11 @@ export async function renderResult(view, [hypId], query) {
       if (judged.length) card.append(...evList(byCount, part));
       if (forYou.length) {
         const chosen = forYou.filter((p) => p.by_choice).length;
+        const suggested = forYou.filter((p) => p.suggestion).length;   // I6: read by the local model, which only suggests
         card.appendChild(h("div", { class: "evidence-head" }, h("h3", {}, `Awaiting manual review: ${forYou.length} ${forYou.length === 1 ? "excerpt" : "excerpts"}`),
-          h("span", { class: "muted small" }, chosen === forYou.length ? `You chose to judge ${chosen === 1 ? "this one" : "these"} yourself rather than start the local model. Your judgement counts like any other.`
+          h("span", { class: "muted small" }, suggested === forYou.length ? `The local model on this computer read ${suggested === 1 ? "this one" : "these"} and marked what it found; its suggestions decide nothing. Judge each one: only your judgements count.`
+            : suggested ? `The local model on this computer read ${suggested} of these and marked what it found (its suggestions decide nothing); no AI read the others. Judge each one: only your judgements count.`
+            : chosen === forYou.length ? `You chose to judge ${chosen === 1 ? "this one" : "these"} yourself rather than start the local model. Your judgement counts like any other.`
             : chosen ? `You chose to judge ${chosen} of these yourself rather than start the local model; no AI may read the others (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other.`
             : "No AI may read these (their documents are marked No AI, or Only a local AI without a local model). Your judgement counts like any other."),
           // 0.19.12: changed your mind: the local model reads them after all (what you judged meanwhile still counts)
@@ -1635,18 +1655,20 @@ export async function renderResult(view, [hypId], query) {
     // Certainty in words; the percentage is in the tooltip and under More.
     const top = h("div", { class: "ev-top" });
     const fact = (text, extra = {}) => h("span", { class: "ev-fact", ...extra }, text);
-    const aiSaid = p.ai_verdict ? GRADE_TEXT[p.ai_verdict].toLowerCase() : "not about this";
+    const aiSaid = p.suggestion ? (p.suggestion.lean ? `the local model suggested ${GRADE_TEXT[p.suggestion.lean].toLowerCase()}` : "the local model only pointed")
+      : p.ai_verdict ? `the AI said ${GRADE_TEXT[p.ai_verdict].toLowerCase()}` : "the AI said not about this";
     const pctN = p.confidence !== null && p.confidence !== undefined ? Math.round(p.confidence * 100) : null;
     const word = p.certainty || (pctN !== null ? `${pctN}%` : "");
     const who = p.judged_by && p.judged_by !== "you" ? p.judged_by : null;   // 0.14: a colleague's judgement counts here
     if (yours && p.changed) {
-      append(top, [nonsciBadge(p) || gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact", title: who ? `You have not judged this excerpt: ${who}’s judgement counts in your copy until you do.` : null }, who ? personMark([who]) : icon("user", { size: 12 }), `${who ? `${who}’s` : "Your"} judgement${p.read_by === "you" ? "" : ` (the AI said ${aiSaid})`}`)]);
+      append(top, [nonsciBadge(p) || gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact", title: who ? `You have not judged this excerpt: ${who}’s judgement counts in your copy until you do.` : null }, who ? personMark([who]) : icon("user", { size: 12 }), `${who ? `${who}’s` : "Your"} judgement${p.read_by === "you" ? "" : ` (${aiSaid})`}`)]);
     } else if (yours) {
-      append(top, [nonsciBadge(p) || gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact", title: who ? `You have not judged this excerpt: ${who}’s judgement counts in your copy until you do.` : null }, who ? personMark([who]) : icon("user", { size: 12 }), p.read_by === "you" ? `${who ? `${who}’s` : "Your"} judgement` : `${who || "You"} agreed with the AI`)]);   // 0.19.12: no AI read it, so nobody agreed with one
+      append(top, [nonsciBadge(p) || gradeBadge(p.verdict, false), h("span", { class: "ev-fact ev-yours-fact", title: who ? `You have not judged this excerpt: ${who}’s judgement counts in your copy until you do.` : null }, who ? personMark([who]) : icon("user", { size: 12 }), ownToJudge(p) || (p.suggestion && !p.suggestion.lean) ? `${who ? `${who}’s` : "Your"} judgement` : p.suggestion ? `${who || "You"} agreed with the local model` : `${who || "You"} agreed with the AI`)]);   // 0.19.12: no AI read it, so nobody agreed with one
     } else if (p.waiting_for_you) {
       // 0.19.8: the tag "Awaiting manual review", and why no model read it (you chose to, or no model may)
       append(top, [tag({ kind: "attention", icon: "user" }, "Awaiting manual review"),
-        fact(p.by_choice ? "you chose to judge it instead of the local model" : waitReason(p.access, current && current.words_access))]);
+        fact(p.suggestion ? suggestionWords(p) : p.by_choice ? "you chose to judge it instead of the local model" : waitReason(p.access, current && current.words_access),
+          p.suggestion ? { title: "A suggestion only: the local model on this computer decides nothing. Your judgement of this excerpt is what counts." } : {})]);
     } else {
       // a judgement that does not count: its badge without fill, a dashed edge (the one meaning of a dashed edge)
       append(top, [nonsciBadge(p) || gradeBadge(p.verdict, !!p.verdict && !p.counted)]);
@@ -1939,14 +1961,15 @@ export async function renderResult(view, [hypId], query) {
     const aiVerdict = p.ai_verdict || "not_relevant";
     const current = p.user_verdict || "";
     const row = h("div", { class: "judge-row" });
-    if (p.read_by === "you" && p.user_verdict) {
+    if ((p.read_by === "you" || (p.suggestion && !p.suggestion.lean)) && p.user_verdict) {
       row.appendChild(button({ sm: true, class: "agree-btn", onMousedown: (e) => e.preventDefault(), onClick: () => put(null, p.user_note || "", "Your judgement was removed: the excerpt waits for it again.") }, "Take back"));
     } else if (p.changed) {
       // 0.12: the same as taking an agreement back: saved at once, with Undo (the comment is sent along, so it is kept)
       row.appendChild(button({ sm: true, class: "agree-btn", onMousedown: (e) => e.preventDefault(), title: "Your judgement is removed and the AI's counts again, at your strictness",
         onClick: () => put(null, p.user_note || "", "Back to the AI's judgement.") }, "Take back"));
-    } else if (p.read_by === "you") {
-      // 0.11: no AI read it, so there is nothing to agree with: the person's own judgement is open at once
+    } else if (ownToJudge(p)) {
+      // 0.11: no AI read it, so there is nothing to agree with: the person's own judgement is open at once (I6: nor
+      // when the local model only pointed at a sentence)
     } else {
       const agreed = p.reviewed && !p.changed;
       const pendHere = pendingQuote.get(pendingKey(p, part));
@@ -1958,15 +1981,15 @@ export async function renderResult(view, [hypId], query) {
       } else {
         const makesCount = p.ai_verdict && p.verdict && !p.counted;
         row.appendChild(h("div", { class: "agree-box" },
-          button({ sm: true, class: "agree-btn agree-main", onMousedown: (e) => e.preventDefault(), onClick: () => put(aiVerdict, undefined, pendHere ? "Saved: you agree with the AI, with your sentence." : makesCount ? "Saved: you agree with the AI, so it now counts." : "Saved: you agree with the AI."),
-            title: p.ai_verdict ? `Agree with the AI: it becomes your judgement and counts in the answer, whatever the AI's certainty${makesCount ? " (it does not count now)" : ""}.` : "Agree with the AI: you checked it, and it stays out of the answer." },
+          button({ sm: true, class: "agree-btn agree-main", onMousedown: (e) => e.preventDefault(), onClick: () => put(aiVerdict, undefined, p.suggestion ? "Saved: you agree with the local model's suggestion, so your judgement now counts." : pendHere ? "Saved: you agree with the AI, with your sentence." : makesCount ? "Saved: you agree with the AI, so it now counts." : "Saved: you agree with the AI."),
+            title: p.suggestion ? "Agree with the local model's suggestion: it becomes your judgement and counts in the answer." : p.ai_verdict ? `Agree with the AI: it becomes your judgement and counts in the answer, whatever the AI's certainty${makesCount ? " (it does not count now)" : ""}.` : "Agree with the AI: you checked it, and it stays out of the answer." },
             "Agree"),
           pendHere ? h("span", { class: "muted small" }, "Agreeing saves your sentence with the AI's judgement as yours.") : null));
       }
     }
     // 0.12: dismiss an excerpt in one click: your judgement "Not about this" takes it out of the evidence and the
     // answer; it stays listed with the excerpts that are not about the hypothesis, and Undo is offered
-    const canDismiss = p.read_by !== "you" && p.verdict && p.user_verdict !== "not_relevant";
+    const canDismiss = p.read_by !== "you" && (p.verdict || (p.suggestion && p.suggestion.lean && !p.user_verdict)) && p.user_verdict !== "not_relevant";
     if (!canDismiss && !p.waiting_for_you) row.appendChild(h("span", { class: "slot-gap", "aria-hidden": "true" }));
     if (canDismiss) {
       row.appendChild(button({ kind: "quiet", sm: true, class: "dismiss-btn", onMousedown: (e) => e.preventDefault(),
@@ -1974,10 +1997,10 @@ export async function renderResult(view, [hypId], query) {
         onClick: () => put("not_relevant", undefined, `Saved: not about this. It moved to the excerpts read that are not about ${splitResult() ? "this part" : "the hypothesis"}, under the cards.`) }, "Not about this"));
     }
     const judgePanel = h("div", { class: "judge-body judge-panel" });
-    const needed = !!(pendingQuote.get(pendingKey(p, part)) || (p.read_by === "you" && !p.user_verdict));   // the options are needed now
+    const needed = !!(pendingQuote.get(pendingKey(p, part)) || (ownToJudge(p) && !p.user_verdict));   // the options are needed now
     // the buttons above do "Not about this" and the AI's own judgement (Agree): the radios offer the others
     // the other judgements: a choice (the one in force shows as chosen); picking one saves it at once
-    const offered = USER_VERDICTS.filter(([val]) => !(canDismiss && val === "not_relevant") && !(p.read_by !== "you" && !p.changed && val === (p.ai_verdict || "not_relevant")));
+    const offered = USER_VERDICTS.filter(([val]) => !(canDismiss && val === "not_relevant") && !(!ownToJudge(p) && !p.changed && !(p.suggestion && !p.suggestion.lean) && val === (p.ai_verdict || "not_relevant")));
     const opts = choice({ filter: true, label: "Your judgement (saved when you pick one)", value: current, options: offered,
       onPick: (val) => { if (val !== current) put(val, undefined, `Saved: ${(offered.find(([v]) => v === val) || [])[1]}.`); } });
     const pendNow = pendingQuote.get(pendingKey(p, part));
@@ -1993,7 +2016,7 @@ export async function renderResult(view, [hypId], query) {
     note.addEventListener("input", () => draftNotes.set(pendingKey(p, part), note.value));
     // "more…" re-draws the card: a comment typed and not saved yet is saved first (the save re-draws it)
     wrap.saveDraft = () => { if (saving || note.value.trim() === (p.user_note || "").trim()) return false; saveNote(); return true; };
-    const judgeBtn = panelToggle(`judge:${part.claim_id}:${p.passage_id}`, p.read_by === "you" && !p.user_verdict ? "Judge this excerpt…" : p.user_verdict ? "Edit judgement…" : "Judge differently…", judgePanel, needed);
+    const judgeBtn = panelToggle(`judge:${part.claim_id}:${p.passage_id}`, ownToJudge(p) && !p.user_verdict ? "Judge this excerpt…" : p.user_verdict ? "Edit judgement…" : "Judge differently…", judgePanel, needed);
     judgeBtn.title = "A comment, another judgement, or another sentence as the quote";
     judgeBtn.classList.add("judge-toggle");
     append(judgePanel, [

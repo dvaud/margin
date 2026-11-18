@@ -79,8 +79,8 @@ def test_a_queued_job_stamps_each_report_so_the_later_one_wins():
         def _ws_or_none(self, name):
             return None
 
-        def start_job(self, kind, title, name, run, withdraw=(), ws=None):
-            j = jobs.start(kind, title, name, run, uses_model=False)
+        def start_job(self, kind, title, name, run, withdraw=(), ws=None, local_start=None):
+            j = jobs.start(kind, title, name, run, uses_model=False, local_start=local_start)
             j.queue = True
             return j
 

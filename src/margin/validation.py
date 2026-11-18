@@ -497,24 +497,36 @@ def _ai_grade(v: str | None) -> str:
 def collect_person(ws: Workspace, label: str | None = None) -> dict:
     """What a person decided in a real project, set beside what the AI had answered, with no text: {"format", "kind":
     "person", "project" (`label`, else the project's folder name), "date", "scored_by", "checks": [{"ai", "person",
-    "model", "prompt_version"}], "checks_person_only" (excerpts a person judged that no AI read: not scored),
+    "model", "prompt_version"[, "shown_first"]}], "checks_person_only" (excerpts a person judged that no AI read: not
+    scored), "checks_pointed" (I6: excerpts the small local model only pointed at: not scored; `shown_first`: a local
+    model's suggestion the person saw before judging),
     "labels": [{"ai": true, "kept": bool, "changed": bool, "model", "prompt_version", "framework"}] (each AI code a
     person decided on), "labels_added": [{"framework"}] (codes a person added to a passage the AI had labelled),
     "people" (how many people decided)}. Only what a person decided counts (see the module's docstring)."""
     from .profile import _decisions
     from .verdicts import PERSON
 
-    checks, person_only, people = [], 0, set()
-    for r in ws.query("SELECT verdict, user_verdict, model, prompt_version, user_by FROM verifications WHERE "
-                      "subject_kind='user_claim' AND user_verdict IS NOT NULL"):
+    checks, person_only, pointed, people = [], 0, 0, set()
+    for r in ws.query("SELECT verdict, user_verdict, model, prompt_version, user_by, suggestion_json FROM verifications "
+                      "WHERE subject_kind='user_claim' AND user_verdict IS NOT NULL"):
         if r["user_verdict"] not in PERSON_GRADES:
             continue
         if not r["model"] or r["model"] == PERSON:   # no AI read it: nothing to score
             person_only += 1
             continue
+        try:
+            sug = json.loads(r["suggestion_json"]) if r["suggestion_json"] else None
+        except ValueError:
+            sug = None
+        if sug and sug.get("form") == "point":   # I6: the small local model pointed at a sentence and judged nothing
+            pointed += 1
+            continue
         people.add(r["user_by"] or "")
-        checks.append({"ai": _ai_grade(r["verdict"]), "person": r["user_verdict"], "model": r["model"],
-                       "prompt_version": r["prompt_version"] or "?"})
+        item = {"ai": _ai_grade(r["verdict"]), "person": r["user_verdict"], "model": r["model"],
+                "prompt_version": r["prompt_version"] or "?"}
+        if sug:   # I6: a local model's suggestion, shown to the person before they judged: agreement is not independent
+            item["shown_first"] = True
+        checks.append(item)
     dec = _decisions(ws)
     who = {r["item_id"]: r["person_id"] or "" for r in ws.query(
         "SELECT item_id, person_id FROM reviews WHERE item_kind='label'")}
@@ -537,7 +549,7 @@ def collect_person(ws: Workspace, label: str | None = None) -> dict:
             added.append({"framework": r["framework"]})
     return {"format": FORMAT, "kind": "person", "project": (label or ws.root.name).strip()[:120],
             "date": _dt.date.today().isoformat(), "scored_by": version(), "checks": checks,
-            "checks_person_only": person_only, "labels": labels, "labels_added": added,
+            "checks_person_only": person_only, "checks_pointed": pointed, "labels": labels, "labels_added": added,
             "people": len(people - {""}) or (1 if checks or labels else 0)}
 
 
@@ -619,7 +631,12 @@ def person_markdown(recs: list[dict]) -> str:
                   f"(Cohen's kappa {_k(c['kappa'])} over the four grades); found evidence or not, the same for "
                   f"{_pct(c['grounded_accuracy'])}."
                   + (f" {rec['checks_person_only']} more excerpts were judged by the person with no AI answer, so are "
-                     "not scored." if rec.get("checks_person_only") else "")]
+                     "not scored." if rec.get("checks_person_only") else "")
+                  + (f" {rec['checks_pointed']} more were only pointed at by the small local model (it judges nothing), "
+                     "so are not scored." if rec.get("checks_pointed") else "")
+                  + (lambda n: f" {n} of the scored excerpts were the local model's suggestions, shown to the person "
+                     "before they judged: agreement on those is not independent." if n else "")(
+                      sum(1 for it in rec["checks"] if it.get("shown_first")))]
             if len(sc["checks_by_model"]) > 1:
                 L += [f"  - {m}: {_pct(v['accuracy'])} of {v['n']} (kappa {_k(v['kappa'])})"
                       for m, v in sc["checks_by_model"].items()]

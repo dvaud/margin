@@ -201,6 +201,12 @@ def adopt(cx: sqlite3.Connection, person_id: str) -> int:
     cx.execute("UPDATE verifications SET user_by=? WHERE subject_kind='user_claim' AND user_by IS NULL AND "
                "(user_verdict IS NOT NULL OR user_note IS NOT NULL)", (person_id,))
     cx.execute("UPDATE reviews SET person_id=? WHERE person_id IS NULL", (person_id,))
+    try:  # D1, the last part: the concept map's group names from before they travelled (groupnames.fill_people)
+        from .groupnames import fill_people
+
+        fill_people(cx, person_id)
+    except sqlite3.OperationalError:   # a file without the table or its columns
+        pass
     return n
 
 

@@ -49,6 +49,15 @@ def reader() -> str:
 
     return providers.ROUTE_PROVIDER.get(route(), CLAUDE)
 
+def sent_route() -> str:
+    """I7 stage 3: the route the ledger names for what this connector shows ("Claude app (connector)", or "Codex
+    (connector)" when an agent CLI started it), so the AI log and *What was sent* name the right company."""
+    from .taskqueue import route_title
+
+    r = route()
+    return access.ROUTE_NAMES["chat"] if r == "claude_code" else f"{route_title(r)} (connector)"
+
+
 INSTRUCTIONS = """Margin checks claims and hypotheses against the user's own documents (reports and papers kept in
 local projects on this computer). Only the passages you are shown leave the computer.
 
@@ -439,7 +448,8 @@ def build_server():
         if target:
             frameworks.resolve(ws, framework or "sdg", target)  # a clear message for an unknown code
         r = claimcheck.open_check(ws, claim, terms=search_terms, target=target, k=max(1, min(int(passages), 15)),
-                                  per_doc=max(1, int(per_document)), doc_ids=document_ids, framework=framework)
+                                  per_doc=max(1, int(per_document)), doc_ids=document_ids, framework=framework,
+                                  provider=reader(), route=sent_route())
         out = {"project": name, **r}
         if not r["passages"]:
             out["note"] = "No passage shares words with the claim or the search terms. Try other terms."
@@ -464,7 +474,8 @@ def build_server():
     @_friendly
     def more_passages(check_id: str, passages: int = 8, search_terms: Optional[list[str]] = None) -> dict:
         _, ws = _find_check(check_id)
-        r = claimcheck.more_passages(ws, check_id, k=max(1, min(int(passages), 15)), terms=search_terms)
+        r = claimcheck.more_passages(ws, check_id, k=max(1, min(int(passages), 15)), terms=search_terms,
+                                     provider=reader(), route=sent_route())
         if r["passages"]:
             r["rules"] = claimcheck.chat_rules()
             r["next"] = "Grade these with submit_grades; earlier grades are kept."
@@ -516,7 +527,7 @@ def build_server():
             everything = concordance.search(ws, query, mode, document_ids, "doc", 0, 1, exact, near)
         shown = [{"document": x["title"], "where": x["location"], "text": f"{x['left']}[{x['node']}]{x['right']}",
                   "passage_id": x["passage_id"]} for x in r["lines"]]
-        access.record_passages(ws, [x["passage_id"] for x in r["lines"]], access.ROUTE_NAMES["chat"], "search")
+        access.record_passages(ws, [x["passage_id"] for x in r["lines"]], sent_route(), "search", provider=reader())
         out = {"project": name, "query": query, "hits": everything["total"], "passages": everything["passages"],
                "documents": [{"document": hidden.get(d["doc_id"], d["title"]), "hits": d["hits"]}
                              for d in everything["per_doc"][:30]],
@@ -552,7 +563,7 @@ def build_server():
                 item["examples"] = [{"quote": i["quote"], "reason": i["reason"], "where": i["location"],
                                      "by": i["source"], "provisional": i["provisional"]} for i in c["items"][:3]]
                 access.record_passages(ws, [i["passage_id"] for i in c["items"][:3] if i.get("passage_id")],
-                                       access.ROUTE_NAMES["chat"], "profile")
+                                       sent_route(), "profile", provider=reader())
             codes_out.append(item)
         out = {"project": name, "document": access.restricted_titles(ws).get(document_id, d["title"]),
                "codebook": d["framework_title"], "read_by_the_model": d["read_by_model"], "passages": d["passages"],
@@ -578,8 +589,8 @@ def build_server():
         hidden = access.restricted_titles(ws)
         lv = access.levels(ws, provider=reader())
         lines_ = [x for x in c["lines"] if lv.get(x["doc_id"]) == "cloud"][:n]  # 0.11: example lines from cloud documents
-        access.record_passages(ws, [x["passage_id"] for x in lines_ if x.get("passage_id")], access.ROUTE_NAMES["chat"],
-                               "concept")
+        access.record_passages(ws, [x["passage_id"] for x in lines_ if x.get("passage_id")], sent_route(),
+                               "concept", provider=reader())
         # 0.11: a wording is words of the documents: only wordings found in documents Claude may read are named
         cloud_docs = {d for d, x in lv.items() if x == "cloud"}
         named = terms.terms_in_docs(ws, [w["term_id"] for w in c["wordings"]] +
