@@ -26,10 +26,28 @@ from pydantic import BaseModel, Field
 from . import __version__, access, claimcheck, frameworks, ingest, tasks
 from . import home as core
 
-# stage 1 of other cloud providers: everything the connector shows or hands out goes to Claude, so every document's
-# setting is worked out for Anthropic (a document that allows other providers only is not shown)
+# stage 1 of other cloud providers: everything the connector shows or hands out goes to the AI that started it, so
+# every document's setting is worked out for that AI's provider (a document that does not allow it is not shown).
+# Stage 2: an agent CLI's set-up starts the connector with MARGIN_ROUTE (codex, antigravity): its provider is that
+# route's (OpenAI, Google). Without it (the Claude plugin, the Claude desktop app's connector) it is Claude Code's,
+# Anthropic, as before. CLAUDE stays the name of Anthropic for what imports it.
 CLAUDE = access.ANTHROPIC
-from .sources import document_overview
+from .sources import document_overview  # noqa: E402
+
+
+def route() -> str:
+    """The agent route this connector answers for (MARGIN_ROUTE; Claude Code when it is not set or not one)."""
+    from . import providers
+
+    r = os.environ.get("MARGIN_ROUTE", "").strip()
+    return r if r in providers.AGENT_ROUTES else "claude_code"
+
+
+def reader() -> str:
+    """The provider the passages this connector shows go to (Anthropic unless started for another agent CLI)."""
+    from . import providers
+
+    return providers.ROUTE_PROVIDER.get(route(), CLAUDE)
 
 INSTRUCTIONS = """Margin checks claims and hypotheses against the user's own documents (reports and papers kept in
 local projects on this computer). Only the passages you are shown leave the computer.
@@ -170,7 +188,7 @@ def _shareable(ws, check_id: str) -> tuple[bool, set[str]]:
             except ValueError:
                 every = False
                 continue
-            if access.label_payload(cx, payload, provider=CLAUDE) == "cloud":
+            if access.label_payload(cx, payload, provider=reader()) == "cloud":
                 ok |= {p.get("passage_id") for p in payload.get("passages", [])}
             else:
                 every = False
@@ -179,7 +197,7 @@ def _shareable(ws, check_id: str) -> tuple[bool, set[str]]:
 
 def _summary(ws, check_id: str) -> dict:
     r = claimcheck.result(ws, check_id)
-    lv = access.levels(ws, {p["doc_id"] for p in r["passages"]}, provider=CLAUDE)
+    lv = access.levels(ws, {p["doc_id"] for p in r["passages"]}, provider=reader())
     every, ok = _shareable(ws, check_id)
     evidence, restricted = [], {"supports": 0, "partially_supports": 0, "refutes": 0, "waiting_for_the_user": 0,
                                 "waiting_for_the_local_model": 0}
@@ -305,6 +323,43 @@ def _friendly(fn):
     return inner
 
 
+# -- the queue tools, as functions (the tools below call them; so do the tests' stand-ins of the agent CLIs) --------
+def queue_run_status(project: str, kind: Optional[str] = None, parallel: Optional[int] = None,
+                     helpers: Optional[str] = None) -> dict:
+    from . import taskqueue
+
+    name, ws = _project(project)
+    q = taskqueue.run_status(ws, name, kind, parallel, helpers, route=route())
+    return {k: q[k] for k in ("project", "groups", "kinds", "waiting", "being_answered", "paused", "held",
+                              "privacy", "local_only", "command", "claim_minutes", "parallel")} | (
+        {"paused_text": q["paused_text"]} if q.get("paused_text") else {}) | (
+        {k: q[k] for k in ("helpers", "not_this_run") if k in q})
+
+
+def queue_next_tasks(project: str, kind: Optional[str] = None, n: Optional[int] = None, model: Optional[str] = None,
+                     taken_by: Optional[str] = None, helper: Optional[str] = None) -> dict:
+    """A batch for the route this connector answers for: only tasks its provider may read, recorded for it."""
+    from . import taskqueue
+
+    name, ws = _project(project)
+    return {"project": name, **taskqueue.next_tasks(ws, kind, n, model, taken_by, helper, route=route(),
+                                                    provider=reader())}
+
+
+def queue_submit(claim: str, answers: list[dict]) -> dict:
+    from . import taskqueue
+
+    _name, ws = _find_claim(claim)
+    return taskqueue.submit(ws, claim, answers)
+
+
+def queue_release(claim: str) -> dict:
+    from . import taskqueue
+
+    _name, ws = _find_claim(claim)
+    return taskqueue.release(ws, claim)
+
+
 def build_server():
     from mcp.server.mcpserver import MCPServer
 
@@ -354,7 +409,7 @@ def build_server():
         name, ws = _project(project)
         docs = document_overview(ws)
         hidden = access.restricted_titles(ws)
-        lv = access.levels(ws, provider=CLAUDE)
+        lv = access.levels(ws, provider=reader())
         return {"project": name, "documents": [{"id": d["doc_id"], "title": hidden.get(d["doc_id"], d["title"]),
                                                  "pages": d["pages"], "passages": d["passages"],
                                                  "ai_access": lv.get(d["doc_id"], "none"),
@@ -448,7 +503,7 @@ def build_server():
         name, ws = _project(project)
         hidden = access.restricted_titles(ws)
         # 0.11: lines only from documents Claude may read; hits in the others as counts
-        levels = access.levels(ws, provider=CLAUDE)
+        levels = access.levels(ws, provider=reader())
         wanted = set(document_ids) if document_ids else None
         cloud = sorted(d for d, lv in levels.items() if lv == "cloud" and (wanted is None or d in wanted))
         r = concordance.search(ws, query, mode, cloud or ["-"], "doc", max(0, int(offset)), max(1, min(int(lines), 200)),
@@ -487,7 +542,7 @@ def build_server():
         codebooks.follow(ws, framework)  # 0.16: labels follow the codebook's renames and merges
         profile.ensure_pass1(ws, framework)
         d = profile.doc_profile(ws, framework, document_id)
-        level = access.levels(ws, [document_id], provider=CLAUDE).get(document_id, "none")
+        level = access.levels(ws, [document_id], provider=reader()).get(document_id, "none")
         restricted = level != "cloud"  # 0.11: a restricted document's codes, shares and pages, without quotes
         codes_out = []
         for c in d["codes"][:max(1, int(codes))]:
@@ -521,7 +576,7 @@ def build_server():
         n = max(1, min(int(lines), 50))
         c = terms.card(ws, tid, 0, 200)
         hidden = access.restricted_titles(ws)
-        lv = access.levels(ws, provider=CLAUDE)
+        lv = access.levels(ws, provider=reader())
         lines_ = [x for x in c["lines"] if lv.get(x["doc_id"]) == "cloud"][:n]  # 0.11: example lines from cloud documents
         access.record_passages(ws, [x["passage_id"] for x in lines_ if x.get("passage_id")], access.ROUTE_NAMES["chat"],
                                "concept")
@@ -573,12 +628,7 @@ def build_server():
 
             _projects(waiting, bad)
             return {"projects_with_work": out, "local_only": core.local_only(), **({"unreadable": bad} if bad else {})}
-        name, ws = _project(project)
-        q = taskqueue.run_status(ws, name, kind, parallel, helpers)
-        return {k: q[k] for k in ("project", "groups", "kinds", "waiting", "being_answered", "paused", "held",
-                                  "privacy", "local_only", "command", "claim_minutes", "parallel")} | (
-            {"paused_text": q["paused_text"]} if q.get("paused_text") else {}) | (
-            {k: q[k] for k in ("helpers", "not_this_run") if k in q})
+        return queue_run_status(project, kind, parallel, helpers)
 
     @s.tool(description="Take a batch of waiting tasks (a claim): tasks of one kind for one model (and helper, when "
                         "given), each with its prompt, and one system instruction for all of them. Answer every task "
@@ -587,28 +637,19 @@ def build_server():
     @_friendly
     def next_tasks(project: str, kind: Optional[str] = None, n: Optional[int] = None, model: Optional[str] = None,
                    taken_by: Optional[str] = None, helper: Optional[str] = None) -> dict:
-        from . import taskqueue
-
-        name, ws = _project(project)
-        return {"project": name, **taskqueue.next_tasks(ws, kind, n, model, taken_by, helper)}
+        return queue_next_tasks(project, kind, n, model, taken_by, helper)
 
     @s.tool(description="Send the answers of a batch: answers = [{task_id, answer}], each answer the JSON object the "
                         "instruction asks for. Each one is checked (quotes against the text) and stored, or comes back "
                         "with its problems to fix and send again.")
     @_friendly
     def submit_answers(claim: str, answers: list[dict]) -> dict:
-        from . import taskqueue
-
-        _name, ws = _find_claim(claim)
-        return taskqueue.submit(ws, claim, answers)
+        return queue_submit(claim, answers)
 
     @s.tool(description="Give a batch's unanswered tasks back to the queue now (for example when stopping early).")
     @_friendly
     def release(claim: str) -> dict:
-        from . import taskqueue
-
-        _name, ws = _find_claim(claim)
-        return taskqueue.release(ws, claim)
+        return queue_release(claim)
 
     @s.prompt(title="Check a claim", description="Check a claim or hypothesis against the documents of a project")
     def check_claim(claim: str, project: str = "") -> str:

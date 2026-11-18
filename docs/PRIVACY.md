@@ -5,7 +5,7 @@ applications and data protection impact assessments (DPIAs). For the same facts 
 [Privacy: what leaves your computer](manual/privacy.md). How the methods work is in [METHODS.md](METHODS.md).
 
 Each statement names the module of `src/margin/` or the manual page it can be checked against. It describes
-Margin as of version 0.18.1.
+Margin as of version 0.18.1, with the agents of providers stage 2 (Codex, Antigravity) described in *Other cloud providers* below.
 
 ## Who processes what
 
@@ -20,6 +20,7 @@ Releases are downloaded from GitHub ([below](#other-online-services-not-ai)).
 | The researcher (and their institution) | Decides what is processed, and how | Everything: the projects stay on their computer |
 | Anthropic | Runs the Claude models, when the researcher uses Claude | The passages and text inside the AI tasks Claude answers, from documents Claude may read ([below](#what-goes-to-claude)) |
 | OpenAI, Google, Mistral, Microsoft (Azure) or OpenRouter | Run a model, only when the researcher sets that provider up and allows a document to it | The passages and text inside the AI tasks it answers, from documents that allow that provider ([below](#other-cloud-providers)) |
+| OpenAI (Codex) or Google (Antigravity) | Run an agent on the researcher's own ChatGPT plan or Google account, only when the researcher chooses it and allows a document to that company | The passages inside the queue's tasks that agent takes, from documents that allow that company ([below](#codex-and-antigravity)) |
 | A model server on the computer (Ollama, LM Studio and others) | Runs a local model | The text of the tasks it answers; it stays on the computer |
 | The team's shared folder, or its storage space at Backblaze, Cloudflare or the institution's drive (WebDAV) | Carries the work a team shares | Only when the researcher sets one up ([Working together](#working-together)) |
 | Crossref | Answers a retraction lookup | DOIs, and the title, first author's family name and year of bibliography works without a DOI, only when the researcher asks ([Other online services](#other-online-services-not-ai)) |
@@ -53,7 +54,7 @@ AI](manual/privacy.md#who-may-read-each-document-with-ai)):
 
 | Setting | Who may read its text |
 | --- | --- |
-| *Claude may read it* (`cloud`) | Claude Code, the Claude API, and the cloud providers the document allows (by default only Anthropic) |
+| *Claude may read it* (`cloud`) | Claude Code, the Claude API, and the cloud providers and agents (Codex, Antigravity) whose company the document allows (by default only Anthropic) |
 | *Only a local AI* (`local`) | A model server on this computer, or a person |
 | *No AI* (`none`) | A person only |
 
@@ -68,8 +69,9 @@ has read a given share of its text, it is treated as *Only a local AI* for new t
 2. Before any model is asked, the setting is worked out again from the task's contents, and a task is refused when its
    setting does not allow that model (`access.require`). A *No AI* task is refused on every route; an *Only a local
    AI* task is refused on every route that leaves the computer.
-3. Claude Code's queue hands out only tasks Claude may read; the file queue writes only those
-   (`tasks.export`).
+3. The queue hands out only tasks the agent that takes them may read, by that agent's company: Anthropic for Claude
+   Code, OpenAI for Codex, Google for Antigravity (`taskqueue.next_tasks`); the file queue writes only tasks Claude may
+   read (`tasks.export`).
 4. A model server counts as "on this computer" only when its address is `localhost` or a loopback address
    (`access.on_this_computer`). A model server at any other address is a cloud provider: a known one by its address
    (an OpenAI address is OpenAI), otherwise "a server on another computer". It may read only documents marked
@@ -134,8 +136,8 @@ installation ([Switching everything off](#switching-everything-off)).
   default only Anthropic**. So every project made before means what it did, and nothing reaches another provider until
   the researcher allows it: for the project (on the *Documents* page) or per document (its AI setting). A document that does not
   allow the provider of the main route is treated as *Only a local AI* for that route: its excerpts go to the local
-  model for restricted documents, or wait for the researcher's judgement. Claude Code's queue and the Claude connector
-  always count as Anthropic, whatever the main route.
+  model for restricted documents, or wait for the researcher's judgement. The Claude connector and Claude Code's queue
+  count as Anthropic, whatever the main route.
 - **What a provider receives.** The same text Claude receives (the hypothesis and the excerpts inside the AI's tasks,
   [above](#what-goes-to-claude)), only from documents that allow it. Its own terms decide what it keeps and whether it
   trains on it: Margin decides nothing there. Check the provider's API data terms. OpenRouter passes the text on to the
@@ -149,6 +151,36 @@ installation ([Switching everything off](#switching-everything-off)).
   *Claude may read it*, whatever this copy allows, and setting another provider there is refused: the colleagues have
   not agreed to it.
 - **Not measured.** Margin's default models and routing were measured on Claude only.
+
+## Codex and Antigravity
+
+*Settings → AI → Subscription* also offers **Codex** (OpenAI, on a ChatGPT plan) and **Antigravity** (Google, on a
+personal Google account), set up and started from Margin as Claude Code is (`agentcli.py`, `gui/api_agents.py`). Neither
+has been tried with a real account yet: they are built against stand-in programs that follow the makers' documentation,
+and are not measured with Margin.
+
+- **Consent per agent.** Choosing one asks first, naming the company (`allow_codex`, `allow_antigravity`, false until the
+  researcher says yes; the setting is refused without it). Nothing runs until the researcher presses *Start Codex* or
+  *Start Antigravity*.
+- **Passages go to the company of the agent that takes them.** The queue works out every document's setting for the
+  provider of the agent that takes a task (`access.py`, `taskqueue.next_tasks`): Codex is OpenAI, Antigravity is Google,
+  Claude Code is Anthropic. A document that allows OpenAI but not Anthropic reaches Codex and never Claude Code, and the
+  reverse. The connector each agent uses answers for that agent (`MARGIN_ROUTE`), so what it shows and hands out follows
+  the same rule. In a shared project only Anthropic may read, as above. The ledger records the provider and the agent
+  for each passage.
+- **Codex is closed in.** It starts in an empty folder, read-only, with the researcher's own Codex settings left out
+  (`--ignore-user-config`). Its command, web search and image tools are switched off, it may not ask for approval, and
+  Margin's connector, the only one it is given, offers it three tools: `next_tasks`, `submit_answers` and `release`.
+- **Antigravity cannot be closed in from outside.** Its own tools cannot be switched off. Margin starts it in an empty
+  work folder of its own, in its sandbox and without slash commands, with its default of asking before every tool. The
+  set-up adds one permission line, `mcp(margin/*)`, to Antigravity's settings after keeping a copy (`.bak`) and changes
+  nothing else; and **Margin refuses to start it while it is set to run every tool without asking** (`toolPermission`
+  `always-proceed`), so it cannot run commands or read files unasked.
+- **The login stays with the agent.** Margin never sees it. The installers are the makers' own, run only when the
+  researcher confirms the line shown ([OpenAI](https://github.com/openai/codex), [Google](https://antigravity.google/docs/getting-started)),
+  and refused under `--local-only`.
+- **What each company does with the text** is decided by the researcher's plan and the company's terms: check them
+  before a document that needs care is allowed to them (Codex: [sign-in and plan](https://learn.chatgpt.com/docs/auth)).
 
 ## Local models
 
@@ -196,6 +228,7 @@ Points for an assessment:
 | **Crossref** (`api.crossref.org`), retractions and corrections | DOIs, and for a bibliography work without a DOI (a published kind of item with a title of three words or more, a first author and a year) its title, first author's family name and year, one request per work; with `User-Agent: Margin/<version>`; no name, e-mail or project name. A work with a document marked *No AI*, or linked to a working document, is not looked up; a document with no work of the bibliography is never looked up by title | Only when the researcher presses *Check for retractions*, or runs `margin retractions --check` | Off: nothing is sent |
 | **GitHub** (`api.github.com`, `github.com`), updates | A request for the latest release, with `User-Agent: margin-update`; no project data | When a page of the app opens, every two minutes while it is open (one look shared by open tabs), and on *Check for updates*; a download only on *Update* | Not switched off |
 | **Anthropic's installer** (`claude.ai`) | A download of Claude Code | Only when the researcher confirms installing it in *Set up Claude* | Refused |
+| **OpenAI's and Google's installers** (`chatgpt.com`, `antigravity.google`) | A download of Codex or Antigravity | Only when the researcher confirms installing it in the agent's set-up | Refused |
 
 Sources: `retractions.py`, `update.py`, `gui/server.py` (`get_update`), `claude_setup.py`;
 [Retractions and corrections](manual/bibliography.md#retractions-and-corrections),
@@ -310,7 +343,7 @@ in with their work, with a count of what Claude read there.
   whether a key is stored.
 - **A Claude API key**, if saved, is kept in `credentials.json` in the data folder, readable by the user only, or
   read from `ANTHROPIC_API_KEY` (`home.py`). It is never in a project or a move file.
-- **Claude Code's login** is Claude Code's own; Margin never sees it.
+- **Claude Code's, Codex's and Antigravity's login** is the agent's own; Margin never sees it.
 - **The app's key** for the running server is kept in a file only the user can read (`app-token-<port>.json`).
   Whoever has the link with that key can open Margin while it runs ([What goes
   where](manual/privacy.md#what-goes-where)).
@@ -334,7 +367,7 @@ Whoever installs Margin can remove every cloud option for good, with `margin-gui
 
 - every document counts as *Only a local AI*, and no document can be set to *Claude may read it* (`access.levels`,
   `access.set_documents`);
-- the Claude API, the other cloud providers and Claude Code are hidden and refused, Margin never starts Claude Code, its plugin is not written
+- the Claude API, the other cloud providers, Claude Code, Codex and Antigravity are hidden and refused, Margin never starts an agent, its plugin is not written
   (`claude_setup.py`), and the queue hands out no tasks (`taskqueue.py`);
 - the Crossref lookup is off.
 
@@ -371,7 +404,7 @@ A short description that can be adapted:
 > Each document was assigned an AI setting. Documents containing personal data [were marked "No AI" / "Only a local
 > AI" and were read only by the researcher / by a language model running on the researcher's computer]. [For
 > documents marked "Claude may read it", only the passages selected for each task were sent to Anthropic's Claude
-> models via [Claude Code on a [plan] account / the Claude API], under Anthropic's [commercial / consumer] terms.]
+> models via [Claude Code on a [plan] account / the Claude API], under Anthropic's [commercial / consumer] terms; / only the passages selected for each task were sent to [OpenAI via Codex / Google via Antigravity], on the researcher's own [ChatGPT plan / Google account], under that company's terms.]
 > Every passage sent was logged by the software, and the log is kept with the project. [Collaboration used a storage
 > space at [Backblaze / Cloudflare / the institution's drive (SURFdrive, a Nextcloud)] in the EU, with files encrypted (AES-256-GCM) and signed (Ed25519) before upload;
 > the storage provider holds no keys.] [The installation was set to local-only, so no document text could be sent to

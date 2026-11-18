@@ -100,7 +100,7 @@ def test_the_sidebar_says_not_running_in_its_own_colour():
     assert 'kind: "stalled"' in draw and '"Not running"' in draw and 'icon: "pause"' in draw
     # 0.17.0 (design guide): "2 tasks waiting" fits the status area beside Start ("2 tasks wait for Clau…" was cut);
     # the tooltip says for whom
-    assert "sub: `${tasksWord(n)} waiting`," in draw and "wait\"} for Claude Code. Start it" in draw
+    assert "sub: `${tasksWord(n)} waiting`," in draw and "wait\"} for ${t}. Start it" in draw   # stage 2: t = the agent of the main route
     # the pulsing dot is only for work that runs
     assert 'w.kind === "running" ? h("span", { class: "running-dot"' in draw
     # it offers to start Claude Code for the current project's work on hold, in one button

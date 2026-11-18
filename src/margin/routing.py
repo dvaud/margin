@@ -70,11 +70,21 @@ TO_AUDITOR = taskkinds.Names(lambda k: k.to_auditor)
 
 ROUTE_NAMES = {"claude_code": "Claude Code", "anthropic": "Claude API", "local": "local model server",
                "ollama": "local model server", "baseline": "offline demo", "file": "file queue",
-               "chat": "Claude app (connector)", providers.CLOUD_ROUTE: "another cloud provider"}
-# the backends whose passages leave this computer: Claude's two routes and another cloud provider's API (providers.py
-# is the one table: each route's provider is there)
-CLAUDE_ROUTES = frozenset(providers.ROUTE_PROVIDER)
-OFF_COMPUTER = CLAUDE_ROUTES | {providers.CLOUD_ROUTE}
+               "chat": "Claude app (connector)", providers.CLOUD_ROUTE: "another cloud provider",
+               **{a.id: a.title for a in providers.AGENT_CLIS.values()}}
+# the backends whose passages leave this computer: Claude's two routes, the agent CLIs of other providers (Codex,
+# Antigravity: stage 2) and another cloud provider's API (providers.py is the one table: each route's provider is there)
+CLAUDE_ROUTES = frozenset({"claude_code", "anthropic"})
+# the routes that answer through the task queue, with the plugin's helpers and the three-step ladder (Claude Code and
+# the agent CLIs); ALIAS_ROUTES name their models by the ladder's aliases (haiku, sonnet, opus), translated to the
+# provider's own models where they are sent (Router.api_id)
+AGENT_ROUTES = frozenset(providers.AGENT_ROUTES)
+ALIAS_ROUTES = CLAUDE_ROUTES | AGENT_ROUTES | {providers.CLOUD_ROUTE}
+# stage 2: the routes whose second opinions and hard cases go to the auditor (the ladder's top: Opus, or the CLI's
+# strongest model), so a second opinion may run on the main model's family; another cloud provider's API and local
+# models take Settings' second model instead
+AUDITOR_ROUTES = CLAUDE_ROUTES | AGENT_ROUTES
+OFF_COMPUTER = CLAUDE_ROUTES | AGENT_ROUTES | {providers.CLOUD_ROUTE}
 
 
 # 0.18.1 (N2): how much thought Claude gives each kind of task, beside every Start Claude Code (Settings'
@@ -106,7 +116,7 @@ MIX_LOCAL_ROWS = {"best": frozenset(),
                   "balanced": frozenset({"label", "link", "expand", "theme", "resolve"}),
                   "mostly_local": frozenset({"label", "link", "expand", "theme", "resolve", "check", "extract", "split",
                                              "verify"})}
-MIX_ROUTES = ("claude_code",)  # the main routes a mix lends work from (the Claude API: not yet, see the changelog)
+MIX_ROUTES = tuple(providers.AGENT_ROUTES)  # the main routes a mix lends work from (the Claude API: not yet)
 
 
 def mix_rows(settings: dict) -> frozenset[str]:
@@ -182,7 +192,7 @@ def tier_defaults(kind: str, tier: str) -> tuple[str, str | None]:
 def route_of(backend_name: str) -> str:
     """The route family of a backend name: claude_code, anthropic, cloud_api (another cloud provider's API), local
     (Ollama and other local servers) or baseline."""
-    if backend_name in ("claude_code", "anthropic", "baseline", providers.CLOUD_ROUTE):
+    if backend_name in ("claude_code", "anthropic", "baseline", providers.CLOUD_ROUTE) or backend_name in AGENT_ROUTES:
         return backend_name
     return "local"
 
@@ -219,7 +229,7 @@ def certainty(kind: str, obj) -> float | None:
 class Router:
     """The model of each task on one route. `overrides`: {kind or row: model} chosen in Settings."""
 
-    route: str                       # claude_code | anthropic | local | baseline
+    route: str                       # claude_code | anthropic | codex | antigravity | cloud_api | local | baseline
     fable: bool = False              # the auditor runs on Fable (Claude routes) when switched on
     overrides: dict = field(default_factory=dict)
     large: str = ""                  # local: the main model
@@ -228,17 +238,20 @@ class Router:
     opus_id: str = API_IDS["opus"]   # the Claude API's id for "opus" (Settings' anthropic_model)
     tier: str = ""                   # 0.13.10, Claude Code: the plan's tier (free | pro | max; "" = not known: as pro)
     thought: str = "balanced"        # 0.18.1 (N2), Claude routes: efficient | balanced | intelligence
+    # another provider's models for the ladder's tiers (cloud_api and the agent CLIs): {"small", "middle", "strong"}
+    # -> model id, the recommendation or the person's choice (from_settings)
+    lineup: dict = field(default_factory=dict)
 
     # -- the table ------------------------------------------------------------------------------
     def _auditor(self) -> str:
         if self.route == "claude_code" and self.tier == "free":
             return "sonnet"   # no Opus or Fable on a Free plan
-        return "fable" if self.fable else "opus"
+        return "fable" if self.fable and self.route in CLAUDE_ROUTES else "opus"
 
     def _defaults(self, kind: str) -> tuple[str, str | None]:
         first, up = tier_defaults(kind, self.tier if self.route == "claude_code" else "")
         by = {"efficient": -1, "intelligence": 1}.get(self.thought, 0)
-        if not by or self.route not in ("claude_code", "anthropic"):
+        if not by or self.route not in ALIAS_ROUTES:
             return first, up
         top = self._ladder()[-1]  # Free has no Opus: never moved past Sonnet
         k = taskkinds.get(kind)
@@ -255,7 +268,7 @@ class Router:
     def effort(self, kind: str) -> str | None:
         """0.18.1 (N2): the effort a helper of Claude Code is asked for, when the thought chosen asks one (None: the
         helper's own)."""
-        if self.route != "claude_code" or kind not in KINDS:
+        if self.route not in AGENT_ROUTES or kind not in KINDS:
             return None
         return THOUGHT_EFFORT.get(self.thought)
 
@@ -267,12 +280,10 @@ class Router:
         if kind not in KINDS:
             return None
         chosen = self.overrides.get(kind) or self.overrides.get(ROW_OF.get(kind, ""))
-        if self.route in ("claude_code", "anthropic"):
-            m = chosen or self._defaults(kind)[0]
+        if self.route in ALIAS_ROUTES:
+            m = (chosen if self.route in CLAUDE_ROUTES else None) or self._defaults(kind)[0]
             return self._auditor() if m == "auditor" else m
-        if self.route in ("local", providers.CLOUD_ROUTE):
-            # stage 1 of other cloud providers: their chosen model answers every kind, the small one (if set) the
-            # kinds a local small model takes; no per-task models or ladders of their own yet
+        if self.route == "local":
             if chosen:
                 return chosen
             role = LOCAL_DEFAULTS[kind]
@@ -284,10 +295,11 @@ class Router:
         if kind not in KINDS:
             return None
         start = self.first(kind)
-        if self.route in ("claude_code", "anthropic"):
+        if self.route in ALIAS_ROUTES:
             nxt = self._defaults(kind)[1]
             ladder = self._ladder()
-            if (self.overrides.get(kind) or self.overrides.get(ROW_OF.get(kind, ""))) and start in LADDER:
+            if self.route in CLAUDE_ROUTES and (self.overrides.get(kind) or self.overrides.get(ROW_OF.get(kind, ""))) \
+                    and start in LADDER:
                 # a model chosen in Settings steps up to the next one on the ladder (or the auditor at the top)
                 i = LADDER.index(start)
                 nxt = ladder[i + 1] if i + 1 < len(ladder) else ("auditor" if kind in TO_AUDITOR else None)
@@ -302,8 +314,11 @@ class Router:
                 or self.thought != "balanced"
             if (self.route == "claude_code" or self.thought != "balanced") and moved and nxt in RANK and start in RANK and RANK[nxt] <= RANK[start]:
                 return None
+            # another provider: a step up to the same model (a tier the person set to the model below) is no step
+            if self.lineup and self.api_id(nxt) == self.api_id(start):
+                return None
             return nxt
-        if self.route in ("local", providers.CLOUD_ROUTE):
+        if self.route == "local":
             if LOCAL_DEFAULTS[kind] == "small" and self.small and self.large and self.small != self.large \
                     and start != self.large:
                 return self.large
@@ -314,35 +329,43 @@ class Router:
         return self.step_up(kind) if step else self.first(kind)
 
     def helper(self, kind: str, step: int = 0) -> str | None:
-        """The plugin's helper agent for a task (Claude Code only): a stepped-up check goes to the auditor."""
-        if self.route != "claude_code":
+        """The plugin's helper agent for a task (Claude Code and the agent CLIs): a stepped-up check goes to the
+        auditor."""
+        if self.route not in AGENT_ROUTES:
             return None
         if step and kind in TO_AUDITOR:
             return "margin-auditor"
         return HELPERS.get(kind)
 
     def api_id(self, alias: str | None) -> str | None:
-        """The Claude API's model id for an alias (a full id is kept)."""
+        """The model id sent for an alias: the Claude API's, or the provider's own from the line-up on another
+        provider's route (a full id is kept)."""
         if alias is None:
             return None
+        if self.route not in CLAUDE_ROUTES and alias in providers.ALIAS_TIER:
+            return self.lineup.get(providers.ALIAS_TIER[alias]) or alias
         if alias == "opus":
             return self.opus_id or API_IDS["opus"]
         return API_IDS.get(alias, alias)
 
     def call_model(self, kind: str, step: int = 0) -> str | None:
-        """The model name to send to the backend: an API id on the Claude API, the alias for Claude Code, the model
-        name on a local server."""
+        """The model name to send to the backend: an API id on the Claude API and another provider's API, the alias
+        for Claude Code and the agent CLIs (their runner translates it, api_id), the model name on a local server."""
         m = self.model(kind, step)
-        return self.api_id(m) if self.route == "anthropic" else m
+        return self.api_id(m) if self.route in ("anthropic", providers.CLOUD_ROUTE) else m
 
     def table(self) -> list[dict]:
         """One row per group of kinds, for Settings and "How these results were made"."""
         out = []
         for row, kinds, title in ROWS:
             k = kinds[0]
-            rec = self._defaults(k)[0] if self.route in ("claude_code", "anthropic") else LOCAL_DEFAULTS[k]
-            out.append({"row": row, "kinds": list(kinds), "title": title, "model": self.first(k),
-                        "step_up": self.step_up(k), "helper": self.helper(k), "chosen": self.overrides.get(row),
+            rec = self._defaults(k)[0] if self.route in ALIAS_ROUTES else LOCAL_DEFAULTS[k]
+            first, up = self.first(k), self.step_up(k)
+            out.append({"row": row, "kinds": list(kinds), "title": title, "model": first,
+                        "step_up": up, "helper": self.helper(k), "chosen": self.overrides.get(row),
+                        # another provider's route: the provider's own model ids for the aliases
+                        "model_id": self.api_id(first) if self.lineup else None,
+                        "step_up_id": self.api_id(up) if self.lineup else None,
                         # 0.13.10: for the plan, the auditor named (Opus, Fable, or Sonnet on Free)
                         "recommended": self._auditor() if rec == "auditor" else rec,
                         "recommended_role": "auditor" if rec == "auditor" else ""})
@@ -355,19 +378,45 @@ def from_settings(settings: dict, route: str | None = None, large: str = "") -> 
     models = settings.get("task_models") or {}
     if not isinstance(models, dict):
         models = {}
-    family = "claude" if route in ("claude_code", "anthropic") else "local"
+    family = "claude" if route in CLAUDE_ROUTES else "local"
     overrides = {k: v for k, v in (models.get(family) or {}).items() if isinstance(v, str) and v.strip()}
     small = (settings.get("local_small_model") or "").strip() if route == "local" else ""
-    if route == providers.CLOUD_ROUTE:  # a local model's per-task names mean nothing to a cloud provider
+    lineup = {}
+    if route in ALIAS_ROUTES and route not in CLAUDE_ROUTES:  # Claude's per-task aliases mean nothing elsewhere
         overrides = {}
-        large = large or (settings.get("cloud_model") or "").strip()
-        small = (settings.get("cloud_small_model") or "").strip()
+        lineup = lineup_for(settings, route)
     return Router(route=route, fable=bool(settings.get("use_fable")), overrides=overrides, large=large,
                   small=small,
                   second=(settings.get("second_model") or "").strip(),
                   opus_id=settings.get("anthropic_model") or API_IDS["opus"],
                   tier=settings_tier(settings) if route == "claude_code" else "",
-                  thought=settings.get("claude_thought") if settings.get("claude_thought") in THOUGHTS else "balanced")
+                  thought=settings.get("claude_thought") if settings.get("claude_thought") in THOUGHTS else "balanced",
+                  lineup=lineup)
+
+
+def lineup_for(settings: dict, route: str | None = None, available=None) -> dict[str, str]:
+    """{tier: model id} for another provider's route: the person's choice per tier (cloud_api: cloud_small_model,
+    cloud_model, cloud_strong_model; an agent CLI: cli_models[route]), else the provider's recommendation, resolved
+    against `available` (the models the key or the CLI lists, when known; providers.recommended)."""
+    route = route or route_of(settings.get("backend", "auto"))
+    if route == providers.CLOUD_ROUTE:
+        pid = settings.get("cloud_provider") or ""
+        rec = providers.recommended(pid, available) if pid in providers.LINEUP else {t: "" for t in providers.TIERS}
+        chosen = {"small": settings.get("cloud_small_model"), "middle": settings.get("cloud_model"),
+                  "strong": settings.get("cloud_strong_model")}
+        if pid == "azure":   # deployment names: nothing to recommend; an empty tier takes the next one typed
+            rec = {t: "" for t in providers.TIERS}
+    elif route in providers.AGENT_CLIS:
+        rec = providers.cli_recommended(route, available)
+        chosen = ((settings.get("cli_models") or {}).get(route) or {}) if isinstance(settings.get("cli_models"), dict) else {}
+    else:
+        return {}
+    out = {t: (str(chosen.get(t) or "").strip() or rec.get(t) or "") for t in providers.TIERS}
+    # a tier left empty (Azure, or a provider without a line-up) takes the nearest one set: middle, then the others
+    for t in providers.TIERS:
+        if not out[t]:
+            out[t] = out["middle"] or out["strong"] or out["small"]
+    return out
 
 
 def settings_tier(settings: dict) -> str:

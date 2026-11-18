@@ -20,6 +20,39 @@ STATUS_TEXT = {
     "failed": "The check did not work",
     "waiting": "Waiting for Claude Code",
 }
+
+
+def _agent_title() -> str:
+    """The agent that answers the queue now (stage 2: Codex, Antigravity), for the status "waiting"."""
+    try:
+        from .taskqueue import queue_route, route_title
+
+        return route_title(queue_route())
+    except Exception:  # noqa: BLE001 - before the settings can be read: Claude Code's words, as before
+        return "Claude Code"
+
+
+class _StatusTexts(dict):
+    """STATUS_TEXT with "waiting" named after the agent that answers the queue (stage 2: "Waiting for Codex");
+    every other status, and Claude Code's own words, as they were."""
+
+    def _now(self, key, value):
+        return f"Waiting for {_agent_title()}" if key == "waiting" else value
+
+    def __getitem__(self, key):
+        return self._now(key, dict.__getitem__(self, key))
+
+    def get(self, key, default=None):
+        return self._now(key, dict.get(self, key, default)) if key in self else default
+
+    def items(self):
+        return [(k, self._now(k, v)) for k, v in dict.items(self)]
+
+    def values(self):
+        return [v for _k, v in self.items()]
+
+
+STATUS_TEXT = _StatusTexts(STATUS_TEXT)
 WAITING_LOCAL = "Waiting for your local model"  # 0.13.11: only the excerpts of documents marked Only a local AI wait
 # 0.14.3: no excerpt is judged yet, and the ones read wait for the person (documents no AI may read): the status is
 # "not_checked", shown in these words where the app shows a status text

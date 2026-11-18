@@ -14,6 +14,9 @@ Margin puts the work of every AI button in its queue, and nothing runs until you
 hands the tasks to helpers, each on its own model, and Margin checks every answer before it appears. The diagram, and
 what Claude Code answers: [How the AI is used and limited](how-the-ai-is-used.md#how-it-works).
 
+Have a ChatGPT plan or a Google account instead? Codex and Antigravity work the same way:
+[Codex and Antigravity](other-agents.md).
+
 ## Set it up once
 
 On the first screen, or in *Settings → AI → Claude Code*, press **Set up Claude**
@@ -203,4 +206,4 @@ terminal shows any start-up problem (it then waits for the app; stop it with <kb
 
 ---
 
-Next: [A model on your own computer →](local-models.md)
+Next: [Codex and Antigravity →](other-agents.md)

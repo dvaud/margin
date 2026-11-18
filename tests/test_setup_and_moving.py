@@ -539,7 +539,7 @@ def test_page_files_of_the_release():
     # 0.17.0: the release's rules are in the cascade (tests/_static.py rule()), not in a sheet of its own
     assert rule(".cc-now") and rule(".cc-manual")
     js = (static / "views" / "settings.js").read_text()
-    for needle in ('"/api/claude-setup/claude-code"', '"/api/claude-setup/sign-in"', "Set up Claude", "Install Claude Code?"):
+    for needle in ('"/api/claude-setup/claude-code"', '"/api/claude-setup/sign-in"', "Set up Claude", "Install Claude Code"):
         assert needle in js
     assert "/api/move.zip" in (static / "views" / "projects.js").read_text()
     assert "Import from another computer" in (static / "views" / "setup.js").read_text()

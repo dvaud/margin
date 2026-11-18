@@ -173,8 +173,10 @@ while `local_only` is true). `project` sets the current project.
 kept in memory for this run only. `DELETE /api/settings/key` forgets both. 403 when `local_only` is true (0.11.1).
 
 Other cloud providers. `backend` may be `"cloud_api"`, with settings `cloud_provider` (`openai`, `gemini`,
-`mistral`, `azure` or `openrouter`), `cloud_model`, `cloud_small_model` (optional, for labels and links) and
-`azure_url` (the resource address, HTTPS). Refused like `anthropic` while `allow_cloud` is false or `local_only` is
+`mistral`, `azure` or `openrouter`), `cloud_model` (judging excerpts), `cloud_small_model` (labels and links),
+`cloud_strong_model` (second opinions and hard cases; providers stage 2: each empty means the provider's
+recommendation, see `provider-models` below) and `azure_url` (the resource address, HTTPS; for Azure the three models
+are the person's own deployment names). Refused like `anthropic` while `allow_cloud` is false or `local_only` is
 true. `GET /api/state` gains `providers`: `{"list": [...], "keys": {"openai": true, …}, "route", "set_up",
 "other_set_up"}` (`keys` says only whether a key is stored; `route` is the provider of the main route; `set_up` and
 `other_set_up` say whether any provider, or any other than Anthropic, is set up). Provider ids: `anthropic`, `openai`,
@@ -183,7 +185,7 @@ true. `GET /api/state` gains `providers`: `{"list": [...], "keys": {"openai": tr
 - `POST /api/settings/provider-key` `{"provider": "openai", "key": "…"}` → `{"providers": {…}}`. The key goes to the
   keychain and is never returned, logged or put in settings. 403 when `local_only` is true.
 - `DELETE /api/settings/provider-key` `{"provider": "openai"}` → `{"providers": {…}}`.
-- `GET /api/settings/provider-models?provider=openai` → `{"models": [...], "lists": true, "problem": "…"}`. `lists`
+- `GET /api/settings/provider-models?provider=openai` → `{"models": [...], "lists": true, "problem": "…", "recommended": {"small": "…", "middle": "…", "strong": "…"}}`. `recommended` (providers stage 2) is the provider's line-up resolved against the key's list: what an empty model choice in Settings uses (Azure: the models to deploy). `lists`
   is false for Azure, which has no list (type the deployment name); `problem` is a plain sentence when the list could
   not be fetched (for example that the key was refused).
 
@@ -1630,6 +1632,67 @@ that no session has taken yet out of the queue; a check by queue is removed whol
 - `GET /api/state` adds `"installation": {"kind": "git" | "script" | "package" | "pip", "system": "mac" | "windows"
   | "linux", "line", "releases"}`, and `ocr` adds `"install"` when Tesseract is missing: `{"text", "command", "link",
   "link_text"}` for this system.
+
+### Codex and Antigravity on the queue (providers stage 2)
+
+Two more agents answer the queue on the person's own plan, as Claude Code does: **Codex** (OpenAI, program `codex`, a
+ChatGPT plan) and **Antigravity** (Google, program `agy`, a personal Google account). Both are built against stand-in
+programs that follow their documentation and not yet tried with a real account.
+
+- **Settings.** `backend` may be `"codex"` or `"antigravity"`, refused (400) until the person has said yes:
+  `allow_codex` and `allow_antigravity` (both false by default; the Settings dialog names the company first), and
+  refused with `--local-only` like every cloud route. `cli_models` is `{"codex": {"small", "middle", "strong"},
+  "antigravity": {...}}`: the model of a tier the person chose, empty or absent meaning the recommendation. `claude_speed`
+  (helpers at once) and `claude_thought` (how much thought) apply to both, as to every route that answers by the ladder
+  (`claude_code`, `codex`, `antigravity`, `cloud_api`).
+- `GET /api/agent-setup?route=codex|antigravity|claude_code[&refresh=1]` → `{"route", "title", "company", "program",
+  "plan", "docs", "installer": {"line", "docs"}, "status": {"found", "path", "version", "signed_in": true | false |
+  null, "account", "connector", "ready", "models_available", "problem"}, "recommended": {"small", "middle",
+  "strong"}, "lineup_in_use", "manual": [lines to type], "local_only", "adds": [what *Add Margin* adds], "sign_in_docs",
+  "measured"}`. `connector` is whether Margin is added to the agent; `models_available` is what the plan offers
+  (Antigravity's `agy models`; empty for Codex); `recommended` is the line-up resolved against it (`providers.LINEUP`
+  and `AGENT_CLIS`); `lineup_in_use` the same after `cli_models`; `measured` is false: neither agent is measured with
+  Margin yet. For `claude_code` it wraps `GET /api/claude-setup` (its `recommended` and `lineup_in_use` are the aliases
+  *haiku*, *sonnet*, *opus*). Cached for 30 s; `refresh=1` reads again. Only probes that start no model are run. 400
+  for another route.
+- `POST /api/agent-setup/install` `{"route"}` → `{"job": {...}}` (kind `agent-install`): runs the maker's own installer
+  after the person confirmed the line shown (`MARGIN_CODEX_INSTALLER` and `MARGIN_AGY_INSTALLER` replace it in tests).
+  409 when the program is found; 403 with `--local-only`; the job ends in `error` when it could not be installed.
+- `POST /api/agent-setup/sign-in` `{"route"}` → `{"opened", "window", "command"}`. Codex: `codex login` starts in the
+  background and opens the browser itself (`window` is `""`). Antigravity: a terminal window running `agy` in an empty
+  folder of Margin, for its first sign-in, as Claude Code's. `opened: false` gives the `command` to type. The page then
+  reads `GET /api/agent-setup?refresh=1` until `status.signed_in` is true.
+- `POST /api/agent-setup` `{"route"}` → `{"steps": [{"step", "ok", "text"}], "status"}`: adds Margin to the agent.
+  Codex gets the Margin connector (`codex mcp add margin …`), the skill `$margin-run` and the helpers as Codex
+  subagents; Antigravity gets the plugin `margin-run` (`agy plugin install`), one permission line `mcp(margin/*)`
+  merged into its settings after a copy of them is kept as a `.bak`, and Margin's own empty work folder as a trusted
+  workspace. Nothing else of the person's is changed. Margin writes them again when its version, Python or data folder
+  changed.
+- `POST /api/projects/<p>/queue/agent` and `POST /api/projects/<p>/queue/agent/stop`: the same handler and answer as
+  `queue/claude-code` (above, which stays), for the main route, whichever agent it is. Neither agent's headless mode is
+  documented to run skills or helpers, so Margin does what `/margin-run` does: it starts one process of the agent per
+  helper, each on its group's model in the maker's own name and with the effort of the chosen thought, and asks the
+  queue again until nothing is left to start or Stop is pressed. 409 (400 on the old path) when the main route is
+  none of the three agents; 400 when the agent is not found, not signed in, or, for Antigravity, set to run every
+  tool without asking (`toolPermission` `always-proceed`: the answer says how to change it). A reached plan limit
+  ends the run with the same `limit` report as Claude Code's. Run records are
+  `<data folder>/claude-runs/<route>-<project>-<hash>.run.json`, so Stop, *Quit* and a restart find a run that kept
+  working.
+- **Closed in.** Codex starts in an empty folder with the person's own Codex settings left out, read-only, without its
+  command, web search and image tools, and with only the connector's three queue tools (`next_tasks`,
+  `submit_answers`, `release`). Antigravity's own tools cannot be switched off from outside: it starts in Margin's
+  empty work folder, in its sandbox, without slash commands, asking before every tool except `mcp(margin/*)`.
+- `GET /api/state` (and the answer of `PUT /api/settings`) gains `"agent"`: `{"route", "title", "start": "Start Codex",
+  "company", "provider", "card"}` when the main route is Claude Code, Codex or Antigravity (else null), and
+  `"clis"`: `[{"id", "title", "provider", "company", "program", "plan", "docs", "measured", "recommended"}]` for
+  Codex and Antigravity. `GET /api/projects/<p>/queue` adds `"agent"` (true when an agent answers the queue) and
+  `"agent_title"`; its `"route"` stays the backend's name.
+- **The queue's reader.** The queue hands a task out only when every document it names allows the company of the agent
+  that takes it (`access.record_sent` records that provider and the agent's name): a document that allows OpenAI but
+  not Anthropic reaches Codex and never Claude Code, and the reverse. The connector (`mcp_server.py`) answers for the
+  agent that started it: the environment variable `MARGIN_ROUTE` (`codex` or `antigravity`, set by the set-up) names
+  it, and without it the connector is Claude Code's, as before. `MARGIN_CODEX` and `MARGIN_AGY` name the programs, as
+  `MARGIN_CLAUDE` names `claude`.
 
 ### How fast Claude Code works, and which helpers it starts (0.13.10)
 

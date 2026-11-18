@@ -47,7 +47,7 @@ export async function firstRound(ctx) {
 
 // Where secrets are kept on this computer, in words for a form's help ("file": Margin's own file, readable by this
 // person only; otherwise the system's keychain)
-const keptIn = (backend) => (backend === "file" ? "Kept in a file in Margin’s folder that only you can read" : "Kept in this computer’s keychain");
+export const keptIn = (backend) => (backend === "file" ? "Kept in a file in Margin’s folder that only you can read" : "Kept in this computer’s keychain");
 
 // What each service's set-up asks, as guided steps (docs/DESIGN.md 4.28): { steps: [{ title, body, next }], read(), missing(body) }.
 // `missing` says what is still to enter, and at which step.

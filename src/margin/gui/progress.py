@@ -196,11 +196,16 @@ class Tracker:
             if self.model and self.model.get("phase") == "queue":  # 0.8: the work waits in the queue for Claude Code
                 m = self.model
                 model = {"phase": "queue", "seconds": round(float(m.get("seconds") or 0), 1),
-                         "plain": m.get("text") or "Waiting for Claude Code",
+                         "plain": m.get("text") or f"Waiting for {m.get('agent_title') or 'Claude Code'}",
+                         # stage 2: typed in the agent that answers (Codex: $margin-run)
                          "line": m.get("paused_text") or f"To answer it, type {m.get('command', '/margin-run')} in "
-                                                         "Claude Code.",
+                                                         f"{m.get('agent_title') or 'Claude Code'}.",
                          "queue": {k: m.get(k) for k in ("waiting", "being_answered", "estimate", "paused",
                                                           "paused_text", "command", "privacy")}}
+            elif self.model and self.model.get("phase") == "held":   # stage 2: its company not allowed yet
+                m = self.model
+                model = {"phase": "held", "seconds": round(float(m.get("seconds") or 0), 1), "plain": m.get("text"),
+                         **{k: m.get(k) for k in ("agent", "agent_title", "provider", "company", "excerpts")}}
             elif self.model:
                 m = self.model
                 model = {k: m.get(k) for k in ("phase", "prompt_tokens", "thinking_tokens", "answer_tokens", "cap",

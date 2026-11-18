@@ -270,25 +270,43 @@ def _person_rows(cx, task_id: str, cid: str, passages: list[dict], by_choice: bo
 
 
 def _add_round(ws: Workspace, cid: str, base: str, payload: dict, model: str, main_levels=("cloud",),
-               local_reader: bool = False, cx=None, provider: str | None = access.ANTHROPIC) -> dict[str, str]:
-    """Create the parts of one round (see above). Returns {"main"|"local"|"person": task id} for the parts made."""
+               local_reader: bool = False, cx=None, provider: str | None = access.ANTHROPIC,
+               hold: bool = False) -> dict[str, str]:
+    """Create the parts of one round (see above). Returns {"main"|"local"|"person": task id} for the parts made.
+
+    Stage 2 (`hold`, a check by queue): excerpts of documents marked for cloud AI that do not allow the queue's
+    provider (the project allows Anthropic only, and Codex answers) wait in the round's main task when no excerpt of
+    the round may go to that provider: the task is held out of the queue, the check says why, and once the person
+    allows the provider the same task goes to the queue (advance_queued). When some excerpts may go, the others are
+    read by the local model or the person, as before."""
     if cx is None:
         with ws.connect() as c:
-            return _add_round(ws, cid, base, payload, model, main_levels, local_reader, c, provider)
+            return _add_round(ws, cid, base, payload, model, main_levels, local_reader, c, provider, hold)
     # stage 1 of other cloud providers: for the main model's provider (Claude's routes: Anthropic)
     lv = access.levels(cx, [p["doc_id"] for p in payload["passages"]], provider=provider)
     # 0.13.7: an add-on's floor for the check's own text (access.register_floor) goes with every excerpt, so each is
     # read by a model allowed to read both, and not by the main model on its document's setting alone
     beside = access.floor(cx, payload, provider=provider)
-    main, local, person = [], [], []
+    chosen = beside0 = None
+    if hold and provider is not None:
+        chosen = access.levels(cx, [p["doc_id"] for p in payload["passages"]], provider=None)
+        beside0 = access.floor(cx, payload, provider=None)
+    main, local, person, held = [], [], [], []
     for p in payload["passages"]:
         level = access.most([lv.get(p["doc_id"], "none"), beside])
         if level in main_levels:
             main.append(p)
+        elif chosen is not None and access.most([chosen.get(p["doc_id"], "none"), beside0]) == "cloud":
+            held.append(p)   # the provider is not allowed yet (stage 2): see above
         elif level == "local" and local_reader:
             local.append(p)
         else:
             person.append(p)
+    if held:
+        if main:
+            (local if local_reader else person).extend(held)
+        else:
+            main = held
     total = len(payload["passages"])
     out: dict[str, str] = {}
     for key, tid, ps in (("main", base, main), ("local", base + ":local", local), ("person", base + ":person", person)):
@@ -682,6 +700,36 @@ def only_local_waits(ws: Workspace, hyp_id: str) -> bool:
     return _only_local(claims, lambda cid: _check_tasks(ws, cid))
 
 
+def held_parts(ws: Workspace, hyp_ids: list[str]) -> list[dict]:
+    """Stage 2: the parts of these checks by queue held out of the queue: open main parts of a round not in the queue
+    because a document in them may not be read by the queue's provider now. Each {"task_id", "passages", "why"}:
+    "provider" (its documents are marked for cloud AI but do not allow that provider: allowing it lets the check go
+    on), or "setting" (a document's setting or cap keeps it from any cloud AI now)."""
+    if not hyp_ids:
+        return []
+    prov = tasks.queue_provider()
+    out = []
+    for (cid,) in ws.query(f"SELECT claim_id FROM user_claims WHERE stage='judge' AND hyp_id IN "
+                           f"({','.join('?' * len(hyp_ids))})", list(hyp_ids)):
+        for t in _check_tasks(ws, cid):
+            if t["status"] not in ("pending", "retry") or t["queued"] or t["task_id"] != round_base(t["task_id"]) \
+                    or (t["claimed_by"] or ""):
+                continue
+            docs = sorted({p["doc_id"] for p in json.loads(t["payload_json"])["passages"]})
+            with ws.connect() as cx:
+                mine = access.levels(cx, docs, provider=prov, budget=False)
+                chosen = access.levels(cx, docs, provider=None, budget=False)
+            why = "provider" if any(chosen.get(d) == "cloud" and mine.get(d) != "cloud" for d in docs) else "setting"
+            out.append({"task_id": t["task_id"], "passages": len(json.loads(t["payload_json"])["passages"]),
+                        "why": why})
+    return out
+
+
+def hand_to_person(ws: Workspace, task_id: str) -> None:
+    """A held part no AI can read now: its excerpts wait for the person's judgement (the check can finish)."""
+    _to_person(ws, task_id)
+
+
 def _readers(backend, model: str, readers=None):
     return readers if readers is not None else access.Readers(backend, model)
 
@@ -958,7 +1006,8 @@ def queue_check(ws: Workspace, text: str, router, framework: str | None = None, 
     given_terms = [clean_terms(t) if t is not None else None for t in terms] if terms is not None else None
     model = (router.model("check") if router is not None else None) or "opus"
     options = {"k": k, "per_doc": per_doc, "expand": expand, "decompose": decompose, "doc_ids": doc_ids or [],
-               "backend": "claude_code", "model": model, "queue": True,
+               "backend": router.route if router is not None and router.route in routing.AGENT_ROUTES
+               else "claude_code", "model": model, "queue": True,
                "search": "keywords+meaning" if embed_model else "keywords", "embed_model": embed_model,
                "second_pass": bool(second_pass)}
     if given is not None or given_terms is not None:
@@ -1039,7 +1088,10 @@ def _queue_router():
     try:
         from .home import load_settings
 
-        return from_settings(load_settings(), route="claude_code")
+        from .taskqueue import queue_route
+
+        s = load_settings()
+        return from_settings(s, route=queue_route(s))
     except Exception:  # noqa: BLE001
         return None
 
@@ -1109,13 +1161,21 @@ def _advance_one(ws: Workspace, h: dict, r=None) -> bool:
                 if moved and picked:
                     payload = _payload(ws, cid, c["text"], c["target"], c["framework"], picked, terms)
                     _add_round(ws, cid, f"check:{cid}", payload, (r.model("check") if r else None) or "opus",
-                               ("cloud",), _local_configured(), cx)
+                               ("cloud",), _local_configured(), cx, provider=tasks.queue_provider(), hold=True)
             if picked:
                 open_ = True
             continue
         if stage == "judge":
-            sts = [t["status"] for t in _check_tasks(ws, cid)]
+            rows = _check_tasks(ws, cid)
+            sts = [t["status"] for t in rows]
             if any(st in ("pending", "retry") for st in sts):  # the local part too (the app reads it, see _follow)
+                # stage 2: a part held out of the queue (its provider not allowed yet) goes to it once its documents
+                # allow the queue's provider (the person allowed it, or the main route changed): the check goes on
+                back = [t["task_id"] for t in rows if t["status"] in ("pending", "retry") and not t["queued"]
+                        and (t["access"] or "cloud") == "cloud" and t["task_id"] == round_base(t["task_id"])]
+                if back:
+                    with ws.connect() as cx:
+                        tasks.mark_queued(cx, back)
                 open_ = True
                 continue
             with ws.connect() as cx:
@@ -1531,7 +1591,7 @@ def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, 
     stop = _stopper(should_stop)
     if not second_model:
         raise ValueError("Choose a model for second opinions in Settings first.")
-    if second_model == main_model and getattr(backend, "name", "") not in routing.CLAUDE_ROUTES:
+    if second_model == main_model and getattr(backend, "name", "") not in routing.AUDITOR_ROUTES:
         # on Claude the auditor gives the second opinion; it may run on the same model as the checker (Opus)
         raise ValueError("The model for second opinions must be another model than the main one.")
     todo = []

@@ -144,7 +144,8 @@ def test_overview_layout_fixes():
     css = all_css()  # 0.17.0: the cascade (tests/_static.py), so it holds when the design guide moves the rules
     # the AI box is gone (the sidebar's foot card says it); the set-up hint lives in the sidebar line
     assert "aiLine" not in js and "ov-ai" not in css
-    assert "Set up Claude Code" in _read("app.js") and "Finish the set-up" in _read("app.js")
+    # stage 2: "Set up Claude Code", or the agent CLI chosen ("Set up Codex")
+    assert "`Set up ${agentTitle()}`" in _read("app.js") and "Finish the set-up" in _read("app.js")
     # one footer layout: no wrapping, a long state shortens with an ellipsis and says all of it in a tooltip
     foot = rule(".ov-card-foot")
     assert "flex-wrap" not in foot and foot.get("justify-content") != "space-between"

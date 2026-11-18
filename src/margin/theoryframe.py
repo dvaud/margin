@@ -51,6 +51,7 @@ from collections import Counter
 from typing import Any, Callable
 
 from .store import Workspace, now
+from . import providers
 
 KIND = "theory_frame"
 DRAFT_FILE = ("drafts", "codebook-from-theory.json")
@@ -963,7 +964,7 @@ def read(ws: Workspace, backend, model: str, progress: Callable | None = None,
                 with ws.connect() as cx:
                     now_lv = access.recheck(cx, frame_task, provider=access.provider_of(be))
                     if now_lv is not None and now_lv in access.backend_levels(be) \
-                            and getattr(be, "name", "") == "claude_code":
+                            and getattr(be, "name", "") in providers.AGENT_ROUTES:
                         tasks.mark_queued(cx, [frame_task])
                 if now_lv is None or now_lv not in access.backend_levels(be):
                     frame_problem = "a document's AI setting changed"

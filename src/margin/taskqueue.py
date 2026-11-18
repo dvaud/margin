@@ -30,7 +30,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import access, prompts, routing, runs, taskkinds
+from . import access, prompts, providers, routing, runs, taskkinds
 from .store import Workspace, now
 
 CLAIM_MINUTES = 30
@@ -58,6 +58,80 @@ PRIVACY_LINE = ("Claude Code sends the passages inside the tasks it takes to Ant
                 "reviews stay on this computer.")
 
 
+# -- stage 2 of other cloud providers: whose queue it is ---------------------------------------------------------------
+# The queue is answered by an agent route on the person's own plan: Claude Code, or an agent CLI of another provider
+# (Codex: OpenAI; Antigravity: Google). It is the main route's when that is one of them; otherwise (a queue filled from
+# the command line, or kept from before) Claude Code's, as before stage 2. The connector a CLI starts says which route
+# it answers for (MARGIN_ROUTE, mcp_server.py): it is handed only the tasks every document of which allows that route's
+# provider, and what it is sent is recorded for that provider.
+AGENT_NAMES = tuple(routing.ROUTE_NAMES[r] for r in providers.AGENT_ROUTES)   # "Claude Code", "Codex", "Antigravity"
+_ROUTE_BY_NAME = {routing.ROUTE_NAMES[r]: r for r in providers.AGENT_ROUTES}
+
+
+_QROUTE: dict = {"key": None, "route": "claude_code"}
+
+
+def queue_route(settings: dict | None = None) -> str:
+    """The agent route that answers the queue: the main route when it is one, else Claude Code. Without `settings`,
+    read from Settings, kept while the settings file stays the same (asked once per task made)."""
+    if settings is None:
+        from .home import home, load_settings
+
+        p = home() / "settings.json"
+        try:
+            st = p.stat()
+            key = (str(p), st.st_mtime_ns, st.st_size)
+        except OSError:
+            key = (str(p), None, None)
+        if key[1] is not None and _QROUTE["key"] == key:
+            return _QROUTE["route"]
+        settings = load_settings()
+        b = settings.get("backend")
+        route = b if b in providers.AGENT_ROUTES else "claude_code"
+        _QROUTE.update(key=key, route=route)
+        return route
+    b = settings.get("backend")
+    return b if b in providers.AGENT_ROUTES else "claude_code"
+
+
+def agent_route(route: str | None) -> str:
+    """`route` when it is an agent route, else the queue's (queue_route)."""
+    return route if route in providers.AGENT_ROUTES else queue_route()
+
+
+def route_provider(route: str) -> str:
+    """The provider an agent route sends the passages to (Anthropic, OpenAI, Google)."""
+    return providers.ROUTE_PROVIDER.get(route, access.ANTHROPIC)
+
+
+def route_title(route: str) -> str:
+    """How the app names an agent route: "Claude Code", "Codex", "Antigravity"."""
+    return routing.ROUTE_NAMES.get(route, "Claude Code")
+
+
+def route_of_name(name: str | None) -> str:
+    """The agent route a claim or an answer names ("Codex" -> codex); Claude Code for anything else."""
+    return _ROUTE_BY_NAME.get(name or "", "claude_code")
+
+
+def queue_provider(settings: dict | None = None) -> str:
+    """The provider of the route that answers the queue (Anthropic unless the main route is another agent CLI)."""
+    return route_provider(queue_route(settings))
+
+
+def privacy_line(route: str) -> str:
+    if route == "claude_code":
+        return PRIVACY_LINE
+    return (f"{route_title(route)} sends the passages inside the tasks it takes to "
+            f"{providers.company(route_provider(route))}; your documents, results and reviews stay on this computer.")
+
+
+def run_command(route: str, name: str) -> str:
+    """What a person types in the agent itself to answer a project's queue: /margin-run in Claude Code (and in
+    Antigravity, whose plugin carries the same skill), $margin-run in Codex (a skill is called with $)."""
+    return f"{'$' if route == 'codex' else '/'}margin-run {_quote_name(name)}"
+
+
 def noun(kind: str, n: int) -> str:
     one, many = NOUN.get(kind, ("task", "tasks"))
     return f"{n:,} {one if n == 1 else many}"
@@ -82,11 +156,13 @@ def local_only() -> bool:
     return _lo()
 
 
-def router(ws: Workspace | None = None) -> routing.Router:
-    """The Claude Code route's models, from Settings (per-task choices, Fable)."""
+def router(ws: Workspace | None = None, route: str | None = None) -> routing.Router:
+    """The models of the agent route that answers the queue (`route`, else the queue's: queue_route), from Settings
+    (Claude Code: per-task choices, Fable, the plan; an agent CLI: its line-up)."""
     from .home import load_settings
 
-    return routing.from_settings(load_settings(), route="claude_code")
+    s = load_settings()
+    return routing.from_settings(s, route=route if route in providers.AGENT_ROUTES else queue_route(s))
 
 
 # a task waits when it is in the queue (only tasks whose documents Claude may read enter it) and not answered, or
@@ -120,15 +196,21 @@ RESETS_RE = re.compile(r"resets\s+(?:at\s+)?([^\n.|]{1,40})", re.I)
 
 
 def limit_reached(runner: dict | None) -> str | None:
-    """Whether Claude Code, started from the app, stopped at the plan's usage limit: the sentence for the page
-    ("Claude Code reached your plan's usage limit (it resets 3pm).") or None."""
-    if not runner or runner.get("running") or not runner.get("report"):
+    """Whether Claude Code (or an agent CLI), started from the app, stopped at the plan's usage limit: the sentence
+    for the page ("Claude Code reached your plan's usage limit (it resets 3pm).") or None. Stage 2: an agent CLI's
+    runner says it itself (`limit`: agentcli.py reads the CLI's own error), in the same words with its title."""
+    if not runner or runner.get("running"):
+        return None
+    if runner.get("limit"):
+        return str(runner["limit"])
+    if not runner.get("report"):
         return None
     tail = str(runner["report"])
     if not LIMIT_RE.search(tail):
         return None
     m = RESETS_RE.search(tail)
-    return "Claude Code reached your plan's usage limit" + (f" (it resets {m.group(1).strip()})" if m else "") + "."
+    who = runner.get("title") or "Claude Code"
+    return f"{who} reached your plan's usage limit" + (f" (it resets {m.group(1).strip()})" if m else "") + "."
 
 
 def mix_kinds() -> frozenset[str]:
@@ -246,7 +328,9 @@ def answering(ws: Workspace) -> bool:
 
 
 def _last_answer(ws: Workspace) -> str | None:
-    return ws.scalar("SELECT MAX(received_at) FROM results WHERE route='Claude Code'")
+    # one indexed look per agent route (ix_results_route), not one over all of them
+    last = [ws.scalar("SELECT MAX(received_at) FROM results WHERE route=?", (n,)) for n in AGENT_NAMES]
+    return max((x for x in last if x), default=None)
 
 
 def _paused(ws: Workspace, waiting: int, active: int, newest: str | None, last: str | None) -> bool:
@@ -268,7 +352,11 @@ def _run_counts(ws: Workspace, kind: str, first_queued: str) -> tuple[int, int]:
     return int(n[0] or 0), int(n[1] or 0)
 
 
-def _paused_text(kind: str, run_done: int, run_total: int, command: str) -> str:
+def _paused_text(kind: str, run_done: int, run_total: int, command: str, route: str = "claude_code") -> str:
+    if route != "claude_code":
+        title = route_title(route)
+        return (f"Paused at {run_done:,} of {run_total:,} {SHORT.get(kind, 'tasks')}. "
+                f"To go on, press Start {title}, or type {command} in {title}.")
     return (f"Paused at {run_done:,} of {run_total:,} {SHORT.get(kind, 'tasks')}. "
             f"To go on, type {command} in Claude Code.")
 
@@ -284,12 +372,14 @@ def _kind_order(ws: Workspace, o: list[str], kinds) -> list[str]:
 
 
 def status(ws: Workspace, project: str | None = None, parallel: int = PARALLEL, helpers: dict | None = None,
-           kind: str | None = None) -> dict:
+           kind: str | None = None, route: str | None = None) -> dict:
     """The queue of one project: per kind what waits, is being answered, is done or failed; the groups a run hands
     to the helpers (kind, model, helper, and how many helpers to start for each: `start`); estimates; and whether
     the work has paused. `parallel`, `helpers` (clean_helpers) and `kind` are a run's plan (0.13.10): the groups of
-    other kinds, or of helpers the plan leaves out, are not in `groups` (the latter are in `not_this_run`)."""
-    r = router(ws)
+    other kinds, or of helpers the plan leaves out, are not in `groups` (the latter are in `not_this_run`). `route`:
+    the agent route that answers (stage 2; the queue's by default): its models, its words."""
+    route = agent_route(route)
+    r = router(ws, route)
     o, held = order(ws)
     cutoff = _cutoff()
     lent = mix_kinds()
@@ -339,6 +429,7 @@ def status(ws: Workspace, project: str | None = None, parallel: int = PARALLEL, 
         model = r.model(k) or ""
         est = estimate_seconds(ws, k, model, d["waiting"] + d["being_answered"], parallel)
         d.update(model=model, step_up=r.step_up(k), helper=r.helper(k), held=k in held,
+                 model_id=r.api_id(model) if r.lineup and model else None,   # stage 2: the provider's own id
                  estimate_seconds=round(est) if est is not None else None,
                  estimate=_estimate_text(k, d["waiting"] + d["being_answered"], est))
         d.pop("first_queued")
@@ -352,8 +443,10 @@ def status(ws: Workspace, project: str | None = None, parallel: int = PARALLEL, 
     gl = [g for g in gl if all(g is not x for x in left_out)]
     name = project or ws.root.name
     out = {"project": name, "kinds": kinds, "groups": gl, "order": o, "held": held, "waiting": waiting_total,
-           "being_answered": active, "paused": paused, "last_answer_at": last, "privacy": PRIVACY_LINE,
-           "local_only": local_only(), "command": f"/margin-run {_quote_name(name)}", "claim_minutes": CLAIM_MINUTES,
+           "being_answered": active, "paused": paused, "last_answer_at": last, "privacy": privacy_line(route),
+           "local_only": local_only(), "command": run_command(route, name), "claim_minutes": CLAIM_MINUTES,
+           # stage 2: which agent answers (Claude Code, Codex, Antigravity)
+           "agent_route": route, "agent_title": route_title(route),
            "parallel": parallel, "for_local": sum(d["for_local"] for d in per.values()),
            # 0.18.1 (N2, I1): how much thought Claude gives the tasks, and the mix of routes
            "thought": r.thought, "effort": routing.THOUGHT_EFFORT.get(r.thought), "mix_kinds": sorted(lent)}
@@ -363,7 +456,7 @@ def status(ws: Workspace, project: str | None = None, parallel: int = PARALLEL, 
     if paused:
         k = next((x for x in kinds if x["waiting"]), None)
         if k:
-            out["paused_text"] = _paused_text(k["kind"], k["run_done"], k["run_total"], out["command"])
+            out["paused_text"] = _paused_text(k["kind"], k["run_done"], k["run_total"], out["command"], route)
     return out
 
 
@@ -479,14 +572,16 @@ def run_plan(parallel=None, helpers=None) -> dict:
     return {"parallel": n, "helpers": chosen}
 
 
-def run_status(ws: Workspace, project: str, kind: str | None = None, parallel=None, helpers=None) -> dict:
+def run_status(ws: Workspace, project: str, kind: str | None = None, parallel=None, helpers=None,
+               route: str | None = None) -> dict:
     """The queue as one run of /margin-run sees it (the connector's queue_status): `kind`, `parallel` and `helpers`
-    as the command was given them; each group says how many helpers to start for it (`start`)."""
+    as the command was given them; each group says how many helpers to start for it (`start`). `route`: the agent
+    route the run answers for (stage 2)."""
     if kind and kind not in KINDS:
         raise ValueError(f"Unknown kind of task {kind!r}. Kinds: {', '.join(KINDS)}.")
     plan = run_plan(parallel, helpers)
     advance(ws)
-    return status(ws, project, parallel=plan["parallel"], helpers=plan["helpers"], kind=kind or None)
+    return status(ws, project, parallel=plan["parallel"], helpers=plan["helpers"], kind=kind or None, route=route)
 
 
 def helper_rows(groups: list[dict], kinds: list[dict]) -> list[dict]:
@@ -539,18 +634,29 @@ def plan_helpers(groups: list[dict], parallel: int, helpers: dict[str, int] | No
 # handing out and taking back
 # ---------------------------------------------------------------------------------------------
 def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, model: str | None = None,
-               taken_by: str | None = None, helper: str | None = None) -> dict:
+               taken_by: str | None = None, helper: str | None = None, route: str | None = None,
+               provider: str | None = None) -> dict:
     """Claim a batch: tasks of one kind for one model (and helper, when given), as many as BATCH says (or `n`)
     within TOKEN_BUDGET, and with the system prompt within CONNECTOR_CAP.
+
+    Stage 2: `route` is the agent route that asks (the connector's MARGIN_ROUTE; the queue's by default) and
+    `provider` the company it sends the passages to (the route's by default): only tasks every document of which
+    allows that provider are handed out, and what leaves is recorded for it, under the route's name. A task that
+    provider may not read stays in the queue when the queue is another route's (that route may read it); it leaves the
+    queue when the queue is this provider's own, as before.
 
     Returns {"claim", "kind", "model", "helper", "prompt_version", "system", "tasks": [{"task_id", "prompt"}],
     "expires_at", ...}, or {"claim": None, "note"} when nothing of that kind and model waits."""
     from .tasks import render
 
+    route = agent_route(route)
+    title = route_title(route)
+    prov = provider or route_provider(route)
+    owner = queue_provider()   # whose queue it is: a task this provider may not read leaves it only when it is this one's
     if local_only():
         raise ValueError("This installation keeps everything on this computer (local only): the queue does not hand "
-                         "tasks to Claude Code here.")
-    r = router(ws)
+                         f"tasks to {title} here.")
+    r = router(ws, route)
     o, held = order(ws)
     lent = mix_kinds()
     kinds = [kind] if kind else [k for k in o if k not in held]
@@ -577,12 +683,12 @@ def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, mod
             dflt0 = access._default_from_cx(cx)
             try_ids = [t for t in cand[:max(2 * int(n or BATCH.get(k, 5)), 20)] if not t["attempts"]
                        and t["status"] != "done" and access.recheck(cx, t["task_id"], dflt0, budget=False,
-                                                                    provider=access.ANTHROPIC) == "cloud"]
-        kept = [t for t in try_ids if answer_from_cache(ws, t["task_id"], effective_model(t, r), "Claude Code")]
+                                                                    provider=prov) == "cloud"]
+        kept = [t for t in try_ids if answer_from_cache(ws, t["task_id"], effective_model(t, r), title)]
         if kept:
             gone = {t["task_id"] for t in kept}
             cand = [t for t in cand if t["task_id"] not in gone]
-            after_store(ws, {k})
+            after_store(ws, {k}, title)
             if not cand:
                 continue
         m = effective_model(cand[0], r)
@@ -618,10 +724,13 @@ def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, mod
                 # the setting worked out again as the text leaves, not trusted from the column: a document's cap
                 # counts the tasks of this batch recorded just before; one that is no longer `cloud` leaves the
                 # queue and waits for the local model or the person
-                if access.recheck(cx, t["task_id"], dflt, provider=access.ANTHROPIC) != "cloud":
-                    # Claude Code is Anthropic: a task of a document that allows other providers only leaves the queue
-                    # (a wait for it ends; the local model or the person reads it), it never sits there for good
-                    cx.execute("UPDATE tasks SET queued=0, queued_at=NULL WHERE task_id=?", (t["task_id"],))
+                if access.recheck(cx, t["task_id"], dflt, provider=prov) != "cloud":
+                    # the queue's own provider may not read it (a document that allows other providers only): it
+                    # leaves the queue (a wait for it ends; the local model or the person reads it), it never sits
+                    # there for good. Another route's connector (Codex's while the queue is Claude Code's) leaves it
+                    # where it is: the queue's own route may read it.
+                    if prov == owner:
+                        cx.execute("UPDATE tasks SET queued=0, queued_at=NULL WHERE task_id=?", (t["task_id"],))
                     continue
                 _sys, user = render(ws, full)
                 cost = estimate_tokens(user)
@@ -633,13 +742,13 @@ def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, mod
                     picked.append({"task_id": t["task_id"], "prompt": user, "payload_json": full["payload_json"]})
                     budget += cost
                     # 0.11: the passages of this task leave the computer now, with the batch
-                    access.record_sent(cx, t["task_id"], json.loads(full["payload_json"]), "Claude Code", k,
-                                       provider=access.ANTHROPIC)
+                    access.record_sent(cx, t["task_id"], json.loads(full["payload_json"]), title, k,
+                                       provider=prov)
             if not picked:
                 continue
             cx.execute("INSERT INTO task_claims(claim_id, kind, model, helper, route, taken_by, task_ids_json, claimed_at, "
                        "expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                       (cid, k, m, hp, "Claude Code", (taken_by or "")[:120],
+                       (cid, k, m, hp, title, (taken_by or "")[:120],
                         json.dumps([p["task_id"] for p in picked]), at, expires))
         # 0.18.1 (H4): a small codebook once per batch: the codes' descriptions go with the batch's instruction, and
         # each passage names only its candidate codes
@@ -664,7 +773,7 @@ def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, mod
 PREVIEW_SHOWN = 20  # the most tasks one preview shows (a batch takes 50 at most; most kinds take 5 to 20)
 
 
-def preview(ws: Workspace, kind: str | None = None, start: int = 0) -> dict:
+def preview(ws: Workspace, kind: str | None = None, start: int = 0, route: str | None = None) -> dict:
     """What Claude Code would be sent for the next batch of `kind` (the first kind that waits, in the queue's order,
     when None), built as `next_tasks` builds it but without claiming a task or writing to the ledger: the batch's
     instruction, each task's text, and the whole reply of the connector's `next_tasks` as Claude Code receives it.
@@ -676,12 +785,14 @@ def preview(ws: Workspace, kind: str | None = None, start: int = 0) -> dict:
     from .llm import estimate_tokens
     from .tasks import render
 
+    route = agent_route(route)
+    title, prov = route_title(route), route_provider(route)
     if local_only():
         return {"kind": None, "note": "This installation keeps everything on this computer: nothing is sent to "
-                                      "Claude Code."}
+                                      f"{title}."}
     if kind and kind not in KINDS:
         raise ValueError(f"Unknown kind of task {kind!r}. Kinds: {', '.join(KINDS)}.")
-    r = router(ws)
+    r = router(ws, route)
     o, held = order(ws)
     lent = mix_kinds()
     start = max(0, int(start or 0))
@@ -702,7 +813,7 @@ def preview(ws: Workspace, kind: str | None = None, start: int = 0) -> dict:
                 if len(picked) >= size:
                     break
                 full = cx.execute("SELECT * FROM tasks WHERE task_id=?", (t["task_id"],)).fetchone()
-                if full is None or not access.would_leave(cx, t["task_id"], dflt):
+                if full is None or not access.would_leave(cx, t["task_id"], dflt, provider=prov):
                     continue
                 if skipped < start:
                     skipped += 1
@@ -737,6 +848,8 @@ def preview(ws: Workspace, kind: str | None = None, start: int = 0) -> dict:
                "still_waiting": max(0, waiting - len(picked)),
                "how_to_answer": HOW_TO_ANSWER}
         return {"kind": k, "title": KIND_TITLE.get(k, k), "model": m, "helper": hp, "system": system,
+                # stage 2: the provider's own model the alias stands for (Codex: gpt-6.2-sol for sonnet)
+                "model_id": r.api_id(m) if r.lineup else None,
                 "tasks": picked, "raw": json.dumps(raw, ensure_ascii=False, indent=1),
                 "waiting": waiting, "being_answered": _held_count(ws, k), "start": start,
                 "more": start + len(picked) < len(cand)}
@@ -745,7 +858,7 @@ def preview(ws: Workspace, kind: str | None = None, start: int = 0) -> dict:
         if answering:
             return answering
     what = f" of {KIND_TITLE.get(kind, kind)}" if kind else ""
-    return {"kind": kind, "note": f"Nothing{what} waits for Claude Code now, so nothing is about to be sent."}
+    return {"kind": kind, "note": f"Nothing{what} waits for {title} now, so nothing is about to be sent."}
 
 
 def _answering(ws: Workspace, kind: str | None, o: list[str]) -> dict | None:
@@ -784,7 +897,9 @@ def _answering(ws: Workspace, kind: str | None, o: list[str]) -> dict | None:
         helper = claim[0]["helper"] if claim else None
         raw = {"kind": k, "model": model, "helper": helper, "prompt_version": prompts.VERSIONS[k], "system": system,
                "tasks": [{"task_id": p["task_id"], "prompt": p["prompt"]} for p in picked]}
+        r = router(ws)
         return {"kind": k, "title": KIND_TITLE.get(k, k), "model": model, "helper": helper, "system": system,
+                "model_id": r.api_id(model) if r.lineup and model else None,
                 "tasks": picked, "raw": json.dumps(raw, ensure_ascii=False, indent=1), "answering": True,
                 "waiting": 0, "being_answered": len(rows), "start": 0, "more": False}
     return None
@@ -829,7 +944,9 @@ def submit(ws: Workspace, claim_id: str, answers: list[dict]) -> dict:
 
     c = _find(ws, claim_id)
     mine = set(json.loads(c["task_ids_json"] or "[]"))
-    r = router(ws)
+    route = route_of_name(c["route"])   # stage 2: the agent route that took the batch (Claude Code, Codex, Antigravity)
+    title = route_title(route)
+    r = router(ws, route)
     results = []
     stored = problems = 0
     kinds_stored: set[str] = set()
@@ -861,9 +978,11 @@ def submit(ws: Workspace, claim_id: str, answers: list[dict]) -> dict:
         model = effective_model(t, r)
         helper = effective_helper(t, r)
         prov = {"digest": None, "seed": None,
-                "settings": {"backend": "claude_code", "route": "Claude Code", "helper": helper, "model_as_set": model}}
+                "settings": {"backend": route, "route": title, "helper": helper, "model_as_set": model}}
+        if route != "claude_code":   # which provider, and its own model id the alias stood for (as llm.provenance)
+            prov["settings"].update(provider=route_provider(route), model_id=r.api_id(model))
         try:  # stored only while this claim still holds the task, checked where the answer is written
-            ok, errors = ingest_result(ws, tid, raw, model=model, provenance=prov, route="Claude Code", helper=helper,
+            ok, errors = ingest_result(ws, tid, raw, model=model, provenance=prov, route=title, helper=helper,
                                        claimed_at=c["claimed_at"], claim=claim_id)
         except NotHeld as e:
             msg = ("already answered" if e.reason == "answered" else
@@ -912,7 +1031,7 @@ def submit(ws: Workspace, claim_id: str, answers: list[dict]) -> dict:
         secs = time.time() - (_ts(c["claimed_at"]) or time.time())
         per_task = secs / max(1, stored + len(open_ids))
         runs.timing(ws, c["kind"], c["model"], per_task, times=stored)  # one write for the batch
-        after_store(ws, kinds_stored)
+        after_store(ws, kinds_stored, title)
     out = {"claim": claim_id, "results": results, "stored": stored, "with_problems": problems, "open": open_ids}
     out["next"] = ("Fix exactly the problems listed for the tasks still open and call submit_answers again."
                    if open_ids else "This batch is finished. Call next_tasks for another one.")
@@ -989,9 +1108,10 @@ def withdraw(ws: Workspace, kinds: list[str] | None = None, since: str | None = 
 # ---------------------------------------------------------------------------------------------
 # after answers arrive
 # ---------------------------------------------------------------------------------------------
-def after_store(ws: Workspace, kinds: set[str] | list[str]) -> None:
+def after_store(ws: Workspace, kinds: set[str] | list[str], title: str = "Claude Code") -> None:
     """What the app's own runs do after their loop, done whenever answers arrive from the queue: concepts are
-    rebuilt after links; a check by queue moves on after its search words, parts or judgements."""
+    rebuilt after links; a check by queue moves on after its search words, parts or judgements. `title`: the agent
+    route that answered (a theme run's model is named after it)."""
     kinds = set(kinds)
     if "link" in kinds:
         from .terms import rebuild_concepts
@@ -1001,8 +1121,9 @@ def after_store(ws: Workspace, kinds: set[str] | list[str]) -> None:
         advance(ws)
     if "theme" in kinds:
         with ws.connect() as cx:
-            cx.execute("UPDATE theme_runs SET chat_model=COALESCE(chat_model, 'Claude Code') WHERE run_id IN (SELECT "
-                       "json_extract(payload_json, '$.run_id') FROM tasks WHERE kind='theme' AND COALESCE(queued, 0)=1)")
+            cx.execute("UPDATE theme_runs SET chat_model=COALESCE(chat_model, ?) WHERE run_id IN (SELECT "
+                       "json_extract(payload_json, '$.run_id') FROM tasks WHERE kind='theme' AND COALESCE(queued, 0)=1)",
+                       (title,))
 
 
 def advance(ws: Workspace, hyp_ids: list[str] | None = None) -> list[str]:
@@ -1071,7 +1192,7 @@ def _wait_for(ws: Workspace, task_id: str, backend, poll: float | None) -> tuple
             # 0.11.1: taken out of the queue meanwhile (a document's AI setting changed, or the document was removed):
             # Claude Code will never see it, so waiting on would never end
             return False, ["the AI setting of a document in this task changed while it waited: it is no longer handed "
-                           "to Claude Code (a local model or you can read it)"]
+                           f"to {route_title(queue_route())} (a local model or you can read it)"]
         if backend.should_stop and backend.should_stop():
             raise BackendError("Stopped.")
         if backend.progress and time.time() - last_report >= 3:
@@ -1097,15 +1218,17 @@ def queue_info(ws: Workspace, kind: str) -> dict:
     for (k,) in ws.query(f"SELECT t.kind FROM tasks t WHERE {_HELD} AND {WAITING}", (cutoff,)):
         held[k] = held.get(k, 0) + 1
     n, being = total.get(kind, 0), held.get(kind, 0)
-    command = f"/margin-run {_quote_name(ws.root.name)}"
+    route = queue_route()
+    title = route_title(route)
+    command = run_command(route, ws.root.name)
     est = estimate = None
     if n or ws.scalar("SELECT 1 FROM tasks WHERE COALESCE(queued, 0)=1 AND COALESCE(access, 'cloud')='cloud' AND "
                       "kind=? AND (status='failed' OR (status='done' AND COALESCE(again, 0)=0)) LIMIT 1", (kind,)):
         # the kind is listed in the queue (as `status` lists it): its estimate, "" when nothing of it waits
-        sec = estimate_seconds(ws, kind, router(ws).model(kind) or "", n, PARALLEL)
+        sec = estimate_seconds(ws, kind, router(ws, route).model(kind) or "", n, PARALLEL)
         est = round(sec) if sec is not None else None
         estimate = _estimate_text(kind, n, sec)
-    text = f"Waiting for Claude Code: {noun(kind, n)}" if n else "Waiting for Claude Code"
+    text = f"Waiting for {title}: {noun(kind, n)}" if n else f"Waiting for {title}"
     if est:
         text += f" · {_duration(est)}"
     waiting = sum(total.values()) - sum(held.values())
@@ -1117,9 +1240,10 @@ def queue_info(ws: Workspace, kind: str) -> dict:
         k = next((x for x in _kind_order(ws, o, total) if total[x] - held.get(x, 0) > 0), None)
         if k:
             run_total, run_done = _run_counts(ws, k, first[k]) if first[k] else (0, 0)
-            paused_text = _paused_text(k, run_done, run_total, command)
+            paused_text = _paused_text(k, run_done, run_total, command, route)
     return {"text": text, "waiting": n, "being_answered": being, "paused": paused, "paused_text": paused_text,
-            "command": command, "estimate": estimate, "privacy": PRIVACY_LINE, "kind": kind}
+            "command": command, "estimate": estimate, "privacy": privacy_line(route), "kind": kind,
+            "agent_route": route, "agent_title": title}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1236,8 +1360,10 @@ def answer_on_copy(ws: Workspace, items: list[tuple[str, str, dict, str]], backe
         # 0.11: only tasks whose documents Claude may read go to the copy's queue; the others get no answer. The
         # copy's own ledger starts empty: what Claude Code actually takes from it is written there (next_tasks) and
         # carried into this project's ledger below, so a test stopped before a batch left records nothing (0.11.1)
+        name_ = getattr(backend, "name", "")
+        prov = route_provider(name_) if name_ in providers.AGENT_ROUTES else queue_provider()
         with ws.connect() as wcx:
-            items = [it for it in items if access.label_payload(wcx, it[2], provider=access.ANTHROPIC) == "cloud"]
+            items = [it for it in items if access.label_payload(wcx, it[2], provider=prov) == "cloud"]
         with copy.connect() as cx:
             cx.execute("DELETE FROM ai_sent")
             for tid, kind, payload, model in items:

@@ -75,6 +75,10 @@ class DocumentsApi:
             raise ApiError(400, str(e)) from None
         return {**r, **self.app.documents(name)}
 
+    def get_project_access(self, name, q):
+        """Stage 2: the project's AI access alone ({"ai_access"}), without its documents (providerAllowLine)."""
+        return {"ai_access": access.project_info(self.app.ws(name))}
+
     def put_project_access(self, name, q):
         body = self._body()
         ws = self.app.ws(name)

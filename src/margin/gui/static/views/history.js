@@ -1,7 +1,7 @@
 // The answers: every hypothesis checked in the project, newest first, with the checks still running or waiting their
 // turn at the top. 0.17.0: no page of its own any more (it was Results): the Hypotheses page shows it under the box
 // where hypotheses are written. Counts come from the API at the current strictness.
-import { App, api, h, icon, replace, clear, showError, failedLoad, toast, fmt, statusBadge, P, debounce, emptyState, watchJob, latest, norm, TERMINAL, STATUS_SHORT, strictness, auditorName, strongerMark, helpMark, judgementIcon, onJobsChanged, button, link, input, workState , choice, lazyList, searchField, readsLine, notice, card, tag, jobFailed, aiButton } from "../lib.js";
+import { App, api, h, icon, replace, clear, showError, failedLoad, toast, fmt, statusBadge, P, debounce, emptyState, watchJob, latest, norm, TERMINAL, STATUS_SHORT, strictness, auditorName, strongerMark, helpMark, judgementIcon, onJobsChanged, button, link, input, workState , choice, lazyList, searchField, readsLine, notice, card, tag, jobFailed, aiButton, agentTitle } from "../lib.js";
 import { ProgressPanel } from "./progress.js";
 import { withAI } from "../features.js";
 
@@ -189,7 +189,7 @@ export async function answersList(box, query, opts = {}) {
     const badge = waiting
       ? workState("waiting", "Waiting its turn")
       : workState("running", "Checking…");
-    if (waiting) badge.title = j.on_hold ? "Its tasks wait in the queue for Claude Code." : "Another check is using the AI: this one starts when it is done.";
+    if (waiting) badge.title = j.on_hold ? `Its tasks wait in the queue for ${agentTitle()}.` : "Another check is using the AI: this one starts when it is done.";
     return h("tr", { class: "row-link hyp-job-row", onClick: (e) => { if (e.target.closest("a")) return; location.hash = href; } },
       h("td", { class: "hyp-cell" }, link({ kind: "title", serif: true, href }, many ? `A list of ${j.title}` : j.title),
         many ? h("div", { class: "hyp-meta" }, h("span", { class: "it" }, icon("list-checks", { size: 11 }), "checked one after the other")) : null),

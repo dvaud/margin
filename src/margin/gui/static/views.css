@@ -184,7 +184,21 @@ html:has(.bulk-stick:not([hidden])) { scroll-padding-bottom: 6rem; }
 .access-options { margin-top: 6px; }
 .access-banner, .access-ask { margin-bottom: 12px; }
 .access-ask h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; }
-.route-cards { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 8px 0 12px; }
+/* Providers stage 2 (the owner's layout): two rows, Subscription and Local model half wide, then the three others a
+   third each; one column on a phone. A computer that keeps everything local shows only two cards, side by side. */
+.route-cards { grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 8px 0 12px; }
+.route-cards > * { grid-column: span 2; }
+.route-cards > [data-value="subscription"], .route-cards > [data-value="local"] { grid-column: span 3; }
+.route-cards.route-cards-few > * { grid-column: span 3; }
+@media (max-width: 700px) {
+  .route-cards { grid-template-columns: minmax(0, 1fr); }
+  .route-cards > *, .route-cards > [data-value="subscription"], .route-cards > [data-value="local"], .route-cards.route-cards-few > * { grid-column: auto; }
+}
+/* whose plan: an inset right under the route picker, so it belongs to the Subscription card and is not a second picker */
+.agent-choice-box { margin: -4px 0 var(--space-3); }   /* an inset (lib inset()): it belongs to the Subscription card above */
+.agent-choice-box > .field-label { margin-bottom: 4px; }
+.agent-choice { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 4px 0 0; }
+.agent-choice .option-card-head .chip { white-space: nowrap; }
 /* This page's own pieces, placed here and not in the JavaScript; placement only */
 .docs-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docs-access-note { margin: var(--space-2) 0 0; }
@@ -1560,8 +1574,10 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .save-row { display: flex; gap: 12px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .save-state { font-size: var(--fs-small); color: var(--muted); }
 /* The task queue (Claude Code) */
-.copy-line { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
-.copy-code { font-family: var(--font-mono); font-size: var(--fs-small); padding: 2px 6px; border-radius: var(--radius-xs); background: var(--surface-3); word-break: break-all; }
+/* one row: the line to copy stays on one line and scrolls sideways when it is longer than the room; Copy stays beside it */
+.copy-line { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: nowrap; }
+.copy-line > .icon, .copy-line > .copy-btn { flex: none; }
+.copy-code { font-family: var(--font-mono); font-size: var(--fs-small); padding: 2px 6px; border-radius: var(--radius-xs); background: var(--surface-3); white-space: nowrap; overflow-x: auto; min-width: 0; max-width: 100%; }
 .qp-row { padding: 6px 0; border-top: 1px solid var(--border); }
 .qp-row.qp-held { opacity: .7; }
 .qp-title { display: flex; gap: 6px; align-items: center; }
@@ -1648,6 +1664,21 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 }
 /* Settings → AI: the privacy panel sits inside the Claude box, which sits inside the card: drawn without a third box */
 .cc-card .terms-panel { margin-top: 12px; }
+/* Providers stage 2: set-ups of anything outside Margin (views/outside-setup.js, provider-setup.js, agent-setup.js) and
+   the recommended models of Settings → AI (settings.js modelRows) */
+.outside-setup .guided-step-body > p, .outside-after > p { margin: 0 0 var(--space-2); }
+.outside-setup .btn-row { margin: var(--space-2) 0; }
+.agent-step-now:empty, .agent-found:empty, .outside-after:empty { display: none; }
+.agent-found { margin: var(--space-2) 0; }
+.agent-adds, .provider-models-list { margin: 0 0 var(--space-2); padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.provider-deployments { display: grid; gap: var(--space-2); }
+.provider-deployments > .field-label, .provider-deployments > .field-help { margin: 0; }
+.provider-left { font-weight: var(--fw-strong); }
+.provider-cards { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 4px 0 0; }
+.model-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); margin-top: var(--space-2); }
+.model-rows .field { margin: 0; }
+.model-row-pick { display: grid; gap: 4px; }
+.model-row-pick select, .model-row-pick input { width: 100%; }
 .aia-cap { width: 90px; }
 .set-lang { max-width: 16em; }
 /* This page's own pieces, placed here and not in the JavaScript; placement only */

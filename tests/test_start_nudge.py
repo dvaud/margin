@@ -59,7 +59,7 @@ def test_the_page_nudges_and_follow_ups_carry_the_button():
     lib = (STATIC / "lib.js").read_text()
     # the page's rule is the one above, and the time counts per project (the sidebar and a waiting result redraw)
     rule = re.search(r"const idleQueue = \(q\) => (.+);", lib).group(1)
-    for part in ('q.route === "claude_code"', "q.can_start", "!(q.runner || {}).running", "q.waiting", "!q.being_answered"):
+    for part in ("isAgentRoute(q.route)", "q.can_start", "!(q.runner || {}).running", "q.waiting", "!q.being_answered"):
         assert part in rule
     assert "const WAIT_SINCE = new Map();" in lib and "NUDGE_AFTER = 5000" in lib
     assert "Nothing runs until you press it." in lib and '"Stop Claude Code"' in lib

@@ -1,5 +1,5 @@
 // Entry point: boots the shell, routes the hash, keeps the sidebar (project, jobs, privacy, theme) current.
-import { App, api, h, icon, setButtonKind, menu, plural, emptyState, Connection, replace, clear, toast, showError, store, navigate, parseQuery, onJobsChanged, fmt, TERMINAL, confirmDialog, P, watchJob, startClaudeNow, claudeStatus, claudeSeenNow, rememberClaude, claudeAccount, brand, appName, Updates, checkUpdate, onUpdateSeen, UPDATE_EVERY, button, iconButton, link, notice , cancelJob, ensureToken, keyWasStale, copyLine, WhatsNew, loadWhatsNew, showWhatsNew, markWhatsNewRead } from "./lib.js";
+import { App, api, h, icon, setButtonKind, menu, plural, emptyState, Connection, replace, clear, toast, showError, store, navigate, parseQuery, onJobsChanged, fmt, TERMINAL, confirmDialog, P, watchJob, startClaudeNow, claudeStatus, claudeSeenNow, rememberClaude, rememberAgent, agentStatus, agentSeenNow, claudeAccount, brand, appName, Updates, checkUpdate, onUpdateSeen, UPDATE_EVERY, button, iconButton, link, notice , cancelJob, ensureToken, keyWasStale, copyLine, WhatsNew, loadWhatsNew, showWhatsNew, markWhatsNewRead, isAgent, agentRoute, agentTitle, agentPlan, agentCompany } from "./lib.js";
 import { FEATURES, SECTIONS, PLACES, aiTag } from "./features.js";
 import { PAGE_ROUTES, applyExtensions, jobRow } from "./registry.js";
 import { quietRound, quietRoundAgainIn, nextSyncLook } from "./views/team-state.js";   // 0.18 stage 5
@@ -186,12 +186,15 @@ export async function switchProject(name) {
   } catch (e) { showError(e); }
 }
 
+
 // 0.13.4: hovering the line (or reaching it with the keyboard) opens a small card with what the tooltip said and, on
-// Claude Code, the account it is signed in to. Escape closes it; it stays open while the pointer is on it.
+// Claude Code, the account it is signed in to. Escape closes it; it stays open while the pointer is on it. Stage 2: so
+// on Codex and Antigravity.
 function renderPrivacy() {
   const box = document.getElementById("privacy-indicator");
   const p = App.privacy();
-  const plan = App.settings().backend === "claude_code";
+  const plan = isAgent();
+  const route = agentRoute();
   const card = h("div", { class: "privacy-card", id: "privacy-card", role: "tooltip" });
   // 0.17.0 (design guide): an AI chosen in Settings that cannot run yet (an Ollama without a model, the Claude API
   // without a key), and Demo mode, take the attention look: the triangle, amber
@@ -201,7 +204,7 @@ function renderPrivacy() {
     h("div", {}, h("strong", {}, unset ? "No AI model set up yet" : p.label), h("span", { class: "privacy-sub" }, unset ? "Exploring works; checking needs one" : p.short || p.plain)));
   const wrap = h("div", { class: "privacy-wrap" }, a, card);
   const fill = () => replace(card,
-    plan ? accountPart(claudeSeenNow()) : null,
+    plan ? accountPart(agentSeenNow(route), route) : null,
     h("p", {}, p.plain),
     plan ? null : h("p", { class: "privacy-card-muted" }, `AI model: ${p.detail}`),
     h("p", { class: "privacy-card-muted" }, "Change it in Settings."));
@@ -209,15 +212,19 @@ function renderPrivacy() {
   if (plan) {
     // 0.17.0: not ready yet (the Overview's AI box said so, with a button): the line itself says what to do
     const sub = a.querySelector(".privacy-sub");
-    const ask = () => claudeStatus().then((st) => {
+    const ask = () => agentStatus(route).then((st) => {
       if (st && st.ready === false && !st.unknown) {
         // set-up not finished: the attention look, the triangle in place of the cloud (docs/DESIGN.md 5.2)
-        sub.textContent = st.found ? "Finish the set-up" : "Set up Claude Code"; a.href = "#/settings/model"; a.classList.add("privacy-setup");
+        sub.textContent = st.found ? "Finish the set-up" : `Set up ${agentTitle()}`; a.href = "#/settings/model"; a.classList.add("privacy-setup");
         a.firstElementChild.replaceWith(icon("alert-triangle", { size: 16 }));
       }
       if (card.isConnected) fill();
     }).catch(() => {
-      if (!claudeSeenNow()) { rememberClaude({ unknown: true }); fill(); }
+      if (!agentSeenNow(route)) {
+        if (route === "claude_code") rememberClaude({ unknown: true });
+        else rememberAgent(route, { unknown: true }, false);
+        fill();
+      }
     });
     ask();  // the card is ready before the first hover; a hover a minute later asks again
     wrap.addEventListener("mouseenter", ask);
@@ -230,8 +237,21 @@ function renderPrivacy() {
   replace(box, wrap);
 }
 
-// Which account Claude Code uses, for the card: what it says, or what is still to set up.
-function accountPart(st) {
+// Which account Claude Code uses, for the card: what it says, or what is still to set up. Stage 2: Codex and
+// Antigravity say it in their own words (status.account), or nothing.
+function accountPart(st, route = "claude_code") {
+  if (route !== "claude_code") {
+    const t = agentTitle();
+    if (st && st.signed_in && st.account) {
+      return h("div", { class: "privacy-account" }, h("span", { class: "privacy-card-muted" }, `Signed in to ${t}`), h("strong", {}, st.account));
+    }
+    const say = !st ? `Asking ${t} which account it uses…`
+      : st.unknown ? `Could not ask ${t} which account it uses.`
+      : !st.found ? `${t} is not on this computer yet: Settings → AI sets it up.`
+      : st.signed_in === false ? `${t} is not signed in yet: Settings → AI signs you in.`
+      : st.signed_in ? `${t} is signed in; it does not say which account.` : `${t} does not say whether it is signed in.`;
+    return h("div", { class: "privacy-account" }, h("span", {}, say));
+  }
   const acc = claudeAccount(st);
   if (acc) {
     return h("div", { class: "privacy-account" },
@@ -289,12 +309,14 @@ async function renderStatus() {
 // where a job's work goes, as the server says (job.where, WHERE_OF_KIND in api_common.py): a chip under the work box's
 // words; a job that uses the AI of Settings (no `where`) gets that AI's name and icon
 const WHERE_CHIP = {
-  here: { icon: "house", label: "This computer", tip: "This runs on this computer; nothing is sent to Anthropic." },
+  here: { icon: "house", label: "This computer", get tip() { return `This runs on this computer; nothing is sent to ${agentCompany()}.`; } },
   crossref: { icon: "network", label: "Crossref", tip: "Only DOIs are sent to Crossref, and for a work without one its title, first author’s family name and year; no text of your documents leaves this computer." },
 };
 // 0.19.13: the AI run panel's row (docs/DESIGN.md 4.21, 5.2): this computer's house at the box's left end, Claude's
 // cloud at its right end, and the split bar along its top (each engine's half), so it reads at a glance and in greyscale
-const CLOUD_TIP = "Your documents stay here; only the passages inside the AI's tasks go to Anthropic.";
+// stage 2: to the company of the agent that answers (Anthropic, OpenAI, Google); "Claude" or the agent's name
+const cloudTip = () => `Your documents stay here; only the passages inside the AI's tasks go to ${agentCompany()}.`;
+const cloudWho = () => (agentRoute() === "claude_code" ? "Claude" : agentTitle());
 const tasksWord = (n) => `${n.toLocaleString()} ${n === 1 ? "task" : "tasks"}`;
 async function drawStatus() {
   const box = document.getElementById("work-indicator");
@@ -310,7 +332,7 @@ async function drawStatus() {
   const s = App.settings();
   const summary = (App.state && App.state.queue) || {};
   let q = null;
-  if (App.project && (s.backend === "claude_code" || summary.waiting)) {
+  if (App.project && (isAgent(s) || summary.waiting)) {
     try { q = await api("GET", `/api/projects/${P(App.project)}/queue`); } catch (_) { q = null; }
   }
   const active = jobs.filter((j) => !TERMINAL.has(j.state) && !quietRound(j));   // 0.18 (L3): the poller's own rounds stay quiet, unless one takes long
@@ -323,11 +345,14 @@ async function drawStatus() {
   let w = null;
   // 0.19.13: a job whose part for the local model waits for its Start (job.local.gate "wait")
   const localWait = active.find((j) => j.local && j.local.gate === "wait" && (j.local.waiting || 0) > 0 && !j.local.problem);
-  const cloudStalled = !runner && (hold.length || (q && waiting && !answering && s.backend === "claude_code"));
+  // stage 2: only tasks really in the queue count, and only when something can start them: a job on hold whose work
+  // its agent may not read (its company not allowed for the project) is no task waiting, and Start would start nothing
+  const cloudStalled = !runner && !!(q && waiting && !answering && (isAgent(s) || hold.length));
+  const t = agentTitle(s);
   if (localWait && cloudStalled) {   // both wait: two starts do not fit the row; it opens the job's page, where both are
-    const v = jobRow(localWait), n = Math.max(waiting, hold.length);
-    w = { kind: "stalled", icon: "pause", main: "Not running", sub: `${fmt.num(localWait.local.waiting)} here · ${fmt.num(n)} for Claude`, href: v.href || "#/settings/queue",
-      tip: "Two parts wait for you: one for the model on this computer, one for Claude Code. Open the work to start them.", act: "open-job", local: "need", cloudHalf: "need", job: localWait.id };
+    const v = jobRow(localWait), n = waiting;
+    w = { kind: "stalled", icon: "pause", main: "Not running", sub: `${fmt.num(localWait.local.waiting)} here · ${fmt.num(n)} for ${cloudWho()}`, href: v.href || "#/settings/queue",
+      tip: `Two parts wait for you: one for the model on this computer, one for ${t}. Open the work to start them.`, act: "open-job", local: "need", cloudHalf: "need", job: localWait.id };
   } else if (localWait && !cloudStalled && !going.some((j) => j !== localWait && !j.local)) {
     const v = jobRow(localWait), L = localWait.local;
     // the job's work for Claude (being answered, or done): its tile and half, not the empty seat
@@ -336,26 +361,26 @@ async function drawStatus() {
       tip: `Nothing reads this yet: it waits for you to start ${L.model || "your local model"}.`, act: L.memory && L.memory.short ? "open-job" : "start-local", local: "need", job: localWait.id,
       cloudHalf: cloudToo ? (runner || answering ? "run" : "done") : undefined };
   } else if (cloudStalled) {
-    const n = Math.max(waiting, hold.length);
+    const n = waiting;
     w = { kind: "stalled", icon: "pause", main: q && q.paused ? "Paused" : "Not running", sub: `${tasksWord(n)} waiting`,
-      href: "#/settings/queue", tip: `Nothing answers this work yet: ${tasksWord(n)} ${n === 1 ? "waits" : "wait"} for Claude Code. Start it and the work runs.`,
+      href: "#/settings/queue", tip: `Nothing answers this work yet: ${tasksWord(n)} ${n === 1 ? "waits" : "wait"} for ${t}. Start it and the work runs.`,
       act: q && q.can_start && !q.paused ? "start" : "open", cloudHalf: "need" };
   } else if (going.length) {
     const j = going[0], v = jobRow(j);
     const more = going.length - 1;
     w = { kind: "running", where: j.where || null, localModel: j.local_model || "", main: v.text, time: j.state === "running" ? fmt.secs(j.seconds) : "", href: v.href, tip: v.tooltip,
-      sub: j.waiting_for ? j.waiting_for.message : j.state === "queued" ? "waiting its turn" : more ? `and ${more} more running` : waiting + answering ? `${(waiting + answering).toLocaleString()} for Claude Code` : "running",
+      sub: j.waiting_for ? j.waiting_for.message : j.state === "queued" ? "waiting its turn" : more ? `and ${more} more running` : waiting + answering ? `${(waiting + answering).toLocaleString()} for ${t}` : "running",
       act: j.waiting_for ? "cancel" : undefined, job: j.id };   // 0.18 queued jobs: what it waits for, with Cancel
     const mainLocal = ["ollama", "openai", "auto"].includes(s.backend);
     const localRuns = !!(j.local_model !== undefined && j.local_model !== null) || (mainLocal && j.where == null);
     if (localRuns) w.local = "run";
     else if (j.local && (j.local.waiting || 0) > 0) w.local = j.local.gate === "wait" ? "need" : "run";
     if (j.queue || j.where === "cloud" || (j.where == null && App.privacy().where === "cloud")) w.cloudHalf = runner || answering ? "run" : waiting ? "need" : "wait";
-    if (w.cloudHalf === "need" && w.local === "run") w.sub = `Reads here · ${fmt.num(waiting)} for Claude`;
+    if (w.cloudHalf === "need" && w.local === "run") w.sub = `Reads here · ${fmt.num(waiting)} for ${cloudWho()}`;
   } else if (runner) {
-    w = { kind: "running", where: "cloud", main: "Claude Code is working", sub: `${(waiting + answering).toLocaleString()} to go`, href: "#/settings/queue", tip: "Claude Code answers the work waiting for it, on your Claude plan.", cloudHalf: "run" };
+    w = { kind: "running", where: "cloud", main: `${t} is working`, sub: `${(waiting + answering).toLocaleString()} to go`, href: "#/settings/queue", tip: `${t} answers the work waiting for it, ${agentPlan(s)}.`, cloudHalf: "run" };
   } else if (q && waiting) {
-    w = { kind: "stalled", icon: "inbox", main: `${tasksWord(waiting)} waiting`, sub: "for Claude Code", href: "#/settings/queue", tip: "Work prepared for Claude Code: answer it there, or with the AI model of Settings.", act: "open", cloudHalf: "need" };
+    w = { kind: "stalled", icon: "inbox", main: `${tasksWord(waiting)} waiting`, sub: `for ${t}`, href: "#/settings/queue", tip: `Work prepared for ${t}: answer it there, or with the AI model of Settings.`, act: "open", cloudHalf: "need" };
   }
   privacy.hidden = !!w;
   box.hidden = !w;
@@ -365,7 +390,7 @@ async function drawStatus() {
     // where text goes stays in view while work runs (it took the AI line's place): the AI's name, with its icon
     const p = App.privacy();
     const cloud = w.kind === "running" && (w.where === "cloud" || (w.where == null && p.where === "cloud"));
-    const cloudTip = w.where === "cloud" ? CLOUD_TIP : p.plain;
+    const cloudTipNow = w.where === "cloud" ? cloudTip() : p.plain;
     const key = JSON.stringify([App.project, w.kind, w.where, w.localModel, cloud, w.main, w.sub, w.href, w.act, w.act === "cancel" || w.act === "start-local" ? w.job : "", w.local, w.cloudHalf]);
     if (key === statusKey && box.firstChild) {
       const t = box.querySelector(".work-time"); if (t && w.time) t.textContent = w.time;   // only the seconds changed
@@ -380,9 +405,9 @@ async function drawStatus() {
         : h("span", { class: "work-who", title: p.plain }, icon(p.icon, { size: 12 }), (p.label || "").split(",")[0]);
       const half = (where, st) => h("span", { class: `ab-half ab-s-${st || "none"}${st === "run" ? " ab-indet" : ""}` }, h("i"));
       const bar = ai ? h("span", { class: "ab-rowbar", "aria-hidden": "true" }, half("local", w.local), half("cloud", w.cloudHalf)) : null;
-      const tile = (where) => h("span", { class: `ab-rowtile ar-${where}`, title: where === "cloud" ? cloudTip : w.localModel ? `Your local model, ${w.localModel}, reads on this computer; what it reads is not sent to Anthropic.` : "This runs on this computer; nothing is sent to Anthropic." },
+      const tile = (where) => h("span", { class: `ab-rowtile ar-${where}`, title: where === "cloud" ? cloudTipNow : w.localModel ? `Your local model, ${w.localModel}, reads on this computer; what it reads is not sent to ${agentCompany()}.` : `This runs on this computer; nothing is sent to ${agentCompany()}.` },
         h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 13 })),
-        h("span", { class: "visually-hidden" }, where === "cloud" ? "To Claude" : "On this computer"));
+        h("span", { class: "visually-hidden" }, where === "cloud" ? `To ${cloudWho()}` : "On this computer"));
       const main = h("a", { class: "work-main", href: w.href, title: w.tip },   // a round goes to the Team page
         h("span", { class: "work-line" }, w.kind === "running" ? h("span", { class: "running-dot", "aria-hidden": "true" }) : icon(w.icon, { size: 14 }),
           h("strong", { class: "work-text" }, w.main), w.time ? h("span", { class: "work-time" }, w.time) : null),
@@ -391,7 +416,7 @@ async function drawStatus() {
       if (w.act === "start") {
         act = button({ kind: "main", sm: true, class: "work-act", onClick: async () => {
           act.disabled = true;
-          try { await startClaudeNow(App.project); toast("Claude Code started. You can keep working; the results appear as they come in.", "ok"); }
+          try { await startClaudeNow(App.project); toast(`${t} started. You can keep working; the results appear as they come in.`, "ok"); }
           catch (e) { showError(e); }
           act.disabled = false; renderStatus();
         } }, icon("play", { size: 12 }), "Start");
@@ -413,16 +438,16 @@ async function drawStatus() {
       }   // 0.17.0 (design guide): no "Open" button: the box's words are the link to where the work shows
       box.className = `work-box work-${w.kind}${ai ? ` ab-row ab-row-${w.local ? "local" : "cloud"}` : ""}`;
       // the engine with no work in this job keeps its seat: a dashed tile (said in words to a screen reader)
-      const seat = (where) => h("span", { class: `ab-rowtile ab-rowseat ar-${where}`, title: where === "cloud" ? "Nothing in this work goes to Claude" : "No model on this computer works in this" },
+      const seat = (where) => h("span", { class: `ab-rowtile ab-rowseat ar-${where}`, title: where === "cloud" ? `Nothing in this work goes to ${cloudWho()}` : "No model on this computer works in this" },
         h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 13 })),
-        h("span", { class: "visually-hidden" }, where === "cloud" ? "Nothing in this work goes to Claude." : "No model on this computer works in this."));
+        h("span", { class: "visually-hidden" }, where === "cloud" ? `Nothing in this work goes to ${cloudWho()}.` : "No model on this computer works in this."));
       // between its two tiles the row has no room for its words and a button side by side: the button goes under the
       // words (the status area grows a line), so no state word is ever cut
       const mid = ai && act ? h("div", { class: "work-mid" }, main, act) : null;
       replace(box, bar, w.local ? tile("local") : ai ? seat("local") : null, mid || main, mid ? null : act, w.cloudHalf ? tile("cloud") : ai ? seat("cloud") : null);
     }
   }
-  let again = active.length ? 2000 : q && (waiting || answering || runner) ? 5000 : s.backend === "claude_code" ? 15000 : 0;
+  let again = active.length ? 2000 : q && (waiting || answering || runner) ? 5000 : isAgent(s) ? 15000 : 0;
   // 0.18 stage 5: a quiet round of the poller is looked at again when it reaches 20 s, so a long one shows then (with
   // nothing else running, no look was due, and it never showed)
   const quietIn = quietRoundAgainIn(jobs);

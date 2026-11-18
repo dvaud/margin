@@ -1008,7 +1008,9 @@ def _cmd_08(a, ws) -> int:
             print("Problem: this installation keeps everything on this computer (local only): no tasks for Claude Code.",
                   file=sys.stderr)
             return 1
-        r = routing.from_settings(home.load_settings(), route="claude_code")
+        from .taskqueue import queue_route
+
+        r = routing.from_settings(home.load_settings(), route=queue_route())
         made: dict = {}
         with tk.queueing():
             if a.kind in tk.SDG_PREPARE:

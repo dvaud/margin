@@ -347,6 +347,11 @@ class _App(QueueMixin):
     def ws(self, name):
         return self._ws
 
+    def agent_runner(self, name):   # stage 2: the main route's agent run (Claude Code's here)
+        from margin import claude_setup
+
+        return claude_setup.run_state(name)
+
     def queue_mode(self):
         return True
 

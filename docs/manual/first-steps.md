@@ -4,7 +4,7 @@
 
 > **In short**
 > - The first screen has three steps: **the AI** (*Set up Claude* does it all), **a project**, then **documents**.
-> - No Claude plan? Choose a model on your own computer, or no AI for now.
+> - No Claude plan? Choose Codex (a ChatGPT plan), Antigravity (a free Google account), a model on your own computer, or no AI for now.
 > - The sidebar has seven parts, a finder (<kbd>Ctrl</kbd>+<kbd>K</kbd>) and a line that always says where your text goes.
 
 ## The first screen
@@ -30,8 +30,10 @@ switched off, so it cannot open your files. Margin runs Claude Code the same way
 
 *Set it up yourself instead* keeps the lines to type.
 
-**No Claude plan?** *No Claude plan? Other options* offers a model on this computer, or no AI for now. A model on
-this computer needs no terminal:
+**No Claude plan?** *No Claude plan? Other options* offers **Codex** (on a ChatGPT plan), **Antigravity** (on a free
+Google account), a model on this computer, or no AI for now. Codex and Antigravity ask first, naming the company the
+passages go to, and then show the same set-up card and guided steps as Claude Code ([Codex and
+Antigravity](other-agents.md)). A model on this computer needs no terminal:
 
 1. With no model server running, *Install Ollama* gets **Ollama** (free): it says the size of the download first
    (about 1.7 GB on Windows, 230 MB on a Mac), then installs and starts it, with a progress bar. If Ollama is on the

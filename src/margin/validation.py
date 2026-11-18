@@ -180,7 +180,9 @@ def prepare(ws: Workspace, folder: str | Path | None = None, decompose: str = "c
     read = ingest.ingest(ws, [str(p) for p in g["documents"]], ai_access="cloud")
     frameworks.save(ws, FRAMEWORK, g["codebook"], title="Validation codebook (invented, remote work)", label="code")
     pids = match_passages(ws, g["labels"])
-    r = routing.from_settings(home.load_settings(), route="claude_code")
+    from .taskqueue import queue_route
+
+    r = routing.from_settings(home.load_settings(), route=queue_route())
     hyps: dict[str, str] = {}
     with tk.queueing():
         batch = claimcheck._new_id("b")

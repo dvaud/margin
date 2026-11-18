@@ -165,10 +165,10 @@ a > .icon:first-child { margin-right: 3px; }
 .option-card:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 .option-card:disabled, .option-card[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
 .option-card > input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
-.option-card-head { display: flex; align-items: center; gap: 8px; }
+.option-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }  /* a long tag goes under the title, never out of the card */
 .option-card-head > .icon { flex: none; color: var(--text-2); }
 .option-card-head > .chip { margin-left: auto; }
-.option-card-title { font-weight: var(--fw-strong); }
+.option-card-title { font-weight: var(--fw-strong); flex: 1 1 0; min-width: min-content; }  /* the title takes the room but never shrinks below its longest word: only a long tag drops to the next line, never the icon */
 .option-card-sub { color: var(--text-2); font-size: var(--fs-small); line-height: 1.4; }
 .option-card-foot { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; color: var(--muted); font-size: var(--fs-small); }
 
@@ -1112,7 +1112,7 @@ span.passage-broken, span.passage-broken > span { display: block; }
 .guided-step-title:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-ctl); }
 .guided-step[data-state="done"] .guided-step-title { color: var(--text-2); font-weight: inherit; }
 .guided-step[data-state="todo"] .guided-step-title { color: var(--muted); font-weight: inherit; }
-.guided-step-body { display: grid; gap: 10px; margin-top: 6px; }
+.guided-step-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 6px; }  /* minmax: a line to copy scrolls inside the step, it never widens it */
 .guided-step-body[hidden] { display: none; }
 .guided-step-body > p, .guided-step-body > .field { margin: 0; }
 .guided-step-move { margin-top: 2px; }

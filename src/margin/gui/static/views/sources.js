@@ -3,13 +3,23 @@
 import { featureEyebrow, viewTabs } from "../features.js";
 import { tesseractHelp, App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, watchJob, P,
   navigate, batchId, confirmDialog, field, emptyState, TERMINAL, KIND_TEXT, dialog, plural, lazyList, button,
-  iconButton, fileButton, link, notice, card, tag, input, fold, choice, stopButton, store, searchField, menu } from "../lib.js";
+  iconButton, fileButton, link, notice, card, tag, input, fold, choice, stopButton, store, searchField, menu, agentTitle, agentCompany } from "../lib.js";
 import { simpleProgress, jobCard } from "./progress.js";
 import { forgetOriginals } from "./result.js";
-import { LEVEL, accessChoice, accessAskCard, accessBanner, docAccessDialog, levels as accessLevels, providersDefaultCard, remoteServerLine, sentByLine, sentToWords } from "./ai-access.js";
+import { LEVEL, accessChoice, accessAskCard, accessBanner, docAccessDialog, levels as accessLevels, providersDefaultCard, remoteServerLine, providerAllowLine, othersSetUp, sentByLine, sentToWords } from "./ai-access.js";
 import { askWhy } from "./versions.js";
 import { proposalChip, proposedToast, removalNote } from "./owner.js";   // 0.18 L2
 import { docChip } from "./owner-state.js";   // 0.18.5: the owner's word as an icon on a closed line
+
+// Who reads the documents marked for cloud AI, in the words of the AI chosen (stage 2: Codex, Antigravity, or another
+// provider); Claude's words as before when Claude is the AI.
+function cloudSub() {
+  const s = App.settings();
+  const local = "when you use a local model, it reads them instead.";
+  if (s.backend === "codex" || s.backend === "antigravity") return `${agentTitle(s)} may read the ones that allow ${agentCompany(s)}; ${local}`;
+  if (s.backend === "cloud_api") return `The cloud provider you chose may read the ones that allow it; ${local}`;
+  return othersSetUp() ? `Cloud AI may read them when it is the AI you use and their provider is ticked; ${local}` : `Claude may read them when Claude is the AI you use; ${local}`;
+}
 import { documentMarks, roleMenuItems, bulkRoleItems, roleLine, nonsciMenuItem, NONSCI_MEANS, suggestLine } from "./doc-role.js";   // 0.18.1 K2: theory documents; 0.18.6: non-scientific ones; 0.19.0 N3: working documents
 import { reader, newReaderFor, readingNote, READER_4_NEWS, READER_5_NEWS, READER_6_NEWS, renameDocument } from "./doc-shared.js";
 
@@ -298,7 +308,7 @@ export async function renderSources(view) {
   };
   const GROUPINGS = {
     ai: { label: "AI setting", always: true, of: (d) => d.ai_access, groups: [
-      { key: "cloud", name: LEVEL.cloud.many, short: LEVEL.cloud.short, icon: LEVEL.cloud.icon, sub: "Claude may read them when Claude is the AI you use; when you use a local model, it reads them instead." },
+      { key: "cloud", name: LEVEL.cloud.many, short: LEVEL.cloud.short, icon: LEVEL.cloud.icon, get sub() { return cloudSub(); } },
       { key: "local", name: LEVEL.local.many, short: LEVEL.local.short, icon: LEVEL.local.icon, sub: "Read only by a model on this computer, or by you. Never sent to Claude." },
       { key: "none", name: LEVEL.none.many, short: LEVEL.none.short, icon: LEVEL.none.icon, sub: "Only you judge their excerpts. Search, the keyword codes, concepts and themes still work." }] },
     role: { label: "Role", always: true, of: (d) => roles[d.doc_id] || "evidence", groups: [
@@ -345,6 +355,9 @@ export async function renderSources(view) {
     // other cloud providers (stage 1): which may read the documents without a choice of their own, once one is set up
     const farLine = docs.length ? remoteServerLine(project, pa, () => reloadDocs()) : null;
     if (farLine) docsBox.appendChild(farLine);
+    // stage 2: Codex, Antigravity or another provider's API reads only the documents that allow its company
+    const allowLine = docs.length ? providerAllowLine(project, pa, () => { App.refresh().catch(() => {}); reloadDocs(); }) : null;
+    if (allowLine) docsBox.appendChild(allowLine);
     const provCard = docs.length ? providersDefaultCard(project, pa, () => reloadDocs(), docs) : null;
     if (provCard) docsBox.appendChild(provCard);
     const countHead = h("h2", {}, `${docs.length} ${docs.length === 1 ? "document" : "documents"} in this project`);

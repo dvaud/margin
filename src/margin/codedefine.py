@@ -170,7 +170,7 @@ def offer(ws: Workspace, quotes: list, settings: dict | None = None) -> dict:
 
 
 def _offer_of(g: dict, s: dict) -> dict:
-    from .routing import CLAUDE_ROUTES
+    from .routing import AUDITOR_ROUTES
 
     n = len(g["passages"])
     out = {"passages": n, "left_out": g["left_out"], "left_line": _left_line(g["left_out"])}
@@ -181,7 +181,7 @@ def _offer_of(g: dict, s: dict) -> dict:
         return {"offered": False, "why": why, "reader": None, **out}
     if g["level"] == "local":
         return {"offered": True, "why": None, "reader": "local", **out}
-    claude = (s.get("backend") or "auto") in CLAUDE_ROUTES
+    claude = (s.get("backend") or "auto") in AUDITOR_ROUTES
     return {"offered": True, "why": None, "reader": "claude" if claude else "main", **out}
 
 

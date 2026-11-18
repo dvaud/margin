@@ -1,7 +1,7 @@
 // 0.11: who may read each document with AI. The three settings, the question asked when documents are added (and
 // once for a project that has none), the setting of each document on the Documents page, what Claude has read of a
 // document, and the panel "What happens to the text Claude reads" (Set up Claude, Settings → AI).
-import { App, api, h, icon, replace, toast, showError, fmt, P, dialog, button, iconButton, link, notice, card, choice, input, select, fold, tag, optionCards } from "../lib.js";  // eslint-disable-line no-unused-vars
+import { App, api, h, icon, replace, toast, showError, fmt, P, dialog, button, iconButton, link, notice, card, choice, input, select, fold, tag, optionCards, isAgent, agentTitle } from "../lib.js";  // eslint-disable-line no-unused-vars
 import { localModelHelp } from "./local-model.js";
 
 // Stage 1 of other cloud providers: while no provider but Anthropic is set up, "cloud" keeps its words ("Claude may
@@ -143,10 +143,62 @@ export function providersDefaultCard(project, info, onSaved, docs = []) {
 // A model server on another computer as the main route (stage 1 of other cloud providers): it reads only the documents
 // allowed to it ("other", or the provider of its address). One line, and a button that allows it for the project; no
 // pop-up. `onAllowed(res)` after the project's choice was saved.
+// Fetch the project's AI access, then draw `make(info)` into a slot that stays hidden when there is nothing to say
+// (the lines below take `info` null for "fetch it yourself").
+function infoSlot(project, make, cls) {
+  const box = h("div", { class: cls, hidden: true });
+  api("GET", `/api/projects/${P(project)}/ai-access`).then((r) => {
+    const el = make((r && r.ai_access) || {});
+    if (el) { replace(box, el); box.hidden = false; }
+  }).catch(() => {});
+  return box;
+}
+
+// Stage 2: the main route's agent (Codex, Antigravity) or another cloud provider's API reads only the documents that
+// allow its company. A project allows Anthropic only until the person says more, so its work would wait for an agent
+// that is never handed it: this line says so, with the counts, and allows the company for the project in one press
+// (a shared project: why it cannot). null when every document marked for cloud AI allows it, or the route is
+// Claude's, on this computer, or a server on another computer (remoteServerLine). `info`: the project's AI access
+// (GET /api/projects/<p>/ai-access, or the documents' `ai_access`); null: fetched here (an element is returned at once,
+// hidden until it has something to say). `onAllowed(r)`: after the company was allowed (r: the PUT's answer).
+export function providerAllowLine(project, info, onAllowed) {
+  const s = App.settings(), st = providersState();
+  const prov = st.route;
+  const agentCli = s.backend === "codex" || s.backend === "antigravity";
+  if (!project || !prov || prov === "anthropic" || prov === "other" || !(agentCli || s.backend === "cloud_api")) return null;
+  if (info == null) return infoSlot(project, (got) => providerAllowLine(project, got, onAllowed), "provider-allow-slot");
+  const company = ((st.list || []).find((p) => p.id === prov) || {}).company || providerTitle(prov);
+  const name = agentCli ? agentTitle(s) : `${providerTitle(prov)}, through your API key,`;
+  const same = info.route_provider === prov;
+  const total = same ? (info.route_cloud || 0) : ((info.counts || {}).cloud || 0);
+  const ok = same ? (info.route_allowed || 0) : ((info.providers_default || ["anthropic"]).includes(prov) ? total : 0);
+  if (!total || ok >= total) return null;
+  const words = `${name} reads only documents that allow ${company}: ${ok} of ${total} ${total === 1 ? "does" : "do"}.`;
+  if (info.shared) {
+    return notice({ kind: "attention", class: "provider-allow-line" }, h("p", {}, words, " ",
+      info.providers_note || "Other providers come to shared projects later: your colleagues have not agreed to them."));
+  }
+  let box = null;
+  const btn = button({ sm: true, kind: "main", onClick: async () => {
+    btn.disabled = true;
+    try {
+      const r = await api("PUT", `/api/projects/${P(project)}/ai-access`, { providers_default: [...new Set([...(info.providers_default || ["anthropic"]), prov])] });
+      toast(`${company} may read this project's documents marked ${CLOUD_ANY.title}. What waited for ${agentCli ? agentTitle(s) : company} goes on.`, "ok");
+      if (onAllowed) onAllowed(r); else if (box) box.remove();
+    } catch (e) { showError(e); btn.disabled = false; }
+  } }, `Allow ${company} for this project`);
+  box = notice({ kind: "attention", class: "provider-allow-line" },
+    h("p", {}, words, " Until you allow it, their work waits; documents with a choice of their own keep it (Documents page)."),
+    h("div", { class: "row" }, btn));
+  return box;
+}
+
 export function remoteServerLine(project, info = {}, onAllowed) {
   const st = providersState();
   const route = st.route, address = st.route_address;
   if (!address || !route || route === "anthropic") return null;
+  if (project && info == null) return infoSlot(project, (got) => remoteServerLine(project, got, onAllowed), "remote-server-slot");
+  info = info || {};
   const allowed = (info.providers_default || ["anthropic"]).includes(route);
   const words = `A server on another computer (${address}) reads only documents you allow it to.`;
   if (!project) return notice({ kind: "info", class: "remote-server-line" }, h("p", {}, words, " Allow it for a project on its Documents page."));
@@ -259,7 +311,7 @@ export function restrictedModelCard(s, servers, save, info = { servers }) {
     try { await save({ restricted_server: server, restricted_model: model }, state); const st = await api("GET", "/api/state"); App.state.restricted = st.restricted; toast(model ? `Documents marked Only a local AI are read by ${model}.` : "Excerpts from documents marked Only a local AI wait for your judgement.", "ok"); }
     catch (_) { /* shown */ }
   });
-  sect.append(h("p", { class: "lead" }, `${s.backend === "cloud_api" ? "The cloud provider" : "Claude"} never reads documents marked Only a local AI. Choose a model on this computer to read their excerpts in a check, the Profile and the other features; without one, they wait for your own judgement.`),
+  sect.append(h("p", { class: "lead" }, `${s.backend === "cloud_api" ? "The cloud provider" : isAgent(s) ? agentTitle(s) : "Claude"} never reads documents marked Only a local AI. Choose a model on this computer to read their excerpts in a check, the Profile and the other features; without one, they wait for your own judgement.`),
     h("div", { class: "save-row" }, field2("Local model", sel, servers && servers.length ? "Chat models of the model servers running on this computer." : "No model server is running on this computer just now (Ollama, LM Studio…)."), state));
   // 0.13.7: no model on this computer yet: get Ollama, or download a model into it with one button
   const rerender = () => window.dispatchEvent(new HashChangeEvent("hashchange"));

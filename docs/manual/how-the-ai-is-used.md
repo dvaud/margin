@@ -6,11 +6,12 @@
 > - The AI reads passages and answers with a quote; Margin prepares every task and checks every answer, and your own
 >   judgement wins.
 > - Which documents it may read is a setting of each document, enforced in code. Which model answers follows the kind
->   of task and your Claude plan.
+>   of task and your plan.
 > - Its answers are model output until you review them: a checked quote proves the words exist, not that the
 >   judgement follows.
 
-This page explains the AI's part. How to set up and start Claude Code is in [Claude Code](claude-code.md); the privacy
+This page explains the AI's part. How to set up and start Claude Code is in [Claude Code](claude-code.md), and Codex and
+Antigravity in [Codex and Antigravity](other-agents.md); the privacy
 details are in [Privacy](privacy.md) and, for an ethics application, [PRIVACY.md](../PRIVACY.md); the method is in
 [METHODS.md](../METHODS.md#the-ais-part-and-reproducibility).
 
@@ -26,8 +27,8 @@ a second opinion, and the [SDG pack](sdg-pack.md)'s tasks. Each starts when you 
 ```mermaid
 flowchart LR
     A["You press an AI button<br/>(check, label, name themes…)"] --> Q["Margin puts the work<br/>in its queue"]
-    Q --> S["Start Claude Code"]
-    S --> H["Claude Code hands it to helpers,<br/>each on its own model"]
+    Q --> S["Start Claude Code<br/>(or Codex, Antigravity)"]
+    S --> H["The agent hands it to helpers,<br/>each on its own model"]
     H --> V["Margin checks every answer<br/>(quotes, format)"]
     V -- "a wrong quote" --> H
     V --> R["The result appears in Margin"]
@@ -36,6 +37,12 @@ flowchart LR
 Claude Code answers every kind of AI task: labels of codes, concept links, theme names, references, checks, reading an
 excerpt again, second opinions, the model tests, and the [SDG pack](sdg-pack.md)'s tasks. Margin never sees your
 Claude login (Claude Code uses its own) and never runs on anyone else's plan.
+
+Claude Code is not the only way to answer on a plan you already pay for. **Codex** (OpenAI, on a ChatGPT plan) and
+**Antigravity** (Google, on a Google account) take the same queue the same way, and only the passages inside the tasks
+go to the company of the agent you chose ([Codex and Antigravity](other-agents.md)). Margin has not tried either with a
+real account yet, nor measured them: its defaults were measured on Claude only. For other providers there are API keys
+([Settings](settings.md#another-cloud-provider-with-an-api-key)).
 
 For a shared installation that runs unattended, use the **Claude API** with the team's key instead: the same queue and
 the same models per task (`margin queue run --backend anthropic`).

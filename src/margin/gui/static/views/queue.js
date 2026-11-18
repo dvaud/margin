@@ -3,14 +3,16 @@
 // it with the AI model of Settings. (Until 0.16.1 this was the queue panel at the foot of the sidebar; the sidebar now
 // shows only the work's essentials, in its status area, and links here.)
 import { App, api, h, icon, replace, toast, showError, confirmDialog, P, watchJob, button, card, tag, withAI, readsLine, aiWhere, notice, queueAiLine, TERMINAL,
-  aiButton, aiSide, aiSides, aiSeat, placeSide, redrawSide, sideFigures, modelFigures, cancelJob, setBusy } from "../lib.js";
+  aiButton, aiSide, aiSides, aiSeat, placeSide, redrawSide, sideFigures, modelFigures, cancelJob, setBusy, isAgent, agentTitle, agentPlan } from "../lib.js";
 import { aiRun, isStopped } from "./progress.js";
 
 export function queueSection() {
   const body = h("div", { class: "queue-section", "aria-live": "polite" });
+  // stage 2: the agent that answers the queue (Claude Code, Codex, Antigravity) names the section
+  const t0 = agentTitle();
   const section = card({ class: "settings-section", id: "s-queue", "aria-labelledby": "s-queue-h" },
-    h("h2", { id: "s-queue-h", tabindex: "-1" }, "Work waiting for Claude Code"),
-    h("p", { class: "lead" }, "What the AI buttons of this project prepared for Claude Code, kind by kind. Claude Code answers it on your Claude plan; you choose what comes first, hold a kind, or take it out."),
+    h("h2", { id: "s-queue-h", tabindex: "-1" }, `Work waiting for ${t0}`),
+    h("p", { class: "lead" }, `What the AI buttons of this project prepared for ${t0}, kind by kind. ${t0} answers it ${agentPlan()}; you choose what comes first, hold a kind, or take it out.`),
     body);
   let timer = null;
   let defers = 0;
@@ -46,7 +48,7 @@ export function queueSection() {
         onStart: async (force) => { await api("POST", `/api/jobs/${P(gated.id)}/local/start`, { force: !!force }); draw(); } };
     }
     const limit = q && q.at_limit && q.at_limit.offer_local;
-    return { ...base, count: limit ? q.waiting : q.for_local, head: limit ? `Claude Code stopped at your plan’s limit: ${base.model || "your local model"} can answer what waits` : null,
+    return { ...base, count: limit ? q.waiting : q.for_local, head: limit ? `${agentTitle()} stopped at your plan’s limit: ${base.model || "your local model"} can answer what waits` : null,
       onStart: () => runLocal(limit ? "limit" : "mix") };
   }
   function drawLocal(q = lastQ) {
@@ -82,23 +84,24 @@ export function queueSection() {
       try { const r = await api("POST", `/api/projects/${P(App.project)}/queue/withdraw`, { kind: k.kind }); toast(`${r.withdrawn} tasks taken out of the queue.`, "ok"); App.refresh().catch(() => {}); draw(); } catch (e) { showError(e); }
     };
     const kinds = (q.kinds || []).filter((k) => k.waiting || k.being_answered || k.for_local);
-    const head = q.runner && q.runner.running ? `Claude Code is working: ${(q.waiting + q.being_answered).toLocaleString()} to go`
-      : q.waiting ? (q.paused ? `Paused: ${q.waiting.toLocaleString()} waiting` : `${(q.waiting + q.being_answered).toLocaleString()} waiting for Claude Code`)
-      : q.being_answered ? `Claude Code is answering ${q.being_answered}` : "Nothing waits.";
+    const t = q.agent_title || agentTitle();
+    const head = q.runner && q.runner.running ? `${t} is working: ${(q.waiting + q.being_answered).toLocaleString()} to go`
+      : q.waiting ? (q.paused ? `Paused: ${q.waiting.toLocaleString()} waiting` : `${(q.waiting + q.being_answered).toLocaleString()} waiting for ${t}`)
+      : q.being_answered ? `${t} is answering ${q.being_answered}` : "Nothing waits.";
     const parts = [h("p", { class: "qp-head" }, icon(q.paused ? "pause" : "inbox", { size: 14 }), " ", h("strong", {}, head))];
     if (q.paused && q.paused_text) parts.push(h("p", { class: "small qp-paused" }, q.paused_text));
     // 0.18.1 (I4): Claude Code stopped at the plan's usage limit, and what happens now (Settings › AI)
     if (q.at_limit) parts.push(notice({ kind: "attention", class: "qp-limit" }, h("p", {}, q.at_limit.said, " ",
       q.at_limit.started ? "Your local model answers what waits, where it may." : q.at_limit.offer_local ? "Your local model can answer what waits: start it below, on this computer’s side."
         : q.at_limit.choice === "local" && !q.at_limit.local_possible
-        ? "No local model is chosen, so the work waits for the next start." : "The work waits; start Claude Code again when the limit resets.",
+        ? "No local model is chosen, so the work waits for the next start." : `The work waits; start ${t} again when the limit resets.`,
       " ", h("a", { href: "#/settings/model" }, "Change what happens"))));
-    if (!kinds.length) parts.push(h("p", { class: "muted small" }, "Press an AI button (a check, Label passages, Name the themes…): its work waits here for Claude Code."));
+    if (!kinds.length) parts.push(h("p", { class: "muted small" }, `Press an AI button (a check, Label passages, Name the themes…): its work waits here for ${t}.`));
     for (const k of kinds) {
       parts.push(h("div", { class: "qp-row" + (k.held ? " qp-held" : "") },
         h("div", { class: "qp-title" }, h("strong", {}, k.title), k.held ? tag({}, "held") : null),
         h("div", { class: "muted small" }, `${k.waiting.toLocaleString()} waiting${k.being_answered ? ` · ${k.being_answered} being answered` : ""}${k.done ? ` · ${k.done.toLocaleString()} done` : ""}${k.stronger_model ? ` · ${k.stronger_model} for a stronger model` : ""}${k.for_local ? ` · ${k.for_local.toLocaleString()} for your local model` : ""}`),
-        h("div", { class: "muted small" }, [k.helper ? `${k.helper} on ${k.model}` : k.model ? `on ${k.model}` : "", k.estimate ? ` · ${k.estimate}` : ""].join("")),
+        h("div", { class: "muted small" }, [k.helper ? `${k.helper} on ${k.model_id || k.model}` : k.model ? `on ${k.model_id || k.model}` : "", k.estimate ? ` · ${k.estimate}` : ""].join("")),
         h("div", { class: "qp-actions" },
           (q.order || [])[0] !== k.kind ? button({ kind: "quiet", sm: true, onClick: () => act(k.kind, "first") }, icon("arrow-up", { size: 12 }), "Do first") : null,
           button({ kind: "quiet", sm: true, onClick: () => act(k.kind, k.held ? "go" : "hold") }, icon(k.held ? "play" : "pause", { size: 12 }), k.held ? "Go on" : "Hold"),
@@ -107,8 +110,8 @@ export function queueSection() {
     // the AI run panel: Claude's side (Start Claude Code, its choices) and, for the AI mix's share (0.18.1, I1) or at the
     // plan's limit, this computer's side with its own Start: two starts, nothing starts by itself
     lastQ = q;
-    const wantCloud = kinds.length || s.backend === "claude_code";
-    const wantLocal = !!gated || (s.backend === "claude_code" && (q.for_local || (q.at_limit && q.at_limit.offer_local) || (localJob && !TERMINAL.has(localJob.state))));
+    const wantCloud = kinds.length || isAgent(s);
+    const wantLocal = !!gated || (isAgent(s) && (q.for_local || (q.at_limit && q.at_limit.offer_local) || (localJob && !TERMINAL.has(localJob.state))));
     if (wantCloud || wantLocal) {
       if (!block) block = aiSides(null, null, { compact: true });
       if (wantCloud && !cloud) { cloud = aiSide({ where: "cloud", live: true, project: App.project, command: q.command, always: true, privacy: false, compact: true }); placeSide(block, "cloud", cloud); }
@@ -119,10 +122,10 @@ export function queueSection() {
     }
     // where the tasks' text goes (docs/DESIGN.md 4.4): under the card's AI actions. With Claude Code, under its panel;
     // with another AI, under "Answer them here instead"
-    if (s.backend === "claude_code") parts.push(queueAiLine(q.privacy, kinds.length ? App.project : null));
+    if (isAgent(s)) parts.push(queueAiLine(q.privacy, kinds.length ? App.project : null));
     // the local model's own line (readsLine() names the AI of Settings, which is Claude here)
     if (wantLocal) parts.push(aiWhere(`Your local model (${(localStatus || {}).model || App.settings().restricted_model || "chosen in Settings › AI"}) reads its part on this computer: it never leaves it.`, "local"));
-    if (kinds.length && s.backend !== "claude_code") {
+    if (kinds.length && !isAgent(s)) {
       const go = aiButton({ sm: true, disabled: !!(hereRun && hereRun.job && !TERMINAL.has(hereRun.job.state)), onClick: async () => {
         setBusy(go, true);
         try {

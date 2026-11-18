@@ -6,7 +6,7 @@
 // after the other. The progress of the check the page follows is under the box, then every answer (history.js), with
 // the checks still running or waiting their turn at the top. The evidence map is the place's other view (map.js).
 import { featureEyebrow, withAI, viewTabs } from "../features.js";
-import { App, api, h, icon, readsLine, replace, clear, append, toast, showError, fmt, pageHead, navigate, watchJob, P, debounce, session, emptyState, statusBadge, download, downloadLinks, button, iconButton, link, notice, tag, card, fold, fileButton, select, textarea, input as fieldInput, choice, latest, norm, readTextFile, jobFailed, aiButton, plural } from "../lib.js";
+import { App, api, h, icon, readsLine, replace, clear, append, toast, showError, fmt, pageHead, navigate, watchJob, P, debounce, session, emptyState, statusBadge, download, downloadLinks, button, iconButton, link, notice, tag, card, fold, fileButton, select, textarea, input as fieldInput, choice, latest, norm, readTextFile, jobFailed, aiButton, plural, agentTitle } from "../lib.js";
 import { checkOptions, pickCode } from "./options.js";
 import { ProgressPanel } from "./progress.js";
 import { answersList } from "./history.js";
@@ -503,7 +503,7 @@ export async function renderHypotheses(view, params, query) {
         // 0.19.13: a check whose Claude Code part was done is kept: only its local excerpts wait
         const kept = job.result && job.result.kept && job.result.kept.length;
         const n = kept ? job.result.waiting_local || 0 : 0;
-        toast(kept ? `The check was stopped. What Claude Code read is kept, in the answers below; ${n ? `its ${plural(n, "excerpt")} from documents marked Only a local AI ${n === 1 ? "waits" : "wait"}` : "what waits for your local model waits"} on its result.`
+        toast(kept ? `The check was stopped. What ${agentTitle()} read is kept, in the answers below; ${n ? `its ${plural(n, "excerpt")} from documents marked Only a local AI ${n === 1 ? "waits" : "wait"}` : "what waits for your local model waits"} on its result.`
           : "The check was stopped. Nothing was saved.", "info");
         if (kept && answers) answers.refresh();
       } else if (job.state === "error") {

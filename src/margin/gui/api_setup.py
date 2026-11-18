@@ -25,7 +25,11 @@ class SetupApi:
         s = home.update_settings(body)
         if "update_channel" in body:
             self.app.update_seen = None  # 0.15: another channel, another answer: the next look asks again
-        return {"settings": s, "backend_label": home.backend_label(s), "providers": self.app.providers_state(s)}
+        from .api_agents import agent_info
+        from .. import providers
+
+        return {"settings": s, "backend_label": home.backend_label(s), "providers": self.app.providers_state(s),
+                "agent": agent_info(s.get("backend")), "clis": providers.clis_summary()}
 
     def post_key(self, q):
         if home.local_only():  # 0.11.1: the one cloud setting that did not honour it
@@ -72,8 +76,11 @@ class SetupApi:
         return {"providers": self.app.providers_state()}
 
     def get_provider_models(self, q):
-        """The models a provider offers to the stored key → {"models": [...], "lists": bool}. Azure lists none (its
-        deployment's name is typed). Nothing is sent but the key."""
+        """The models a provider offers to the stored key → {"models": [...], "lists": bool, "recommended": {tier: id}}.
+        `recommended` is the provider's line-up resolved against that list (providers.recommended): what an empty
+        choice in Settings uses, shown as "Applied automatically" by the key's set-up. `problem` says why the list is
+        missing; `refused: true` when the provider answered 401 or 403 (the key is wrong). Azure lists none (its
+        deployments' names are typed): its `recommended` says which models to deploy. Nothing is sent but the key."""
         from .. import providers
         from ..llm import BackendError, CloudBackend
 
@@ -81,14 +88,18 @@ class SetupApi:
             raise ApiError(403, "Cloud models are switched off on this computer by whoever installed Margin.")
         pid = self._provider(_str(q, "provider"))
         if not providers.TABLE[pid].lists_models:
-            return {"models": [], "lists": False}
+            return {"models": [], "lists": False, "recommended": providers.recommended(pid)}
         key = home.cloud_key(pid)
         if not key:
-            return {"models": [], "lists": True, "problem": f"No key for {providers.title(pid)} is stored yet."}
+            return {"models": [], "lists": True, "problem": f"No key for {providers.title(pid)} is stored yet.",
+                    "recommended": providers.recommended(pid)}
         try:
-            return {"models": CloudBackend(pid, key).models(timeout=15), "lists": True}
+            models = CloudBackend(pid, key).models(timeout=15)
         except BackendError as e:
-            return {"models": [], "lists": True, "problem": str(e)}
+            # `refused`: the provider answered 401 or 403, so the key is wrong; without it the provider was out of reach
+            return {"models": [], "lists": True, "problem": str(e), "refused": bool(getattr(e, "refused", False)),
+                    "recommended": providers.recommended(pid)}
+        return {"models": models, "lists": True, "recommended": providers.recommended(pid, models)}
 
     def post_quit(self, q):
         """Stop the app ("Quit Margin"). Running jobs stop with it; a stopped check leaves nothing behind."""
@@ -122,13 +133,17 @@ class SetupApi:
         """0.14.3: Claude Code runs started from the app live in their own session, so they outlive it: stop them
         before the app quits or restarts (a run left behind keeps using the researcher's Claude plan, and the next app
         could not stop it). The batches they had taken go back to the queue, as Stop does."""
-        from .. import claude_setup
+        from .. import agentcli, claude_setup
 
         try:
             stopped = claude_setup.stop_all_runs()
         except Exception as e:  # noqa: BLE001 - never in the way of quitting
             print(f"Could not stop Claude Code: {e}", file=sys.stderr)
-            return
+            stopped = []
+        try:  # stage 2: and the helpers of Codex and Antigravity started from the app
+            stopped += agentcli.stop_all_runs()
+        except Exception as e:  # noqa: BLE001
+            print(f"Could not stop the agent CLIs: {e}", file=sys.stderr)
         for r in stopped:
             self._release_run_claims(r["project"], r["started_at"])
 

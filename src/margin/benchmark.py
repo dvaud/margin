@@ -37,6 +37,7 @@ import time
 from typing import Callable
 
 from . import prompts
+from . import providers
 from .analysis import _prf
 from .tasks import HANDLERS, _errs, parse_json
 from .store import Workspace
@@ -122,7 +123,9 @@ def _queue_models(backend, model: str | None, kinds) -> dict:
     if r is None:
         from .home import load_settings
 
-        r = routing.from_settings(load_settings(), route="claude_code")
+        from .taskqueue import queue_route
+
+        r = routing.from_settings(load_settings(), route=queue_route())
     return {k: (model if model in routing.ALIASES else r.first(k) or "opus") for k in kinds}
 
 
@@ -138,7 +141,7 @@ def run(ws: Workspace, backend, model: str | None, kinds=("verify_set", "extract
         raise ValueError("The reference workspace has no answered tasks of these kinds.")
     per: dict[str, list[dict]] = {k: [] for k in kinds}
     queued = secs = models = None
-    if getattr(backend, "name", "") == "claude_code":
+    if getattr(backend, "name", "") in providers.AGENT_ROUTES:
         from .taskqueue import answer_on_copy
 
         models = _queue_models(backend, model, kinds)
@@ -427,7 +430,7 @@ def agreement(ws: Workspace, kind: str, n: int, local, claude_backend, seed: int
     if not sample:
         raise ValueError("No answered task of this kind may be read by Claude, so there is nothing to compare.")
     have = {t["task_id"]: _stored(ws, t["task_id"]) for t in sample}
-    code = getattr(claude_backend, "name", "") == "claude_code"
+    code = getattr(claude_backend, "name", "") in providers.AGENT_ROUTES
 
     def claude_alias(t) -> str:
         if code:

@@ -4,7 +4,8 @@
 
 > **In short**
 > - Each kind of AI task goes to the model that suits it: many quick labels on a small model, judging on a larger one.
-> - On Claude Code, the recommended models follow your Claude plan. A model you choose yourself always comes first.
+> - On Claude Code, the recommended models follow your Claude plan; every other provider and agent has three tiers
+>   from its own current line-up. A model you choose yourself always comes first.
 > - Every answer records how it was made, and every Excel download ends with *How these results were made*.
 
 ## The model of each kind of task
@@ -24,12 +25,39 @@ are on the validation report's gold set: [MODEL_CHOICE.md](../MODEL_CHOICE.md).
 ### How much thought
 
 *Energy efficient · Balanced · Intelligence*, beside every *Start Claude Code* and in *Settings → AI*, moves each
-kind of task along Haiku, Sonnet and Opus. **Balanced** is the table above. **Energy efficient** starts each kind one
+kind of task along Haiku, Sonnet and Opus (on Codex, Antigravity and another cloud provider, along the provider's three
+tiers below). **Balanced** is the table above. **Energy efficient** starts each kind one
 model lower (judging excerpts never below Sonnet) and asks the helpers for low effort: easiest on your plan's limits
 and on energy. **Intelligence** starts each kind one model higher and asks for high effort: it uses your plan's limits
 sooner. An unsure answer still steps up to a stronger model, where there is one. A model chosen per task comes first;
-*Let the auditor use Fable* stays its own switch; a local model keeps its own choice. Can change results, as any
+*Let the auditor use Fable* stays its own switch (Claude only); a local model keeps its own choice. Where the model takes
+an effort (OpenAI's and Codex's reasoning effort, Antigravity's `--effort`), *Energy efficient* asks for low and
+*Intelligence* for high. Can change results, as any
 change of model can: each answer records its model.
+
+### The recommended models of each provider
+
+Beyond Claude, Margin uses three tiers: **small** (labels and links), **middle** (judging excerpts, search words and the
+rest) and **strong** (second opinions and hard cases). Each provider and agent has its own line-up, best first. Margin
+takes the first one your key or plan offers, so a new version brings newer models by itself. A model you choose per tier
+comes first. Checked on the makers' pages on 18 November 2026.
+
+| | Small | Middle | Strong |
+| --- | --- | --- | --- |
+| OpenAI (API key), Azure OpenAI (deploy these) | GPT-6 Luna | GPT-6.2 Sol (else GPT-6.1 Sol) | GPT-6.2 Astra (else GPT-6 Astra) |
+| Google Gemini (API key) | Gemini 3.5 Flash-Lite | Gemini 4 Hydrogen (else Gemini 3.8 Flash) | Gemini 4 Carbon (else Argon, else Hydrogen) |
+| Mistral (API key) | Mistral Small (else Ministral 8B) | Mistral Small | Mistral Large |
+| OpenRouter | Gemini 3.5 Flash-Lite (else GPT-6 Luna) | GPT-6.2 Sol (else Gemini 4 Hydrogen) | GPT-6.2 Astra (else Gemini 4 Carbon) |
+| **Codex** (ChatGPT plan) | GPT-6 Luna | GPT-6.2 Sol (else GPT-6.1 Sol) | GPT-6.2 Astra (else GPT-6 Astra) |
+| **Antigravity** (Google account) | Gemini 3.8 Flash | Gemini 4 Hydrogen (else Gemini 3.8 Flash) | Gemini 4 Carbon (else Argon, Hydrogen, Gemini 3.8 Flash) |
+
+- **Free Google account.** Antigravity then offers Gemini 3.8 Flash only, so every task uses it. Google AI Pro adds
+  Gemini 4 Argon and Hydrogen, Ultra also Gemini 4 Carbon; Margin follows the models your plan lists.
+- **Where tasks go.** The ladder of Claude (Haiku, Sonnet, Opus) maps to the three tiers: labels and links to small,
+  most tasks and judging excerpts to middle, second opinions and the hard cases a task steps up to, to strong.
+- **Azure** has no list of models: you type the name of each deployment, and the table says which models to deploy.
+- **Not measured.** The defaults, the tiers and how they route were measured on Claude only; for the others, check the
+  answers before you rely on them ([Codex and Antigravity](other-agents.md)).
 
 ### The mix of local and Claude
 
@@ -104,7 +132,7 @@ counts against your plan's limits; with a local model it costs only time.
 | The model and its exact version (digest) | Claude Code gives no digest. |
 | The prompt version | Changes when a prompt changes, so old and new answers stay apart. |
 | The seed (42 by default) and temperature 0 | Only a local model takes them. Claude Code and the Claude API take no seed and are sent no temperature, so their answers are not repeatable the way a seeded local model's are. |
-| The route (Claude Code, the Claude API, a local server) and the helper | With Claude Code, also the model set for that helper and when its batch was claimed and answered. |
+| The route (Claude Code, Codex, Antigravity, the Claude API, another cloud provider, a local server), the provider and the model's exact name, and the helper | With Claude Code, also the model set for that helper and when its batch was claimed and answered. |
 | Whether the answer came from the stronger model | |
 | The Margin version that made it | Every answer, codebook label and set of themes; each check records the version that started it. |
 | The reader that read each document | See [How documents are read](how-documents-are-read.md). |

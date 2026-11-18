@@ -61,7 +61,7 @@ JSON schema, so even small models give valid JSON; the rest depends on the model
 | --- | --- |
 | **Size** | A rough guide by memory (October 2026; check your server's library for current models): about 16 GB runs models of 8 to 12 billion parameters, 32 GB runs 27 to 32 billion, 64 GB or more runs the largest. Larger models judge better and are slower. If memory allows, an 8-bit version copies quotes more reliably than a 4-bit one. |
 | **Context** | Margin sets the context length on every Ollama request (Ollama's own default is much smaller and cuts long prompts without warning). Automatic by default: the smallest of 8,192, 12,288, 16,384 and 32,768 tokens that holds the largest task your settings can produce (8 excerpts without reasoning: 8,192). It stays the same between requests, because Ollama reloads the model when it changes. The model's working memory grows with it (for qwen3:8b about 1.2 GB at 8,192 tokens, 2.4 GB at 16,384). *Settings → Technical* shows the length in use and takes a fixed number instead. With LM Studio or llama.cpp, set it when loading the model: 16,384 covers every task of the app. |
-| **Memory** | Margin loads no model of its own and makes one model call at a time. On Ollama, a second opinion unloads the main model first and unloads itself when done, so two models are never in memory together. LM Studio and other OpenAI-compatible servers have no standard way to unload a model, so their own setting decides (LM Studio can keep only one model loaded). Restricted documents and memory: see [Privacy](privacy.md#the-local-model-and-your-computers-memory). |
+| **Memory** | Margin loads no model of its own and makes one model call at a time. On Ollama, a second opinion unloads the main model first and unloads itself when done, so two models are never in memory together. LM Studio and other OpenAI-compatible servers have no standard way to unload a model, so their own setting decides (LM Studio can keep only one model loaded). Restricted documents and memory: see [Privacy](#the-local-models-own-start-and-your-computers-memory). |
 | **Reasoning** | For models that reason before answering (Qwen 3 and 3.5, for example), *Settings → AI → Reasoning* (Ollama) has four choices: *Off* (the fastest), *Only when judging excerpts* (where reasoning can help; not for search words or splitting a hypothesis), *On for every step*, and *Model's default*. |
 | **Reasoning budget** | Default 1,500 tokens. A model still reasoning at the budget is stopped and asked to answer at once from its notes. At 20 tokens a second that is at most about 75 seconds of reasoning per judgement; with *Only when judging excerpts*, a check takes a minute or two per part instead of half an hour. Reasoning text a server puts before the answer is ignored. |
 | **Embeddings** | `nomic-embed-text` (fast, English), `mxbai-embed-large`, or `bge-m3` (many languages). Building the index embeds every passage once (minutes for ten thousand passages); after that a search costs one short call. With numpy installed the comparison is instant; without it, about half a second per search on ten thousand passages. Choose the model in *Settings → Documents*. |
@@ -100,6 +100,31 @@ reviewers.
 **Repeatable results.** Margin sends a seed (42 by default) and temperature 0 with every request. *Settings → Technical
 → Repeatable results* tests whether your server gives the same answer twice (`margin backend-check --repeatable` on
 the command line).
+
+## The local model's own Start, and your computer's memory
+
+Your local model never starts by itself in work that Claude also does (0.19.13): starting Claude and starting the local
+model are two separate clicks. While Claude reads its excerpts, the ones marked *Only a local AI* (and the AI mix's
+share) wait beside them for the local model's own *Start*; one press covers the whole job, and the local model then
+reads beside Claude: *Your local model (…) is reading 3 excerpts…*, with what it is doing and its own *Stop*, which
+lets it finish the excerpt in hand and wait again. Work that only the local model does, started by its own button
+(*Read them now on this computer*, say), needs no second click.
+
+A local model needs about as much memory as its size (a 9-billion-parameter model about 8 GB). On Ollama, Margin does
+not start it when this computer clearly has too little free: starting it anyway pushes every other program into swap
+and can all but freeze the computer. The progress then says why and the local part waits for *Start it anyway*; stop
+the job instead, and those excerpts wait on the result (*Waiting for your local model*). Close programs you do not
+need and press *Start* again (or *Read them now on this computer* on the result), or choose a smaller local model in
+*Settings → AI*. If it still says too little is free, *Start it anyway* starts it regardless.
+
+You need not start the model at all: *Judge it myself* (before *Start*) hands those excerpts to you. They wait under
+*Awaiting manual review*, no model reads them, and your judgement counts like any other. Changed your mind? *Let the
+local model read them*, above those excerpts, hands back the ones you have not judged yet and starts the model; what
+you judged meanwhile stays and counts.
+
+A model that takes more than a third of this computer's memory is let go as soon as it has read, instead of being
+kept for 15 minutes. A local model you chose as the **main** AI is not checked this way: you start it yourself and see
+it load.
 
 ---
 

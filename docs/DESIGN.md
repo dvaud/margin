@@ -901,7 +901,9 @@ content in its own face; the actions under both: *Keep mine*, *Keep theirs* (sma
 
 **Means:** a task done in a fixed order, one step at a time, and where you are in it. **Use:** a set-up a person does
 once, partly outside the app, and must not lose their place in: a storage space for the team (an account at the
-service, a key made there, the key pasted here). **Not for:** a form whose fields can be filled in any order (fields
+service, a key made there, the key pasted here), a cloud provider's API key, an agent on the person's own plan (install,
+sign in, add Margin). Every set-up of something outside Margin uses one dialog for it, `outsideSetup()` in
+`views/outside-setup.js` (providers stage 2). **Not for:** a form whose fields can be filled in any order (fields
 under one another), a list of facts or of ways to choose from (a list, [option cards](#47-option-cards)), work the app
 does by itself (a [work state](#421-progress-and-work-states) and its list of steps under way), the first-run pages' three stages, which are pages of
 their own. **Looks:** a numbered circle per step on a thin rail down the left. The step in hand has the teal circle

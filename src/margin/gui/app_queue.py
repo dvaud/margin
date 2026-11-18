@@ -23,6 +23,11 @@ class QueueMixin:
         speed = self.settings().get("claude_speed") or "normal"
         out = taskqueue.status(ws, name, parallel=taskqueue.speed_parallel(speed))
         out["route"] = self.settings().get("backend")
+        # stage 2: whether an agent answers the queue (Claude Code, Codex, Antigravity), and which
+        from .. import agentcli, providers
+
+        out["agent"] = out["route"] in providers.AGENT_ROUTES
+        out["agent_title"] = taskqueue.route_title(out["route"]) if out["agent"] else ""
         out["setup"] = claude_setup_info()
         # 0.13.10: how many helpers a start runs at once (the speed beside Start Claude Code), and the limits of
         # "For this run"
@@ -33,12 +38,20 @@ class QueueMixin:
         # 0.18.1 (N2): how much thought Claude gives the tasks, chosen beside Start Claude Code and kept
         out["thought"] = {"chosen": self.settings().get("claude_thought") or "balanced",
                           "options": dict(taskqueue.routing.THOUGHT_TITLES)}
-        out["runner"] = claude_setup.run_state(name)
+        out["runner"] = self.agent_runner(name)
         out["at_limit"] = self._at_limit(name, ws, out["runner"])  # 0.18.1 (I4)
         if out["route"] == "claude_code" and not home.local_only():
             st = claude_setup.status()
             out["can_start"] = bool(st["found"])
             out["claude"] = {k: st[k] for k in ("found", "signed_in", "installed", "ready")}
+            out["cli"] = dict(out["claude"])
+        elif out["route"] in providers.AGENT_CLIS and not home.local_only():
+            st = agentcli.status(out["route"])
+            if not st["found"]:   # looked at again (cheap when it is not there): it may have been installed just now
+                st = agentcli.status(out["route"], refresh=True)
+            out["can_start"] = bool(st["found"])
+            out["cli"] = {"found": st["found"], "signed_in": st["signed_in"], "installed": st["connector"],
+                          "ready": st["ready"]}
         return out
 
     def overview(self, name: str) -> dict:
@@ -206,14 +219,14 @@ class QueueMixin:
         if self.queue_mode():
             what = "limit" if body.get("local") in ("all", "limit") else "mix"
             if what == "limit":  # 0.19.13: the offer at the plan's limit is handled (pressed) for this stop
-                from .. import claude_setup
-
-                runner = claude_setup.run_state(name)
+                runner = self.agent_runner(name)
                 if taskqueue.limit_reached(runner):
                     ws.set_meta("limit_handled", self._limit_key(runner))
             if what == "mix" and not taskqueue.mix_kinds():
-                raise ApiError(400, "Settings name Claude Code: it answers the queue itself. Choose a mix of local "
-                                    "and Claude in Settings → AI, or another AI model, to answer it here.")
+                title = taskqueue.route_title(self.settings().get("backend"))
+                raise ApiError(400, f"Settings name {title}: it answers the queue itself. Choose a mix of local "
+                                    f"and {'Claude' if title == 'Claude Code' else title} in Settings → AI, or another "
+                                    "AI model, to answer it here.")
             kinds = [k for k in (body.get("kinds") or []) if k in taskqueue.KINDS] or None
             return self._local_queue_job(name, what, kinds)
         kinds = [k for k in (body.get("kinds") or []) if k in taskqueue.KINDS] or None

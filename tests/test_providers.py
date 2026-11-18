@@ -349,18 +349,38 @@ def test_cloud_api_needs_allow_cloud_and_is_refused_on_a_local_only_computer(tmp
                             "allow_cloud": True, "cloud_model": "m"})
 
 
-def test_the_cloud_model_answers_every_kind_and_the_small_one_labels_and_links():
-    from margin import routing
+def test_the_cloud_models_follow_the_ladder_with_the_recommendation_where_none_is_chosen():
+    """Minor 2 of stage 2: another provider's API gets the three tiers of the Claude routes (labels small, checks
+    middle, second opinions strong), each the person's model or else the provider's recommended one."""
+    from margin import providers, routing
 
     s = {"backend": "cloud_api", "cloud_provider": "mistral", "cloud_model": "mistral-large-latest",
          "task_models": {"local": {"label": "qwen3:8b"}}}
     r = routing.from_settings(s)
-    assert r.route == "cloud_api" and r.first("check") == "mistral-large-latest"
-    assert r.first("label") == "mistral-large-latest"          # a local model's name is never sent to the provider
+    assert r.route == "cloud_api" and r.call_model("check") == "mistral-large-latest"
+    # a local model's name is never sent to the provider: the small tier is Mistral's recommendation
+    assert r.call_model("label") == providers.recommended("mistral")["small"] != "qwen3:8b"
     r = routing.from_settings({**s, "cloud_small_model": "mistral-small-latest"})
-    assert r.first("label") == "mistral-small-latest" and r.first("link") == "mistral-small-latest"
-    assert r.first("check") == "mistral-large-latest" and r.step_up("label") == "mistral-large-latest"
+    assert r.call_model("label") == "mistral-small-latest" and r.call_model("link") == "mistral-small-latest"
+    assert r.call_model("check") == "mistral-large-latest"
+    assert r.api_id(r.step_up("label")) == "mistral-large-latest"
+    # nothing chosen: the recommended line-up
+    r = routing.from_settings({"backend": "cloud_api", "cloud_provider": "openai"})
+    rec = providers.recommended("openai")
+    assert (r.call_model("label"), r.call_model("check"), r.call_model("second")) == \
+        (rec["small"], rec["middle"], rec["strong"])
+    # Fable is Claude's only
+    assert routing.from_settings({"backend": "cloud_api", "cloud_provider": "openai", "use_fable": True}) \
+        .call_model("second") == rec["strong"]
     assert "cloud_api" in routing.OFF_COMPUTER and "cloud_api" not in routing.CLAUDE_ROUTES
+
+
+def test_azure_has_no_recommendation_and_a_typed_deployment_serves_every_tier():
+    from margin import routing
+
+    r = routing.from_settings({"backend": "cloud_api", "cloud_provider": "azure", "cloud_model": "my-sol"})
+    assert {r.call_model(k) for k in ("label", "check", "second")} == {"my-sol"}
+    assert r.step_up("label") is None   # the same deployment: no step up
 
 
 # ---------------------------------------------------------------------------------------------
@@ -402,7 +422,11 @@ def test_the_app_stores_a_key_and_says_only_whether_one_is_stored(app_api, opena
     monkeypatch.setitem(providers.TABLE, "openai", dataclasses.replace(providers.TABLE["openai"], base_url=base))
     st, r = api("GET", "/api/settings/provider-models?provider=openai")
     assert st == 200 and r["models"] == ["fake-model:latest", "fake-second:latest"]
-    assert api("GET", "/api/settings/provider-models?provider=azure")[1] == {"models": [], "lists": False}
+    # none of OpenAI's line-up is in this key's list: the first candidate of each tier is recommended
+    assert r["recommended"] == providers.recommended("openai")
+    assert api("GET", "/api/settings/provider-models?provider=azure")[1] == {
+        "models": [], "lists": False, "recommended": {"small": "gpt-6-luna", "middle": "gpt-6.2-sol",
+                                                     "strong": "gpt-6.2-astra"}}
     st, r = api("PUT", "/api/settings", {"allow_cloud": True, "backend": "cloud_api", "cloud_provider": "openai",
                                          "cloud_model": "fake-model:latest"})
     assert st == 200 and r["backend_label"] == "OpenAI (API key) · fake-model:latest"
@@ -411,6 +435,28 @@ def test_the_app_stores_a_key_and_says_only_whether_one_is_stored(app_api, opena
     st, r = api("DELETE", "/api/settings/provider-key", {"provider": "openai"})
     assert st == 200 and r["providers"]["keys"]["openai"] is False
     assert api("POST", "/api/settings/provider-key", {"provider": "anthropic", "key": "x"})[0] == 400
+
+
+def test_a_refused_key_is_told_apart_from_an_unreachable_provider(app_api, openai_server, monkeypatch):
+    import dataclasses
+
+    from margin import providers
+
+    api, _ = app_api
+    srv, base = openai_server
+    monkeypatch.setitem(providers.TABLE, "openai", dataclasses.replace(providers.TABLE["openai"], base_url=base))
+    api("POST", "/api/settings/provider-key", {"provider": "openai", "key": "wrong-key"})
+    st, r = api("GET", "/api/settings/provider-models?provider=openai")
+    # the stand-in answers 401: the key is wrong, and the key itself never comes back
+    assert st == 200 and r["refused"] is True and "refused the key" in r["problem"] and "wrong-key" not in str(r)
+    # the page then forgets it
+    st, r = api("DELETE", "/api/settings/provider-key", {"provider": "openai"})
+    assert r["providers"]["keys"]["openai"] is False
+    # a provider out of reach is a problem, but the key is not called wrong
+    api("POST", "/api/settings/provider-key", {"provider": "openai", "key": "good-key"})
+    monkeypatch.setitem(providers.TABLE, "openai", dataclasses.replace(providers.TABLE["openai"], base_url="http://127.0.0.1:9/v1"))
+    st, r = api("GET", "/api/settings/provider-models?provider=openai")
+    assert st == 200 and r["problem"] and r["refused"] is False
 
 
 def test_the_app_sets_the_providers_a_document_and_the_project_allow(app_api):

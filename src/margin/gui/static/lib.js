@@ -423,7 +423,7 @@ export const norm = (t) => String(t || "").split(/\s+/).filter(Boolean).join(" "
 // Plain vocabulary, used consistently on every screen. Technical names stay available in "details" places.
 export const GRADE_TEXT = { supports: "Supports", partially_supports: "Partly supports", refutes: "Contradicts" };
 // Short status words for dense places (tables, chips); the full texts from /api/state are used on the answer card.
-export const STATUS_SHORT = { supported: "Supported", partially_supported: "Partly supported", contested: "Mixed evidence", contradicted: "Contradicted", uncertain: "Only uncertain evidence", unsupported: "No evidence found", no_passages: "Nothing matched", not_checked: "Not finished", failed: "Did not work", waiting: "Waiting for Claude Code" };
+export const STATUS_SHORT = { supported: "Supported", partially_supported: "Partly supported", contested: "Mixed evidence", contradicted: "Contradicted", uncertain: "Only uncertain evidence", unsupported: "No evidence found", no_passages: "Nothing matched", not_checked: "Not finished", failed: "Did not work", get waiting() { return `Waiting for ${agentTitle()}`; } };
 export const KIND_TEXT = { pdf: "PDF", html: "web page", text: "text", txt: "text", md: "Markdown", markdown: "Markdown", docx: "Word" };
 
 // The AI's certainty in words. The number stays in the details.
@@ -447,11 +447,30 @@ export function strictness(t) {
 // per task switched off. `opts.claude` / `opts.fable` override the settings (the Settings page has them from
 // /api/routing).
 export function auditorName(s = App.settings(), opts = {}) {
-  const claude = opts.claude !== undefined ? opts.claude : (["claude_code", "anthropic"].includes(s.backend) && s.routing !== false);
+  const claude = opts.claude !== undefined ? opts.claude : ((isAgent(s) || s.backend === "anthropic") && s.routing !== false);
   if (!claude) return null;
+  // stage 2: an agent CLI of another provider gives them with its strongest model (the line-up's, in Settings → AI)
+  if (isAgent(s) && s.backend !== "claude_code" && opts.claude === undefined) return `${agentTitle(s)}’s strongest model`;
   if (s.backend === "claude_code" && planTier(s) === "free") return "sonnet";  // 0.13.10: no Opus or Fable on Free
   return (opts.fable !== undefined ? opts.fable : s.use_fable) ? "fable" : "opus";
 }
+// Stage 2 of other cloud providers: the main routes that answer through the task queue, on the person's own plan:
+// Claude Code, and the agent CLIs of other providers (Codex: OpenAI; Antigravity: Google). isAgent(s): the main route
+// is one of them; agentTitle(s): how the app names it ("Claude Code" for any other route: the queue is then Claude
+// Code's, as before). A queue's own answer names its agent too (q.agent_title: queueTitle(q)).
+export const AGENT_TITLES = { claude_code: "Claude Code", codex: "Codex", antigravity: "Antigravity" };
+const AGENT_PLAN = { claude_code: "on your Claude plan", codex: "on your ChatGPT plan", antigravity: "with your Google account" };
+const AGENT_COMPANY = { claude_code: "Anthropic", codex: "OpenAI", antigravity: "Google" };
+export const isAgentRoute = (route) => Object.prototype.hasOwnProperty.call(AGENT_TITLES, route || "");
+export function isAgent(s = App.settings()) { return isAgentRoute((s || {}).backend); }
+export function agentRoute(s = App.settings()) { return isAgent(s) ? s.backend : "claude_code"; }
+export function agentTitle(s = App.settings()) { return AGENT_TITLES[agentRoute(s)]; }
+// "on your Claude plan", "on your ChatGPT plan", "with your Google account"
+export function agentPlan(s = App.settings()) { return AGENT_PLAN[agentRoute(s)]; }
+export function agentCompany(s = App.settings()) { return AGENT_COMPANY[agentRoute(s)]; }
+export function queueTitle(q) { return (q && q.agent_title) || agentTitle(); }
+// the seat of the AI run panel that is not this computer: "Claude", or the agent CLI ("Codex", "Antigravity")
+export function cloudName() { const r = agentRoute(); return r === "claude_code" ? "Claude" : AGENT_TITLES[r]; }
 // 0.13.10: the Claude plan the recommended models follow (free | pro | max; "" not known): set by hand, else the one
 // Claude Code names (found in the background)
 export function planTier(s = App.settings()) {
@@ -768,6 +787,9 @@ export const App = {
     const s = App.settings();
     const b = s.backend || "auto";
     if (b === "anthropic") return { where: "cloud", label: "Claude, through an API key", plain: "Excerpts of your documents are sent to the Claude API (cloud)", detail: `Claude API · ${s.anthropic_model || ""}`, icon: "cloud" };
+    // stage 2: Codex and Antigravity, on the person's own plan, as Claude Code
+    if (b === "codex") return { where: "cloud", label: "Codex, on your ChatGPT plan", sent: "Codex reads the passages on your ChatGPT plan (sent to OpenAI).", short: "Only the passages of AI tasks leave this computer", plain: "Your documents stay here; only the passages inside the AI's tasks go to OpenAI.", detail: "Codex (your ChatGPT plan) · a helper and model per task", icon: "cloud" };
+    if (b === "antigravity") return { where: "cloud", label: "Antigravity, on your Google account", sent: "Antigravity reads the passages with your Google account (sent to Google).", short: "Only the passages of AI tasks leave this computer", plain: "Your documents stay here; only the passages inside the AI's tasks go to Google.", detail: "Antigravity (your Google account) · a helper and model per task", icon: "cloud" };
     if (b === "claude_code") return { where: "cloud", label: "Claude, on your plan", sent: "Claude Code reads the passages on your Claude plan (sent to Anthropic).", short: "Only the passages of AI tasks leave this computer", plain: "Your documents stay here; only the passages inside the AI's tasks go to Anthropic.", detail: "Claude Code (your subscription) · a helper and model per task", icon: "cloud" };
     if (b === "baseline") return { where: "none", label: "Demo mode", short: "A stand-in, not an AI: results are not findings", plain: "No AI model: a simple word-overlap stand-in. Results are not findings.", detail: "offline demo", icon: "alert-triangle" };
     const labels = (App.state && App.state.backend_labels) || {};
@@ -796,6 +818,24 @@ export function claudeStatus(maxAge = 60000) {
 // The answer last seen (or null), and a fresher one from Settings (Check again, a sign-in), so the sidebar has it too.
 export function claudeSeenNow() { return claudeSeen.status; }
 export function rememberClaude(st) { claudeSeen.status = st || {}; claudeSeen.at = Date.now(); return claudeSeen.status; }
+
+// Stage 2: what Codex or Antigravity says about itself (found, signed in, its account), as claudeStatus() for Claude
+// Code: GET /api/agent-setup, asked again after a minute at most. rememberAgent(): a fresher answer from the set-up
+// dialog; when it changes whether the agent is ready, the app's chrome (the sidebar's line) is drawn again.
+const agentSeen = new Map();
+export function agentStatus(route, maxAge = 60000) {
+  if (route === "claude_code") return claudeStatus(maxAge);
+  const c = agentSeen.get(route);
+  if (c && Date.now() - c.at < maxAge) return Promise.resolve(c.status);
+  return api("GET", `/api/agent-setup?route=${encodeURIComponent(route)}`).then((r) => rememberAgent(route, r.status || {}, false));
+}
+export const agentSeenNow = (route) => (route === "claude_code" ? claudeSeenNow() : (agentSeen.get(route) || {}).status || null);
+export function rememberAgent(route, st, tell = true) {
+  const before = agentSeenNow(route);
+  const now = route === "claude_code" ? rememberClaude(st) : (agentSeen.set(route, { at: Date.now(), status: st || {} }), st || {});
+  if (tell && (!!(before && before.ready) !== !!now.ready || !!(before && before.found) !== !!now.found || (before && before.signed_in) !== now.signed_in)) for (const fn of App.listeners) fn(App.state);
+  return now;
+}
 
 // 0.13.6: whether a newer version waits (GET /api/update), shared by the sidebar's Update button, its pop-up and
 // Settings → Check for updates. The page asks when it opens and every UPDATE_EVERY; the server keeps its answer a
@@ -1563,7 +1603,7 @@ export function aiWhere(text, where = "cloud", attrs = {}) {
 export function readsLine(what = "the excerpts it needs", opts = {}) {
   const p = App.privacy(), s = App.settings();
   const attrs = opts.class ? { class: opts.class } : {};
-  if (s.backend === "claude_code") return aiWhere(`${p.label}, reads ${what}.`, "cloud", attrs);   // "Claude, on your plan, reads…"
+  if (isAgent(s)) return aiWhere(`${p.label}, reads ${what}.`, "cloud", attrs);   // "Claude, on your plan, reads…", "Codex, on your ChatGPT plan, reads…"
   if (p.where === "cloud") return aiWhere(`Claude, through the Claude API${s.anthropic_model ? ` (${s.anthropic_model})` : ""}, reads ${what}: the text is sent to Anthropic.`, "cloud", attrs);
   if (p.where === "local") return aiWhere(`The AI on this computer (${opts.model || p.detail}) reads ${what}: your documents never leave it.`, "local", attrs);
   return aiWhere("Demo mode: no AI reads the excerpts. A simple word-overlap stand-in answers, so the answers are not findings.", "attention", attrs);
@@ -2165,27 +2205,28 @@ export async function showSent(project, kind) {
     if (btn) btn.hidden = !r.more;
   }
   load();
-  return dialog({ title: "What Claude Code is sent", body, wide: true,
+  return dialog({ title: `What ${agentTitle()} is sent`, body, wide: true,
     actions: [{ ...more, id: "sent-more" }, { text: "Close", value: null, primary: true }] });
 }
 
 function sentParts(r) {
-  if (!r.tasks || !r.tasks.length) return [h("p", {}, r.note || "Nothing waits for Claude Code now, so nothing is about to be sent.")];
+  const t = agentTitle();
+  if (!r.tasks || !r.tasks.length) return [h("p", {}, r.note || `Nothing waits for ${t} now, so nothing is about to be sent.`)];
   const pages = (d) => d.pages && d.pages.length ? `, ${d.pages.length > 1 ? "pp." : "p."} ${d.pages.join(", ")}` : "";
   const n = r.tasks.length;
   // nothing more waits, but Claude Code is at work: show what it was sent and is answering now, not "nothing"
-  const from = r.answering ? `Claude Code is answering ${n === 1 ? "this task" : `these ${n} tasks`} now. Nothing more waits for it, so nothing new is about to be sent. ${n === 1 ? "It is" : "They are"} of ${r.title}, word for word as its helper received ${n === 1 ? "it" : "them"}`
-    : `${r.start ? `Tasks ${r.start + 1} to ${r.start + n}` : `The next ${n === 1 ? "task" : `${n} tasks`}`} of ${r.title}, word for word as Claude Code's helper receives them`;
+  const from = r.answering ? `${t} is answering ${n === 1 ? "this task" : `these ${n} tasks`} now. Nothing more waits for it, so nothing new is about to be sent. ${n === 1 ? "It is" : "They are"} of ${r.title}, word for word as its helper received ${n === 1 ? "it" : "them"}`
+    : `${r.start ? `Tasks ${r.start + 1} to ${r.start + n}` : `The next ${n === 1 ? "task" : `${n} tasks`}`} of ${r.title}, word for word as ${t}'s helper receives them`;
   const counts = r.answering ? `${r.being_answered.toLocaleString()} being answered now${r.being_answered > n ? ` (the first ${n} shown)` : ""}`
     : `${r.waiting.toLocaleString()} waiting${r.being_answered ? ` · ${r.being_answered} being answered now` : ""}`;
   return [
     h("p", {}, `${from}: the instruction once, then each task's text. Nothing else from this project goes with them: not the documents' files, other passages, your results or your reviews.`),
-    h("p", { class: "muted small" }, `${counts} · ${r.helper ? `${r.helper} on ` : "on "}${r.model || "Claude"}. Claude Code adds its own instructions for the helper (the same for every project) and its own working; they hold none of your documents.`),
+    h("p", { class: "muted small" }, `${counts} · ${r.helper ? `${r.helper} on ` : "on "}${r.model_id || r.model || cloudName()}. ${t === "Claude Code" ? "Claude Code adds its own instructions for the helper (the same for every project) and its own working" : `The helper’s instructions go with them (the same for every project), and ${t} adds its own working`}; they hold none of your documents.`),
     fold({ sm: true }, "The instruction (the same for every task of the batch)", inset({ class: "sent-box" }, h("pre", { class: "sent-text" }, r.system))),
     ...r.tasks.map((t, i) => h("section", { class: "sent-task" },
       h("h3", {}, `Task ${r.start + i + 1}`, (t.documents || []).length ? h("span", { class: "muted small" }, ` · ${t.documents.map((d) => `${d.title}${pages(d)}`).join("; ")}`) : null),
       inset({ class: "sent-box" }, h("pre", { class: "sent-text" }, t.prompt)))),
-    fold({ sm: true }, "As Claude Code receives it (the connector's reply)", inset({ class: "sent-box" }, h("pre", { class: "sent-text" }, r.raw)),
+    fold({ sm: true }, `As ${t} receives it (the connector's reply)`, inset({ class: "sent-box" }, h("pre", { class: "sent-text" }, r.raw)),
       button({ kind: "quiet", sm: true, icon: "copy", onClick: async () => {
         try { await navigator.clipboard.writeText(r.raw); toast("Copied.", "ok", { ttl: 2000 }); } catch (_) { toast("Select the text and copy it with Ctrl+C (or Cmd+C).", "info"); }
       } }, "Copy it")),
@@ -2216,8 +2257,9 @@ export function aiButton(opts = {}, ...children) {
   return button({ ...opts, icon: "play" }, ...children);
 }
 
-const AR_WHO = { local: "On this computer", cloud: "To Claude" };
-const AR_NONE = { local: "No model on this computer works in this job", cloud: "Nothing in this job goes to Claude" };
+// stage 2: the cloud seat names the agent that answers ("To Codex"); Claude for Claude Code and the Claude API
+const AR_WHO = { local: "On this computer", get cloud() { return `To ${cloudName()}`; } };
+const AR_NONE = { local: "No model on this computer works in this job", get cloud() { return `Nothing in this job goes to ${cloudName()}`; } };
 // a side's state, said once in its head: [its icon (null: the running dot), its words, the split bar's state]
 const AR_STATE = {
   wait: ["clock", "Waits for you", "wait"], run: [null, "At work", "run"], need: ["alert-triangle", "Needs you", "need"],
@@ -2314,9 +2356,9 @@ export function placeSide(block, where, el) {
 // takes the head's slow breath and the hint says that nothing runs until it is pressed (o.nudge: when the wait began,
 // a time in ms; true: now). o.compact: the hint's first sentence only. Returns the row; .start is its button.
 export function aiStart(o = {}) {
-  const name = o.where === "cloud" ? "Claude Code" : (o.model || "your local model");
+  const name = o.where === "cloud" ? (o.agent || agentTitle()) : (o.model || "your local model");
   const b = button({ kind: o.kind || "main", sm: true, icon: "play", onClick: o.onClick }, `Start ${name}`);
-  const rest = o.compact ? "" : o.where === "cloud" ? "It then works on your Claude plan, in the background, and stops by itself when nothing waits."
+  const rest = o.compact ? "" : o.where === "cloud" ? `It then works ${agentPlan()}, in the background, and stops by itself when nothing waits.`
     : "It then runs here, in this app, and stops by itself when nothing waits.";
   const hint = o.hint === false ? null : typeof o.hint === "string" ? arHint(o.hint) : arHint("Nothing runs until you press it.", rest);
   const box = h("div", { class: "ar-start" }, h("div", { class: "ar-row" }, o.before || null, withAI(b, ...(o.also || []).filter(Boolean))), hint);
@@ -2531,6 +2573,17 @@ function thoughtWord(q) {
 function cloudSide(o) {
   const project = o.project || App.project;
   const el = sideShell("cloud", o.half, o.onState);
+  // stage 2: the agent's company may not read this project's documents (it allows Anthropic only): the line says so
+  // and allows it in one press (views/ai-access.js providerAllowLine), looked at again every 10 s at most
+  const allowBox = h("div", { class: "ar-allow" });
+  let allowAt = 0;
+  const refreshAllow = (force) => {
+    if (!project || (!force && Date.now() - allowAt < 10000)) return;
+    allowAt = Date.now();
+    import("./views/ai-access.js").then((m) => {
+      replace(allowBox, m.providerAllowLine(project, null, () => { QUEUE_CACHE.delete(project); allowAt = 0; refreshAllow(true); drawn = ""; draw(false); }));
+    }).catch(() => {});
+  };
   el.dataset.project = project;
   let jq = o.q || {};
   let timer = null, busy = false, drawn = "";
@@ -2561,7 +2614,8 @@ function cloudSide(o) {
         choiceChanged(project, el);
       })]]);
     }
-    rows.push(["By hand", [copyLine(cmd), h("span", { class: "muted" }, q.can_start ? "typed in Claude Code does the same." : "typed in Claude Code (opened in any folder) answers it.")]]);
+    const t = queueTitle(q);
+    rows.push(["By hand", [copyLine(cmd, "Copy", t), h("span", { class: "muted" }, q.can_start ? `typed in ${t} does the same.` : `typed in ${t} (opened in any folder) answers it.`)]]);
     const r = q.runner || {};
     if (r.exit_code !== undefined && r.exit_code !== null && r.exit_code !== 0 && !r.stopped) {
       rows.push(["Last run", fold({ sm: true }, workState("failed", "It stopped with a problem"), inset({ as: "pre", class: "mono small sc-report" }, r.report || "(no report)"))]);
@@ -2596,14 +2650,17 @@ function cloudSide(o) {
     const paused = stale ? !!q.paused : !!(jq.paused || (q.paused && !jq.text));
     const waiting = stale ? q.waiting : jq.waiting ?? q.waiting;
     const being = stale ? q.being_answered : jq.being_answered ?? q.being_answered;
-    const state = q.route !== "claude_code" ? "other" : r.running ? "run" : paused ? "paused" : q.can_start ? ((waiting || being || o.always) ? "wait" : "idle")
-      : q.claude && !q.claude.found ? "missing" : "wait";
+    // stage 2: any agent route answers the queue (Claude Code, Codex, Antigravity); `cli` is what its program says
+    const cli = q.cli || q.claude;
+    const t = queueTitle(q);
+    const state = !isAgentRoute(q.route) ? "other" : r.running ? "run" : paused ? "paused" : q.can_start ? ((waiting || being || o.always) ? "wait" : "idle")
+      : cli && !cli.found ? "missing" : "wait";
     // the words of the job are drawn only while it waits: at work, a new count of the job's never redraws its Stop
     const says = state === "wait" || state === "other" || state === "missing";
     const key = JSON.stringify([state, says && jq.text, says && jq.estimate, paused && (jq.paused_text || q.paused_text), cmd, q.thought && q.thought.chosen, q.speed && q.speed.chosen,
       // the helpers listed (one per kind of work that waits) are shown only while it waits: at work, the list
       // shrinking as the queue empties must not draw its Stop again
-      state === "wait" && (q.speed && q.speed.helpers || []).length, q.claude && q.claude.signed_in, r.exit_code, r.stopped, r.parallel, !!r.helpers]);
+      state === "wait" && (q.speed && q.speed.helpers || []).length, cli && cli.signed_in, r.exit_code, r.stopped, r.parallel, !!r.helpers, t]);
     if (key === drawn) {   // nothing to redraw: only the counts in place
       const c = el.querySelector(":scope > .ab-count");
       if (c && state === "run") c.textContent = runCount(q, r);
@@ -2614,42 +2671,45 @@ function cloudSide(o) {
     drawn = key;
     const lines = [];
     let side = "wait";
-    const signIn = q.claude && q.claude.signed_in === false ? h("p", {}, icon("info", { size: 12 }), " Sign in to Claude Code once: open a terminal, type ", h("code", {}, "claude"), " and sign in with your Claude plan.") : null;
+    // the same words for every agent: Settings → AI opens its sign-in (Claude Code's window, Codex's browser)
+    const signIn = !(cli && cli.signed_in === false) ? null
+      : h("p", {}, icon("info", { size: 12 }), ` Sign in to ${t} once: `, h("a", { href: "#/settings/model" }, "Settings → AI"), " opens the sign-in for you.");
     const est = jq.estimate || "";
     const aiLine = () => (o.privacy === false ? null : queueAiLine(jq.privacy || q.privacy, project, jq.kind || o.kind));
     if (state === "other") {
-      lines.push(arWhat(jq.text || "Waiting for Claude Code"), h("p", { class: "muted" }, "In Claude Code (opened in any folder), type:"), copyLine(cmd), aiLine());
+      lines.push(arWhat(jq.text || `Waiting for ${t}`), h("p", { class: "muted" }, `In ${t} (opened in any folder), type:`), copyLine(cmd, "Copy", t), aiLine());
     } else if (state === "run") {
       side = "run";
-      const stop = stopButton({ text: "Stop Claude Code", onClick: async () => {
+      const stop = stopButton({ text: `Stop ${t}`, onClick: async () => {
         setBusy(stop, true);
-        try { await api("POST", `/api/projects/${P(project)}/queue/claude-code/stop`, {}); toast("Claude Code stopped. What it had not answered waits again.", "ok"); QUEUE_CACHE.delete(project); draw(false); }
+        try { await api("POST", `/api/projects/${P(project)}/queue/agent/stop`, {}); toast(`${t} stopped. What it had not answered waits again.`, "ok"); QUEUE_CACHE.delete(project); draw(false); }
         catch (e) { showError(e); setBusy(stop, false); }
       } });  // 0.11.3: not just "Stop": the job beside it has its own
       // compact: what is sent and typing it by hand stay in their fold while it works
-      lines.push(h("div", { class: "ab-run-row" }, arWhat("Claude Code is working on it", `started ${ago(r.seconds || 0)} from ${appName()}`), stop),
+      lines.push(h("div", { class: "ab-run-row" }, arWhat(`${t} is working on it`, `started ${ago(r.seconds || 0)} from ${appName()}`), stop),
         h("p", { class: "ab-count" }, runCount(q, r)), o.compact ? optionsFold(q, cmd, true, "") : aiLine());
     } else if (state === "paused") {
       side = "paused";
       lines.push(arWhat("Paused at your plan’s limit"), jq.paused_text || q.paused_text ? h("p", {}, jq.paused_text || q.paused_text) : null);
-      if (q.can_start) lines.push(startRow(q, "Runs on your Claude plan, in the background, and stops by itself when nothing waits."));
+      if (q.can_start) lines.push(startRow(q, `Runs ${agentPlan()}, in the background, and stops by itself when nothing waits.`));
       lines.push(optionsFold(q, cmd, true, "The last run, and typing it by hand"));
     } else if (state === "missing") {
       side = "need";
-      lines.push(arWhat(jq.text || "Waiting for Claude Code"),
-        h("p", {}, "Claude Code was not found on this computer. ", h("a", { href: "#/settings/model" }, "Set it up"), " to start it from here, or type this in Claude Code:"), copyLine(cmd), aiLine());
+      lines.push(arWhat(jq.text || `Waiting for ${t}`),
+        h("p", {}, `${t} was not found on this computer. `, h("a", { href: "#/settings/model" }, "Set it up"), " to start it from here."), aiLine());
     } else if (state === "idle") {
       side = "done";
-      lines.push(arWhat(el.dataset.ran ? "Claude Code has answered what waited for it" : "Nothing waits for Claude Code"), o.compact || o.privacy === false ? null : queueAiLine(jq.privacy || q.privacy, project, jq.kind || o.kind));
+      lines.push(arWhat(el.dataset.ran ? `${t} has answered what waited for it` : `Nothing waits for ${t}`), o.compact || o.privacy === false ? null : queueAiLine(jq.privacy || q.privacy, project, jq.kind || o.kind));
     } else {
       const n = waiting || 0;
-      lines.push(arWhat(jq.text || (n ? `${plural(n, "task")} ${n === 1 ? "waits" : "wait"} for Claude Code` : "Waiting for Claude Code"), being ? `${fmt.num(being)} being answered now` : ""));
+      lines.push(arWhat(jq.text || (n ? `${plural(n, "task")} ${n === 1 ? "waits" : "wait"} for ${t}` : `Waiting for ${t}`), being ? `${fmt.num(being)} being answered now` : ""));
       if (est && !o.compact) lines.push(h("p", { class: "muted" }, est.charAt(0).toUpperCase() + est.slice(1) + "."));
       if (q.can_start) lines.push(startRow(q));
       const helpers = q.speed ? (customRun(RUN_CHOICE.get(project)) ? "helpers chosen for this run" : `${helpersText((q.speed.options || {})[q.speed.chosen || "normal"] || 2)} at a time`) : "";
       lines.push(optionsFold(q, cmd, false, [q.thought ? thoughtWord(q) : "", helpers, "or type it by hand"].filter(Boolean).join(" · ")));
     }
-    lines.push(signIn);
+    lines.push(signIn, allowBox);
+    refreshAllow();
     if (r.running) el.dataset.ran = "1";
     fillSide(el, side, lines);
     if (side === "run") sidePct(el, o.pct ?? null);
@@ -2662,7 +2722,7 @@ function cloudSide(o) {
   }
   const runCount = (q, r) => [q.being_answered ? `${fmt.num(q.being_answered)} being answered now` : "", q.waiting ? `${fmt.num(q.waiting)} still waiting` : "", planText(r)].filter(Boolean).join(" · ");
   function startRow(q, hint) {
-    const row = aiStart({ where: "cloud", compact: o.compact, hint, onClick: async () => {
+    const row = aiStart({ where: "cloud", agent: queueTitle(q), compact: o.compact, hint, onClick: async () => {
       const b = row.start;
       if (busy) return;
       busy = true; setBusy(b, true); b.classList.remove("ar-nudge");
@@ -2674,9 +2734,9 @@ function cloudSide(o) {
         return;
       }
       try {
-        await api("POST", `/api/projects/${P(project)}/queue/claude-code`, body);
+        await api("POST", `/api/projects/${P(project)}/queue/agent`, body);
         RUN_CHOICE.delete(project);  // the helpers chosen were for this run only
-        toast("Claude Code started. You can keep working; the results appear as they come in.", "ok");
+        toast(`${queueTitle(q)} started. You can keep working; the results appear as they come in.`, "ok");
       } catch (e) { showError(e); }
       busy = false; QUEUE_CACHE.delete(project); drawn = ""; await draw(false);
       choiceChanged(project, el);
@@ -2689,7 +2749,7 @@ function cloudSide(o) {
   // made in one shows in the other
   for (const e of [...SC_LIVE]) if (e.box.dataset.drawn && !e.box.isConnected) SC_LIVE.delete(e);
   SC_LIVE.add({ project, box: el, redraw: () => { drawn = ""; draw(true); } });
-  fillSide(el, "wait", [arWhat(jq.text || "Waiting for Claude Code")]);
+  fillSide(el, "wait", [arWhat(jq.text || `Waiting for ${agentTitle()}`)]);
   draw(true);
   return el;
 }
@@ -2722,7 +2782,7 @@ export { setHalf, sidePct };
 // fold; opts.privacy false: no cloud line.
 export function queueNotice(q, opts = {}) {
   if (!q) return null;
-  if (!App.project) return aiSides(null, cloudStatic({ state: "wait", what: q.text || "Waiting for Claude Code", muted: q.estimate || "" }), { compact: true });
+  if (!App.project) return aiSides(null, cloudStatic({ state: "wait", what: q.text || `Waiting for ${agentTitle()}`, muted: q.estimate || "" }), { compact: true });
   return aiSides(null, cloudSide({ project: App.project, q, compact: true, privacy: opts.privacy, kind: q.kind }), { compact: true });
 }
 
@@ -2801,7 +2861,7 @@ export function speedPicker(chosen, options = { slower: 1, normal: 2, faster: 4 
   const line = h("span", { class: "muted small sc-speed-line" });
   const show = (v) => { line.textContent = `${helpersText(options[v] || 2)} at a time${SPEED_NOTE[v] || ""}.`; };
   // a choice (radio form): one Tab stop, the arrows move and pick, each pick saved at once
-  const group = choice({ sm: true, label: "Speed of Claude Code", class: "sc-speed-btns", value: current, options: SPEED_CHOICES,
+  const group = choice({ sm: true, label: `Speed of ${agentTitle()}`, class: "sc-speed-btns", value: current, options: SPEED_CHOICES,
     onPick: async (v) => {
       if (v === current && !(opts.custom && opts.custom())) return;  // the speed shown, picked again, undoes a choice of helpers
       const before = current;
@@ -2818,9 +2878,18 @@ export function speedPicker(chosen, options = { slower: 1, normal: 2, faster: 4 
 // stronger one. Kept (Settings' claude_thought); for Claude only (a local model keeps its own choice). Fable for the
 // auditor stays its own switch in Settings.
 export const THOUGHT_CHOICES = [["efficient", "Energy efficient"], ["balanced", "Balanced"], ["intelligence", "Intelligence"]];
-const THOUGHT_NOTE = { efficient: "A lighter model for each kind of task: easiest on your plan's limits and on energy. Unsure answers still go to a stronger model.",
-  balanced: "The recommended model for each kind of task.",
-  intelligence: "A stronger model for each kind of task, thinking harder: uses your plan's limits sooner." };
+// stage 2: every route on the three-tier ladder (Claude's two, the agent CLIs, another cloud provider) takes it; on a
+// route billed per use (an API key) it is the bill, not a plan's limits, that a stronger model spends
+const thoughtNote = (v, s = App.settings()) => {
+  const perUse = ["anthropic", "cloud_api"].includes((s || {}).backend);
+  const spend = perUse ? "costs least per task" : "easiest on your plan's limits";
+  const more = perUse ? "costs more per task" : "uses your plan's limits sooner";
+  return { efficient: `A lighter model for each kind of task: ${spend} and on energy. Unsure answers still go to a stronger model.`,
+    balanced: "The recommended model for each kind of task.",
+    intelligence: `A stronger model for each kind of task, thinking harder: ${more}.` }[v] || "";
+};
+// who is given the thought: the agent's name on an agent route, "the AI" on another provider's API, Claude otherwise
+const thoughtWho = (s = App.settings()) => (isAgent(s) ? agentTitle(s) : (s || {}).backend === "cloud_api" ? "the AI" : "Claude");
 
 export async function saveThought(thought) {
   const r = await api("PUT", "/api/settings", { claude_thought: thought });
@@ -2834,8 +2903,8 @@ export async function saveThought(thought) {
 export function thoughtPicker(chosen, onPick = saveThought, opts = {}) {
   let current = chosen || "balanced";
   const line = h("span", { class: "muted small sc-speed-line" });
-  const show = (v) => { line.textContent = THOUGHT_NOTE[v] || ""; };
-  const group = choice({ sm: true, label: "How much thought Claude gives the tasks", class: "sc-speed-btns", value: current, options: THOUGHT_CHOICES,
+  const show = (v) => { line.textContent = thoughtNote(v); };
+  const group = choice({ sm: true, label: `How much thought ${thoughtWho()} gives the tasks`, class: "sc-speed-btns", value: current, options: THOUGHT_CHOICES,
     onPick: async (v) => {
       if (v === current) return;
       const before = current;
@@ -2924,7 +2993,7 @@ function helpersFold(project, q, onChange) {
 // the sidebar draws its button again every 5 s and the progress panel whenever the queue's line changes).
 const NUDGE_AFTER = 5000;
 const WAIT_SINCE = new Map();
-const idleQueue = (q) => !!(q && q.route === "claude_code" && q.can_start && !(q.runner || {}).running && q.waiting && !q.being_answered);
+const idleQueue = (q) => !!(q && isAgentRoute(q.route) && q.can_start && !(q.runner || {}).running && q.waiting && !q.being_answered);
 // one request at a time per project; the answer is kept for the next element that draws
 function queueFetch(project) {
   const c = QUEUE_CACHE.get(project) || {};
@@ -2939,7 +3008,7 @@ function queueFetch(project) {
 // with the speed of Settings or the helpers chosen for this run. Settings › AI has the whole choice.
 export async function startClaudeNow(project) {
   const q = await queueFetch(project);
-  await api("POST", `/api/projects/${P(project)}/queue/claude-code`, runBody(project, q));
+  await api("POST", `/api/projects/${P(project)}/queue/agent`, runBody(project, q));
   RUN_CHOICE.delete(project);
   QUEUE_CACHE.delete(project);
 }

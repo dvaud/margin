@@ -16,7 +16,7 @@ PROBE = r"""
 const LIST = [{ id: "anthropic", title: "Anthropic (Claude)", company: "Anthropic", lists_models: true },
   { id: "openai", title: "OpenAI", company: "OpenAI", lists_models: true, key_hint: "platform.openai.com → API keys", placeholder: "sk-…" },
   { id: "mistral", title: "Mistral", company: "Mistral AI", lists_models: true, key_hint: "console.mistral.ai → API keys" },
-  { id: "azure", title: "Azure OpenAI", company: "Microsoft", lists_models: false, needs_address: true }];
+  { id: "azure", title: "Azure OpenAI", company: "Microsoft", lists_models: false, needs_address: true, recommended: { small: "gpt-6-luna", middle: "gpt-6.2-sol", strong: "gpt-6.2-astra" } }];
 const NONE = { list: LIST, keys: { openai: false, mistral: false, azure: false }, route: "anthropic", set_up: [], other_set_up: false };
 const OPENAI = { ...NONE, keys: { ...NONE.keys, openai: true }, set_up: ["openai"], other_set_up: true };
 const DOC = { doc_id: "d1", title: "Field notes", file: "d1.pdf", ai_access: "cloud", own: null, note: "", budget: null, sent: 0.2,
@@ -129,8 +129,11 @@ async function settingsPage(t, settings, providers) {
   t.answer("GET /api/claude-setup", {});
   t.answer("GET /api/local-status", {});
   t.answer("GET /api/projects/Study/queue", { kinds: [], waiting: 0 });
+  t.answer("GET /api/projects/Study", { ai_access: { providers_default: ["anthropic"] } });
   t.answer("GET /api/projects/Study/agreement/plan?*", { kinds: [], problem: null, kept: [], plan: null });
-  t.answer("GET /api/settings/provider-models?*", (b, path) => (path.includes("openai") ? { models: ["gpt-a", "gpt-b"], lists: true } : { models: [], lists: false }));
+  t.answer("GET /api/settings/provider-models?*", (b, path) => (path.includes("openai")
+    ? { models: ["gpt-a", "gpt-b", "gpt-6-luna"], lists: true, recommended: { small: "gpt-6-luna", middle: "gpt-a", strong: "gpt-a" } }
+    : { models: [], lists: false, recommended: { small: "gpt-6-luna", middle: "gpt-6.2-sol", strong: "gpt-6.2-astra" } }));
   await t.render("views/settings.js", "renderSettings", ["model"]);
   await t.settle(200);
 }
@@ -146,17 +149,31 @@ await scenario("Settings: choosing another cloud provider", async (t) => {
   await t.settle(100);
   const box = t.view.querySelector(".cloud-provider");
   out.text = t.text(box);
-  out.keyType = box.querySelector("#cloud-key").getAttribute("type");
+  out.providers = box.querySelectorAll(".provider-cards input[type=radio]").map((r) => r.value);
+  out.keyFields = box.querySelectorAll("input[type=password]").length;
+  // the key's set-up: guided steps in a dialog, the key stored at the last one, the models applied as the done step
   t.answer("POST /api/settings/provider-key", (b) => ({ providers: OPENAI }));
-  await t.type(box.querySelector("#cloud-key"), "sk-secret-123");
-  await t.click("Save the key", { within: box });
+  await t.click(box.querySelector("#cloud-key-setup"));
+  await t.settle(10);
+  const s = t.dialog();
+  out.steps = s.querySelectorAll(".guided-step-title").map((x) => t.text(x).replace(/^Step \d of \d(, done)?: /, ""));
+  out.waits = !!s.querySelector("#dlg-confirm").disabled;
+  for (let i = 0; i < 3; i++) await t.click(s.querySelector(".guided-step[data-state=current] .guided-step-next"));
+  out.keyType = s.querySelector("#key-openai").getAttribute("type");
+  await t.type(s.querySelector("#key-openai"), "sk-secret-123");
+  await t.click("Store the key", { within: s.querySelector(".dialog-actions") });
+  await t.settle(100);
+  out.done = t.text(s.querySelector(".guided-step[data-state=current]"));
+  out.button = t.text(s.querySelector("#dlg-confirm"));
+  out.quiet = t.text(s.querySelector("#dlg-cancel"));
+  await t.click("Not now", { within: s.querySelector(".dialog-actions") });
   await t.settle(100);
   const box2 = t.view.querySelector(".cloud-provider");
   out.after = t.text(box2);
-  out.keyField = box2.querySelector("#cloud-key").value;
-  out.models = box2.querySelectorAll("#m-cloud option").map((o) => o.value);
+  out.models = box2.querySelectorAll("#m-cloud-middle option").map((o) => o.value);
   out.keyPost = t.calls.filter((c) => c.path === "/api/settings/provider-key").map((c) => c.body);
-  await t.type(box2.querySelector("#m-cloud"), "gpt-b");
+  await t.type(box2.querySelector("#m-cloud-middle"), "gpt-b");
+  out.state = t.text(box2.querySelector("#s-cloud-models"));
   t.answer("PUT /api/settings", (b) => ({ settings: { ...b }, backend_label: "OpenAI (API key) · gpt-b", providers: OPENAI }));
   await t.click(t.view.querySelector(".cloud-box input[type=checkbox]"));
   await t.click("Save");
@@ -164,11 +181,66 @@ await scenario("Settings: choosing another cloud provider", async (t) => {
   return out;
 });
 
-await scenario("Settings: Azure asks for its address and a deployment's name", async (t) => {
+// a key the provider refuses is not kept, and the dialog stays at the paste step
+await scenario("Settings: a refused key", async (t) => {
+  await settingsPage(t, { backend: "cloud_api", allow_cloud: true, cloud_provider: "openai" }, NONE);
+  t.answer("POST /api/settings/provider-key", (b) => ({ providers: OPENAI }));
+  t.answer("GET /api/settings/provider-models?*", { models: [], lists: true, problem: "OpenAI refused the key (401).", refused: true, recommended: {} });
+  t.answer("DELETE /api/settings/provider-key", () => ({ providers: NONE }));
+  const box = t.view.querySelector(".cloud-provider");
+  await t.click(box.querySelector("#cloud-key-setup"));
+  await t.settle(10);
+  const s = t.dialog();
+  for (let i = 0; i < 3; i++) await t.click(s.querySelector(".guided-step[data-state=current] .guided-step-next"));
+  await t.type(s.querySelector("#key-openai"), "sk-wrong");
+  await t.click("Store the key", { within: s.querySelector(".dialog-actions") });
+  await t.settle(100);
+  const out = { error: t.text(s.querySelector(".field-error")), at: t.text(s.querySelector(".guided-step[data-state=current] .guided-step-title")),
+    deletes: t.calls.filter((c) => c.method === "DELETE").map((c) => c.body), button: t.text(s.querySelector("#dlg-confirm")), open: s.open !== false };
+  await t.click("Cancel", { within: s.querySelector(".dialog-actions") });
+  const ask = t.dialog(); if (ask && ask !== s) await t.click("Stop the set-up", { within: ask.querySelector(".dialog-actions") });
+  return out;
+});
+
+// the provider could not be reached: the key is stored, and the done step says it was not checked
+await scenario("Settings: a key that could not be checked", async (t) => {
+  await settingsPage(t, { backend: "cloud_api", allow_cloud: false, cloud_provider: "openai" }, NONE);
+  t.answer("POST /api/settings/provider-key", (b) => ({ providers: OPENAI }));
+  t.answer("GET /api/settings/provider-models?*", { models: [], lists: true, problem: "Could not reach OpenAI. Check the internet connection.", refused: false, recommended: {} });
+  const box = t.view.querySelector(".cloud-provider");
+  await t.click(box.querySelector("#cloud-key-setup"));
+  await t.settle(10);
+  const s = t.dialog();
+  for (let i = 0; i < 3; i++) await t.click(s.querySelector(".guided-step[data-state=current] .guided-step-next"));
+  await t.type(s.querySelector("#key-openai"), "sk-ok");
+  await t.click("Store the key", { within: s.querySelector(".dialog-actions") });
+  await t.settle(100);
+  const out = { done: t.text(s.querySelector(".guided-step[data-state=current]")), deletes: t.calls.filter((c) => c.method === "DELETE").length };
+  t.answer("PUT /api/settings", (b) => ({ settings: { ...b }, backend_label: "OpenAI (API key)", providers: OPENAI }));
+  out.button = t.text(s.querySelector("#dlg-confirm"));
+  await t.click(out.button, { within: s.querySelector(".dialog-actions") });   // the main button saves the route at once
+  await t.settle(100);
+  out.put = t.calls.filter((c) => c.method === "PUT" && c.path === "/api/settings").map((c) => c.body);
+  return out;
+});
+
+// a key stored earlier that the provider now refuses: said in the status card and on the provider's card
+await scenario("Settings: a stored key that is refused later", async (t) => {
+  t.answer("GET /api/settings/provider-models?*", { models: [], lists: true, problem: "OpenAI refused the key (401).", refused: true, recommended: {} });
+  await settingsPage(t, { backend: "cloud_api", allow_cloud: true, cloud_provider: "openai" }, OPENAI);
+  t.answer("GET /api/settings/provider-models?*", { models: [], lists: true, problem: "OpenAI refused the key (401).", refused: true, recommended: {} });
+  await t.click(t.view.querySelector('.provider-cards input[value="mistral"]'));
+  await t.click(t.view.querySelector('.provider-cards input[value="openai"]'));
+  await t.settle(100);
+  const box = t.view.querySelector(".cloud-provider");
+  return { status: t.text(box.querySelector(".provider-status")), cards: t.text(box.querySelector(".provider-cards")), models: t.text(box.querySelector("#s-cloud-models")) };
+});
+
+await scenario("Settings: Azure asks for its address and the deployments' names", async (t) => {
   await settingsPage(t, { backend: "cloud_api", allow_cloud: true, cloud_provider: "azure", cloud_model: "my-dep" }, NONE);
   const box = t.view.querySelector(".cloud-provider");
-  return { text: t.text(box), address: !t.hidden(box.querySelector("#azure-url")), model: box.querySelector("#m-cloud-txt").value,
-    lists: box.querySelectorAll("#m-cloud option").length };
+  return { text: t.text(box), address: !t.hidden(box.querySelector("#azure-url")), model: box.querySelector("#m-cloud-middle-txt").value,
+    small: box.querySelector("#m-cloud-small-txt").value, lists: box.querySelectorAll("#m-cloud-middle option").length };
 });
 
 await scenario("Settings on a local-only computer", async (t) => {
@@ -222,25 +294,33 @@ def test_a_documents_own_providers_are_ticked_in_its_dialog(page):
 @needs_node
 def test_settings_offers_another_cloud_provider_with_a_key_kept_out_of_the_page(page):
     r = page["Settings: choosing another cloud provider"]
-    assert r["cards"] == ["claude_code", "local", "baseline", "anthropic", "cloud_api"]
+    assert r["cards"] == ["subscription", "local", "baseline", "anthropic", "cloud_api"]
     assert r["asked"] == "Use another cloud provider with your API key?"
     assert "Only documents that allow that provider are sent" in r["says"] and "allows Anthropic only" in r["says"]
     assert "With OpenAI the hypothesis and the excerpts read leave this computer for OpenAI" in r["text"]
-    assert "No key stored yet" in r["text"] and "not yet measured" in r["text"]
-    assert r["keyType"] == "password"
+    assert r["providers"] == ["openai", "mistral", "azure"] and r["keyFields"] == 0   # no bare key field on the page
+    assert "Not set up yet" in r["text"] and "not yet measured" in r["text"] and "Set up OpenAI…" in r["text"]
+    assert r["steps"] == ["Make an account on OpenAI’s API platform", "Add credit", "Make a key for Margin", "Paste the key here", "What Margin applied"]
+    assert r["waits"] is True and r["keyType"] == "password"
     assert r["keyPost"] == [{"provider": "openai", "key": "sk-secret-123"}]
-    assert "A key is stored on this computer" in r["after"] and r["keyField"] == "" and "sk-secret" not in r["after"]
-    assert r["models"][1:3] == ["gpt-a", "gpt-b"]
+    assert "OpenAI is set up" in r["done"] and "OpenAI accepted it" in r["done"]
+    assert "gpt-6-luna for labels and links, gpt-a for judging excerpts and gpt-a for second opinions" in r["done"]
+    assert r["button"] == "Allow cloud models and use OpenAI" and r["quiet"] == "Not now" and "Left to do" not in r["done"]
+    assert "Key stored in this computer’s keychain" in r["after"] and "Key stored" in r["after"] and "sk-secret" not in r["after"]
+    assert "Recommended models, applied automatically" in r["after"] and "In use" not in r["after"]
+    assert r["models"][:4] == ["", "gpt-a", "gpt-b", "gpt-6-luna"] and r["models"][-1] == "__other"
+    assert "Your choice" in r["state"] and "In use" not in r["state"]
     put = r["put"]
     assert put["backend"] == "cloud_api" and put["allow_cloud"] is True and put["cloud_provider"] == "openai"
-    assert put["cloud_model"] == "gpt-b" and "sk-secret" not in str(put)
+    assert (put["cloud_small_model"], put["cloud_model"], put["cloud_strong_model"]) == ("", "gpt-b", "")
+    assert "sk-secret" not in str(put)
 
 
 @needs_node
 def test_azure_and_local_only(page):
-    r = page["Settings: Azure asks for its address and a deployment's name"]
-    assert r["address"] and r["model"] == "my-dep" and r["lists"] == 0
-    assert "Azure lists no models: type your deployment's name." in r["text"]
+    r = page["Settings: Azure asks for its address and the deployments' names"]
+    assert r["address"] and r["model"] == "my-dep" and r["small"] == "" and r["lists"] == 0
+    assert "Your deployments" in r["text"] and "gpt-6-luna, gpt-6.2-sol, gpt-6.2-astra" in r["text"]
     assert page["Settings on a local-only computer"]["cards"] == ["local", "baseline"]
 
 
@@ -263,3 +343,27 @@ def test_differing_allowances_show_the_tick_boxes_without_another_provider(page)
     r = page["allowances that differ show the tick boxes while only Claude is set up"]
     assert r["card"] and r["byDoc"]
     assert r["boxes"] == [["anthropic", True], ["mistral", True]]
+
+
+@needs_node
+def test_a_refused_key_stays_at_the_paste_step_and_is_forgotten(page):
+    r = page["Settings: a refused key"]
+    assert r["error"] == "OpenAI refused this key. Copy it again from the keys page."
+    assert r["at"].endswith("Paste the key here") and r["button"] == "Store the key"
+    assert r["deletes"] == [{"provider": "openai"}]
+
+
+@needs_node
+def test_a_key_that_could_not_be_checked_says_so_and_the_main_button_saves_the_route(page):
+    r = page["Settings: a key that could not be checked"]
+    assert "The key is stored, not checked yet" in r["done"] and "could not be asked whether it works" in r["done"]
+    assert "Settings → AI" not in r["done"] and r["deletes"] == 0
+    assert r["button"] == "Allow cloud models and use OpenAI"
+    assert r["put"] == [{"allow_cloud": True, "backend": "cloud_api", "cloud_provider": "openai"}]
+
+
+@needs_node
+def test_a_stored_key_the_provider_refuses_later_is_flagged(page):
+    r = page["Settings: a stored key that is refused later"]
+    assert "OpenAI refused the stored key" in r["status"] and "Key refused" in r["cards"]
+    assert "Settings → AI" not in r["models"]

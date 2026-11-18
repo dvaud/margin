@@ -30,6 +30,7 @@ from operator import itemgetter
 from typing import Callable
 
 from . import __version__, frameworks
+from . import providers
 from .people import me, mine_sql
 from .store import Workspace, now
 from .textutil import STOPWORDS, _TOKEN_RE, fast_normalise, stem
@@ -510,7 +511,7 @@ def run_labels(ws: Workspace, framework: str, backend, model: str, doc_ids: list
                 raise
             readers.local_problem = local_off = str(e)
             return
-        if getattr(backend, "name", "") != "claude_code":  # by queue the connector measures (waiting is not reading)
+        if getattr(backend, "name", "") not in providers.AGENT_ROUTES:  # by queue the connector measures (waiting is not reading)
             runs.timing(ws, "label", runs._routed(backend, "label", model), time.time() - t0)
         if ok:
             cand = {c["code"] for c in candidates_of(ws, framework, pid)}
@@ -894,7 +895,7 @@ def compare_sample(ws: Workspace, framework: str, backend, model: str, n: int = 
                     "ORDER BY task_id", (len(f"label:{framework}:"), f"label:{framework}:"))
     from . import access
 
-    if getattr(backend, "name", "") != "claude_code":  # by queue, answer_on_copy leaves restricted ones out
+    if getattr(backend, "name", "") not in providers.AGENT_ROUTES:  # by queue, answer_on_copy leaves restricted ones out
         rows = [r for r in rows if access.may_read(ws, json.loads(r["payload_json"]), backend)]
     rng = random.Random(seed)
     sample = rng.sample(list(rows), min(n, len(rows)))
@@ -906,7 +907,7 @@ def compare_sample(ws: Workspace, framework: str, backend, model: str, n: int = 
     compared = 0
     errors = 0
     queued = None
-    if getattr(backend, "name", "") == "claude_code":
+    if getattr(backend, "name", "") in providers.AGENT_ROUTES:
         from .taskqueue import answer_on_copy
 
         queued, _secs = answer_on_copy(ws, [(t["task_id"], "label", json.loads(t["payload_json"]), model)

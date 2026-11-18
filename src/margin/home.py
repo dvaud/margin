@@ -32,7 +32,7 @@ DEFAULTS = {
     # 0.9: subscription first. A new installation answers with Claude Code on the researcher's own Claude plan; the
     # tasks wait in the project's queue on this computer and leave it only when the researcher runs Claude Code
     # (or presses "Start Claude Code" in the app). Local-only installations fall back to "auto" (see load_settings).
-    "backend": "claude_code",          # claude_code | auto | ollama | openai | anthropic | cloud_api | baseline
+    "backend": "claude_code",          # claude_code | codex | antigravity | auto | ollama | openai | anthropic | cloud_api | baseline
     "allow_cloud": False,              # the Claude API (or another cloud provider) can be used only when this is on
     "anthropic_model": "claude-opus-5-5",
     "ollama_url": "http://localhost:11434",
@@ -62,6 +62,12 @@ DEFAULTS = {
     "themes_k": 20,                    # how many themes a run looks for (2 to 60; fewer in a small project)
     # 0.8
     "allow_claude_code": True,         # Claude Code (the researcher's own plan) may answer (0.9: on by default)
+    # stage 2 of other cloud providers: the agent CLIs on the person's own plan (providers.AGENT_CLIS) may answer, once
+    # the person said yes to the passages going to that company (off until then, unlike Claude Code's)
+    "allow_codex": False,
+    "allow_antigravity": False,
+    # their models per tier ({"codex": {"small": "", "middle": "", "strong": ""}}; empty = the recommendation)
+    "cli_models": {},
     "use_fable": False,                # the auditor (second opinions, hard checks) runs on Fable instead of Opus
     # 0.13.10: how fast Claude Code started from the app works: slower (one helper at once), normal (two) or faster
     # (four; it uses the plan's limit sooner). Chosen beside every Start Claude Code, and under Settings → AI.
@@ -114,8 +120,9 @@ DEFAULTS = {
     # optional smaller one for the kinds a local small model takes (labels, links), and Azure's resource address.
     # None of them is ever in a move zip (bundle.MACHINE_SETTINGS)
     "cloud_provider": "",              # "" | openai | gemini | mistral | azure | openrouter
-    "cloud_model": "",
-    "cloud_small_model": "",
+    "cloud_model": "",                 # the middle tier (judging excerpts); empty = the provider's recommendation
+    "cloud_small_model": "",           # the small tier (labels, links); empty = the recommendation
+    "cloud_strong_model": "",          # the strong tier (second opinions, hard cases); empty = the recommendation
     "azure_url": "",                   # e.g. https://my-resource.openai.azure.com
     # roles (DESIGN-roles §3.2, §4.11): this installation's own id, written into the shared folder (`head.json`), so a
     # copy of this data folder on another computer is stopped before it writes there under the same person. Made once
@@ -125,7 +132,9 @@ DEFAULTS = {
     "installation_place": "",
 }
 
-BACKEND_LABELS = {"claude_code": "Claude Code (your subscription)", "auto": "Local model (automatic)",
+BACKEND_LABELS = {"claude_code": "Claude Code (your subscription)",
+                  **{a.id: f"{a.title} (your subscription)" for a in providers.AGENT_CLIS.values()},
+                  "auto": "Local model (automatic)",
                   "ollama": "Ollama", "openai": "Local OpenAI-compatible server", "anthropic": "Claude API (cloud)",
                   providers.CLOUD_ROUTE: "Another cloud provider (API key)", "baseline": "Offline demo"}
 CLOUD_BACKENDS = {"anthropic", providers.CLOUD_ROUTE}   # they need "Allow cloud models"
@@ -350,6 +359,8 @@ def load_settings(strict: bool = False) -> dict:
             s["backend"] = "auto"
         s["allow_claude_code"] = False
         s["allow_cloud"] = False
+        for a in providers.AGENT_CLIS:
+            s[f"allow_{a}"] = False
     return s
 
 
@@ -364,6 +375,9 @@ def clean_settings(changes: dict) -> dict:
             from .routing import clean_task_models
 
             out[k] = clean_task_models(v)
+            continue
+        if k == "cli_models":  # stage 2: {route: {tier: model id}}
+            out[k] = clean_cli_models(v)
             continue
         if k == "sync_paused_projects":  # 0.18: a list of project names
             if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
@@ -421,7 +435,7 @@ def clean_settings(changes: dict) -> dict:
         raise ValueError("ocr_lang must be Tesseract language codes joined by +, for example eng or eng+nld.")
     if "cloud_provider" in out and out["cloud_provider"] not in ("",) + providers.CLOUD_IDS:
         raise ValueError(f"cloud_provider must be one of {', '.join(providers.CLOUD_IDS)} (or empty).")
-    for k in ("cloud_model", "cloud_small_model"):
+    for k in ("cloud_model", "cloud_small_model", "cloud_strong_model"):
         if k in out and (len(out[k]) > 200 or any(c.isspace() for c in out[k])):
             raise ValueError("A model's name has no spaces and is at most 200 characters.")
     if out.get("azure_url"):
@@ -487,12 +501,40 @@ def save_settings(s: dict) -> None:
                                    indent=2))
 
 
+def clean_cli_models(value) -> dict:
+    """Validate the agent CLIs' models per tier: {route: {"small"|"middle"|"strong": model id}} (empty: the
+    recommendation, left out)."""
+    if value in (None, "", {}):
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("cli_models must be an object: {\"codex\": {\"middle\": \"…\"}}.")
+    out: dict = {}
+    for route, tiers in value.items():
+        if route not in providers.AGENT_CLIS:
+            raise ValueError(f"Unknown agent CLI {route!r}: choose from {', '.join(providers.AGENT_CLIS)}.")
+        if not isinstance(tiers, dict):
+            raise ValueError(f"cli_models.{route} must be an object of tier: model.")
+        clean = {}
+        for t, m in tiers.items():
+            if t not in providers.TIERS:
+                raise ValueError(f"Unknown tier {t!r}: choose from {', '.join(providers.TIERS)}.")
+            m = "" if m is None else str(m).strip()
+            if len(m) > 200 or any(c.isspace() for c in m):
+                raise ValueError("A model's name has no spaces and is at most 200 characters.")
+            if m:
+                clean[t] = m
+        if clean:
+            out[route] = clean
+    return out
+
+
 def update_settings(changes: dict) -> dict:
     with LOCK, to_change():  # read, changed and written as one step: two changes at once each kept only its own
         s = load_settings()
         old = dict(s)
         s.update(clean_settings(changes))
-        if local_only() and (s["backend"] in OFF_COMPUTER or s["allow_cloud"] or s.get("allow_claude_code")):
+        if local_only() and (s["backend"] in OFF_COMPUTER or s["allow_cloud"] or s.get("allow_claude_code")
+                             or any(s.get(f"allow_{a}") for a in providers.AGENT_CLIS)):
             raise ValueError("Cloud models are switched off on this computer by whoever installed Margin: "
                              "everything stays on this computer.")
         if s["backend"] in CLOUD_BACKENDS and not s["allow_cloud"]:
@@ -503,6 +545,10 @@ def update_settings(changes: dict) -> dict:
             raise ValueError("Choose which cloud provider reads the documents.")
         if s["backend"] == "claude_code" and not s.get("allow_claude_code"):
             raise ValueError("Confirm Claude Code first: the passages inside the tasks it takes are sent to Anthropic.")
+        cli = providers.AGENT_CLIS.get(s["backend"])
+        if cli and not s.get(f"allow_{cli.id}"):
+            raise ValueError(f"Confirm {cli.title} first: the passages inside the tasks it takes are sent to "
+                             f"{providers.company(cli.provider)}.")
         save_settings(s)
     _relabel_after(old, s)
     return s
@@ -739,8 +785,10 @@ def make_backend(settings: dict, api_key: str = "", kinds: tuple[str, ...] = ("c
         be.router = from_settings(settings, large=model)  # 0.8: the model of each kind of task (G3)
         if getattr(be, "name", "") == "anthropic":
             model = be.router.call_model("check") or model
-        elif getattr(be, "name", "") == "claude_code":
+        elif getattr(be, "name", "") in providers.AGENT_ROUTES:
             model = be.router.model("check") or model
+        elif getattr(be, "name", "") == providers.CLOUD_ROUTE:
+            model = be.router.call_model("check") or model
     return be, model
 
 
@@ -756,6 +804,16 @@ def _make_backend(settings: dict, api_key: str = "", kinds: tuple[str, ...] = ("
         if not settings.get("allow_claude_code"):
             raise BackendError("Claude Code is not confirmed yet. Choose it again in Settings and confirm.")
         return ClaudeCodeBackend(), "opus"
+    if b in providers.AGENT_CLIS:
+        from .llm import AgentCliBackend
+
+        cli = providers.AGENT_CLIS[b]
+        if local_only():
+            raise BackendError("Cloud models are switched off on this computer by whoever installed Margin. "
+                               "Choose a local model in Settings.")
+        if not settings.get(f"allow_{b}"):
+            raise BackendError(f"{cli.title} is not confirmed yet. Choose it again in Settings and confirm.")
+        return AgentCliBackend(b), "opus"
     if b == "anthropic":
         if local_only():
             raise BackendError("Cloud models are switched off on this computer by whoever installed Margin. "
@@ -775,9 +833,13 @@ def _make_backend(settings: dict, api_key: str = "", kinds: tuple[str, ...] = ("
         if not settings.get("allow_cloud"):
             raise BackendError(f"Cloud models are switched off. Allow them in Settings → AI to use {title} (the "
                                f"passages read are then sent to {providers.company(pid)}), or choose a local model.")
-        model = (settings.get("cloud_model") or "").strip()
+        # minor 2: an empty choice is the provider's recommended model (Azure: the deployments the person typed)
+        from .routing import lineup_for
+
+        model = lineup_for(settings, providers.CLOUD_ROUTE).get("middle") or ""
         if not model:
-            raise BackendError(f"Choose the {title} model in Settings → AI.")
+            raise BackendError(f"Type your {title} deployment's name in Settings → AI." if pid == "azure" else
+                               f"Choose the {title} model in Settings → AI.")
         try:
             url = providers.base_url(pid, settings.get("azure_url") or "")
         except ValueError as e:
@@ -923,7 +985,8 @@ def backend_label(settings: dict) -> str:
              "anthropic": "a model per task" if settings.get("routing", True) else settings.get("anthropic_model"),
              "claude_code": "a helper and model per task", "ollama": settings.get("ollama_model") or "no model chosen",
              "openai": settings.get("openai_model") or "first model listed", "baseline": "word overlap, no model",
-             providers.CLOUD_ROUTE: settings.get("cloud_model") or "no model chosen"}.get(b, "")
+             providers.CLOUD_ROUTE: settings.get("cloud_model") or "recommended models",
+             **{a: "a helper and model per task" for a in providers.AGENT_CLIS}}.get(b, "")
     if b == providers.CLOUD_ROUTE and settings.get("cloud_provider") in providers.CLOUD_IDS:
         return f"{providers.title(settings['cloud_provider'])} (API key) · {model}"
     return f"{BACKEND_LABELS.get(b, b)} · {model}"
@@ -1113,8 +1176,9 @@ def save_uploads(ws: Workspace, files: list[tuple[str, bytes]]) -> Path:
 def make_second_backend(settings: dict, api_key: str = ""):
     """The backend for the second model of Settings (on the same server as the main model), and its name."""
     b = settings.get("backend", "auto")
-    if b in ("claude_code", "anthropic") and settings.get("routing", True):
-        # 0.8: on Claude the second opinion comes from the auditor (Opus, or Fable when switched on)
+    if (b in providers.AGENT_ROUTES or b == "anthropic") and settings.get("routing", True):
+        # 0.8: on Claude the second opinion comes from the auditor (Opus, or Fable when switched on); stage 2: on an
+        # agent CLI from its strongest model (the alias "opus", translated by its runner)
         be, _m = make_backend(settings, api_key, kinds=("second",))
         alias = be.router.model("second") or "opus"
         return be, (be.router.api_id(alias) if b == "anthropic" else alias)

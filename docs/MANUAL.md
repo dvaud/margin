@@ -37,7 +37,7 @@ Three things hold everywhere:
 5. **Review**: *Next to review* takes you through the judgements that matter first: *Agree*, *Not about this* or
    *Judge differently…* → [Read and review a result](manual/review.md)
 
-Would you rather be walked through it, with sample documents? [Your first project, start to finish](manual/first-project.md).
+Want a walk-through with sample documents? [Your first project, start to finish](manual/first-project.md).
 
 ## The manual
 
@@ -67,7 +67,8 @@ Arranged by what you need: to **learn**, to **do** something, to **look somethin
 | [A storage space of your team's own](manual/storage-space.md) | Set-up, invites, joining |
 | [Choosing the shared folder](manual/shared-folder.md) | Cloud folders, the folder window |
 | [Roles, proposals and what waits for your word](manual/roles.md) | Owner, Co-owner, Member |
-| [Claude Code](manual/claude-code.md) | Setting it up and starting it; Claude in a chat |
+| [Claude Code](manual/claude-code.md) | Setting it up, starting it; Claude in a chat |
+| [Codex and Antigravity](manual/other-agents.md) | Other plans |
 | [A model on your own computer](manual/local-models.md) | Getting, tuning and testing one |
 
 ### Look it up
@@ -75,9 +76,9 @@ Arranged by what you need: to **learn**, to **do** something, to **look somethin
 | Page | What it covers |
 | --- | --- |
 | [Settings](manual/settings.md) | The five tabs, reporting a problem, installing for others |
-| [Which model does what](manual/models.md) | The model of each task; what every answer records |
+| [Which model does what](manual/models.md) | Each task's model; what answers record |
 | [Glossary](manual/glossary.md) | The words of the app and their technical names |
-| [Troubleshooting and limits](manual/troubleshooting.md) | Problems by topic; what Margin cannot promise |
+| [Troubleshooting and limits](manual/troubleshooting.md) | Problems by topic; what it cannot promise |
 | [The command line](manual/command-line.md) | `margin-gui`, `margin` and the project's database |
 
 ### How it works

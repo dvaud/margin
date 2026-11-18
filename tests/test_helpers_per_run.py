@@ -239,7 +239,8 @@ def test_the_page_offers_the_speed_and_the_helpers_for_one_run():
     m = re.search(r"options = \{ slower: (\d), normal: (\d), faster: (\d) \}", lib)
     assert m and dict(zip(("slower", "normal", "faster"), map(int, m.groups()))) == taskqueue.SPEEDS
     assert "export function speedPicker" in lib and "Choose the helpers for this run" in lib
-    assert "/queue/claude-code`, body)" in lib and "RUN_CHOICE.delete(project)" in lib
+    # stage 2: the main route's agent (Claude Code, Codex, Antigravity) is started at queue/agent
+    assert "/queue/agent`, body)" in lib and "RUN_CHOICE.delete(project)" in lib
     settings = (STATIC / "views" / "settings.js").read_text(encoding="utf-8")
     assert "speedPicker(" in settings and 'speed: "model"' in settings
     queue = (STATIC / "views" / "queue.js").read_text(encoding="utf-8")   # 0.17.0: the queue moved to Settings › AI

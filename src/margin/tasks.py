@@ -20,7 +20,7 @@ from typing import Any, Iterable
 from pydantic import ValidationError
 
 from .docrole import evidence_sql
-from . import __version__, access, prompts, taskkinds
+from . import __version__, access, prompts, providers, taskkinds
 from .retrieve import BM25, H2_RE
 from .schema import (CheckOut, DecomposeOut, ExpandOut, ExtractOut, ImpactClaimOut, InteractionOut, SplitOut,
                      VerifyOut, VerifySetOut)
@@ -82,14 +82,27 @@ def queue_mode() -> bool:
     return bool(getattr(_QUEUE, "on", False))
 
 
+def queue_provider() -> str:
+    """The provider of the agent route that answers the queue (taskqueue.queue_provider): Anthropic for Claude Code,
+    OpenAI for Codex, Google for Antigravity."""
+    from .taskqueue import queue_provider as qp
+
+    try:
+        return qp()
+    except Exception:  # noqa: BLE001 - settings that cannot be read this moment: the queue as before stage 2
+        return access.ANTHROPIC
+
+
 def mark_queued(cx, task_ids: Iterable[str]) -> int:
     """Hand these tasks to the queue (no change for tasks already in it). 0.11: only tasks whose documents Claude
-    may read (`access` cloud) ever enter it; stage 1 of other cloud providers: and Anthropic may read them (the queue
-    is Claude Code's), whatever provider the stored settings are for."""
+    may read (`access` cloud) ever enter it; stage 1 of other cloud providers: and the queue's provider may read them
+    (stage 2: the provider of the agent route that answers it, Anthropic for Claude Code), whatever provider the
+    stored settings are for."""
     n = 0
     labels = access.labels_provider(cx)
+    qp = queue_provider()
     for tid in task_ids:
-        if labels != access.ANTHROPIC and access.recheck(cx, tid, budget=False, provider=access.ANTHROPIC) != "cloud":
+        if labels != qp and access.recheck(cx, tid, budget=False, provider=qp) != "cloud":
             continue
         n += cx.execute("UPDATE tasks SET queued=1, queued_at=COALESCE(queued_at, ?) WHERE task_id=? AND "
                         "COALESCE(queued, 0)=0 AND COALESCE(access, 'cloud')='cloud'", (now(), tid)).rowcount
@@ -105,11 +118,12 @@ def _insert_task(cx, task_id: str, kind: str, model: str, payload: dict) -> bool
             mark_queued(cx, [task_id])  # an existing task asked for again (a stopped run started anew): into the queue
         return False
     # stage 1 of other cloud providers: the setting for the provider the project's tasks are labelled for; the queue
-    # takes it only when Anthropic may read it
+    # takes it only when the queue's provider may read it (Anthropic for Claude Code; stage 2: OpenAI for Codex, ...)
     labels = access.labels_provider(cx)
     level = access.label_payload(cx, payload, provider=labels)
-    q = queue_mode() and level == "cloud" and (labels == access.ANTHROPIC or access.label_payload(
-        cx, payload, budget=False, provider=access.ANTHROPIC) == "cloud")
+    qp = queue_provider() if queue_mode() and level == "cloud" else labels
+    q = queue_mode() and level == "cloud" and (labels == qp or access.label_payload(
+        cx, payload, budget=False, provider=qp) == "cloud")
     cx.execute("INSERT INTO tasks(task_id, kind, model, prompt_version, payload_json, status, attempts, created_at, "
                "queued, queued_at, access) VALUES (?,?,?,?,?,?,0,?,?,?,?)",
                (task_id, kind, model, prompts.VERSIONS[kind], json.dumps(payload, ensure_ascii=False), "pending", now(),
@@ -138,7 +152,7 @@ def replace_task(cx, task_id: str, kind: str, model: str, payload: dict) -> bool
 def _send(ws: Workspace, t, backend) -> None:
     """Before a backend is asked: the guard (0.11), and the ledger when the text leaves this computer."""
     access.require(backend, t, ws)
-    if access.is_cloud(backend) and getattr(backend, "name", "") != "claude_code":
+    if access.is_cloud(backend) and getattr(backend, "name", "") not in providers.AGENT_ROUTES:
         with ws.connect() as cx:
             access.record_sent(cx, t["task_id"], json.loads(t["payload_json"]), access.route_name(backend), t["kind"],
                                provider=access.provider_of(backend))
@@ -1180,8 +1194,8 @@ def run_one(ws: Workspace, task_id: str, backend, model: str | None = None) -> t
     0.8: with a router on the backend, the task's kind picks its model, and a hard task steps up once (see
     routing): on the Claude API at once; with local models the second readings wait for `run_stepups`, so each
     model is loaded once per run. With the Claude Code backend nothing is asked here: the task waits in the queue
-    until Claude Code has answered it (`taskqueue.wait_for`)."""
-    if getattr(backend, "name", "") == "claude_code":
+    until Claude Code has answered it (`taskqueue.wait_for`); stage 2: so with Codex and Antigravity."""
+    if getattr(backend, "name", "") in providers.AGENT_ROUTES:
         from .taskqueue import wait_for
 
         t = ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))
@@ -1618,7 +1632,7 @@ def answer_again(ws: Workspace, task_id: str, backend) -> bool:
             cx.execute("UPDATE tasks SET again=0, step=0, claimed_by=NULL, claimed_at=NULL WHERE task_id=? AND "
                        "status='done' AND again=1", (task_id,))
             return False
-    if getattr(backend, "name", "") == "claude_code":
+    if getattr(backend, "name", "") in providers.AGENT_ROUTES:
         from .taskqueue import wait_for
 
         access.require(backend, ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))[0], ws)

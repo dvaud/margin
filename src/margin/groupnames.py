@@ -379,7 +379,7 @@ def offer(ws: Workspace, docs: set[str] | None, settings: dict | None = None) ->
     """Whether the AI may be asked to name the groups: {"offered", "why", "reader": "claude" | "local" | "main" |
     None}. From the documents in scope and their AI settings only; nothing is asked of a model."""
     from . import access, home
-    from .routing import CLAUDE_ROUTES
+    from .routing import AUDITOR_ROUTES
 
     s = settings if settings is not None else home.load_settings()
     lv = access.levels(ws, sorted(docs), provider=access.route_provider(s)) if docs else {}
@@ -394,7 +394,7 @@ def offer(ws: Workspace, docs: set[str] | None, settings: dict | None = None) ->
     if "cloud" not in kinds or home.main_reads_local(s):
         reader = "local" if "cloud" not in kinds else "main"
     else:
-        reader = "claude" if (s.get("backend") or "auto") in CLAUDE_ROUTES else "main"
+        reader = "claude" if (s.get("backend") or "auto") in AUDITOR_ROUTES else "main"
     return {"offered": True, "why": None, "reader": reader}
 
 

@@ -3,7 +3,7 @@
 // the same `passages` the cards are drawn from, so sections and numbers always agree. A person's judgement
 // replaces the AI's; it is protected (no silent overwrite) and every save can be undone.
 import { App, api, h, icon, madeWithFact, readsLine, aiWhere, judgementIcon, pageHead, replace, clear, append, toast, showError, fmt, statusBadge, gradeBadge, codeChip, passageNode, cpToIndex, indexToCp, cpLength, breaksToIndex, latest, popNote, gradeWords, navigate, watchJob, P, TOKEN, TERMINAL, confirmDialog, dialog, download, debounce, store, GRADE_TEXT, STATUS_SHORT, strictness, docsCountSentence, queueNotice, localPanel, auditorName, strongerMark,
-  button, iconButton, link, tag, notice, card as cardBox, fold as foldBox, choice, helpMark, downloadButton, textarea, input as fieldInput, select as selectField, reviewedMark, emptyState, personMark, lazyList, switchControl, jobFailed, aiButton, setBusy } from "../lib.js";
+  button, iconButton, link, tag, notice, card as cardBox, fold as foldBox, choice, helpMark, downloadButton, textarea, input as fieldInput, select as selectField, reviewedMark, emptyState, personMark, lazyList, switchControl, jobFailed, aiButton, setBusy, agentTitle } from "../lib.js";
 import { withAI } from "../features.js";
 import { ProgressPanel, MiniJob } from "./progress.js";
 import { originLink } from "../registry.js";
@@ -502,9 +502,9 @@ export async function renderResult(view, [hypId], query) {
       // 0.8: a check by queue: Claude Code has not read (all of) it yet; the page looks again every few seconds.
       // 0.12: the answer card is the queue notice, and only what already exists is shown below it
       // the answer is the queue's notice itself, in place of the answer card
-      const waiting = queueNotice({ text: "Waiting for Claude Code to read the excerpts", command: r.queue_command }, { foldType: true });
+      const waiting = queueNotice({ text: `Waiting for ${agentTitle()} to read the excerpts`, command: r.queue_command }, { foldType: true });
       waiting.classList.add("answer-waiting");
-      waiting.setAttribute("aria-label", "Waiting for Claude Code");
+      waiting.setAttribute("aria-label", `Waiting for ${agentTitle()}`);
       box.appendChild(waiting);
       clearTimeout(waitTimer);
       armWait();
@@ -1579,7 +1579,7 @@ export async function renderResult(view, [hypId], query) {
 
   // What a stronger model did with one search (0.11.2: asking for one is in "Ask another AI model", for the whole result)
   function strongerLine(rd, r = {}) {
-    if (rd.waiting) return queueNotice({ text: "Claude Code reads this search's excerpts", command: r.queue_command }, { foldType: true });
+    if (rd.waiting) return queueNotice({ text: `${agentTitle()} reads this search's excerpts`, command: r.queue_command }, { foldType: true });
     if (rd.stronger_waiting) return h("div", { class: "muted small" }, icon("inbox", { size: 12 }), " A stronger model reads these excerpts again; until then the first reading counts.");
     if (rd.stepped_up) return h("div", { class: "muted small" }, icon("layers", { size: 12 }), " A stronger model read these excerpts again; its reading counts (each changed excerpt shows the first one).");
     return null;

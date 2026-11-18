@@ -67,6 +67,7 @@ from collections import Counter
 from typing import Callable, Iterable
 
 from .store import Workspace
+from . import providers
 from .textutil import split_sentences
 
 MAX_TERM_WORDS = 4
@@ -729,9 +730,9 @@ def ai_offer(ws: Workspace, doc_id: str, settings: dict | None = None) -> dict:
     lv = _level(ws, doc_id, access.route_provider(s))
     if lv == "none":
         return {"offered": False, "why": NO_AI, "reader": None, "level": lv}
-    from .routing import CLAUDE_ROUTES
+    from .routing import AUDITOR_ROUTES
 
-    claude = (s.get("backend") or "auto") in CLAUDE_ROUTES
+    claude = (s.get("backend") or "auto") in AUDITOR_ROUTES
     # the parts the AI would read the document in (theory-codes-v2: the whole document, a part at a time)
     parts = len(_ai_parts(ws, doc_id, []))
     if lv == "local":
@@ -1006,7 +1007,7 @@ def read_parts(ws: Workspace, batches: list[dict], progress: Callable | None = N
                     b["refused"] = NO_AI if now_lv == "none" else "This document may not be sent to this AI."
                     break
         for b in batches:
-            if not b["refused"] and getattr(b["be"], "name", "") == "claude_code":
+            if not b["refused"] and getattr(b["be"], "name", "") in providers.AGENT_ROUTES:
                 tasks.mark_queued(cx, b["tids"])
     live = [b for b in batches if not b["refused"]]
     total = sum(len(b["tids"]) for b in live)
