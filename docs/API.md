@@ -1682,24 +1682,37 @@ programs that follow their documentation and not yet tried with a real account.
   reads `GET /api/agent-setup?refresh=1` until `status.signed_in` is true.
 - `POST /api/agent-setup` `{"route"}` → `{"steps": [{"step", "ok", "text"}], "status"}`: adds Margin to the agent.
   Codex gets the Margin connector (`codex mcp add margin …`), the skill `$margin-run` and the helpers as Codex
-  subagents; Antigravity gets the plugin `margin-run` (`agy plugin install`), one permission line `mcp(margin/*)`
-  merged into its settings after a copy of them is kept as a `.bak`, and Margin's own empty work folder as a trusted
-  workspace. Nothing else of the person's is changed. Margin writes them again when its version, Python or data folder
-  changed.
+  subagents; Antigravity gets the plugin `margin-run` (`agy plugin install`, so the person can type `/margin-run`), and
+  Margin's own Antigravity home is prepared (`<data folder>/agy-home`, below). Nothing else of the person's is changed.
+  Margin writes them again when its version, Python or data folder changed. For Antigravity the answer of
+  `GET /api/agent-setup` adds `own_leftovers` (what Margin 0.20.0–0.20.1 wrote into the person's own
+  `~/.gemini/antigravity-cli/settings.json`: the line `mcp(margin/*)` and its work folders as trusted workspaces) and
+  `own_settings` (that file).
+- `POST /api/agent-setup/tidy` `{"route": "antigravity"}` → `{"removed": [...], "own_leftovers": []}`: takes those lines
+  out of the person's own settings, keeping every other key, after a copy of the file is kept as `settings.json.margin-tidy.bak` (its permissions kept).
+  400 for another route, or when the file is not JSON (left as it is).
 - `POST /api/projects/<p>/queue/agent` and `POST /api/projects/<p>/queue/agent/stop`: the same handler and answer as
   `queue/claude-code` (above, which stays), for the main route, whichever agent it is. Neither agent's headless mode is
   documented to run skills or helpers, so Margin does what `/margin-run` does: it starts one process of the agent per
   helper, each on its group's model in the maker's own name and with the effort of the chosen thought, and asks the
   queue again until nothing is left to start or Stop is pressed. 409 (400 on the old path) when the main route is
-  none of the three agents; 400 when the agent is not found, not signed in, or, for Antigravity, set to run every
-  tool without asking (`toolPermission` `always-proceed`: the answer says how to change it). A reached plan limit
-  ends the run with the same `limit` report as Claude Code's. Run records are
+  none of the three agents; 400 when the agent is not found, not signed in, or when its help does not list a switch
+  that closes it in (Antigravity: `-p` and `--sandbox`; the answer names it). A reached plan limit
+  ends the run with the same `limit` report as Claude Code's. A tool Antigravity refused a helper (`denied_actions`)
+  is written in the run's report and listed in its state as `refused`: `[{"helper", "tools", "at"}]`. Run records are
   `<data folder>/claude-runs/<route>-<project>-<hash>.run.json`, so Stop, *Quit* and a restart find a run that kept
   working.
 - **Closed in.** Codex starts in an empty folder with the person's own Codex settings left out, read-only, without its
   command, web search and image tools, and with only the connector's three queue tools (`next_tasks`,
   `submit_answers`, `release`). Antigravity's own tools cannot be switched off from outside: it starts in Margin's
-  empty work folder, in its sandbox, without slash commands, asking before every tool except `mcp(margin/*)`.
+  empty work folder, in its sandbox, without slash commands, asking before every tool except `mcp(margin/*)`, and with
+  a home folder of its own (`HOME` and `USERPROFILE` set to `<data folder>/agy-home`, the `XDG_*` folders left out).
+  Margin writes the settings there before every run: the allow rule `mcp(margin/*)` alone, its work folder as the only
+  trusted one, no key that approves tools, adds a connector or hook, or spends AI credits (`toolPermission`,
+  `useG1Credits`, `useAiCredits` and the like); an "off" of the person's own telemetry and usage-statistics keys is
+  carried over, never an "on". The person's `GEMINI_*`, `GOOGLE_*` and `CLOUDSDK_*` variables are left out, so no key
+  of theirs is billed. On macOS `Library/Keychains` there links to the person's,
+  where the sign-in is kept.
 - `GET /api/state` (and the answer of `PUT /api/settings`) gains `"agent"`: `{"route", "title", "start": "Start Codex",
   "company", "provider", "card"}` when the main route is Claude Code, Codex or Antigravity (else null), and
   `"clis"`: `[{"id", "title", "provider", "company", "program", "plan", "docs", "measured", "recommended"}]` for

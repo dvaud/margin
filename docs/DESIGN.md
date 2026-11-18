@@ -52,7 +52,7 @@ looks like this. **A piece that cannot be named from this table is a misfit.**
 | Type or pick here | A white box with a strong edge, its label above it | [Form field](#48-form-fields) |
 | Does this use the AI? | The chip icon and *Uses the AI*, *AI on request* or *No AI*, in grey | [AI mark](#44-the-ai-mark-and-the-ai-line) |
 | Where my text goes, who reads it | The cloud (Claude) or the house (this computer) and one sentence | [AI line](#44-the-ai-mark-and-the-ai-line) |
-| Which AI works on this, and where | **Left is this computer, right is Claude**, at every size: the house on a solid ink tile at the left end, the cloud on a hollow tile at the right end, one split bar above them; a seat with no work in the job is dashed and empty | [AI run panel](#421-progress-and-work-states) |
+| Which AI works on this, and where | **Left is this computer, right is Claude**, at every size: the house on a solid ink tile at the left end, the cloud on a hollow tile at the right end, one split bar above them; an engine with no work in the job is not shown | [AI run panel](#421-progress-and-work-states) |
 | Ask the AI for this work | A button with the play icon, a verb and what it works on, *Uses the AI* after it; only a panel's own *Start Claude Code* / *Start qwen3.5:9b* names an engine | [Ask button](#41-buttons) |
 | What the evidence says | A coloured pill with a circle icon: green, amber, purple, red, slate | [Judgement badge](#49-judgement-badges) |
 | A fact about this item | A small grey rectangle | [Tag](#410-tags-and-counts) |
@@ -766,18 +766,17 @@ tag).
 A work state is words and an icon, never a pill. The running dot stands still under reduced motion.
 
 **The AI run panel** (0.19.13): every place where AI runs, at three sizes, one family. **Left is this computer, right
-is Claude**, always: each run shows both seats in the same places, and a seat whose engine has no work in this job is
-an *empty seat*, a dashed tile and nothing else (said to a screen reader: *Nothing in this job goes to Claude* / *No
-model on this computer works in this job*). One **split bar** runs along the very top edge of the two (3 px, as in the sidebar; laid over the frame, so its halves are the two halves of the whole width, the empty seat's column included): its left half this
+is Claude**, always. An engine with no work in this job is not shown at all (0.20.3: the dashed *empty seat* it had
+from 0.19.13 read as if both engines were at work): the other side takes the whole width. One **split bar** runs along the very top edge (3 px, as in the sidebar; laid over the frame): with both engines its halves are the two halves of the whole width, its left half this
 computer's progress, its right half Claude's (an empty track: waits for you; teal: at work, as far as it has got, or
-sliding when there is no count; amber: needs you; grey: done; no track: not in this job). **At Stop** the panel goes: a job that was stopped keeps no panel (head, steps, both sides and the bar, at every size), and the page says so once, in its own words or one quiet toast (*Stopped.*). Done and did-not-work jobs keep theirs.
+sliding when there is no count; amber: needs you; grey: done; no track: not in this job); with one engine, its half is the whole bar. **At Stop** the panel goes: a job that was stopped keeps no panel (head, steps, both sides and the bar, at every size), and the page says so once, in its own words or one quiet toast (*Stopped.*). Done and did-not-work jobs keep theirs.
 Told apart redundantly: the
 side, the tile (the house on solid ink; the cloud on a hollow tile, at the outer edges), the ground (the page's own;
 grey), the half of the bar, the side's name (*On this computer* / *To Claude*): any one of them is enough.
 
 | Size | What it is |
 | --- | --- |
-| Full (`aiRun({ size: "full" })`, `ProgressPanel`) | the head (its state's icon, the message, the time, *Stop*), the steps, the two sides directly under the step they work on (the first not done), the steps still to come under them, a muted foot. A single engine's side takes the width; the other seat is a narrow column with its dashed tile |
+| Full (`aiRun({ size: "full" })`, `ProgressPanel`) | the head (its state's icon, the message, the time, *Stop*), the steps, the two sides directly under the step they work on (the first not done), the steps still to come under them, a muted foot. A single engine's side takes the whole width; the other engine is not shown |
 | Compact (`aiRun({ size: "compact" })`, `MiniJob`, `jobCard({ ai: true })`, `queueNotice()`, `localPanel()`, `memoryRefused()`) | one line (what runs, its time, *Stop*) and the two sides alone, in the card under what started them. In a narrow card both sides stack, this computer first; the bar's halves stay side by side |
 | Row | the sidebar's work box ([5.2](#52-the-status-area-and-the-last-row)): the split bar along its top (3 px), the house at its left end, the cloud at its right end |
 
@@ -971,7 +970,7 @@ the words and the area grows a line; a state word is never cut. Never a popover.
 | The AI line | the cloud or the house, the AI's name (*Claude, on your plan*), what leaves the computer; on hover or focus a card of details opens upwards (the account, the model, where to change it) |
 | Set-up not finished, no AI model yet, Demo mode | the same card in the attention look: the triangle, amber |
 | Work running | a teal edge; the running dot, what runs, the time; under it how many more. The AI's work is the [AI run panel](#421-progress-and-work-states)'s row: the split bar along its top, the house on its ink tile at the left end when the model on this computer works (the tooltip names the model), the cloud on its hollow tile at the right end when passages go to Claude (a grey box when only Claude works), both in one job; other work says where it runs in words (*This computer*, *Crossref*) |
-| Work not running or waiting | amber: a pause mark, *Not running*, *N tasks waiting* (for whom: its tooltip and its tile); one action, *Start* (a small main button) for the engine its row shows; when both engines of one job wait, *Open* (two starts do not fit the row: the job's page has both). The engine with no work in it keeps its seat: a dashed tile at its end |
+| Work not running or waiting | amber: a pause mark, *Not running*, *N tasks waiting* (for whom: its tooltip and its tile); one action, *Start* (a small main button) for the engine its row shows; when both engines of one job wait, *Open* (two starts do not fit the row: the job's page has both). The engine with no work in it is not shown (0.20.3) |
 
 The box's words are the link to where the work shows; its one button is always an action. The status area is the AI's
 own place (the AI line, the AI's name), so its *Start* carries no AI mark; *Start Claude Code* anywhere else does. **The last row:**
@@ -1237,8 +1236,6 @@ A few rules have exceptions, each argued for once. They are listed here and in t
 | `.dv-pbox-out` | A part left out of the reading |
 | `.cal-bar.cal-empty` | No excerpts in this band yet |
 | `.m-nonsci .map-sym` | Not in force: what a non-scientific document says on the evidence map, read and not counted |
-| `.ab-seat > .ar-tile` | Not there: the AI run panel's empty seat, the engine this job gives no work |
-| `.ab-rowseat > .ar-tile` | Not there: the sidebar row's empty seat, the engine this work gives no work |
 
 **Two main buttons in one panel** ([4.1](#41-buttons), "at most one in each"): a job with work for both engines shows
 *Start qwen3.5:9b* in this computer's side and *Start Claude Code* in Claude's, both main. Each side of the [AI run

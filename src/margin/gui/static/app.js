@@ -407,7 +407,9 @@ async function drawStatus() {
         : chip ? h("span", { class: "work-who", title: chip.tip }, icon(chip.icon, { size: 12 }), chip.label)
         : h("span", { class: "work-who", title: p.plain }, icon(p.icon, { size: 12 }), (p.label || "").split(",")[0]);
       const half = (where, st) => h("span", { class: `ab-half ab-s-${st || "none"}${st === "run" ? " ab-indet" : ""}` }, h("i"));
-      const bar = ai ? h("span", { class: "ab-rowbar", "aria-hidden": "true" }, half("local", w.local), half("cloud", w.cloudHalf)) : null;
+      // 0.20.3: only the engines in this work show (the user found an empty seat for the other one confusing): one
+      // engine's half of the bar takes the whole width
+      const bar = ai ? h("span", { class: "ab-rowbar", "aria-hidden": "true" }, w.local ? half("local", w.local) : null, w.cloudHalf ? half("cloud", w.cloudHalf) : null) : null;
       const tile = (where) => h("span", { class: `ab-rowtile ar-${where}`, title: where === "cloud" ? cloudTipNow : w.localModel ? `Your local model, ${w.localModel}, reads on this computer; what it reads is not sent to ${agentCompany()}.` : `This runs on this computer; nothing is sent to ${agentCompany()}.` },
         h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 13 })),
         h("span", { class: "visually-hidden" }, where === "cloud" ? `To ${cloudWho()}` : "On this computer"));
@@ -440,14 +442,10 @@ async function drawStatus() {
         } }, "Cancel");
       }   // 0.17.0 (design guide): no "Open" button: the box's words are the link to where the work shows
       box.className = `work-box work-${w.kind}${ai ? ` ab-row ab-row-${w.local ? "local" : "cloud"}` : ""}`;
-      // the engine with no work in this job keeps its seat: a dashed tile (said in words to a screen reader)
-      const seat = (where) => h("span", { class: `ab-rowtile ab-rowseat ar-${where}`, title: where === "cloud" ? `Nothing in this work goes to ${cloudWho()}` : "No model on this computer works in this" },
-        h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 13 })),
-        h("span", { class: "visually-hidden" }, where === "cloud" ? `Nothing in this work goes to ${cloudWho()}.` : "No model on this computer works in this."));
       // between its two tiles the row has no room for its words and a button side by side: the button goes under the
       // words (the status area grows a line), so no state word is ever cut
       const mid = ai && act ? h("div", { class: "work-mid" }, main, act) : null;
-      replace(box, bar, w.local ? tile("local") : ai ? seat("local") : null, mid || main, mid ? null : act, w.cloudHalf ? tile("cloud") : ai ? seat("cloud") : null);
+      replace(box, bar, w.local ? tile("local") : null, mid || main, mid ? null : act, w.cloudHalf ? tile("cloud") : null);
     }
   }
   let again = active.length ? 2000 : q && (waiting || answering || runner) ? 5000 : isAgent(s) ? 15000 : 0;

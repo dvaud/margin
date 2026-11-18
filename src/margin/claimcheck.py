@@ -1499,11 +1499,13 @@ def read_new_documents(ws: Workspace, hyp_id: str, backend, model: str, k: int =
                        progress: Progress | None = None, should_stop: Callable[[], bool] | None = None) -> dict:
     """Read the documents added since a check, for every part, as a further round restricted to them (the check
     is not run again, so a person's reviews are kept). Documents without a matching excerpt are only marked as
-    looked at. Returns {"hyp_id", "documents", "matching", "passages", "rounds"}."""
+    looked at. Returns {"hyp_id", "documents", "matching", "passages", "rounds", "before", "after", "changed"}:
+    `before`/`after` the answer and its counts (`_answer_now`), `changed` what differs (`_what_changed`)."""
     say = _adapt(progress)
     new = new_documents(ws, hyp_id)
     docs = [d["doc_id"] for d in new if d["matching"]]
     total, rounds, made = 0, [], []
+    before = _answer_now(ws, hyp_id) if docs else None
     if docs:
         readers = _shared_in_job(backend, model)  # 0.19.13: in the app, every part's local part at one Start
         try:
@@ -1529,7 +1531,28 @@ def read_new_documents(ws: Workspace, hyp_id: str, backend, model: str, k: int =
             _stopper(lambda: True)()
     with ws.connect() as cx:
         cx.execute("UPDATE hypotheses SET docs_checked_at=? WHERE hyp_id=?", (now(), hyp_id))
-    return {"hyp_id": hyp_id, "documents": len(new), "matching": len(docs), "passages": total, "rounds": rounds}
+    after = _answer_now(ws, hyp_id) if docs else None
+    return {"hyp_id": hyp_id, "documents": len(new), "matching": len(docs), "passages": total, "rounds": rounds,
+            "before": before, "after": after, "changed": _what_changed(before, after)}
+
+
+def _answer_now(ws: Workspace, hyp_id: str) -> dict | None:
+    """A hypothesis's answer and its counts of excerpts that count, as the Hypotheses list shows them."""
+    rows = history(ws, limit=1, hyp_id=hyp_id)
+    if not rows:
+        return None
+    r = rows[0]
+    return {k: r[k] for k in ("status", "supports", "partly", "refutes")}
+
+
+def _what_changed(before: dict | None, after: dict | None) -> str:
+    """0.20.3: what reading the new documents changed: "answer" (the answer is another), "evidence" (the same
+    answer, other counts of excerpts that count) or "" (nothing the list shows)."""
+    if not before or not after:
+        return ""
+    if before["status"] != after["status"]:
+        return "answer"
+    return "evidence" if any(before[k] != after[k] for k in ("supports", "partly", "refutes")) else ""
 
 
 UNREAD_ROUND_MAX = 40   # N5: the most excerpts one press of *Read these* reads per part
@@ -1677,13 +1700,14 @@ def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, 
 
 
 def history(ws: Workspace, threshold: float | None = None, limit: int | None = None, query: str | None = None,
-            status: str | None = None, batch_id: str | None = None, _checks: dict | None = None) -> list[dict]:
+            status: str | None = None, batch_id: str | None = None, _checks: dict | None = None,
+            hyp_id: str | None = None) -> list[dict]:
     """Every hypothesis checked in the project, newest first, with its status (computed in a few queries).
 
     `supports`, `partly`, `refutes` count the excerpts whose judgement counts at this threshold; `uncounted` the
     judged excerpts below it; `docs_*` count documents as on the result page. With `limit`, the checks and
     judgements of each hypothesis are read as it is reached, so a short list does not read every check.
-    `_checks`: every claim's check tasks already read (`_light_checks`, by `evidence_map`).
+    `_checks`: every claim's check tasks already read (`_light_checks`, by `evidence_map`). `hyp_id`: only that one.
     """
     thr = _threshold(ws, threshold)
     hyps = ws.query("SELECT * FROM hypotheses ORDER BY created_at DESC, rowid DESC")
@@ -1762,6 +1786,8 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
         if q and q not in (h["text"] or "").lower():
             continue
         if batch_id and h["batch_id"] != batch_id:
+            continue
+        if hyp_id and h["hyp_id"] != hyp_id:
             continue
         parts = claims.get(h["hyp_id"], [])
         if limit:

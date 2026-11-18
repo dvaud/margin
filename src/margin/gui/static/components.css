@@ -743,8 +743,9 @@ h2 .defined-wrap { font-size: var(--fs-small); font-weight: var(--fw-regular); }
 /* ---- the two sides, the split bar along their top ------------------------------------------------------------------ */
 .ab-sides { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-ctl); font-size: var(--fs-small); }
 .ab-sides[hidden] { display: none; }
-.ab-sides.ab-only-local { grid-template-columns: minmax(0, 1fr) 46px; }
-.ab-sides.ab-only-cloud { grid-template-columns: 46px minmax(0, 1fr); }
+/* 0.20.3: one engine in the job: its side takes the whole width; the other engine is not shown at all (its empty seat
+   stays in the markup, hidden, as the place a side may take later) */
+.ab-sides.ab-only-local, .ab-sides.ab-only-cloud { grid-template-columns: minmax(0, 1fr); }
 .progress-body .ab-sides { margin: 8px 0 10px; }
 /* an empty track: waits for you; teal: at work, as far as it has got (sliding: no count); amber: needs you; grey: done; no track: not in this job */
 .ab-half { position: relative; height: 3px; overflow: hidden; background: var(--surface-3); }
@@ -756,6 +757,8 @@ h2 .defined-wrap { font-size: var(--fs-small); font-weight: var(--fw-regular); }
 .ab-sides > .ab-half[data-where="local"] { left: 0; }
 .ab-sides > .ab-half[data-where="cloud"] { right: 0; }
 .ab-sides > .ab-half.ab-s-none { border-top: 1px solid var(--border); }
+.ab-sides.ab-only-local > .ab-half, .ab-sides.ab-only-cloud > .ab-half { width: 100%; border-left: 0; }
+.ab-sides.ab-only-local > .ab-half[data-where="cloud"], .ab-sides.ab-only-cloud > .ab-half[data-where="local"] { display: none; }
 .ab-half + .ab-half { border-left: 2px solid var(--surface); }
 .ab-half > i { position: absolute; inset: 0 auto 0 0; display: none; min-width: 6px; background: var(--accent); transition: width .3s; }
 .ab-half.ab-s-run > i { display: block; }
@@ -821,12 +824,9 @@ h2 .defined-wrap { font-size: var(--fs-small); font-weight: var(--fw-regular); }
 .ar-mem-short strong { font-weight: var(--fw-strong); }
 .ar-mem-help { flex: 1 1 100%; color: var(--text-2); }
 .ar-mem-words { flex: 1 1 0; min-width: 0; }   /* the words stay beside the triangle and the bar, and wrap there */
-/* the empty seat: the place of the engine this job gives no work (a dashed tile: not there) */
-.ab-seat { display: flex; justify-content: center; padding-top: 10px; background: var(--surface); }
-.ab-seat.ar-cloud { border-left: 1px solid var(--border); }
-.ab-seat.ar-local { border-right: 1px solid var(--border); }
-.ab-seat.ar-local + .ab-side.ar-cloud { border-left: 0; }
-.ab-seat > .ar-tile { border: 1px dashed var(--border-strong); background: none; color: var(--faint); }
+/* the empty seat: the place of the engine this job gives no work, not shown (0.20.3: a dashed tile for it confused) */
+.ab-seat { display: none; }
+.ab-sides.ab-only-cloud > .ab-side.ar-cloud { border-left: 0; }
 /* both sides in a narrow place (a phone, a card): the halves stay side by side, the sides stack */
 @container ab (max-width: 620px) {
   .ab-sides.ab-both > .ab-side { grid-column: 1 / -1; }
@@ -842,16 +842,12 @@ h2 .defined-wrap { font-size: var(--fs-small); font-weight: var(--fw-regular); }
 .ab-compact .ab-side { gap: 5px; padding: 7px 12px 9px; }
 .ab-compact .ar-tile { width: 22px; height: 22px; border-radius: var(--radius-sm); }
 .ab-compact .ab-sh { min-height: 22px; margin-bottom: 0; }
-.ab-compact .ab-sides.ab-only-local { grid-template-columns: minmax(0, 1fr) 38px; }
-.ab-compact .ab-sides.ab-only-cloud { grid-template-columns: 38px minmax(0, 1fr); }
-.ab-compact .ab-seat { padding-top: 7px; }
 .ab-s-done.ab-side { padding-bottom: 10px; }
 /* the row (the sidebar's work box): the split bar along its top, 3 px; the house at its left end, the cloud at its right */
-.ab-rowbar { position: absolute; inset: 0 0 auto 0; display: grid; grid-template-columns: 1fr 1fr; }
+.ab-rowbar { position: absolute; inset: 0 0 auto 0; display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; }
 .ab-rowbar > .ab-half { height: 3px; }
 .ab-rowtile { display: inline-flex; flex: none; }
 .ab-rowtile > .ar-tile { width: 22px; height: 22px; border-radius: var(--radius-sm); }
-.ab-rowseat > .ar-tile { border: 1px dashed var(--border-strong); background: none; color: var(--faint); }
 /* the row's state words are never cut: its button goes under them (.work-mid), and the status area grows to hold
    it; a word too long still wraps rather than being cut (a job's own title may still be cut) */
 .work-box.ab-row .work-sub-text, .work-box.ab-row.work-stalled .work-text { overflow: visible; white-space: normal; overflow-wrap: break-word; }
@@ -868,7 +864,7 @@ h2 .defined-wrap { font-size: var(--fs-small); font-weight: var(--fw-regular); }
   .ab-side { padding: 9px 11px 11px; }
   .ab-sides.ab-only-local { grid-template-columns: minmax(0, 1fr) 38px; }
   .ab-sides.ab-only-cloud { grid-template-columns: 38px minmax(0, 1fr); }
-  .ab-seat > .ar-tile, .ab-side .ar-tile { width: 22px; height: 22px; border-radius: var(--radius-sm); }
+  .ab-side .ar-tile { width: 22px; height: 22px; border-radius: var(--radius-sm); }
 }
 
 /* ==== 4.22 Folds */

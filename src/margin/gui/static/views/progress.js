@@ -38,7 +38,7 @@ export function timeLeft(spent, finished, total, since = 0) {
 
 
 // The panel. opts: size ("full" | "compact"), title (full: the panel's name; compact: what runs, "The AI names the
-// themes"), steps (full: the step keys to show), batchWords ({ doing, done }), noun (what the local model reads:
+// themes"), steps (full: the step keys to show), batchWords ({ doing, done, after(result): words after "done" }), noun (what the local model reads:
 // "passage", "excerpt", "theme"), engines (["local", "cloud"]: which seats have work; by default read from the job and
 // kept once seen), onStop (after the job's Stop), stop (false: no Stop of its own, the card around it has one),
 // label(job) (compact: the line's words, in place of the title's), onLocalStart (after this computer's Start).
@@ -235,7 +235,7 @@ export class AiRun {
       const pct = Math.round((doneCount / total) * 100);
       this.partsBox.hidden = finished;
       replace(this.batchBox,
-        h("div", { class: "row prg-batch-head" }, h("strong", {}, finished ? `${doneCount} of ${total} ${this.batchWords.done}` : `${doneCount} of ${total} done · ${this.batchWords.doing} ${p.batch.index}`), h("span", { class: "muted small" }, `${pct}%`)),
+        h("div", { class: "row prg-batch-head" }, h("strong", {}, finished ? `${doneCount} of ${total} ${this.batchWords.done}${this.batchWords.after ? this.batchWords.after(res) : ""}` : `${doneCount} of ${total} done · ${this.batchWords.doing} ${p.batch.index}`), h("span", { class: "muted small" }, `${pct}%`)),
         h("div", { class: "progress-bar", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": total, "aria-valuenow": doneCount }, h("span", { style: { width: `${Math.max(2, pct)}%` } })),
         finished ? null : h("p", { class: "batch-current" }, p.batch.text || ""));
     } else this.batchBox.hidden = true;

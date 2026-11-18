@@ -49,16 +49,37 @@ export function cliAdapter(route) {
         "Sign in in the window that opens. Before you close it, switch off Enable Telemetry in Antigravity’s settings, under AI credits and feedback: while it is on, Google may use what Antigravity reads."],
     adds: route === "codex"
       ? ["the Margin connector, through which Codex takes the tasks and sends back its answers", ["its skill ", h("code", {}, "$margin-run")], "its helpers, one for each kind of task"]
-      : ["the Margin connector, through which Antigravity takes the tasks and sends back its answers", "its skill margin-run and its helpers, as one plugin",
-        "one permission line, so Antigravity may use the Margin connector without asking each time",
-        "Margin’s own empty work folder, marked as trusted, where it starts Antigravity"],
+      : ["the Margin connector, through which Antigravity takes the tasks and sends back its answers", "its skill margin-run and its helpers, as one plugin, so you can type /margin-run in Antigravity yourself",
+        "Margin’s own Antigravity settings, in a folder of Margin: Margin starts Antigravity with those, never with yours"],
     addsNote: route === "antigravity"
-      ? notice({ kind: "info", role: "note" }, h("p", {}, "Antigravity’s own tools cannot be switched off from outside, so Margin starts it in an empty folder of its own, in its sandbox: it sees only the passages in Margin’s tasks."))
+      ? notice({ kind: "info", role: "note" }, h("p", {}, "Antigravity’s own tools cannot be switched off from outside, so Margin starts it in an empty folder of its own, in its sandbox, with settings of its own: your permissions, connectors and AI credits never reach its runs, and it sees only the passages in Margin’s tasks."))
       : null,
+    // what a Margin before 0.20.2 wrote into the person's own Antigravity settings, with a button that takes it out
+    leftovers: route === "antigravity" ? (r) => leftoversNote(r) : null,
     afterWords: (project) => [
       h("p", {}, "Press ", h("strong", {}, `Start ${a.title}`), " wherever work waits (or in the sidebar): Margin starts it in the background on the project’s work, and the results appear as they come in."),
       a.call ? h("p", { class: "muted small" }, "You can also type ", h("code", {}, `${a.call} ${project || "<project>"}`), ` in ${a.title} yourself.`) : null],
   };
+}
+
+// Lines an earlier Margin wrote into the person's own Antigravity settings (r.own_leftovers), offered for removal;
+// null when there are none. The note becomes a done line once they are removed.
+export function leftoversNote(r) {
+  const left = (r && r.own_leftovers) || [];
+  if (!left.length) return null;
+  const box = h("div", { class: "agent-leftovers" });
+  const btn = stepButton("Remove them", async () => {
+    btn.disabled = true;
+    try {
+      const out = await api("POST", "/api/agent-setup/tidy", { route: "antigravity" });
+      replace(box, workState("done", `Removed from your own Antigravity settings (a copy of them as they were: settings.json.margin-tidy.bak).${(out.own_leftovers || []).length ? " Some could not be removed." : ""}`));
+    } catch (e) { btn.disabled = false; toast(e.message || String(e), "warn"); }
+  }, { kind: "quiet", id: "agent-tidy-antigravity" });
+  replace(box, notice({ kind: "attention", role: "note" },
+    h("p", {}, "An earlier Margin wrote these into your own Antigravity settings", r.own_settings ? [" (", h("code", {}, r.own_settings), ")"] : "", ". Margin no longer needs them, and the permission line lets your own Antigravity use Margin’s tools without asking:"),
+    h("ul", {}, left.map((x) => h("li", {}, x))),
+    h("div", { class: "btn-row" }, btn)));
+  return box;
 }
 
 // The first step not done yet: 0 install, 1 sign in, 2 add Margin.
@@ -172,7 +193,8 @@ export async function agentSetupDialog(ad, info = {}, opts = {}) {
     h("p", {}, "The button below adds to ", ad.title, ":"),
     h("ul", { class: "agent-adds" }, ad.adds.map((x) => h("li", {}, x))),
     h("p", { class: "muted small" }, `Nothing else in ${ad.title} is changed.`),
-    ad.addsNote || null] };
+    ad.addsNote || null,
+    ad.leftovers ? ad.leftovers(cur) : null] };
   showFound(); showSigned();
   return outsideSetup({
     title: `Set up ${ad.title}`, label: `Setting up ${ad.title}`, id: `agent-steps-${ad.route}`,

@@ -960,7 +960,15 @@ class Workspace:
                 cx.execute(f"RELEASE sp{depth}")
             raise
         self._local.depth = depth
-        cx.execute("COMMIT" if depth == 0 else f"RELEASE sp{depth}")
+        try:
+            cx.execute("COMMIT" if depth == 0 else f"RELEASE sp{depth}")
+        except sqlite3.Error:
+            if depth == 0:  # a failed COMMIT (disk full) left the transaction open: every later BEGIN would fail
+                try:
+                    cx.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+            raise
         if depth == 0 and not self.scratch:
             trim_log(cx, self.db_path)
 

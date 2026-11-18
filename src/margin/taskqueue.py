@@ -1089,11 +1089,12 @@ def withdraw(ws: Workspace, kinds: list[str] | None = None, since: str | None = 
             return 0
         cond.append(f"t.task_id IN ({','.join('?' * len(task_ids))})")
         args += task_ids
-    rows = ws.query("SELECT t.task_id, t.status FROM tasks t WHERE " + " AND ".join(cond), args)
-    # a few statements over hundreds of tasks each, in one transaction, not three per task
-    done = [r[0] for r in rows if r[1] == "done"]
-    gone = [r[0] for r in rows if r[1] != "done"]
+    # a few statements over hundreds of tasks each, in one transaction, not three per task. The tasks are chosen in
+    # that same transaction: chosen before it, one could be claimed by a helper in between and then deleted under it
     with ws.connect() as cx:
+        rows = cx.execute("SELECT t.task_id, t.status FROM tasks t WHERE " + " AND ".join(cond), args).fetchall()
+        done = [r[0] for r in rows if r[1] == "done"]
+        gone = [r[0] for r in rows if r[1] != "done"]
         for i in range(0, len(done), 500):
             chunk = done[i:i + 500]
             cx.execute(f"UPDATE tasks SET again=0, step=0, claimed_by=NULL WHERE task_id IN "

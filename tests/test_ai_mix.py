@@ -262,3 +262,28 @@ def test_the_local_model_leaves_a_task_claude_code_holds(mixed):
     tid2 = _check_task(ws)
     tasks.answer_locally_first(ws, tid2, _Local(), "small")
     assert ws.scalar("SELECT claimed_by FROM tasks WHERE task_id=?", (tid2,)) is None
+
+
+def test_a_lapsed_local_claim_does_not_hold_its_task_for_good(mixed):
+    """A local answer cut off when the app closed left its claim: once lapsed, the next round answers the task."""
+    ws, _s = mixed
+    tid = _check_task(ws)
+    with ws.connect() as cx:
+        cx.execute("UPDATE tasks SET claimed_by='local-gone', claimed_at='2000-01-01T00:00:00+00:00' WHERE task_id=?",
+                   (tid,))
+    # I6: a check read locally then always goes to Claude as well; what matters here is that it was read at all
+    assert tasks.answer_mix_waiting(ws, _Local(), "small") == {"answered": 0, "to_claude": 1}
+    assert _row(ws, tid)["status"] == "done"
+    assert ws.scalar("SELECT claimed_by FROM tasks WHERE task_id=?", (tid,)) != "local-gone"
+
+
+def test_an_unexpected_failure_gives_the_task_back(mixed):
+    class _Broken(_Local):
+        def complete(self, *a):
+            raise RuntimeError("something else went wrong")
+
+    ws, _s = mixed
+    tid = _check_task(ws)
+    with pytest.raises(RuntimeError):
+        tasks.answer_locally_first(ws, tid, _Broken(), "small")
+    assert ws.scalar("SELECT claimed_by FROM tasks WHERE task_id=?", (tid,)) is None

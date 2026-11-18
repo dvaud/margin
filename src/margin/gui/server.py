@@ -1448,7 +1448,10 @@ class App(LibraryMixin, QueueMixin):
                                                           progress=lambda st, m, info=None, _i=i: tracker.step(
                                                               st, m, {**(info or {}), "index": _i}),
                                                           should_stop=job.cancel.is_set))
-            return {"hypotheses": done, "passages": sum(d["passages"] for d in done)}
+            return {"hypotheses": done, "passages": sum(d["passages"] for d in done),
+                    # 0.20.3: how many answers the new documents changed, and how many only got other counts
+                    "answers_changed": sum(d["changed"] == "answer" for d in done),
+                    "evidence_changed": sum(d["changed"] == "evidence" for d in done)}
 
         title = "Reading the new documents" + (f" for {len(hyp_ids)} hypotheses" if len(hyp_ids) > 1 else "")
         return self._job("read-new", title, name, run)
@@ -1870,6 +1873,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", r"/api/agent-setup", "post_agent_setup"),
     ("POST", r"/api/agent-setup/install", "post_agent_install"),
     ("POST", r"/api/agent-setup/sign-in", "post_agent_sign_in"),
+    ("POST", r"/api/agent-setup/tidy", "post_agent_tidy"),
     ("GET", r"/api/move\.zip", "get_move_zip"),
     # 0.13: the bibliography (Zotero, read on this computer, or an exported file)
     ("GET", r"/api/zotero", "get_zotero"),
@@ -1993,6 +1997,8 @@ DOWNLOADS = {"get_hypothesis_export", "get_export", "get_document_file", "get_pr
 DOWNLOADS |= api_corpus.DOWNLOADS | api_checks_extra.DOWNLOADS
 # (these may take the token as ?token=, for plain links)
 
+_HEADER_CTRL = re.compile(r"[\x00-\x1f\x7f]")  # never in a header value: CR and LF would start a header of their own
+
 
 class Handler(BaseHTTPRequestHandler, DocumentsApi, ExploreApi, ChecksApi, SetupApi, RecordApi, SharingApi,
               FolderApi, SpaceApi, PollerApi, OwnerApi, CorpusApi, ChecksExtraApi, AgentApi):
@@ -2004,6 +2010,11 @@ class Handler(BaseHTTPRequestHandler, DocumentsApi, ExploreApi, ChecksApi, Setup
         pass
 
     # -- plumbing --------------------------------------------------------------------------------
+    def send_header(self, keyword: str, value) -> None:
+        # http.server writes a value as it is: a line break in one (a file name from someone's zip) would add headers
+        # of its own, such as a second Content-Type that turns a "PDF" into a page of this app's origin
+        super().send_header(keyword, _HEADER_CTRL.sub(" ", str(value)))
+
     def _send(self, status: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
         self.send_response(status)
         # one header of each name: an endpoint's own (`extra`) takes the place of the default. Sent after it, as a

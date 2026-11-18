@@ -94,8 +94,10 @@ def test_cloud_work_has_its_own_shape_in_the_sidebar():
     assert 'j.where == null && App.privacy().where === "cloud"' in js   # the AI of Settings, when Claude
     # stage 2: the agent of the main route names itself ("Claude Code is working", "Codex is working")
     assert 'w = { kind: "running", where: "cloud", main: `${t} is working`' in js and 'cloudHalf: "run"' in js
-    # the engine with no work keeps its seat, a dashed tile, at its end (BUILD: every single-engine panel, the row too)
-    assert 'replace(box, bar, w.local ? tile("local") : ai ? seat("local") : null, mid || main, mid ? null : act, w.cloudHalf ? tile("cloud") : ai ? seat("cloud") : null);' in js
+    # 0.20.3: only the engines in this work show: no empty seat for the other one, and its half of the bar is not drawn
+    assert 'replace(box, bar, w.local ? tile("local") : null, mid || main, mid ? null : act, w.cloudHalf ? tile("cloud") : null);' in js
+    assert "seat(" not in js and "ab-rowseat" not in css
+    assert 'w.local ? half("local", w.local) : null, w.cloudHalf ? half("cloud", w.cloudHalf) : null' in js
     # its button under the words (no state word cut between the two tiles), the status area a line taller then
     assert 'const mid = ai && act ? h("div", { class: "work-mid" }, main, act) : null;' in js
     assert ".status-area:has(> .work-box.ab-row:not([hidden])) { height: auto; min-height: 66px; }" in css

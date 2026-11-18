@@ -664,6 +664,7 @@ def _filename(stem: str, ext: str) -> str:
 def _disposition(fname: str) -> str:
     from urllib.parse import quote
 
+    fname = re.sub(r"[\x00-\x1f\x7f]+", " ", fname)  # a line break in a name from someone's zip: no header of its own
     ascii_name = fname.encode("ascii", "replace").decode().replace("?", "_").replace('"', "")
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(fname)}"
 

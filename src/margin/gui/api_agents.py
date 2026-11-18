@@ -5,7 +5,9 @@ Settings → AI, one shape for all three, so the set-up dialog is the same for e
   the plan, what to type by hand;
 - `POST /api/agent-setup/install {route}` → `{job}` (kind "agent-install"; 409 when the program is there);
 - `POST /api/agent-setup/sign-in {route}` → `{opened, window, command}`;
-- `POST /api/agent-setup {route}` → `{steps, status}`: adds Margin to it.
+- `POST /api/agent-setup {route}` → `{steps, status}`: adds Margin to it;
+- `POST /api/agent-setup/tidy {route: "antigravity"}` → `{removed, own_leftovers}`: takes out of the person's own
+  Antigravity settings what Margin 0.20.0–0.20.1 wrote there (agentcli.own_agy_leftovers).
 
 Claude Code's own endpoints (/api/claude-setup…) stay as they were; for route=claude_code these wrap them."""
 from __future__ import annotations
@@ -18,10 +20,11 @@ PLANS = {"claude_code": "a Claude plan (Pro, Max, Team or Enterprise)"}
 ADDS = {"codex": ["the Margin connector (margin), with only its three queue tools",
                   "the skill $margin-run, so you can also type $margin-run <project> in Codex",
                   "the Margin helpers, as Codex subagents"],
-        "antigravity": ["the Margin plugin (margin-run): its connector, its skill and its helpers",
-                        "one permission line, mcp(margin/*), so its tools may be used without asking each time",
-                        "Margin's own empty work folder as a trusted workspace (Antigravity starts there, in its "
-                        "sandbox)"],
+        "antigravity": ["the Margin plugin (margin-run): its connector, its skill and its helpers, so you can type "
+                        "/margin-run in Antigravity yourself",
+                        "Margin's own Antigravity settings, in a folder of Margin: Margin starts Antigravity with "
+                        "those, never with yours, so your permissions, connectors and AI credits never reach its "
+                        "runs"],
         "claude_code": ["the Margin plugin (margin-run): its connector, its skill /margin-run and its helpers"]}
 
 
@@ -90,7 +93,9 @@ def setup_view(route: str, refresh: bool = False) -> dict:
             "status": status, "recommended": providers.cli_recommended(route, available),
             "lineup_in_use": routing.lineup_for(settings, route, available), "manual": agentcli.manual_lines(route),
             "local_only": local, "adds": ADDS[route], "sign_in_docs": agentcli.SIGN_IN_DOCS[route],
-            "measured": a.measured}
+            "measured": a.measured,
+            **({"own_leftovers": agentcli.own_agy_leftovers(), "own_settings": str(agentcli.agy_settings_path())}
+               if route == "antigravity" else {})}
 
 
 class AgentApi:
@@ -115,6 +120,20 @@ class AgentApi:
         except ValueError as e:
             raise ApiError(400, str(e)) from e
         return {"steps": r["steps"], "status": setup_view(route)["status"]}
+
+    def post_agent_tidy(self, q):
+        """Remove what an earlier Margin wrote into the person's own Antigravity settings (they pressed Remove them)
+        → {removed, own_leftovers}. A copy of the file as it was is kept as settings.json.margin-tidy.bak."""
+        from .. import agentcli
+
+        route = _route(self._body().get("route"))
+        if route != "antigravity":
+            raise ApiError(400, "Only Antigravity's own settings had lines of Margin in them.")
+        try:
+            r = agentcli.tidy_own_agy_settings()
+        except (OSError, ValueError) as e:
+            raise ApiError(400, str(e)) from e
+        return {"removed": r["removed"], "own_leftovers": agentcli.own_agy_leftovers()}
 
     def post_agent_install(self, q):
         """Install the agent with its provider's own installer, after the person confirmed the line shown (a job)."""

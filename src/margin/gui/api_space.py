@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 
 from .api_common import ApiError
-from ..sync import folder, space
+from ..sync import space
 
 SETUP_JOB = "space-setup"
 LINKS = {

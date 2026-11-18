@@ -1545,21 +1545,6 @@ def lent_to_local(t, settings: dict | None = None) -> bool:
     return task_kind(t) in mix_kinds(settings if settings is not None else load_settings())
 
 
-def mix_local_for(t, settings: dict | None = None):
-    """The local (backend, model) that answers task `t` first under the AI mix, or None: Claude answers it (a kind the
-    mix leaves to Claude, a task already stepped up or answered, one a person forced onto a model, a document Claude
-    may not read, or no local model)."""
-    from .home import load_settings
-    from .routing import mix_kinds, task_kind
-
-    if t["forced_model"] or int(t["step"] or 0) or t["status"] == "done" or (t["access"] or "cloud") != "cloud":
-        return None
-    s = settings if settings is not None else load_settings()
-    if task_kind(t) not in mix_kinds(s):
-        return None
-    return mix_local(s)
-
-
 def answer_locally_first(ws: Workspace, task_id: str, backend, model: str) -> str | None:
     """The local model's answer to a task of the AI mix (up to three attempts), and the step up to Claude it may need.
     Returns None (the local answer stands), "again" (accepted but unsure, or it would change a decision: Claude reads
@@ -1606,13 +1591,13 @@ def answer_locally_first(ws: Workspace, task_id: str, backend, model: str) -> st
         return None  # handed to Claude Code meanwhile: its answer counts
     except BackendError as e:
         if str(e).startswith("Stopped"):
-            with ws.connect() as cx:
-                cx.execute("UPDATE tasks SET claimed_by=NULL, claimed_at=NULL WHERE task_id=? AND claimed_by=?",
-                           (task_id, claim))
+            _unclaim(ws, task_id, claim)
             raise
         ok = False
-    with ws.connect() as cx:
-        cx.execute("UPDATE tasks SET claimed_by=NULL, claimed_at=NULL WHERE task_id=? AND claimed_by=?", (task_id, claim))
+    except BaseException:
+        _unclaim(ws, task_id, claim)  # any other failure (a locked database, a bad task) gives the task back too
+        raise
+    _unclaim(ws, task_id, claim)
     t = ws.query("SELECT * FROM tasks WHERE task_id=?", (task_id,))[0]
     how = None
     if ok:
@@ -1640,6 +1625,11 @@ def answer_locally_first(ws: Workspace, task_id: str, backend, model: str) -> st
     return how
 
 
+def _unclaim(ws: Workspace, task_id: str, claim: str) -> None:
+    with ws.connect() as cx:
+        cx.execute("UPDATE tasks SET claimed_by=NULL, claimed_at=NULL WHERE task_id=? AND claimed_by=?", (task_id, claim))
+
+
 def answer_mix_waiting(ws: Workspace, backend=None, model: str | None = None, task_ids: Iterable[str] | None = None,
                        should_stop=None, progress=None) -> dict:
     """Answer, with the local model, the tasks of the AI mix that wait for it (made by a check by queue, a profile or
@@ -1655,8 +1645,12 @@ def answer_mix_waiting(ws: Workspace, backend=None, model: str | None = None, ta
     got = (backend, model) if backend is not None else mix_local(s)
     q = (f"SELECT task_id FROM tasks WHERE kind IN ({','.join('?' * len(kinds))}) AND status IN ('pending', 'retry') "
          "AND COALESCE(step, 0)=0 AND forced_model IS NULL AND COALESCE(access, 'cloud')='cloud' "
-         "AND (claimed_by IS NULL OR claimed_by='') ORDER BY kind, task_id")
-    ids = [r[0] for r in ws.query(q, kinds)]
+         "AND (claimed_by IS NULL OR claimed_by='' OR claimed_at < ?) ORDER BY kind, task_id")
+    # a claim that lapsed counts as none, as in answer_locally_first: a local answer cut off when the app closed
+    # held its task for good otherwise (Claude Code does not take a mix task that has not stepped up)
+    from .taskqueue import _cutoff
+
+    ids = [r[0] for r in ws.query(q, [*kinds, _cutoff()])]
     if task_ids is not None:
         wanted = set(task_ids)
         ids = [i for i in ids if i in wanted]

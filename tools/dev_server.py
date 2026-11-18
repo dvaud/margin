@@ -460,7 +460,8 @@ def main() -> int:
         def agy_sign_in_later(script):  # the "window": the stand-in signs in after a few seconds
             def run():
                 time.sleep(6)
-                subprocess.run([sys.executable, os.environ["MARGIN_AGY"]], capture_output=True)
+                subprocess.run([sys.executable, os.environ["MARGIN_AGY"]], capture_output=True,
+                               env=agentcli._environ(agentcli.agy_env()))   # in Margin's own Antigravity home
             threading.Thread(target=run, daemon=True).start()
             return "Terminal (stand-in)"
         agentcli._open_window = agy_sign_in_later

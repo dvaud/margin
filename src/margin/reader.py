@@ -230,7 +230,7 @@ def _text_lines(page_text: str, pno: int, spots=None, height: float | None = Non
 LIGATURES = {"ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "st",
              "ﬆ": "st", "ꜳ": "aa", "Ĳ": "IJ", "ĳ": "ij"}
 _SPACES = re.compile("[  -   　]")
-_ZERO = re.compile("[​‌‍⁠﻿]")
+_ZERO = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
 # accents set as separate characters before their letter ("´e"), as TeX's fonts often come out
 _SPACING_MARKS = {"´": "́", "`": "̀", "¨": "̈", "ˆ": "̂", "˜": "̃",
                   "¸": "̧", "ˇ": "̌", "˘": "̆", "˚": "̊", "˝": "̋"}

@@ -16,6 +16,14 @@ export const JOB_KINDS = {
   reread: { icon: "refresh", text: "Reading an excerpt again", link: "#/hypotheses" },
   "read-new": { icon: "book-open", text: "Reading the new documents", link: "#/hypotheses", withJob: true, label: (j, t) => j.title || t },
   "read-unread": { icon: "book-open", text: "Reading the documents not read yet", link: "#/hypotheses", withJob: true },   // roadmap N5
+  // 0.20.3: these had no entry, so their row linked to the Overview (a click on it went nowhere from there); the
+  // ones for one hypothesis go to its result (their scope), the rest to where they show
+  "read-local": { icon: "house", text: "Reading excerpts with the local model", link: (j) => (j.scope ? `#/h/${encodeURIComponent(j.scope)}` : "#/hypotheses") },
+  stronger: { icon: "layers", text: "A stronger model reads again", link: (j) => (j.scope && /^h/.test(j.scope) ? `#/h/${encodeURIComponent(j.scope)}` : "#/hypotheses"), tooltip: true, label: (j, t) => j.title || t },
+  agreement: { icon: "scale", text: "Comparing the local model with Claude", link: "#/settings/model", label: (j, t) => j.title || t },
+  "queue-run": { icon: "inbox", text: "Answering the queue here", link: "#/settings/queue" },
+  "codebook-try": { icon: "tag", text: "Trying the codebook", link: "#/codebooks", label: (j, t) => j.title || t },
+  retractions: { icon: "search-x", text: "Checking for retractions", link: "#/bibliography" },
   "second-opinion": { icon: "scale", text: "Second opinion", link: "#/hypotheses", withJob: true,
     label: (j, t) => `${t}${/ on (\d+ hypothes\w+)$/.test(j.title || "") ? ` (${/ on (\d+ hypothes\w+)$/.exec(j.title)[1]})` : ""}` },
   ingest: { icon: "upload", text: "Adding documents", link: "#/sources" },
@@ -38,6 +46,7 @@ export const JOB_KINDS = {
   "group-names": { icon: "sparkles", text: "Naming the groups of concepts", link: "#/concept-map" },   // D1 rest, the optional AI part
   quicklook: { icon: "eye", text: "Quick look", link: "#/sources" },
   "claude-install": { icon: "download", text: "Installing Claude Code", link: "#/settings/model" },
+  "agent-install": { icon: "download", text: "Installing an AI agent", link: "#/settings/model", label: (j, t) => j.title || t },   // 0.20.3: Codex, Antigravity
   "model-pull": { icon: "download", text: "Downloading a model", link: "#/settings/model" },   // 0.13.7
   "ollama-install": { icon: "download", text: "Installing Ollama", link: "#/settings/model" },   // 0.15.6
   bibliography: { icon: "library", text: "Bringing in the bibliography", link: "#/bibliography" },
@@ -45,6 +54,7 @@ export const JOB_KINDS = {
   // accepted, made in this copy, is on the Documents page
   "folder-sync": { icon: "users", text: "Working together", link: "#/team" },
   new_reader: { icon: "book-open", text: "Reading with the new reader", link: "#/sources" },
+  new_reader_preview: { icon: "book-open", text: "Checking documents for the new reader", link: "#/sources", label: (j, t) => j.title || t },   // 0.20.3
 };
 
 // A job's row: {href, icon, text, tooltip}. A kind no one registered shows its own title (an add-on's job).

@@ -142,10 +142,12 @@ await scenario("Antigravity's sign-in and what is added", async (t) => {
   ad.read = async () => ({ status: st, installer: ad.installer, docs: ad.docs });
   let opened = 0;
   ad.signIn = async () => { opened += 1; return { opened: true, window: "Terminal", command: "agy" }; };
-  const done = m.agentSetupDialog(ad, { status: st }, { project: "Study" });
+  const done = m.agentSetupDialog(ad, { status: st, own_leftovers: ['the permission line "mcp(margin/*)"'], own_settings: "~/.gemini/antigravity-cli/settings.json" }, { project: "Study" });
   await t.settle(10);
   const d = t.dialog();
   const out = { intro: t.text(d.querySelector(".guided-step[data-state=current]")) };
+  let tidied = null;
+  t.answer("POST /api/agent-setup/tidy", (b) => { tidied = b; return { removed: ["x"], own_leftovers: [] }; });
   const btn = d.querySelector("#agent-sign-in-antigravity");
   await t.click(btn);
   await t.settle(10);
@@ -157,6 +159,11 @@ await scenario("Antigravity's sign-in and what is added", async (t) => {
   await t.settle(28000);
   out.adds = t.text(d.querySelector(".agent-adds"));
   out.opened = opened;
+  out.leftovers = t.text(d.querySelector(".agent-leftovers"));
+  await t.click(d.querySelector("#agent-tidy-antigravity"));
+  await t.settle(10);
+  out.tidied = tidied;
+  out.afterTidy = t.text(d.querySelector(".agent-leftovers"));
   await t.click("Cancel", { within: d.querySelector(".dialog-actions") });
   await done;
   return out;
@@ -285,6 +292,14 @@ await scenario("Subscription: Claude Code, Codex or Antigravity", async (t) => {
   return out;
 });
 
+await scenario("a ready Antigravity offers to remove an earlier Margin's lines", async (t) => {
+  t.answer("GET /api/agent-setup?*", { route: "antigravity", title: "Antigravity", company: "Google", status: { found: true, signed_in: true, connector: true, ready: true },
+    recommended: REC, own_leftovers: ['the permission line "mcp(margin/*)"'], own_settings: "/home/x/.gemini/antigravity-cli/settings.json" });
+  await settingsPage(t, { backend: "antigravity", allow_antigravity: true });
+  await t.settle(50);
+  return { note: t.text(t.view.querySelector(".set-agent-box .agent-leftovers")), button: !!t.view.querySelector("#agent-tidy-antigravity") };
+});
+
 await scenario("the agent-setup API is not there", async (t) => {
   t.answer("GET /api/agent-setup?*", t.fail(404, "No such API endpoint"));
   await settingsPage(t, { backend: "antigravity", allow_antigravity: true });
@@ -394,11 +409,16 @@ def test_the_fixes_of_the_final_review(page):
     lim = page["a shared project with the owner's limit in the consent"]["says"]
     assert "The team uses Anthropic only (set by Anna). So Antigravity reads none of this project’s documents." in lim
     assert "the Enable Telemetry setting is on (in Antigravity’s settings)" in r["says"] and "Only documents that allow Google Gemini are sent" in r["says"]
+    r = page["a ready Antigravity offers to remove an earlier Margin's lines"]   # the card, not only the dialog
+    assert "mcp(margin/*)" in r["note"] and r["button"] is True
     r = page["Antigravity's sign-in and what is added"]
     assert "switch off Enable Telemetry in Antigravity’s settings, under AI credits and feedback" in r["intro"]
     assert r["disabled"] is True and r["againEarly"] is True and r["opened"] == 1
     assert "under AI credits and feedback" in r["words"]
-    assert "Margin’s own empty work folder, marked as trusted, where it starts Antigravity" in r["adds"]
+    assert "Margin’s own Antigravity settings, in a folder of Margin" in r["adds"] and "permission line" not in r["adds"]
+    # what a Margin before 0.20.2 wrote into the person's own settings is offered for removal, and removed
+    assert 'the permission line "mcp(margin/*)"' in r["leftovers"] and "Remove them" in r["leftovers"]
+    assert r["tidied"] == {"route": "antigravity"} and "settings.json.margin-tidy.bak" in r["afterTidy"]
 
 
 @needs_node

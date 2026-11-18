@@ -415,7 +415,7 @@ def _result(ws: Workspace, claim_id: str, threshold: float | None = None) -> tup
                 "in_corpus": p["passage_id"] in locs, "reviewed": False, "changed": False, "quote_by": None,
                 "ai_quote": None, "breaks": (p.get("breaks") or []) if earlier else breaks.get(p["passage_id"], []),
                 "scope_note": None, "ai_history": [],
-                "reread": False, "reread_info": None,
+                "reread": False, "reread_info": None, "ai_model": None,  # 0.20.3: the model of the AI's judgement
                 # 0.7: the words that found it (F6), and what its quote refers to (F5)
                 "matched": p.get("matched") or [], "refers_to": None, "refers_where": None, "refers_location": None,
                 "refers_start": None, "reference_missing": False,
@@ -435,6 +435,7 @@ def _result(ws: Workspace, claim_id: str, threshold: float | None = None) -> tup
         if v:
             ai = v["verdict"] if v["verdict"] != "not_enough_info" else None
             item["ai_read"] = v.get("model") != PERSON
+            item["ai_model"] = v.get("model") if item["ai_read"] else None
             eff = effective(v)
             item.update(ai_verdict=ai, user_verdict=v.get("user_verdict"), user_note=v.get("user_note"),
                         verdict=eff["verdict"] if eff["verdict"] != "not_enough_info" else None,

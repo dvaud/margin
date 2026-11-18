@@ -882,6 +882,9 @@ def test_documents_added_since_a_check_are_read_without_running_it_again(loaded,
     assert sorted((d["title"][:5], d["matching"]) for d in new) == [("A rec", False), ("Desal", True)]
     r = claimcheck.read_new_documents(loaded, hid, be, "m", k=4)
     assert r["documents"] == 2 and r["matching"] == 1 and r["passages"] >= 1
+    # 0.20.3: what reading them changed, from the answer and its counts before and after
+    assert r["before"] and r["after"] and r["changed"] == claimcheck._what_changed(r["before"], r["after"])
+    assert r["after"]["status"] == claimcheck.history(loaded, hyp_id=hid)[0]["status"]
     res = claimcheck.result(loaded, hid)
     assert {x["title"][:5] for x in res["passages"] if x["round"] == 2} == {"Desal"}
     assert next(x for x in res["passages"] if x["passage_id"] == pid)["user_verdict"] == "refutes"  # review kept
@@ -951,3 +954,12 @@ def test_a_comment_alone_is_not_a_judgement_and_rereads_say_why(loaded):
     claimcheck.set_judgement(loaded, hid, pid, None, "still unsure")  # back to the AI's: the comment stays
     x = next(x for x in claimcheck.result(loaded, hid)["passages"] if x["passage_id"] == pid)
     assert x["user_note"] == "still unsure" and x["user_verdict"] is None
+
+
+def test_what_reading_new_documents_changed():
+    """0.20.3: the Hypotheses list says which answers the new documents changed."""
+    a = {"status": "supported", "supports": 2, "partly": 0, "refutes": 0}
+    assert claimcheck._what_changed(a, dict(a)) == ""
+    assert claimcheck._what_changed(a, {**a, "partly": 1}) == "evidence"
+    assert claimcheck._what_changed(a, {**a, "status": "contested", "refutes": 1}) == "answer"
+    assert claimcheck._what_changed(None, a) == "" and claimcheck._what_changed(a, None) == ""

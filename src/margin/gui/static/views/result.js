@@ -1694,13 +1694,17 @@ export async function renderResult(view, [hypId], query) {
     if (p.reread && hist.length) {
       const first = hist[0];
       const info = p.reread_info || {};
-      card.appendChild(notice({ kind: "info", icon: "refresh", class: "reread-line" },
+      // 0.20.3: says which model read it again (and which read it first), in one line; the reminder that a re-read is
+      // still an AI's reading is in its title, not a line of its own
+      const stepped = hist[hist.length - 1].why === "stepped up";
+      const now = p.ai_model ? ` (${p.ai_model})` : "";
+      const was = first.model && first.model !== p.ai_model ? `, first ${first.model}` : "";
+      card.appendChild(notice({ kind: "info", icon: "refresh", class: "reread-line", title: "A re-read is still an AI's reading: judge the excerpt yourself." },
         h("div", {},
-          h("div", {}, hist[hist.length - 1].why === "stepped up" ? `Read again by a stronger model (the first reading was by ${first.model || "the first model"}): ` : "Read again by the AI: ", `was ${gradeWords(first.verdict, first.confidence)}, now ${gradeWords(p.ai_verdict, p.confidence)}`, hist.length > 1 ? ` (read again ${hist.length} times; the list is under Technical details)` : "", ". ",
-            p.user_verdict ? h("span", { class: "reread-yours" }, `Your own judgement (${p.user_verdict === "not_relevant" ? "Not about this" : GRADE_TEXT[p.user_verdict]}) still counts.`) : "The new judgement counts, unless you judge it yourself."),
+          h("div", {}, stepped ? `Re-read by a stronger model${p.ai_model ? `, ${p.ai_model}` : ""}${was}: ` : `Re-read by the AI${now}: `, `was ${gradeWords(first.verdict, first.confidence)}, now ${gradeWords(p.ai_verdict, p.confidence)}`, hist.length > 1 ? ` (${hist.length} readings: Technical details)` : "", ". ",
+            p.user_verdict ? h("span", { class: "reread-yours" }, `Your judgement (${p.user_verdict === "not_relevant" ? "Not about this" : GRADE_TEXT[p.user_verdict]}) counts.`) : h("span", { class: "muted" }, "Counts until you judge it.")),
           info.rationale ? h("div", { class: "reread-why" }, h("span", { class: "muted" }, "The AI's reason: "), info.rationale) : null,
-          info.hint ? h("div", { class: "reread-why" }, h("span", { class: "muted" }, "Your note was given to the AI: "), h("q", {}, info.hint)) : null,
-          h("div", { class: "reread-why muted" }, info.hint ? "The AI may simply follow your hint: judge the excerpt yourself." : "A re-read is still the AI's reading: judge the excerpt yourself."))));
+          info.hint ? h("div", { class: "reread-why" }, h("span", { class: "muted" }, "Your note to the AI (it may just follow it): "), h("q", {}, info.hint)) : null)));
     }
     const span = quoteSpan(p);
     card.appendChild(h("div", { class: "ev-src" },

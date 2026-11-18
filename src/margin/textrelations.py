@@ -26,7 +26,6 @@ Rebuilt with the glossary (terms.build calls `find`), like the abbreviation link
 """
 from __future__ import annotations
 
-import json
 import re
 import sqlite3
 from collections import defaultdict
@@ -41,7 +40,7 @@ _MODAL = r"(?:(?:can|could|may|might|will|would|often|usually|also|in\s+turn)\s+
 # the words between X and Y (both terms), and the relation from X to Y
 _BETWEEN = [
     (re.compile(rf"^\s*,?\s*such\s+as\s+{_ART}$", re.I), "broader"),
-    (re.compile(rf"^\s*,?\s+(?:and|or)\s+other\s+$", re.I), "narrower"),   # "Y and other X": Y narrower than X
+    (re.compile(r"^\s*,?\s+(?:and|or)\s+other\s+$", re.I), "narrower"),   # "Y and other X": Y narrower than X
     (re.compile(rf"^\s*,\s*(?:also\s+(?:called|known\s+as)|i\.\s?e\.,?|that\s+is,?|or\s+simply)\s+{_ART}$", re.I), "same"),
     (re.compile(rf"^\s*\(\s*(?:also\s+(?:called|known\s+as)|a\.k\.a\.?|i\.\s?e\.,?)\s+{_ART}$", re.I), "same"),
     (re.compile(rf"^\s+{_MODAL}(?:leads?|led|leading)\s+to\s+{_ART}$", re.I), "effect"),
@@ -220,7 +219,3 @@ def sentences(cx: sqlite3.Connection, a: str, b: str) -> list[dict]:
     except sqlite3.OperationalError:
         return []
     return [{"doc_id": r[0], "title": r[1] or "", "page": r[2], "start": r[3], "end": r[4], "quote": r[5]} for r in rows]
-
-
-def as_json(cx: sqlite3.Connection, a: str, b: str) -> str:
-    return json.dumps(sentences(cx, a, b))

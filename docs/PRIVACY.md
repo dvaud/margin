@@ -178,10 +178,15 @@ and are not measured with Margin.
   (`--ignore-user-config`). Its command, web search and image tools are switched off, it may not ask for approval, and
   Margin's connector, the only one it is given, offers it three tools: `next_tasks`, `submit_answers` and `release`.
 - **Antigravity cannot be closed in from outside.** Its own tools cannot be switched off. Margin starts it in an empty
-  work folder of its own, in its sandbox and without slash commands, with its default of asking before every tool. The
-  set-up adds one permission line, `mcp(margin/*)`, to Antigravity's settings after keeping a copy (`.bak`) and changes
-  nothing else; and **Margin refuses to start it while it is set to run every tool without asking** (`toolPermission`
-  `always-proceed`), so it cannot run commands or read files unasked.
+  work folder of its own, in its sandbox and without slash commands, with its default of asking before every tool,
+  which nobody can answer in a background run: every tool but Margin's three is refused. **It runs in a home folder of
+  its own** (`<data folder>/agy-home`), with settings Margin writes before every run, so the researcher's own
+  Antigravity settings never reach it: no permission they gave, no "run every tool without asking", no connector of
+  theirs, and no AI credits are spent. Their own choices about telemetry are carried over. **Margin refuses to start it
+  when its help does not list `--sandbox`**, rather than start it less closed in. A tool it refused a helper is written
+  in the run's report: a helper never needs one, so text in a passage may have asked for it (prompt injection).
+  Margin 0.20.0–0.20.1 wrote the line `mcp(margin/*)` and its work folder into the researcher's own Antigravity
+  settings; the set-up offers to take them out again.
 - **The login stays with the agent.** Margin never sees it. The installers are the makers' own, run only when the
   researcher confirms the line shown ([OpenAI](https://github.com/openai/codex), [Google](https://antigravity.google/docs/getting-started)),
   and refused under `--local-only`.

@@ -49,9 +49,11 @@ guided steps opens at the first step not done yet:
    signed in* checks now. While it waits, *Open the sign-in* stays pressed; after 30 seconds *Open it again* offers a
    new one, for a window closed too soon. Margin never sees your login: the agent keeps it.
 3. **Add Margin.** The button adds the Margin connector (with its three queue tools), the skill and the helpers.
-   For Antigravity it also adds one permission line, `mcp(margin/*)`, and Margin's own empty work folder, marked as
-   trusted, where it starts Antigravity. Nothing else in the agent is changed. When the project has documents the
-   agent's company may not read yet, the last step says how many and offers to allow it for the project.
+   For Antigravity it also writes Margin's own Antigravity settings, in a folder of Margin: Margin starts Antigravity
+   with those, never with yours. Nothing else in the agent is changed. Margin 0.20.0 and 0.20.1 wrote a permission
+   line and its work folder into your own Antigravity settings; this step lists them and offers **Remove them**. When
+   the project has documents the agent's company may not read yet, the last step says how many and offers to allow it
+   for the project.
 
 The last step says *Start Codex wherever work waits*. A new Margin, or a moved one, writes these again by itself. The
 card in *Settings → AI* shows the same three ticks (found, signed in, Margin added); the models in use, which you may
@@ -94,7 +96,7 @@ do nothing else.
 | --- | --- |
 | **Claude Code** | An empty folder, no file, shell or web tools, only Margin's plugin ([Privacy](privacy.md#how-it-is-enforced)). |
 | **Codex** | Starts in an empty folder, read-only, with your own Codex settings left out. Its command, web search and image tools are off, and only Margin's three queue tools are given to it (take a batch, send the answers, give a batch back). |
-| **Antigravity** | Its own tools cannot be switched off from outside. So Margin starts it in an empty folder of its own, in its sandbox, without slash commands, and it asks before every tool except Margin's. Margin adds one permission line, `mcp(margin/*)`, to Antigravity's settings, after keeping a copy of them, and changes nothing else. **Margin refuses to start it while it is set to run every tool without asking** (`always-proceed`): the page says how to change that ([Troubleshooting](troubleshooting.md#codex-and-antigravity)). |
+| **Antigravity** | Its own tools cannot be switched off from outside. So Margin starts it in an empty folder of its own, in its sandbox, without slash commands, and it asks before every tool except Margin's; in the background nobody answers, so it is refused. It runs with **its own home folder and settings**, which Margin writes before every run: your own Antigravity permissions, connectors and AI credits never reach it. **Margin refuses to start an Antigravity without its sandbox switch.** A tool it refused is written in the run's report ([Troubleshooting](troubleshooting.md#codex-and-antigravity)). |
 
 These limits are built against stand-ins that follow the makers' own documentation ([Codex](https://github.com/openai/codex),
 [Antigravity](https://antigravity.google/docs/getting-started)), not yet against a real account.

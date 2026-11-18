@@ -1675,6 +1675,7 @@ function agentCard(ad, opts = {}) {
       h("div", { class: "field-label" }, ready ? w.ready : w.head),
       h("ol", { class: "cc-steps" }, w.rows.map(([ok, title, text]) => checkStep(ok, title, text))),
       h("div", { class: "btn-row" }, btn),
+      ad.leftovers ? ad.leftovers(info) : null,   // Antigravity: what an earlier Margin wrote into the person's settings
       ...(opts.extra ? [].concat(opts.extra(info, ready)) : []).filter(Boolean));
   }
   read(false);

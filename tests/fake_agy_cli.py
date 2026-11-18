@@ -8,7 +8,11 @@ replaces them, `none` = none), `models` (the plan's models, FAKE_AGY_PLAN free |
 (`.agents/mcp_config.json`, as Antigravity loads a workspace's), and prints its JSON envelope.
 
 Modes: FAKE_AGY_LOGGED_OUT=1 starts signed out; FAKE_AGY_LIMIT=1 ends every run at the plan's usage limit;
-FAKE_AGY_DELAY waits before answering. What it was asked is kept in <MARGIN_HOME>/fake-agy.json ("runs").
+FAKE_AGY_DELAY waits before answering; FAKE_AGY_DENY=read_file adds that tool to the envelope's `denied_actions`, as
+Antigravity reports a tool it refused in a background run; FAKE_AGY_LOGIN_IN_HOME=1 keeps the sign-in per home folder
+(as a CLI that keeps it in a file under ~/.gemini would), else it is one for the account (as Windows' Credential
+Manager or a keychain). What it was asked is kept in <MARGIN_HOME>/fake-agy.json ("runs": argv, cwd, the home folder
+it was started with and the settings it found there).
 """
 from __future__ import annotations
 
@@ -33,13 +37,30 @@ MODELS["ultra"] = MODELS["pro"] + [("gemini-4-carbon-high", "Gemini 4 Carbon (Hi
                                    ("gemini-4-carbon-low", "Gemini 4 Carbon (Low)")]
 
 
+def home() -> str:
+    return os.environ.get("USERPROFILE" if os.name == "nt" else "HOME", "")
+
+
+def settings() -> dict:
+    try:
+        return json.loads((Path(home()) / ".gemini" / "antigravity-cli" / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _login_key() -> str:
+    return f"logged_in:{home()}" if os.environ.get("FAKE_AGY_LOGIN_IN_HOME") else "logged_in"
+
+
 def logged_in(st: dict) -> bool:
-    return bool(st.get("logged_in", not os.environ.get("FAKE_AGY_LOGGED_OUT")))
+    return bool(st.get(_login_key(), not os.environ.get("FAKE_AGY_LOGGED_OUT")))
 
 
 def run(argv: list[str]) -> int:
     st = fa.load(STATE)
-    st.setdefault("runs", []).append({"argv": argv, "cwd": os.getcwd()})
+    st.setdefault("runs", []).append({"argv": argv, "cwd": os.getcwd(), "home": home(), "settings": settings(),
+                                      "xdg": os.environ.get("XDG_CONFIG_HOME"),
+                                      "gemini_key": os.environ.get("GEMINI_API_KEY")})
     fa.save(STATE, st)
     opts: dict = {}
     i = 0
@@ -56,8 +77,12 @@ def run(argv: list[str]) -> int:
 
     def say(status: str, text: str) -> None:
         if as_json:
-            print(json.dumps({"status": status, "result": text} if status == "SUCCESS" else
-                             {"status": status, "error": {"message": text}}))
+            env = ({"status": status, "result": text} if status == "SUCCESS" else
+                   {"status": status, "error": {"message": text}})
+            if os.environ.get("FAKE_AGY_DENY"):
+                env["denied_actions"] = [{"action": a, "display_name": "".join(w.title() for w in a.split("_"))}
+                                         for a in os.environ["FAKE_AGY_DENY"].split()]
+            print(json.dumps(env))
         else:
             print(text)
 
@@ -94,7 +119,7 @@ def main(argv: list[str]) -> int:
             print(f"  {o}    (stand-in)")
         return 0
     if not argv:
-        st["logged_in"] = True
+        st[_login_key()] = True
         fa.save(STATE, st)
         print("Signed in with your Google account (stand-in).")
         return 0
@@ -111,7 +136,7 @@ def main(argv: list[str]) -> int:
         except (OSError, ValueError) as e:
             print(f"Error: not a plugin folder: {e}", file=sys.stderr)
             return 1
-        st["plugin"] = {"name": meta.get("name"), "path": argv[2]}
+        st["plugin"] = {"name": meta.get("name"), "path": argv[2], "home": home()}
         fa.save(STATE, st)
         print(f"Installed plugin {meta.get('name')} (stand-in)")
         return 0
