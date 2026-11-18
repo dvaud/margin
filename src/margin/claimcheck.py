@@ -721,6 +721,11 @@ def held_parts(ws: Workspace, hyp_ids: list[str]) -> list[dict]:
             with ws.connect() as cx:
                 mine = access.levels(cx, docs, provider=prov, budget=False)
                 chosen = access.levels(cx, docs, provider=None, budget=False)
+                now = access.levels(cx, docs, provider=prov)   # with each document's cap, as the queue reads it
+            if all(now.get(d) == "cloud" for d in docs):
+                # allowed since the queue last looked (the person allowed the provider a moment ago): not held, it
+                # goes to the queue at the next advance. Read as "setting", it went to the person for good
+                continue
             why = "provider" if any(chosen.get(d) == "cloud" and mine.get(d) != "cloud" for d in docs) else "setting"
             if why == "provider" and prov is not None:
                 from .teamproviders import allows as team_allows

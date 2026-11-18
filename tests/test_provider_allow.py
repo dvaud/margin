@@ -90,6 +90,36 @@ def test_a_check_held_for_its_company_says_why_and_goes_on_once_allowed(api, hom
     assert ws.scalar("SELECT COUNT(*) FROM tasks WHERE kind='check' AND task_id LIKE '%:person'") == 0
 
 
+def test_allowing_the_company_between_two_looks_of_the_queue_never_hands_the_excerpts_to_the_person(
+        api, home, corpus, codex, monkeypatch):  # noqa: F811
+    """0.20.1 (CI on macOS): the check's loop moves allowed parts to the queue, then looks for held ones. When OpenAI was
+    allowed between the two, a part not in the queue yet but readable now was taken for one a document's setting keeps
+    from every cloud AI, and handed to the person for good: the check never reached Codex. Here the queue is kept from
+    moving on while OpenAI is allowed, which makes that moment last."""
+    from margin import ingest, taskqueue
+
+    ws = home.create_project("Q")
+    ingest.ingest(ws, [corpus])
+    home.update_settings({"allow_codex": True, "backend": "codex", "project": "Q"})
+    st, r = api("POST", "/api/projects/Q/checks", {"text": "Electrolysers need large amounts of fresh water."})
+    assert st == 200, r
+    jid = r["job"]["id"]
+    _until(lambda: taskqueue.status(ws, "Q")["waiting"])
+    _run_agent(api, codex)
+    _until(lambda: ((_job(api, jid).get("progress") or {}).get("model") or {}).get("phase") == "held")
+    with monkeypatch.context() as m:
+        m.setattr(taskqueue, "advance", lambda ws_, hyp_ids=None: list(hyp_ids or []))   # the queue does not move
+        st, r = api("PUT", "/api/projects/Q/ai-access", {"providers_default": ["anthropic", "openai"]})
+        assert st == 200 and r["ai_access"]["route_allowed"] == 3
+        _until(lambda: ((_job(api, jid).get("progress") or {}).get("model") or {}).get("phase") != "held")
+        time.sleep(1.5)   # several looks of the job's loop
+        assert ws.scalar("SELECT COUNT(*) FROM tasks WHERE kind='check' AND task_id LIKE '%:person'") == 0
+    _until(lambda: taskqueue.status(ws, "Q")["waiting"])   # the queue moves again: the excerpts go to Codex
+    _run_agent(api, codex)
+    job = _until(lambda: (lambda j: j if j["state"] in ("done", "failed", "cancelled") else None)(_job(api, jid)))
+    assert job["state"] == "done", job.get("error")
+
+
 def test_the_owners_limit_holds_the_check_with_a_note_naming_it(api, home, corpus, codex,  # noqa: F811
                                                                  monkeypatch):
     """I7 stage 3: in a shared project the person's own allowance holds; the owner's limit holds the excerpts as a

@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import secrets
 import threading
@@ -109,9 +108,11 @@ def _write(ws: Workspace, draft: dict) -> dict:
     p = _path(ws)
     p.parent.mkdir(parents=True, exist_ok=True)
     draft["rev"] = int(draft.get("rev") or 0) + 1   # every write: the page sends the one it loaded (`save`)
-    part = p.with_name(p.name + f".{os.getpid()}.part")
-    part.write_text(json.dumps(draft, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(part, p)
+    from .home import _write_whole
+
+    # 0.20.1 (CI on Windows): written as settings.json is, a reader at that very moment (the reading's job, the page)
+    # made os.replace fail on Windows, and the PermissionError reached the page as a 403
+    _write_whole(p, json.dumps(draft, ensure_ascii=False, indent=1))
     return draft
 
 
