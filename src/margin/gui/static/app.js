@@ -499,7 +499,7 @@ function quitInit() {
   btn.title = `Quit ${appName()} (asks first)`;
   btn.hidden = !!(Updates.info && Updates.info.available);   // 0.17.0: an update takes Quit's place
   btn.addEventListener("click", () => quitApp());
-  Updates.quit = () => quitApp();   // Settings › Technical, while Update is in Quit's place
+  Updates.quit = () => quitApp();   // Settings › General, while Update is in Quit's place
 }
 
 // 0.13.1, "Update Margin": installs the newest version (the latest GitHub release, or the branch a git copy follows)
@@ -525,7 +525,7 @@ function showUpdate(btn, info) {
   if (btn.disabled) return;  // updating now: the button says so
   const quit = document.getElementById("quit-btn");
   if (!info || !info.available) { btn.hidden = true; if (quit && App.state && App.state.can_quit) quit.hidden = false; return; }
-  if (quit) quit.hidden = true;   // 0.17.0: the update takes Quit's place, the same size; Quit is in Settings › Technical
+  if (quit) quit.hidden = true;   // 0.17.0: the update takes Quit's place, the same size; Quit is in Settings › General
   const to = "Update";
   const rc = info.candidate ? "release candidate " : "";
   replace(btn, icon("arrow-up", { size: 13 }), h("span", {}, to));
@@ -534,7 +534,7 @@ function showUpdate(btn, info) {
   btn.title = info.on_disk ? `${appName()} ${info.latest} is installed: restart to use it`
     : info.latest ? `${appName()} ${rc}${info.latest} is ready (you have ${info.version})`
     : `${info.changes} new change${info.changes === 1 ? "" : "s"} for this copy of ${appName()}`;
-  btn.title += `. To quit ${appName()} without updating: Settings › Technical.`;
+  btn.title += `. To quit ${appName()} without updating: Settings › General.`;
   btn.hidden = false;
   if (!info.on_disk) updatePopup(info);  // a version already on disk has the banner above the page
 }

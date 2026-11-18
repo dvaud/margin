@@ -64,7 +64,7 @@ export const ACTIONS = [
   ["Start a new project", "in Projects", "#/projects", "folder-open", "create project new open switch"],
   ["Open the settings", "in Settings", "#/settings", "sliders", "settings preferences options appearance dark light"],
   ["Copy my link", "in Settings › Technical", "#/settings/link", "link", "bookmark link address url open browser"],
-  ["Read what's new in this version", "in Settings › Technical", "#/settings/updates", "sparkles", "changelog change log release notes news new version changes update updated whats"],
+  ["Read what's new in this version", "in Settings › General", "#/settings/updates", "sparkles", "changelog change log release notes news new version changes update updated whats"],
   // 0.18.1 part A: its actions below this line
   ["Mark a document as theory", "in Documents, a row’s menu", "#/sources", "book-marked", "theory theoretical framework lens leave out evidence role nicolini meadows"],
   ["Keep your own draft as a working document", "in Documents, a row’s menu", "#/sources", "notebook", "working document draft notes my own writing never a source check against the corpus role"],

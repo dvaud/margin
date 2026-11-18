@@ -14,7 +14,7 @@ export const CODEBOOKS_API = (p) => `/api/projects/${p}/owner/codebooks`;   // G
 export const SHARE_LABEL = "Codebooks made in this project are shared with the team";
 const SHARE_HELP = "A codebook made in this project (fresh, from themes or theory, a copy or an imported file) is shared as soon as it is made; the research log says why. Codebooks made before stay as they are: their maker can share them from the Codebooks page. Anyone can still unshare one of their own. Turned off, nothing is taken back. Codebooks kept with all projects are not covered.";
 const DEFAULT_LABEL = "Default codebook for this project";
-const DEFAULT_HELP = "The codebook the Profile page, a document’s Codes panel and the codes of new documents use when none is chosen, in every copy of the project. It takes the place of each computer’s own setting (Settings › Exploring the documents) here; a page’s own codebook picker still lets anyone look with another one.";
+const DEFAULT_HELP = "The codebook the Profile page, a document’s Codes panel and the codes of new documents use when none is chosen, in every copy of the project. It takes the place of each computer’s own setting (Settings › Documents › Exploring) here; a page’s own codebook picker still lets anyone look with another one.";
 const NONE = "";   // the select's value for "no default"
 
 export const CODEBOOKS_SECTION = {
@@ -50,7 +50,7 @@ function defaultText(v) {
   const d = v.default;
   return h("p", { class: "team-text", id: "team-codebooks-default" },
     d ? [`Default codebook: “${d.title}”`, d.here ? "" : " (not on this computer yet: your own setting holds until it comes)", `, set by ${byWords(d.by)}.`]
-      : "No default codebook: each computer’s own setting holds (Settings › Exploring the documents).",
+      : "No default codebook: each computer’s own setting holds (Settings › Documents › Exploring).",
     " ", helpMark("About the default codebook", DEFAULT_HELP));
 }
 

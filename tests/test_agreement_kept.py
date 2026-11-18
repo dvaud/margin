@@ -137,12 +137,16 @@ async function settings(t, kept, result = null) {
   t.answer("GET /api/servers", { servers: [], suggested: [] });
   t.answer("GET /api/claude-setup", {});
   t.answer("GET /api/local-status", {});
+  t.answer("GET /api/routing", { route: "claude_code", route_name: "Claude Code", rows: [], aliases: [], step_up_below: 0.6, plan: {} });
+  t.answer("GET /api/whats-new", {});
   t.answer("GET /api/projects/Study/queue", { kinds: [], waiting: 0 });
   t.answer("GET /api/projects/Study/agreement/plan?*", { kinds: KINDS, problem: null, claude: "claude_code", kept,
     plan: { kind: "check", n: 28, ask_local: 0, ask_claude: 0, left_out: 0 } });
   t.answer("POST /api/projects/Study/agreement", { job: { id: "j1" } });
   t.answer("GET /api/jobs/j1", { id: "j1", state: "done", progress: {}, result });
-  await t.render("views/settings.js", "renderSettings", ["model"]);
+  // the Settings rework: agreement between routes is a card of the Technical tab
+  // the card is folded on Technical until a link to it (#/settings/agreement) opens it
+  await t.render("views/settings.js", "renderSettings", ["agreement"]);
   await t.settle(1000);
   return document.getElementById("s-agreement");
 }

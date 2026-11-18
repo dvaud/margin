@@ -20,7 +20,7 @@ Two files in the data folder (`~/margin` unless you chose another) often say why
 | The install on Windows says "Margin was installed, but C:\Users\…\margin.exe is missing", with odd letters in the name | Your user folder has a letter with an accent (C:\Users\Dávid), which installers before 0.15.2 misread. Run the install line or *Install-Margin-Windows.cmd* of 0.15.2 or later: it installs over the half-done copy and makes the icons. |
 | macOS says *Install Margin.command* was "Not Opened" | The file is not signed by an Apple developer. Click *Done*, then allow it once in *System Settings → Privacy & Security → Open Anyway* ([Install](install.md#or-download-a-file-and-double-click-it)), or paste the install line in Terminal instead. |
 | Windows says it protected your PC, or the browser calls *Install-Margin-Windows.cmd* uncommon | The file is not signed. Keep it, then *More info → Run anyway*, or paste the install line in PowerShell instead. |
-| There is no *Update* button in the sidebar | It shows only when there is an update, in the place of *Quit*. To look now, or to see why a look failed: *Settings → Technical → Check for updates*. |
+| There is no *Update* button in the sidebar | It shows only when there is an update, in the place of *Quit*. To look now, or to see why a look failed: *Settings → General → Check for updates*. |
 | *Update* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows before 0.15.4: choose *Quit* and run the install line again in PowerShell. |
 | On Windows, a note says *The update to … did not finish* | Margin closed to install the new version but could not. Most often Claude Code still had Margin connected: close Claude Code, then press *Update* again. The details are in `logs/update.log`. |
 | Settings shows an older version after updating | That copy was still running. Choose *Restart now* on the notice at the top of the page, or *Quit* and open Margin from its icon. |
@@ -46,7 +46,7 @@ Two files in the data folder (`~/margin` unless you chose another) often say why
 | Claude Code answers with the wrong Claude account | The sidebar card (hover *Claude, on your plan*) and *Settings → AI* name the account it uses. To switch, type `claude auth logout` in Terminal or PowerShell, then press *Check again* and *Set up Claude* in *Settings → AI*: the sign-in window opens, and you sign in with the other account. |
 | Nothing happens after pressing an AI button | Work waits for the agent: press *Start Claude Code* ([Claude Code](claude-code.md#start-claude-code)), or *Start Codex* or *Start Antigravity* when you chose one of those. |
 | "No Claude API key" | Export `ANTHROPIC_API_KEY` or enter it in Settings, or use a local model or the file queue. |
-| "Cloud models are switched off" / "Allow cloud models first" | The Claude API sends the passages read to Anthropic, so the app asks you to allow it first (*Settings → AI*). |
+| "Cloud models are switched off" / "Allow cloud models first" | A key billed per use (the Claude API or another provider) sends the passages read off the computer, so the app asks you first: pick *API key* in *Settings → AI* and say yes. |
 | "The Claude API rejected the key" | Copy the key again from platform.claude.com (Settings › API keys), and check it has credit. |
 
 ## Codex and Antigravity

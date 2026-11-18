@@ -12,7 +12,7 @@
 
 ## Getting one
 
-Choose *A model on this computer* (on the first screen or in *Settings → AI*). Without a model server, the step
+Choose *A model on this computer* on the first screen, or *Local model* in *Settings → AI*. Without a model server, the step
 offers **Ollama**, a free program that runs AI models on your computer:
 
 - *Install Ollama* first says how big the download is on your computer (in November 2026 about **1.7 GB on Windows**
@@ -60,8 +60,8 @@ ollama pull bge-m3               # or this one for many languages: an English hy
 
 Two other ways to use a local model:
 
-- **Only for some documents**: mark them *Only a local AI*, and choose the model in *Settings → AI → Local model for
-  restricted documents* ([Privacy](privacy.md#who-may-read-each-document-with-ai)).
+- **Only for some documents**: mark them *Only a local AI*, and choose the model in *Settings → AI → Documents only
+  a local AI may read* ([Privacy](privacy.md#who-may-read-each-document-with-ai)).
 - **For everything, for good**: start Margin with `--local-only` ([Settings](settings.md#for-whoever-installs-margin)).
 
 When no local model is chosen, or the chosen one is not installed, Margin uses one the model server already holds in
@@ -78,7 +78,7 @@ JSON schema, so even small models give valid JSON; the rest depends on the model
 | **Size** | Margin chooses by memory (above). Larger models judge better and are slower; none of them decides anything: a local model only suggests. |
 | **Context** | Margin sets the context length on every Ollama request (Ollama's own default is much smaller and cuts long prompts without warning). Automatic by default: the smallest of 8,192, 12,288, 16,384 and 32,768 tokens that holds the largest task your settings can produce (8 excerpts without reasoning: 8,192). It stays the same between requests, because Ollama reloads the model when it changes. The model's working memory grows with it (for qwen3:8b about 1.2 GB at 8,192 tokens, 2.4 GB at 16,384). *Settings → Technical* shows the length in use and takes a fixed number instead. With LM Studio or llama.cpp, set it when loading the model: 16,384 covers every task of the app. |
 | **Memory** | Margin loads no model of its own and makes one model call at a time. On Ollama, a second opinion unloads the main model first and unloads itself when done, so two models are never in memory together. LM Studio and other OpenAI-compatible servers have no standard way to unload a model, so their own setting decides (LM Studio can keep only one model loaded). Restricted documents and memory: see [Privacy](#the-local-models-own-start-and-your-computers-memory). |
-| **Reasoning** | For models that reason before answering (Qwen 3 and 3.5, for example), *Settings → AI → Reasoning* (Ollama) has four choices: *Off* (the fastest), *Only when judging excerpts* (where reasoning can help; not for search words or splitting a hypothesis), *On for every step*, and *Model's default*. |
+| **Reasoning** | For models that reason before answering (Qwen 3 and 3.5, for example), *Settings › Technical › The local model › Reasoning* (Ollama) has four choices: *Off* (the fastest), *Only when judging excerpts* (where reasoning can help; not for search words or splitting a hypothesis), *On for every step*, and *Model's default*. |
 | **Reasoning budget** | Default 1,500 tokens. A model still reasoning at the budget is stopped and asked to answer at once from its notes. At 20 tokens a second that is at most about 75 seconds of reasoning per judgement; with *Only when judging excerpts*, a check takes a minute or two per part instead of half an hour. Reasoning text a server puts before the answer is ignored. |
 | **Embeddings** | `nomic-embed-text` (fast, English), `mxbai-embed-large`, or `bge-m3` (many languages). Building the index embeds every passage once (minutes for ten thousand passages); after that a search costs one short call. With numpy installed the comparison is instant; without it, about half a second per search on ten thousand passages. Choose the model in *Settings → Documents*. |
 

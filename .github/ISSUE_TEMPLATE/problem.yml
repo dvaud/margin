@@ -32,7 +32,7 @@ body:
     id: details
     attributes:
       label: Technical details
-      description: If you can, in Margin press Settings, then Technical, then the button *Copy technical details*, and paste here. It holds the version, the system and the AI route, and no file names, project names or keys. If that does not work, write the version you see at the top of Settings.
+      description: If you can, in Margin press Settings, then General, then the button *Copy technical details*, and paste here. It holds the version, the system and the AI route, and no file names, project names or keys. If that does not work, write the version you see at the top of Settings.
       render: text
     validations:
       required: false

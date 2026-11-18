@@ -3,8 +3,9 @@
 # Settings, and setting Margin up for others
 
 > **In short**
-> - *Settings* has five tabs: **AI**, **Checking**, **Exploring**, **Documents** and **Technical**.
-> - The version of Margin is at the top right of every tab; click it to look for updates.
+> - *Settings* has five tabs: **AI**, **Checking**, **Documents**, **General** and **Technical**.
+> - Every change saves as you make it: the right end of the tabs says *Saving…*, then *Saved*. There is no Save button.
+> - The version of Margin is in the line under the title of every tab; click it to look for updates.
 > - Whoever installs Margin for others can make sure nothing ever leaves the computer.
 
 ## The five tabs
@@ -13,11 +14,11 @@
 
 | Tab | What you set there |
 | --- | --- |
-| **AI** | **Work waiting for the agent** (what waits, in order: *Do first*, *Hold*, *Remove*; the helpers; [Claude Code](claude-code.md#following-the-work)). Which AI reads your documents, as five choices in two rows: **Subscription** (an agent on a plan you already pay for: Claude Code, Codex or Antigravity; [below](#subscription-claude-code-codex-or-antigravity)) and **Local model** (automatic, Ollama, or an OpenAI-compatible server such as LM Studio, with its address, model and reasoning switch); then **No AI (demo)**, the **Claude API (team key)** for a shared installation, behind a confirmation and *Allow cloud models*, and, after *Allow cloud models*, **Another cloud provider (API key)** ([below](#another-cloud-provider-with-an-api-key)). With a Subscription agent: its set-up card (for Claude Code the checklist with *Set up Claude*), *Let the auditor use Fable* (Claude Code), *How much thought*, *Helpers at once*, *At your plan's usage limit* and, with a local model for restricted documents, *The mix of local and Claude* (or of Codex, of Antigravity) ([Which model does what](models.md#the-mix-of-local-and-claude)). With a local model: *Install Ollama* (or *Start Ollama*) when no model server runs, *Download qwen3:8b* when none is installed, and the *Local model for restricted documents*. *Save and test* says whether the AI answers (with Claude Code, whether it is set up). |
-| **Checking** | The **strictness**: how sure the AI must be before a judgement counts. It saves at once, applies to every result, and reports which answers and counts changed; *Back to normal (60%)*. Beside it, **how often you agreed with the AI, by its certainty**: a small chart from the excerpts you judged, and after 20 judgements perhaps a suggestion ("When the AI was at least 70% sure, you agreed with it in 85% … *Use 70%*"). Also how new checks start: other words, parts, how many excerpts to read, and at most how many from one document. And **When work has finished**: a notification from your computer when work you started that took more than 20 seconds has finished, or stopped with a problem, so you can close the browser while a local model works (Margin keeps working; a click on the notification opens it again). *When Margin is not in front* (the default) sends one only when no Margin tab is the one you are looking at; also *Always* or *Never*, and *Send a test notification*. On a Mac, the first one asks whether Margin may send notifications (System Settings › Notifications › Margin). |
-| **Exploring** | The codebook of *By document* and how many themes a new set looks for (in a team project whose owner chose a default codebook, that one holds there, and its help line says *This project uses the team’s default*; your setting still holds in your other projects). A link to *Codes* › *Codebooks* leads to the page where you make, change and remove codebooks ([Make your own codebook](codebooks.md)). |
-| **Documents** | **Reading scanned PDFs** (on or off, and the languages), and the embedding model for **search by meaning** (with *Download nomic-embed-text* when Ollama has none). |
-| **Technical** | **AI model per task** ([Which model does what](models.md)): the model of each kind of task, what it steps up to, the helper on Claude Code, *Use the recommended models*, *The recommendations follow* your plan, and for local servers the small model for labels and links. With a local model, the **model for second opinions** and the **context length** (automatic by default), with *Sort the best excerpts again by wording* (off). **Repeatable results**: the seed (42 by default) and a test of whether the server gives the same answer twice. *Test a model* ([how](local-models.md#test-a-model-before-trusting-it)). **Updates** (*Check for updates*, how this copy was installed), **Your link to Margin** (*Copy my link*: the link with this run's key, for a bookmark; it works until Margin stops, and opens Margin for whoever has it, see [Privacy](privacy.md#what-goes-where)), where your data is, *What was sent to Claude*, **Which new versions to offer** and **Copy technical details**. |
+| **AI** | **Which AI reads your documents**, four cards in two rows. In the cloud: **Subscription** (an agent on a plan you already pay for: Claude Code, Codex or Antigravity; [below](#subscription-claude-code-codex-or-antigravity)) and **API key** (the Claude API or another provider, billed per use; [below](#an-api-key-claude-or-another-provider)). On this computer: **Local model** and **No AI (demo)**. Under the cards, only the chosen one's set-up: whose plan and its set-up card; the provider and its key; or what is chosen for this computer, *Install Ollama* (or *Start Ollama*) when no model server runs and *Download qwen3:8b* when none is installed. *Test the connection* (local model, API key) says whether the AI answers. Then, on a cloud AI: **How the AI works** (*How much thought*; *Helpers at once* with an agent; *Let the auditor use Fable* with Claude Code or the Claude API), **Documents only a local AI may read** (the local model for them; with an agent and that model, *Sharing the work* and *At your plan's usage limit*: [Which model does what](models.md#the-mix-of-local-and-claude)), **Your Claude account and your documents** (Claude Code, the Claude API) and **Work waiting for** the agent (what waits, in order: *Do first*, *Hold*, *Remove*; [Claude Code](claude-code.md#following-the-work)), shown with an agent or while work waits. Every choice saves as soon as you make it; one that sends text off the computer asks first. The server, the model's name and reasoning of a local model, and the models of a provider, are under **Technical**. |
+| **Checking** | **Strictness**: how sure the AI must be before a judgement counts (its help mark explains it). It saves when you let go of the slider, applies to every result, and reports which answers and counts changed; *Back to normal (60%)*. Under it, **how often you agreed with the AI, by its certainty**: a small chart from the excerpts you judged, and after 20 judgements perhaps a suggestion ("When the AI was at least 70% sure, you agreed with it in 85% … *Use 70%*"). **How new checks start**: other words, parts, how many excerpts to read, and at most how many from one document; each check can still change them under *More options*. |
+| **Documents** | **Reading scanned PDFs** (on or off, and the languages). **Search by meaning**: on or off, whether a model is set up, and *Download nomic-embed-text* when Ollama has none; it is set up per project on the Documents page, and the model and its server are under *Technical*. **Exploring**: the codebook of *By document* and how many themes a new set looks for (in a team project whose owner chose a default codebook, that one holds there, and its help line says *This project uses the team’s default*; your setting still holds in your other projects), and *Open Codebooks*, the page where you make, change and remove codebooks ([Make your own codebook](codebooks.md)). |
+| **General** | **Notifications**: a notification from your computer when work you started that took more than 20 seconds has finished, or stopped with a problem, so you can close the browser while a local model works (Margin keeps working; a click on the notification opens it again). *When Margin is not in front* (the default) sends one only when no Margin tab is the one you are looking at; also *Always* or *Never*, and *Send a test notification*. On a Mac, the first one asks whether Margin may send notifications (System Settings › Notifications › Margin). **Updates**: your version and how this copy was installed, *Check for updates*, *What's new*, **Which new versions to offer** (*Stable* or *Early*, [below](#trying-new-versions-early)) and, while an update waits in its place, *Quit Margin*. **Your data**: the data folder, your projects (*Manage projects*) and *What was sent to Claude* (a CSV of the open project). **Help**: *Copy technical details*, *Report a problem (on GitHub)* and *Source code (on GitHub)*. |
+| **Technical** | Each card is one line until you open it: its name and its current value (*Seed 42*, *The recommended models*); a card you opened stays open while Margin runs, and a link to one opens it. **The local model** and the provider's models (with a model on this computer, or another provider). **AI model per task** ([Which model does what](models.md)): a table of the model of each kind of task, what it steps up to and your choice (each saves when changed), the helper on Claude Code under the task, *Use the recommended models*, *The recommendations follow* your plan, and for local servers the small model for labels and links. With a local model, the **model for second opinions** and the **context length** (automatic by default), with *Sort the best excerpts again by wording* (off). **Search by meaning: the model**: the server kind, the embedding model and its address. **Repeatable results**: the seed (42 by default) and a test of whether the server gives the same answer twice. *Test a model* ([how](local-models.md#test-a-model-before-trusting-it)). **Your link to Margin** (*Copy my link*: the link with this run's key, for a bookmark; it works until Margin stops, and opens Margin for whoever has it, see [Privacy](privacy.md#what-goes-where)). **This installation**: the version, how it was installed and is updated, the network, and the text-recognition parts and what is missing. |
 
 ### Subscription: Claude Code, Codex or Antigravity
 
@@ -28,23 +29,27 @@ inside it. Each carries a mark where it fits.
 | --- | --- | --- |
 | **Claude Code** | A Claude plan (Pro, Max, Team) | *Recommended* |
 | **Codex** | A ChatGPT plan (Plus, Pro, Business) | |
-| **Antigravity** | A Google account, free or paid; free: every task on Gemini 3.8 Flash | *Recommended on a free plan* |
+| **Antigravity** | A Google account, free or paid; free: every task on Gemini 3.8 Flash | *For a free plan* |
 
 Choosing Codex or Antigravity asks first, naming the company that then receives the passages inside the tasks, as
-Claude Code does. *Set up Codex* (or *Set up Antigravity*) opens guided steps: install, sign in, add Margin
-([Codex and Antigravity](other-agents.md#set-it-up-once)). The card then shows what is found, signed in and added, the
-**models in use** per tier, *How much thought* and *Helpers at once*. A line says the agent is **not yet measured with
-Margin**. Claude Code's own set-up, checklist and speeds are in [Claude Code](claude-code.md).
+Claude Code does; the yes is the choice, saved at once, and a no keeps the agent you had. *Set up Codex* (or *Set up
+Antigravity*) opens guided steps: install, sign in, add Margin ([Codex and Antigravity](other-agents.md#set-it-up-once)).
+The card then shows what is found, signed in and added. A line says the agent is **not yet measured with Margin**.
+*How much thought* and *Helpers at once* are in the card below it, and the **models in use** per tier in *Settings ›
+Technical › The provider's models*. Claude Code's own set-up, checklist and speeds are in [Claude Code](claude-code.md).
 
-### Another cloud provider (with an API key)
+### An API key: Claude or another provider
 
-The last main choice in *Settings → AI*, after the Subscription agents, a model on this computer, the offline demo and the
-Claude API, is **Another cloud provider (API key)**: OpenAI, Google Gemini, Mistral, Azure OpenAI or OpenRouter, each reached through
-its OpenAI-compatible chat API, over HTTPS only. It needs *Allow cloud models* (as the Claude API does), and is refused
-where cloud models are switched off for good (`--local-only`).
+The second card in the cloud row, **API key**, reads with a key billed per use: **Claude**, marked
+*Recommended* as the only provider measured with Margin, or OpenAI, Google Gemini, Mistral, Azure OpenAI or OpenRouter,
+each reached through its OpenAI-compatible chat API, over HTTPS only. Picking the card, or another provider inside it,
+asks first: the dialog names the company the excerpts go to, says the use is billed to the key, that only documents
+that allow that provider are sent and, for the providers other than Claude, that it is not yet measured with Margin.
+The yes allows cloud models and saves the provider at once; the safe answer keeps what you had. Nothing is sent before
+a key is stored. It is refused where cloud models are switched off for good (`--local-only`).
 
-- **The key, in guided steps.** Each provider has its own: pick it among the option cards (each shows *Key stored* or
-  *Not set up*) and press *Set up OpenAI…* (or its name). A window leads you one step at a time: make an account (the
+- **The key, in guided steps.** Each provider has its own: pick it among the option cards (each shows *Key stored* once
+  one is) and press *Set up OpenAI…* (or its name). A window leads you one step at a time: make an account (the
   address to open is shown to copy, not a link), add credit or a plan with API access where the provider needs one, make
   a key, and paste it. Where a key is made: [OpenAI](https://platform.openai.com/api-keys), [Google AI
   Studio](https://aistudio.google.com/apikey), [Mistral](https://console.mistral.ai/api-keys),
@@ -60,10 +65,10 @@ where cloud models are switched off for good (`--local-only`).
   ([key page](https://platform.claude.com/settings/keys)) has the same steps.
 - **Recommended models, applied automatically.** Margin picks three models from the provider's own current line-up,
   among the models your key may use: one for small tasks (labels and links), one for judging excerpts, one for second
-  opinions and hard cases. Each row shows the model in use and *Recommended* or *Your choice*; choose another from the
-  list only if you need to (the first entry, *Recommended*, goes back). A newer Margin brings newer models by itself.
-  Azure has no list: type the names of your three deployments, with the recommended names as a hint
-  ([the line-ups](models.md#the-recommended-models-of-each-provider)).
+  opinions and hard cases. *Settings › Technical › The provider's models* shows them, *Recommended* or *Your choice*;
+  choose another from the list only if you need to (the first entry, *Recommended*, goes back). A newer Margin brings
+  newer models by itself. Azure has no list: type the names of your three deployments, with the recommended names as a
+  hint ([the line-ups](models.md#the-recommended-models-of-each-provider)); Azure's endpoint is on the AI tab, under its key.
 - **How much thought.** *Energy efficient*, *Balanced* and *Intelligence* work for every provider and agent: one model
   tier lower or higher, and less or more reasoning effort where the model takes it
   ([Which model does what](models.md#how-much-thought)).
@@ -77,9 +82,9 @@ Old links to a section (`#/settings/second`, `#/settings/calibration`…) open i
 ## Trying new versions early
 
 Margin offers full releases only, by default. From 0.16 on, a **release candidate** (a try-out of the next version)
-comes out at least a week before each new version. To be offered candidates, choose *Try new versions early*
-under *Settings → Technical → Which new versions to offer*; *Stable (recommended)* goes back. A copy installed from
-git follows its branch and has no such choice.
+comes out at least a week before each new version. To be offered candidates, choose *Early* under
+*Settings → General → Which new versions to offer*; *Stable* goes back. A copy installed from git follows its branch
+and has no such choice.
 
 > [!WARNING]
 > Try a candidate on a project you do not share with colleagues: going back to the stable version can show sync
@@ -87,7 +92,7 @@ git follows its branch and has no such choice.
 
 ## Reporting a problem
 
-*Settings → Technical → Copy technical details* copies a few lines for a problem report: the Margin version, how it
+*Settings → General → Copy technical details* copies a few lines for a problem report: the Margin version, how it
 was installed, the system and Python, the AI route, whether cloud models are switched off, and the update channel.
 Never a path, a project or document name, or a key. *Report a problem* opens a short form on GitHub (a free GitHub
 account is needed) to paste them in; please paste no text from documents that must stay private.
@@ -97,7 +102,7 @@ A **security or privacy problem** is reported privately instead: see [SECURITY.m
 ## For whoever installs Margin
 
 - **The AI.** A new installation uses Claude Code on the researcher's own plan. To use a model on this computer
-  instead, choose it once in *Settings → AI* (or let *automatic* find Ollama or LM Studio) and press *Save and test*;
+  instead, choose *Local model* once in *Settings → AI* (it finds Ollama or LM Studio by itself) and press *Test the connection*;
   with Ollama running, *Download qwen3:8b* there gets a model without a terminal. An installation that already chose a
   local model keeps it when it is updated. With an embedding model set (*Settings → Documents*), new documents are
   indexed for search by meaning right away.

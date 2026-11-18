@@ -1,8 +1,5 @@
-# 0.20.1: Local models that suggest, your own cloud provider in a team, and the concept map's names for everyone
-*A model on your computer now suggests, and you decide.*
-- The concept map's group names go to your team
-- Zoom on the concept map
-- The local model is chosen for your computer
-- A short answer form for the small model
-- Each person chooses their own cloud provider in a shared project
-- The owner may limit the providers the team may use
+# 0.20.2: Settings in one shape: five tabs, four cards for the AI, and every change saved as you make it
+*Settings follows one shape now.*
+- Settings › AI is four choices and only what the one you chose needs
+- Every AI setting saves as you change it
+- The technical parts moved to Settings › Technical

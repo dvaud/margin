@@ -126,7 +126,7 @@ export async function renderDesign(page) {
   });
 
   // Settings' tabs, as a sample: a click shows the other tab as current and stays here
-  const settingsTabs = tabs({ label: "A sample of Settings' tabs", current: "model", items: [["model", "AI", HERE, "cloud"], ["basics", "Checking", HERE, "flask"], ["advanced", "Technical", HERE, "sliders"]] });
+  const settingsTabs = tabs({ label: "A sample of Settings' tabs", current: "model", items: [["model", "AI", HERE, "cloud"], ["basics", "Checking", HERE, "flask"], ["advanced", "Technical", HERE, "terminal"]] });
   settingsTabs.addEventListener("click", (e) => {
     const a = e.target.closest("a");
     if (!a) return;

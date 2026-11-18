@@ -206,6 +206,9 @@ a > .icon:first-child { margin-right: 3px; }
 .field-inline { display: flex; align-items: center; gap: .5rem; }
 .field-inline .field-label { font-weight: var(--fw-regular); }
 .field-error { color: var(--danger); font-size: var(--fs-small); }
+/* a label with its help mark beside it (field(…, { about }), switchControl(…, { about }), rangeControl(…, { about })) */
+.setting-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.setting-head > .help-mark { flex: none; margin-left: 0; }
 .switch-field { margin: 0 0 .8rem; }
 .switch { display: inline-flex; align-items: center; gap: .6rem; cursor: pointer; }
 .switch-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
@@ -303,6 +306,9 @@ details.card > summary::before {
 details.card[open] > summary::before { transform: rotate(45deg); }
 details.card[open] > summary { margin-bottom: 10px; }
 details.card > summary .muted { font-weight: var(--fw-regular); }
+/* its summary may hold the card's heading (Settings › Technical: the h2 stays a heading) and a quiet line of its current
+   value after it */
+details.card > summary > h2, details.card > summary > h3 { margin: 0; font-size: var(--fs-section); }
 /* the one box a card may hold (inset()): no edge, the second surface; not in force yet: a dashed edge. A card or an
    inset where a dragged item will land: chosen, soft teal */
 .inset { padding: var(--space-2) var(--space-3); border-radius: var(--radius-ctl); background: var(--surface-2); }
@@ -585,6 +591,18 @@ h2 .defined-wrap { font-size: var(--fs-small); font-weight: var(--fw-regular); }
   .table-responsive td.pick-col { display: inline-block; width: auto; }
   /* short facts (a number, a date, a type) flow on one line, each with its label, instead of a line each */
   .table-responsive td.fact, .table-responsive td.num { display: inline-block; width: auto; margin-right: var(--space-3); }
+}
+/* the narrow kind (.table-responsive-sm): a table of a few short columns (Settings › Technical, the model per task)
+   keeps its columns down to 600 px of its frame, and stacks under that as .table-responsive does */
+.table-responsive-sm { width: 100%; }
+@container (max-width: 599px) {
+  .table-responsive-sm { display: block; }
+  .table-responsive-sm thead { display: none; }
+  .table-responsive-sm tbody { display: block; }
+  .table-responsive-sm tr { display: block; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .table-responsive-sm td { display: block; width: auto !important; padding: 2px 0; border: 0; text-align: left !important; }
+  .table-responsive-sm td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-family: var(--font-ui); font-size: var(--fs-xs); }
+  .table-responsive-sm td.fact, .table-responsive-sm td.num { display: inline-block; width: auto; margin-right: var(--space-3); }
 }
 /* a list's rows (listRow(), listGroup()): who, the item's title link and a quiet second line, when, the actions */
 /* the rows of a group share their columns (subgrid): who, the name, when, the actions; so every name starts at one x,

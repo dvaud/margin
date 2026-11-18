@@ -160,7 +160,7 @@ def test_the_page_says_when_it_is_in_front_and_settings_offer_the_choice():
     static = Path(notify.__file__).with_name("static")
     assert '"X-Margin-Seen"' in (static / "lib.js").read_text(encoding="utf-8")
     js = (static / "views" / "settings.js").read_text(encoding="utf-8")
-    assert "function notifySection" in js and '"/api/notify/test"' in js and "notify: \"basics\"" in js
+    assert "function notifySection" in js and '"/api/notify/test"' in js and "notify: \"general\"" in js
 
 
 # ---------------------------------------------------------------------------------------------

@@ -417,6 +417,10 @@ under it (muted, small); the placeholder muted and never the label's only copy.
 | Switch | `switchControl(label, on, { help })` | On or off, applied at once |
 | Range | `rangeControl(label, { min, max, step, value, format, ends })` | Strictness |
 
+A setting whose explanation is longer than one short help line keeps that line and puts the rest in a [help
+mark](#418-help-notes-and-defined-terms) beside its label: `about: [title, text]` on `field()`, `switchControl()` or
+`rangeControl()` (`.setting-head`, the label and its mark on one line).
+
 `sm: true` on `input()` or `select()` is a small field in a row of controls (*Find* · *any of the words*): as wide as
 its content, never wider than its place, so a long option cannot push a page sideways. A one-line field is as tall as a
 button of its size (36 px, small 29 px), so a row of fields and buttons has one height: a field among small buttons is
@@ -489,7 +493,10 @@ force (a reading the AI proposed that nobody confirmed, a proposed link, a remov
 dashed edge; a card or an inset where a dragged item will land carries `data-drop="true"` and turns soft teal. A card that holds AI actions says its
 AI line once, under them ([4.4](#44-the-ai-mark-and-the-ai-line)). Two variants: **the small card** (`sm: true`, 10 × 12 px padding, 8 px corners), one of many in a list
 (a note); **the card that folds** (`as: "details"`, its first child the `<summary>`): its summary is the title line in
-600 with the fold's chevron (*Codebook settings*, *3 removed codes*). Where a page's content lies on the page (a result's
+600 with the fold's chevron (*Codebook settings*, *3 removed codes*). A card that is one of a column of settings
+(Settings › Technical) puts its `h2` in the summary, so the title stays a heading, and after it, at the line's right, a
+quiet line of its current value (*Seed 42*, *The recommended models*): folded, the column reads as a list of what is
+set; the card a link names opens, and the ones a person opened stay open for the session. Where a page's content lies on the page (a result's
 evidence, whose excerpt cards are the cards), it is not put in a card. A page's link card (the Overview's) is a page's
 own piece built on the same look: the whole card is its link, the edge teal when pointed at. **Make it:** `card({ as,
 title, titleId, level, help, action, sm, class }, …body)`: `title`, `help` and `action` make the head (`.card-head`),
@@ -661,7 +668,8 @@ drawer open beside the page) the rows of `.table-responsive` stack with their la
 type, a date, a short state) flows on one line with the others; no column hides
 behind a sideways scroll. A table's name column keeps room for two lines of its names (a `min-width` in em on its cell,
 in the page's block); a file name under a name breaks after `_` or `-`, never before its extension, so it never
-squeezes the name. A long word a person typed (a name, a group) breaks in its cell (`overflow-wrap: anywhere`) rather
+squeezes the name. A table of a few short columns (Settings › Technical's model per task) is `.table-responsive-sm`:
+it keeps its columns down to 600 px of its frame and stacks only under that. A long word a person typed (a name, a group) breaks in its cell (`overflow-wrap: anywhere`) rather
 than widen the table. A grid whose first column stays while it scrolls (the [heat grid](#425-the-heat-grid)) is
 the one thing that scrolls sideways, and it says so (4.25). A table inside a document's own text (the reading view)
 wraps its words to the reading column; only a cell that is a figure stays on one line. A list of many things that each carry
@@ -726,7 +734,8 @@ the row's end one *More* menu, the more icon alone, with what can be done to it 
 joins the quiet line, and the actions stay on the page. Entries you wrote and entries a colleague wrote are two groups
 of the log's *Show* list (*Your own entries*, *Your colleagues' entries*), never one.
 
-**Make it:** `h("div", { class: "table-wrap" }, h("table", { class: "table table-responsive" }, …))`;
+**Make it:** `h("div", { class: "table-wrap" }, h("table", { class: "table table-responsive" }, …))` (or
+`table-responsive-sm`);
 `listGroup(heading | { text, action }, …listRow({ person, title, href, time, sub, warn, serif, actions }))`; `drawInSteps()` for a long list.
 **Lives in:** `components.css` § 4.20.
 
@@ -813,7 +822,8 @@ state changes, so no button is replaced under the pointer.
 details most people skip; a list's older part (*Seen before*). **Looks:** a line
 in secondary text with a chevron before it that turns when open; the small kind (`sm: true`, small type) in dense places:
 a card's foot, a list's tail, a toast, a notice. **Not for:** a step the researcher needs (it would be missed), or a
-panel tied to one item in a dense row (a toggle button). **Make it:** `fold({ open, sm, class }, summary, …body)`. **Lives in:** `components.css` § 4.22.
+panel tied to one item in a dense row (a toggle button). A whole card that folds to its title line is [the card that
+folds](#411-cards). **Make it:** `fold({ open, sm, class }, summary, …body)`. **Lives in:** `components.css` § 4.22.
 
 ### 4.23 Quotes and highlights
 

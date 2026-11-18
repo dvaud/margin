@@ -129,7 +129,7 @@ One status area of a fixed size, so the sidebar does not jump.
 
 Under it are *Settings*, *Quit* and **the theme icon**: a screen follows your computer, a sun is light, a moon is dark.
 Click it for the next one; hover it to see which is in use. When an update is ready, *Update* takes *Quit*'s place
-([Update](install.md#update)); *Quit* is then in *Settings → Technical*.
+([Update](install.md#update)); *Quit* is then in *Settings → General*.
 
 ### The Overview
 

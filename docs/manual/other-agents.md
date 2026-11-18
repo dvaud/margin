@@ -23,8 +23,8 @@ inside its tasks go to its company.
 
 Claude Code stays the recommendation. Antigravity is the one to take without a paid plan: on a free Google account it
 offers Gemini 3.8 Flash only, so every task uses it ([Which model does what](models.md#the-recommended-models-of-each-provider)).
-A ChatGPT plan pays for Codex, not for an OpenAI API key; for that, see [Another cloud
-provider](settings.md#another-cloud-provider-with-an-api-key).
+A ChatGPT plan pays for Codex, not for an OpenAI API key; for that, see [An API
+key](settings.md#an-api-key-claude-or-another-provider).
 
 > [!NOTE]
 > Codex and Antigravity are built against stand-in programs that follow their documentation. They are **not yet tried
@@ -54,16 +54,16 @@ guided steps opens at the first step not done yet:
    agent's company may not read yet, the last step says how many and offers to allow it for the project.
 
 The last step says *Start Codex wherever work waits*. A new Margin, or a moved one, writes these again by itself. The
-card in *Settings → AI* shows the same three ticks (found, signed in, Margin added) and the models in use, which you
-may change per tier.
+card in *Settings → AI* shows the same three ticks (found, signed in, Margin added); the models in use, which you may
+change per tier, are in *Settings › Technical › The provider's models*.
 
 ## Start it
 
 Press an AI button, and the page says what waits, with **Start Codex** or **Start Antigravity**. It works exactly as
 [Start Claude Code](claude-code.md#start-claude-code) does: Margin starts the agent's helpers in the background, each on
 its own model, checks every quote, and stops them with *Stop* or when you quit. *How much thought* and *Helpers at once*
-work the same, and so do the choices at a plan's limit (*At your plan's usage limit*, beside the agent in *Settings →
-AI*; with a local model also *The mix of local and …*) ([Which model does what](models.md#how-much-thought)). On a
+work the same, and so do the choices beside a local model (*Sharing the work* and *At your plan's usage limit*, in
+*Settings → AI › Documents only a local AI may read*) ([Which model does what](models.md#how-much-thought)). On a
 free Google account every task uses Gemini 3.8 Flash, so a second opinion comes from the same model; Settings says so. Nothing runs until you press it.
 
 You can also type the run yourself in the agent, opened anywhere:

@@ -239,8 +239,8 @@ await scenario("Subscription: Claude Code, Codex or Antigravity", async (t) => {
   out.putAtOnce = t.calls.filter((c) => c.method === "PUT" && c.path === "/api/settings").map((c) => c.body);
   const box = t.view.querySelector(".set-agent-box");
   out.card = t.text(box.querySelector(".cc-card"));
-  out.models = t.text(box.querySelector("#s-cli-models"));
-  out.order = [...box.children].map((c) => c.id || c.className.split(" ")[0]);
+  // the Settings rework: the AI tab holds how much thought and the helpers; the models per task are under Technical
+  out.aiIds = ["s-thought", "s-speed", "s-cli-models"].map((id) => !!document.getElementById(id));
   // the set-up: opens at the first step not done (Codex is found, not signed in)
   st = { found: true, version: "1.4.2", signed_in: false, connector: false, ready: false };
   await t.click(box.querySelector(".cc-card .btn-row button"));
@@ -262,7 +262,6 @@ await scenario("Subscription: Claude Code, Codex or Antigravity", async (t) => {
   // found and signed in, Margin not added: the card says what is left, not that Codex is ready
   out.cardMid = t.text(t.view.querySelector(".set-agent-box .cc-card"));
   out.cardButton = t.text(t.view.querySelector(".set-agent-box .cc-card .btn-row button"));
-  out.modelsMid = t.text(t.view.querySelector("#s-cli-models"));
   t.answer("POST /api/agent-setup", () => { st = { ...st, connector: true, ready: true }; return { steps: [{ step: "connector", ok: true, text: "" }], status: st }; });
   await t.click("Add Margin to Codex", { within: d.querySelector(".dialog-actions") });
   await t.settle(50);
@@ -270,10 +269,18 @@ await scenario("Subscription: Claude Code, Codex or Antigravity", async (t) => {
   await t.click("Done", { within: d.querySelector(".dialog-actions") });
   await t.settle(50);
   out.after = t.text(t.view.querySelector(".set-agent-box .cc-card"));
+  // Technical › the provider's models: from Codex's recommendations, saved as soon as one is chosen
+  document.getElementById("view").replaceChildren();
+  t.answer("GET /api/routing", { route: "codex", route_name: "Codex", rows: [], aliases: [], step_up_below: 0.6, plan: {} });
+  t.answer("GET /api/whats-new", {});
+  await t.render("views/settings.js", "renderSettings", ["advanced"]);
+  await t.settle(200);
   out.modelsAfter = t.text(t.view.querySelector("#s-cli-models"));
   out.optionAfter = t.text(t.view.querySelector("#m-codex-middle option"));
-  t.answer("PUT /api/settings", (b) => ({ settings: { ...b }, backend_label: "Codex", providers: NONE }));
-  await t.click("Save");
+  const middle = t.view.querySelector("#m-codex-middle");
+  middle.value = "gpt-6-luna";
+  middle.dispatchEvent(new Event("change", { bubbles: true }));
+  await t.settle(50);
   out.put = t.calls.filter((c) => c.method === "PUT" && c.path === "/api/settings").map((c) => c.body).pop() || null;
   return out;
 });
@@ -332,10 +339,11 @@ def test_each_provider_has_its_own_checked_steps(page):
 @needs_node
 def test_subscription_holds_the_agents_and_codex_is_set_up_in_steps(page):
     r = page["Subscription: Claude Code, Codex or Antigravity"]
-    assert r["cards"] == [["subscription", True], ["local", False], ["baseline", False], ["anthropic", False], ["cloud_api", False]]
+    # the Settings rework: 2 × 2, the cloud above (Subscription, API key), this computer below
+    assert r["cards"] == [["subscription", True], ["apikey", False], ["local", False], ["baseline", False]]
     assert r["choice"] == [["claude_code", "true"], ["codex", "false"], ["antigravity", "false"]]
     assert "The passages go to OpenAI" in r["words"] and "The passages go to Google" in r["words"]
-    assert r["tags"] == ["Recommended", "", "Recommended on a free plan"]
+    assert r["tags"] == ["Recommended", "", "For a free plan"]
     assert "Free: every task on Gemini 3.8 Flash" in r["words"]
     assert r["inset"] is True and r["label"] == "Subscription: whose plan" and "a plan you already have" in r["routeWords"]
     assert "may train its models on Plus or Pro unless you switch that off" in r["words"]
@@ -348,14 +356,12 @@ def test_subscription_holds_the_agents_and_codex_is_set_up_in_steps(page):
     assert r["redrawn"] == 1
     assert "Built from Codex’s documentation and not yet tried with real accounts, nor measured with Margin." in r["says"]
     assert "Built from Codex’s documentation and not yet tried with real accounts, nor measured with Margin." in r["queueWords"]
-    assert "At your plan's usage limit" in r["queueWords"] and "When Codex stops because your plan's usage limit is reached" in r["queueWords"]
-    assert "The mix of local and" not in r["queueWords"]   # only beside a local model
+    # the Settings rework: sharing the work and the usage limit show only beside a local model (none is chosen here)
+    assert "At your plan's usage limit" not in r["queueWords"] and "Sharing the work" not in r["queueWords"]
     assert "Set up Codex (once)" in r["card"] and "Not on this computer yet" in r["card"]
-    # until Codex is signed in, one line instead of the rows; the models come first, then thought, then helpers
-    assert "Recommended models, applied automatically" in r["models"] and "Margin picks them once Codex is signed in." in r["models"]
-    assert "gpt-6.2-sol" not in r["models"] and r["order"][1:4] == ["s-cli-models", "s-thought", "s-speed"]
+    assert r["aiIds"] == [True, True, False]   # thought and helpers on the AI tab; the models under Technical
     assert "Finish the set-up" in r["cardMid"] and "Codex is ready" not in r["cardMid"] and r["cardButton"] == "Add Margin to Codex…"
-    assert "From Codex’s recommendations for your plan" in r["modelsMid"] and "In use" not in r["modelsMid"]
+    assert "From Codex’s recommendations for your plan" in r["modelsAfter"] and "In use" not in r["modelsAfter"]
     assert r["optionAfter"] == "Recommended (gpt-6.2-sol)"
     assert r["steps"] == ["Install Codex", "Sign in", "Add Margin to Codex", "What Margin applied"] and r["first"].endswith("Install Codex")
     assert "Codex opens its sign-in page in your browser" in r["waiting"] and "Waiting for you to sign in" in r["waiting"]
@@ -363,9 +369,7 @@ def test_subscription_holds_the_agents_and_codex_is_set_up_in_steps(page):
     assert "Codex is ready" in r["done"] and "$margin-run" in r["done"]
     assert "gpt-6.1-sol for judging excerpts" in r["done"]
     assert "Codex is ready" in r["after"]
-    put = r["put"]
-    assert put["backend"] == "codex" and put["allow_codex"] is True
-    assert put["cli_models"] == {"codex": {"small": "", "middle": "", "strong": ""}}
+    assert r["put"] == {"cli_models": {"codex": {"small": "", "middle": "gpt-6-luna", "strong": ""}}}   # saved when chosen
 
 
 @needs_node

@@ -42,7 +42,7 @@ Claude Code is not the only way to answer on a plan you already pay for. **Codex
 **Antigravity** (Google, on a Google account) take the same queue the same way, and only the passages inside the tasks
 go to the company of the agent you chose ([Codex and Antigravity](other-agents.md)). Margin has not tried either with a
 real account yet, nor measured them: its defaults were measured on Claude only. For other providers there are API keys
-([Settings](settings.md#another-cloud-provider-with-an-api-key)).
+([Settings](settings.md#an-api-key-claude-or-another-provider)).
 
 In a shared project each person chooses their own route and provider, within the providers the owner allows (no limit
 unless the owner sets one). The **AI log** (from the research log's line under its title) says who ran which AI work,

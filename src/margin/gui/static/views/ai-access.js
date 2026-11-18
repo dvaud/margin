@@ -278,10 +278,12 @@ export async function docAccessDialog(project, doc, projectDefault, onSaved, inf
 }
 
 // "What happens to the text Claude reads": in plain words, with the source and the date it was checked.
+// `bare`: without its own card and heading (Settings › AI gives it a card of its own, "Your Claude account and your
+// documents"); the first-run page keeps the card.
 export function termsPanel(opts = {}) {
   const st = App.state || {};
   const said = opts.account || (st.settings || {}).account_type || "";
-  const box = card({ as: "div", class: "terms-panel" });
+  const box = opts.bare ? h("div", { class: "terms-panel terms-bare" }) : card({ as: "div", class: "terms-panel" });
   const draw = (kind) => {
     const choose = choice({ label: "Your kind of Claude account", class: "terms-pick", value: kind,
       options: [["personal", "Pro or Max (personal)"], ["commercial", "Team, Enterprise or the Claude API"]],
@@ -295,7 +297,7 @@ export function termsPanel(opts = {}) {
       commercial: [h("p", {}, h("strong", {}, "Commercial terms apply. "), "Anthropic does not train its models on what Claude Code is sent, unless your organisation chose to share it, and keeps it for 30 days. Ask your organisation about a data processing agreement for personal data.")],
     }[kind];
     replace(box,
-      h("h3", { class: "h-small" }, icon("cloud", { size: 14 }), "What happens to the text Claude reads"),
+      opts.bare ? null : h("h3", { class: "h-small" }, icon("cloud", { size: 14 }), "What happens to the text Claude reads"),
       h("p", { class: "small" }, "Only the excerpts inside the AI's tasks leave this computer, and only from documents Claude may read: documents marked Only a local AI or No AI are never sent."),
       opts.detected && kind ? h("p", { class: "small muted" }, `Claude Code says your plan is ${opts.detected}.`) : h("p", { class: "small muted" }, "Which kind of account do you use?"),
       opts.detected && kind ? null : choose,
@@ -307,29 +309,37 @@ export function termsPanel(opts = {}) {
   return box;
 }
 
-// Settings → AI: the local model that reads documents marked Only a local AI while Claude reads the rest.
-export function restrictedModelCard(s, servers, save, info = { servers }) {
+// Settings → AI: the local model that reads documents marked Only a local AI while a cloud AI reads the rest. Saved
+// when chosen. opts: extra (rows that only make sense once a local model is chosen: the mix, the usage limit), onSaved()
+// after a choice is saved (Settings draws the page again, so those rows follow).
+export function restrictedModelCard(s, servers, save, info = { servers }, opts = {}) {
   const chosen = (App.state && App.state.restricted) || {};
   const sect = card({ class: "settings-section", id: "s-restricted", "aria-labelledby": "s-restricted-h" },
-    h("h2", { id: "s-restricted-h", tabindex: "-1" }, "Local model for restricted documents"));
+    h("h2", { id: "s-restricted-h", tabindex: "-1" }, "Documents only a local AI may read"));
   if (chosen.same_as_main) {
     sect.append(h("p", { class: "lead" }, "The AI you chose runs on this computer, so it also reads the documents marked Only a local AI. Documents marked No AI wait for your own judgement."));
     return sect;
   }
-  const state = h("span", { class: "save-state", "aria-live": "polite" });
   const options = [h("option", { value: "" }, "None: I judge those excerpts myself")];
   for (const srv of servers || []) {
     for (const m of srv.chat_models || []) options.push(h("option", { value: `${srv.kind}|${m}`, selected: s.restricted_server === srv.kind && s.restricted_model === m }, `${m} (${srv.kind === "ollama" ? "Ollama" : "local server"})`));
   }
   if (s.restricted_model && !options.some((o) => o.selected)) options.push(h("option", { value: `${s.restricted_server}|${s.restricted_model}`, selected: true }, `${s.restricted_model} (not running now)`));
-  const sel = select({ id: "restricted-model" }, ...options);
+  const sel = select({ id: "restricted-model", class: "set-narrow" }, ...options);
   sel.addEventListener("change", async () => {
     const [server, model] = sel.value ? sel.value.split("|") : ["", ""];
-    try { await save({ restricted_server: server, restricted_model: model }, state); const st = await api("GET", "/api/state"); App.state.restricted = st.restricted; toast(model ? `Documents marked Only a local AI are read by ${model}.` : "Excerpts from documents marked Only a local AI wait for your judgement.", "ok"); }
-    catch (_) { /* shown */ }
+    try {
+      await save({ restricted_server: server, restricted_model: model });
+      const st = await api("GET", "/api/state"); App.state.restricted = st.restricted;
+      toast(model ? `Documents marked Only a local AI are read by ${model}.` : "Excerpts from documents marked Only a local AI wait for your judgement.", "ok");
+      if (opts.onSaved) opts.onSaved();
+    } catch (_) { /* shown */ }
   });
-  sect.append(h("p", { class: "lead" }, `${s.backend === "cloud_api" ? "The cloud provider" : isAgent(s) ? agentTitle(s) : "Claude"} never reads documents marked Only a local AI. Choose a model on this computer to read their excerpts in a check, the Profile and the other features; without one, they wait for your own judgement.`),
-    h("div", { class: "save-row" }, field2("Local model", sel, servers && servers.length ? "Chat models of the model servers running on this computer." : "No model server is running on this computer just now (Ollama, LM Studio…)."), state));
+  const who = s.backend === "cloud_api" ? "The cloud provider" : isAgent(s) ? agentTitle(s) : s.backend === "anthropic" ? "Claude" : "";
+  sect.append(h("p", { class: "lead" }, who ? `${who} never reads documents marked Only a local AI: a model on this computer can, or they wait for your own judgement.`
+    : "A model on this computer can read the documents marked Only a local AI; without one, they wait for your own judgement."),
+    h("div", { class: "field setting" }, h("label", { class: "field-label", for: "restricted-model" }, "Local model"), sel,
+      servers && servers.length ? null : h("div", { class: "field-help" }, "No model server is running on this computer just now (Ollama, LM Studio…).")));
   // 0.13.7: no model on this computer yet: get Ollama, or download a model into it with one button
   const rerender = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
   const help = localModelHelp(info, { embed: false, use: "restricted", onFound: rerender, onReady: async (r) => {
@@ -339,9 +349,6 @@ export function restrictedModelCard(s, servers, save, info = { servers }) {
   } });
   // with no model server at all, the steps to get one stay folded: most people who use Claude never need them
   if (help) sect.append((servers || []).length ? help : fold({}, "Get a model on this computer (free, no terminal)", help));
+  for (const x of opts.extra || []) if (x) sect.append(x);
   return sect;
-}
-
-function field2(label, control, help) {
-  return h("div", { class: "field grow" }, h("label", { class: "field-label", for: control.id }, label), control, h("div", { class: "field-help" }, help));
 }

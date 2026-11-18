@@ -1622,7 +1622,9 @@ export function field(label, control, opts = {}) {
   const id = control.id || ("f" + Math.random().toString(36).slice(2, 8));
   control.id = id;
   const wrap = h("div", { class: "field " + (opts.class || "") });
-  const lab = h("label", { for: id, class: "field-label" }, label);
+  const lab0 = h("label", { for: id, class: "field-label" }, label);
+  // about: [title, text]: the longer explanation, in a help mark beside the label (Settings' grammar)
+  const lab = opts.about ? h("div", { class: "setting-head" }, lab0, helpMark(opts.about[0], opts.about[1])) : lab0;
   if (opts.inline) {
     append(wrap, [h("div", { class: "field-inline" }, control, lab)]);
   } else {
@@ -1643,21 +1645,25 @@ export function switchControl(label, checked, opts = {}) {
   const id = "sw" + Math.random().toString(36).slice(2, 8);
   input.id = id;
   if (opts.help) input.setAttribute("aria-describedby", id + "-help");
+  // about: [title, text]: the longer explanation, in a help mark beside the label (outside the <label>: a button there
+  // would be inside the switch's label)
+  const sw = h("label", { class: "switch", for: id }, input, h("span", { class: "switch-track", "aria-hidden": "true" }), h("span", { class: "switch-label" }, label));
   const wrap = h("div", { class: "switch-field" },
-    h("label", { class: "switch", for: id }, input, h("span", { class: "switch-track", "aria-hidden": "true" }), h("span", { class: "switch-label" }, label)),
+    opts.about ? h("div", { class: "setting-head" }, sw, helpMark(opts.about[0], opts.about[1])) : sw,
     opts.help ? h("div", { class: "field-help", id: id + "-help" }, opts.help) : null);
   wrap.input = input;
   return wrap;
 }
 
-export function rangeControl(label, { min, max, step, value, format, help, ends }) {
+export function rangeControl(label, { min, max, step, value, format, help, ends, about }) {
   const input = h("input", { type: "range", min, max, step, value, class: "range" });
   const out = h("output", { class: "range-out" }, format ? format(value) : String(value));
   input.addEventListener("input", () => { out.textContent = format ? format(input.valueAsNumber) : input.value; });
   const id = "rg" + Math.random().toString(36).slice(2, 8);
   input.id = id;
   const wrap = h("div", { class: "field range-field" },
-    h("div", { class: "range-head" }, h("label", { for: id, class: "field-label" }, label), out),
+    // about: [title, text]: the longer explanation, in a help mark beside the label
+    h("div", { class: "range-head" }, about ? h("span", { class: "setting-head" }, h("label", { for: id, class: "field-label" }, label), helpMark(about[0], about[1])) : h("label", { for: id, class: "field-label" }, label), out),
     input,
     ends ? h("div", { class: "range-ends", "aria-hidden": "true" }, h("span", {}, ends[0]), h("span", {}, ends[1])) : null,
     help ? h("div", { class: "field-help" }, help) : null);

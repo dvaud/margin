@@ -22,7 +22,7 @@ promise: [PRIVACY.md](../PRIVACY.md).
 | **To a folder your team shares** (0.17.0) | Only once you choose one for a project: the documents' text and files, and what you shared of your own work. Your cloud service or network drive carries it from there ([Working together](#working-together)). |
 | **To Anthropic, on your Claude plan** | With Claude Code: only the passages inside the tasks it takes, from documents Claude may read. *See what is sent*, under the line that says so, shows the next batch word for word. Margin never sees your Claude login. |
 | **To OpenAI or Google, on your plan** | With Codex or Antigravity: only the passages inside the tasks it takes, from documents that allow that company (OpenAI for Codex, Google for Antigravity). Choosing one asks you first, naming the company. Margin never sees your login ([How each agent is closed in](#how-each-agent-is-closed-in)). |
-| **To Anthropic, on a team key** | With the Claude API, only after *Allow cloud models* is switched on (or `--backend anthropic` on the command line): the hypothesis and the passages read. |
+| **To Anthropic, on a team key** | With the Claude API, only after you say yes to it in *Settings → AI › API key* (or `--backend anthropic` on the command line) and a key is stored: the hypothesis and the passages read. |
 | **To another cloud provider** | Only if you set one up (OpenAI, Google Gemini, Mistral, Azure, OpenRouter) and allow a document to it: the hypothesis and the passages read, nothing else. Its own terms decide what it keeps ([Other cloud providers](#other-cloud-providers)). |
 | **Into your chat** | With the [connector](claude-code.md#claude-in-a-chat-the-connector): the passages shown to Claude are part of your chat. |
 | **Nowhere** | With a model on this computer, every word stays on it. |
@@ -89,7 +89,7 @@ Claude is not offered.
 
 *Claude may read it* means Anthropic, unless you allow more. A document marked that way also says **which cloud
 providers may read it**, and by default that is only Anthropic: a project you already have means exactly what it did,
-and nothing reaches OpenAI, Google, Mistral, Azure or OpenRouter, nor Codex or Antigravity, until you allow it ([Settings](settings.md#another-cloud-provider-with-an-api-key)).
+and nothing reaches OpenAI, Google, Mistral, Azure or OpenRouter, nor Codex or Antigravity, until you allow it ([Settings](settings.md#an-api-key-claude-or-another-provider)).
 
 - **Where.** On the Documents page, the line *Cloud AI may read it: …* above the list opens the project's choice, as
   tick boxes of providers; a document's own AI-setting dialog (*Add a note on why*, in its details) has its own.
@@ -156,7 +156,7 @@ the connector) or for another cloud provider, with the provider that received it
 
 - A document's details on the Documents page (the arrow at the end of its line) show the share of its text under
   *Sent to Claude*; *See what it read* lists the passages, when, and for which feature.
-- *Settings → Technical → What was sent to Claude* downloads the whole list (CSV), for example for a data management
+- *Settings → General → Your data → What was sent to Claude* downloads the whole list (CSV), for example for a data management
   plan. For a project made before 0.11 the list starts with the results Margin recorded then.
 - Changing a document to *Only a local AI* applies to everything not yet answered; what Claude already read stays in
   the results and the list. Removing a document takes its passages out of everything still waiting for Claude Code.
@@ -345,7 +345,7 @@ Antigravity](other-agents.md#how-each-agent-is-closed-in).
 
 ## Your Claude account and licences
 
-*Set up Claude* and *Settings → AI* show **What happens to the text Claude reads**:
+*Set up Claude* and *Settings → AI › Your Claude account and your documents* show **What happens to the text Claude reads**:
 
 | Plan | Terms |
 | --- | --- |

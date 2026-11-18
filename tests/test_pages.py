@@ -156,7 +156,8 @@ def test_check_several_leaves_out_lines_the_check_would_refuse():
 
 def test_settings_say_what_is_not_saved():
     js = _js("views/settings.js")
-    assert "save({ use_fable: on }, st)" in js and "Not saved yet: press Save." in js
+    # the Settings rework: the AI tab has no Save; every control saves when it is changed (Fable's switch among them)
+    assert "save({ use_fable: on })" in js and "Save and test" not in js and "const collect = " not in js
 
 
 def test_explore_pages_of_an_empty_project_say_add_documents_first():

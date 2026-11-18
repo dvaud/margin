@@ -3,7 +3,7 @@
 - the Documents page keeps "Claude may read it" while no provider but Anthropic is set up, and says "Cloud AI may read
   it" with tick boxes of providers once one is (project default and per document);
 - a shared project offers Anthropic only, and says why in one line;
-- Settings → AI has "Another cloud provider (API key)": a confirmation that names where the text goes, the provider,
+- Settings → AI has one "API key" card (Claude first, then the other providers): a confirmation that names where the text goes, the provider,
   its key (only "stored: yes or no"), its models and "not yet measured".
 """
 from __future__ import annotations
@@ -145,14 +145,27 @@ async function settingsPage(t, settings, providers) {
 }
 
 await scenario("Settings: choosing another cloud provider", async (t) => {
-  await settingsPage(t, { backend: "claude_code", allow_claude_code: true }, NONE);
+  // the Settings rework: one API key card; picking it, and a provider inside it, asks first and the yes saves
+  let saved = { backend: "claude_code", allow_claude_code: true };
+  t.answer("PUT /api/settings", (b) => { saved = { ...saved, ...b }; return { settings: saved, backend_label: "x" }; });
+  await settingsPage(t, saved, NONE);
   const out = { cards: t.view.querySelectorAll(".route-cards input[type=radio]").map((r) => r.value) };
-  await t.click(t.view.querySelector('.route-cards input[value="cloud_api"]'));
-  const d = t.dialog();
+  await t.click(t.view.querySelector('.route-cards input[value="apikey"]'));
+  let d = t.dialog();
+  out.askedClaude = t.text(d.querySelector("h2"));
+  await t.click("Use the Claude API", { within: d });
+  await t.settle(100);
+  const redraw = async () => { document.getElementById("view").replaceChildren(); await t.render("views/settings.js", "renderSettings", ["model"]); await t.settle(200); };
+  await redraw();
+  out.claudeCard = t.text(t.view.querySelector(".cloud-provider"));
+  await t.click(t.view.querySelector('.provider-cards input[value="openai"]'));
+  d = t.dialog();
   out.asked = t.text(d.querySelector("h2"));
   out.says = t.text(d.querySelector(".dialog-body"));
-  await t.click("Continue with another provider", { within: d });
+  out.safe = t.text(d.querySelector("#dlg-safe"));
+  await t.click("Use OpenAI", { within: d });
   await t.settle(100);
+  await redraw();
   const box = t.view.querySelector(".cloud-provider");
   out.text = t.text(box);
   out.providers = box.querySelectorAll(".provider-cards input[type=radio]").map((r) => r.value);
@@ -171,18 +184,23 @@ await scenario("Settings: choosing another cloud provider", async (t) => {
   await t.settle(100);
   out.done = t.text(s.querySelector(".guided-step[data-state=current]"));
   out.button = t.text(s.querySelector("#dlg-confirm"));
-  out.quiet = t.text(s.querySelector("#dlg-cancel"));
-  await t.click("Not now", { within: s.querySelector(".dialog-actions") });
+  await t.click(out.button, { within: s.querySelector(".dialog-actions") });
   await t.settle(100);
-  const box2 = t.view.querySelector(".cloud-provider");
-  out.after = t.text(box2);
-  out.models = box2.querySelectorAll("#m-cloud-middle option").map((o) => o.value);
+  out.after = t.text(t.view.querySelector(".cloud-provider"));
   out.keyPost = t.calls.filter((c) => c.path === "/api/settings/provider-key").map((c) => c.body);
-  await t.type(box2.querySelector("#m-cloud-middle"), "gpt-b");
-  out.state = t.text(box2.querySelector("#s-cloud-models"));
-  t.answer("PUT /api/settings", (b) => ({ settings: { ...b }, backend_label: "OpenAI (API key) · gpt-b", providers: OPENAI }));
-  await t.click(t.view.querySelector(".cloud-box input[type=checkbox]"));
-  await t.click("Save");
+  out.puts = t.calls.filter((c) => c.method === "PUT" && c.path === "/api/settings").map((c) => c.body);
+  // Technical › the provider's models: saved as soon as one is chosen
+  document.getElementById("view").replaceChildren();
+  t.answer("GET /api/routing", { route: "cloud_api", route_name: "OpenAI", rows: [], aliases: [], step_up_below: 0.6, plan: {} });
+  t.answer("GET /api/whats-new", {});
+  await t.render("views/settings.js", "renderSettings", ["advanced"]);
+  await t.settle(200);
+  const models = t.view.querySelector("#s-cloud-models");
+  out.modelsText = t.text(models);
+  out.models = models.querySelectorAll("#m-cloud-middle option").map((o) => o.value);
+  await t.type(models.querySelector("#m-cloud-middle"), "gpt-b");
+  await t.settle(50);
+  out.state = t.text(models);
   out.put = t.calls.filter((c) => c.method === "PUT" && c.path === "/api/settings").map((c) => c.body).pop() || null;
   return out;
 });
@@ -234,19 +252,35 @@ await scenario("Settings: a key that could not be checked", async (t) => {
 await scenario("Settings: a stored key that is refused later", async (t) => {
   t.answer("GET /api/settings/provider-models?*", { models: [], lists: true, problem: "OpenAI refused the key (401).", refused: true, recommended: {} });
   await settingsPage(t, { backend: "cloud_api", allow_cloud: true, cloud_provider: "openai" }, OPENAI);
+  // settingsPage answers the models with a list: the provider refuses the key from now on, and the page is drawn again
   t.answer("GET /api/settings/provider-models?*", { models: [], lists: true, problem: "OpenAI refused the key (401).", refused: true, recommended: {} });
-  await t.click(t.view.querySelector('.provider-cards input[value="mistral"]'));
-  await t.click(t.view.querySelector('.provider-cards input[value="openai"]'));
-  await t.settle(100);
+  document.getElementById("view").replaceChildren();
+  await t.render("views/settings.js", "renderSettings", ["model"]);
+  await t.settle(200);
   const box = t.view.querySelector(".cloud-provider");
-  return { status: t.text(box.querySelector(".provider-status")), cards: t.text(box.querySelector(".provider-cards")), models: t.text(box.querySelector("#s-cloud-models")) };
+  const out = { status: t.text(box.querySelector(".provider-status")), cards: t.text(box.querySelector(".provider-cards")) };
+  document.getElementById("view").replaceChildren();
+  t.answer("GET /api/routing", { route: "cloud_api", route_name: "OpenAI", rows: [], aliases: [], step_up_below: 0.6, plan: {} });
+  t.answer("GET /api/whats-new", {});
+  await t.render("views/settings.js", "renderSettings", ["advanced"]);
+  await t.settle(200);
+  out.models = t.text(t.view.querySelector("#s-cloud-models"));
+  return out;
 });
 
 await scenario("Settings: Azure asks for its address and the deployments' names", async (t) => {
   await settingsPage(t, { backend: "cloud_api", allow_cloud: true, cloud_provider: "azure", cloud_model: "my-dep" }, NONE);
   const box = t.view.querySelector(".cloud-provider");
-  return { text: t.text(box), address: !t.hidden(box.querySelector("#azure-url")), model: box.querySelector("#m-cloud-middle-txt").value,
-    small: box.querySelector("#m-cloud-small-txt").value, lists: box.querySelectorAll("#m-cloud-middle option").length };
+  const out = { address: !!box.querySelector("#azure-url") && !t.hidden(box.querySelector("#azure-url")) };
+  // the deployments' names are under Technical › the provider's models
+  document.getElementById("view").replaceChildren();
+  t.answer("GET /api/routing", { route: "cloud_api", route_name: "Azure OpenAI", rows: [], aliases: [], step_up_below: 0.6, plan: {} });
+  t.answer("GET /api/whats-new", {});
+  await t.render("views/settings.js", "renderSettings", ["advanced"]);
+  await t.settle(200);
+  const m = t.view.querySelector("#s-cloud-models");
+  return { ...out, text: t.text(m), model: m.querySelector("#m-cloud-middle-txt").value,
+    small: m.querySelector("#m-cloud-small-txt").value, lists: m.querySelectorAll("#m-cloud-middle option").length };
 });
 
 await scenario("Settings on a local-only computer", async (t) => {
@@ -302,26 +336,28 @@ def test_a_documents_own_providers_are_ticked_in_its_dialog(page):
 @needs_node
 def test_settings_offers_another_cloud_provider_with_a_key_kept_out_of_the_page(page):
     r = page["Settings: choosing another cloud provider"]
-    assert r["cards"] == ["subscription", "local", "baseline", "anthropic", "cloud_api"]
-    assert r["asked"] == "Use another cloud provider with your API key?"
-    assert "Only documents that allow that provider are sent" in r["says"] and "allows Anthropic only" in r["says"]
-    assert "With OpenAI the hypothesis and the excerpts read leave this computer for OpenAI" in r["text"]
-    assert r["providers"] == ["openai", "mistral", "azure"] and r["keyFields"] == 0   # no bare key field on the page
-    assert "Not set up yet" in r["text"] and "not yet measured" in r["text"] and "Set up OpenAI…" in r["text"]
+    # the Settings rework: 2 × 2, one API key card holding Claude (first) and the other providers
+    assert r["cards"] == ["subscription", "apikey", "local", "baseline"]
+    assert r["askedClaude"] == "Let the Claude API read the excerpts, billed to your key?"
+    assert "Not set up yet: nothing is sent until a key is stored" in r["claudeCard"] and "Recommended" in r["claudeCard"]
+    assert r["asked"] == "Let OpenAI read the excerpts, billed to your key?" and r["safe"] == "Stay with the Claude API"
+    assert "Only documents that allow OpenAI are sent" in r["says"] and "allows Anthropic only" in r["says"]
+    assert "OpenAI’s servers" in r["says"] and "billed to the API key you store" in r["says"] and "not yet measured" in r["says"]
+    assert r["providers"] == ["anthropic", "openai", "mistral", "azure"] and r["keyFields"] == 0   # no bare key field on the page
+    assert "Not set up yet: nothing is sent until a key is stored" in r["text"] and "not yet measured" in r["text"] and "Set up OpenAI…" in r["text"]
     assert r["steps"] == ["Make an account on OpenAI’s API platform", "Add credit", "Make a key for Margin", "Paste the key here", "What Margin applied"]
     assert r["waits"] is True and r["keyType"] == "password"
     assert r["keyPost"] == [{"provider": "openai", "key": "sk-secret-123"}]
     assert "OpenAI is set up" in r["done"] and "OpenAI accepted it" in r["done"]
     assert "gpt-6-luna for labels and links, gpt-a for judging excerpts and gpt-a for second opinions" in r["done"]
-    assert r["button"] == "Allow cloud models and use OpenAI" and r["quiet"] == "Not now" and "Left to do" not in r["done"]
+    assert r["button"] == "Done" and "Left to do" not in r["done"]   # the yes of the dialog had saved the route already
+    assert r["puts"] == [{"allow_cloud": True, "backend": "anthropic"}, {"allow_cloud": True, "backend": "cloud_api", "cloud_provider": "openai"}]
     assert "Key stored in this computer’s keychain" in r["after"] and "Key stored" in r["after"] and "sk-secret" not in r["after"]
-    assert "Recommended models, applied automatically" in r["after"] and "In use" not in r["after"]
+    assert "OpenAI’s models" in r["modelsText"] and "In use" not in r["modelsText"]
     assert r["models"][:4] == ["", "gpt-a", "gpt-b", "gpt-6-luna"] and r["models"][-1] == "__other"
     assert "Your choice" in r["state"] and "In use" not in r["state"]
-    put = r["put"]
-    assert put["backend"] == "cloud_api" and put["allow_cloud"] is True and put["cloud_provider"] == "openai"
-    assert (put["cloud_small_model"], put["cloud_model"], put["cloud_strong_model"]) == ("", "gpt-b", "")
-    assert "sk-secret" not in str(put)
+    assert r["put"] == {"cloud_small_model": "", "cloud_model": "gpt-b", "cloud_strong_model": ""}
+    assert "sk-secret" not in str(r["puts"])
 
 
 @needs_node
@@ -375,4 +411,4 @@ def test_a_key_that_could_not_be_checked_says_so_and_the_main_button_saves_the_r
 def test_a_stored_key_the_provider_refuses_later_is_flagged(page):
     r = page["Settings: a stored key that is refused later"]
     assert "OpenAI refused the stored key" in r["status"] and "Key refused" in r["cards"]
-    assert "Settings → AI" not in r["models"]
+    assert "refused the stored key" in r["models"]   # Technical › the provider's models says so too

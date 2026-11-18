@@ -184,21 +184,34 @@ html:has(.bulk-stick:not([hidden])) { scroll-padding-bottom: 6rem; }
 .access-options { margin-top: 6px; }
 .access-banner, .access-ask { margin-bottom: 12px; }
 .access-ask h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; }
-/* Providers stage 2 (the owner's layout): two rows, Subscription and Local model half wide, then the three others a
-   third each; one column on a phone. A computer that keeps everything local shows only two cards, side by side. */
-.route-cards { grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 8px 0 12px; }
-.route-cards > * { grid-column: span 2; }
-.route-cards > [data-value="subscription"], .route-cards > [data-value="local"] { grid-column: span 3; }
-.route-cards.route-cards-few > * { grid-column: span 3; }
-@media (max-width: 700px) {
-  .route-cards { grid-template-columns: minmax(0, 1fr); }
-  .route-cards > *, .route-cards > [data-value="subscription"], .route-cards > [data-value="local"], .route-cards.route-cards-few > * { grid-column: auto; }
-}
 /* whose plan: an inset right under the route picker, so it belongs to the Subscription card and is not a second picker */
 .agent-choice-box { margin: -4px 0 var(--space-3); }   /* an inset (lib inset()): it belongs to the Subscription card above */
 .agent-choice-box > .field-label { margin-bottom: 4px; }
 .agent-choice { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 4px 0 0; }
 .agent-choice .option-card-head .chip { white-space: nowrap; }
+/* Settings › AI (rework) */
+/* the facts of the local model (Technical): the name of each fact beside its value, one under the other on a phone */
+.tech-dl { display: grid; grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr); gap: 4px var(--space-4); margin: 0 0 var(--space-3); }
+.tech-dl > div { display: contents; }
+.tech-dl dt { color: var(--muted); font-size: var(--fs-small); }
+.tech-dl dd { margin: 0; font-size: var(--fs-small); }
+@media (max-width: 640px) { .tech-dl { grid-template-columns: minmax(0, 1fr); gap: 0; } .tech-dl dd { margin-bottom: 6px; } }
+/* which AI: 2 × 2 (the owner's sketch), the cloud above and this computer below, each row with its small caption;
+   one column on a phone. A computer that keeps everything local shows only the second row. */
+.route-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); margin: 8px 0 12px; }
+.route-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.route-row-cap { grid-column: 1 / -1; font-size: var(--fs-small); color: var(--muted); margin-bottom: -2px; }
+@media (max-width: 700px) { .route-row { grid-template-columns: minmax(0, 1fr); } }
+.set-route-detail { gap: var(--space-3); }
+.set-provider-choice > .field-label { margin-bottom: 4px; }
+.option-card-head .chip + .chip { margin-left: 4px; }
+.set-tech-link { margin: var(--space-2) 0 0; }
+.set-test .btn-row { margin: 0; }
+.set-test .test-result:not(:empty) { margin-top: var(--space-2); }
+.set-narrow { max-width: 32rem; width: 100%; }
+.set-num { max-width: 9rem; }
+.terms-bare p { margin: 4px 0; }
+.setting-head, .switch-field > .setting-head { display: flex; align-items: center; gap: 6px; }   /* setting() is the shell's: this keeps the help mark beside the label until its own rule lands */
 /* This page's own pieces, placed here and not in the JavaScript; placement only */
 .docs-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docs-access-note { margin: var(--space-2) 0 0; }
@@ -1589,6 +1602,39 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .bench-table td:first-child { font-weight: var(--fw-regular); }
 .save-row { display: flex; gap: 12px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .save-state { font-size: var(--fs-small); color: var(--muted); }
+/* the page's one saving state, at the right end of the tab row (under the tabs when the row is narrow): the words at
+   rest hide while the live part says Saving… or Saved */
+.set-tabbar { position: relative; container-type: inline-size; }
+.set-save { position: absolute; right: 0; top: 0; bottom: 20px; display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--fs-small); white-space: nowrap; }
+.set-save-now:not(:empty) { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); }
+.set-save-now:not(:empty) + .set-save-rest { display: none; }
+@container (max-width: 820px) {
+  .set-save { position: static; margin: -12px 0 var(--space-4); }
+}
+/* the version link in the line under the title: one piece, never broken mid-phrase */
+.version-tag > a { white-space: nowrap; }
+/* the grammar's look: rows evenly spaced; fields and selects as wide as a short value needs (a range and a table may
+   be wider); nothing scrolls sideways on a phone */
+.settings-section .field > .input, .settings-section .field > .select, .settings-section .setting > .seg { max-width: 32rem; }
+.settings-section .field, .settings-section .switch-field { margin: 0 0 var(--space-4); }
+.settings-section .field:last-child, .settings-section .switch-field:last-child { margin-bottom: 0; }
+.settings-section .field > .set-lang { max-width: 16em; }
+@media (max-width: 860px) {   /* two columns become one: the first column's last row keeps its space */
+  .settings-section .fields-2 > :first-child > :last-child { margin-bottom: var(--space-4); }
+}
+.settings-section .range-field { max-width: 40rem; }
+.settings-section .range-head > .setting-head { margin-right: auto; }
+.settings-section > .btn-row { margin: 0 0 var(--space-3); }
+.settings-section .set-path { overflow-wrap: anywhere; }
+.set-projects { margin: 0; }
+.set-version-line, .set-embed-state { margin: 0 0 var(--space-3); }
+.settings-section .setting > .btn { align-self: flex-start; }
+.set-step-up { margin: var(--space-3) 0; }
+.set-update-out:not(:empty) { margin: 0 0 var(--space-3); }
+/* Technical: folded cards, one line each; the value at the line's right */
+.set-main.set-main-tech { gap: var(--space-3); }
+.set-tech-sum { margin-left: auto; text-align: right; }
+.set-tech > .settings-body > :last-child { margin-bottom: 0; }
 /* The task queue (Claude Code) */
 /* one row: the line to copy stays on one line and scrolls sideways when it is longer than the room; Copy stays beside it */
 .copy-line { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: nowrap; }
@@ -1601,8 +1647,10 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .qp-paused { margin: 0; }
 .routing-table td, .routing-table th { vertical-align: top; }
 .routing-table select { min-width: 9em; }
-@container (max-width: 899px) {
+.routing-task { min-width: 12em; }
+@container (max-width: 599px) {
   .routing-table select, .routing-table input { min-width: 0; max-width: 100%; }
+  .routing-task { min-width: 0; }
 }
 /* The speed beside Start Claude Code, and the helpers chosen for one run */
 .sc-speed { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
@@ -1705,8 +1753,6 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .set-count-diff { margin-top: var(--space-2); }
 .set-changes-notice { margin-top: var(--space-3); }
 .set-certainty-note { margin: 0 0 var(--space-3); }
-.set-strict-title { margin-bottom: var(--space-2); }
-.set-start-title { margin: var(--space-5) 0 var(--space-2); }
 .set-calibration-empty { margin: 0; }
 .set-suggest-notice { margin-top: var(--space-3); }
 .set-suggest-btn { margin-top: var(--space-2); }

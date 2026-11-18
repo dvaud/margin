@@ -61,8 +61,8 @@ comes first. Checked on the makers' pages on 18 November 2026.
 
 ### The mix of local and Claude
 
-With Claude Code and a local model for restricted documents both set, *Settings → AI → The mix of
-local and Claude* shares the work:
+With an agent on your plan (Claude Code, Codex or Antigravity) and a local model for the documents only a local AI may
+read both set, *Settings → AI → Documents only a local AI may read › Sharing the work* shares the work:
 
 | Mix | The local model answers first | Claude answers |
 | --- | --- | --- |
@@ -82,7 +82,7 @@ when no check is open. In work Claude also does, the local model's share waits f
 
 ### Agreement between routes
 
-*Settings → AI → Agreement between routes* shows, on your own documents, whether your local model is good enough for a
+*Settings › Technical › Agreement between routes* shows, on your own documents, whether your local model is good enough for a
 kind of task. It appears when Claude (Claude Code or the Claude API) and a local model are both set, and a project is
 open. Choose a kind of task and a sample size (10 to 100, 30 to start). Before anything starts, the box says how many
 tasks are asked of your local model, how many of Claude (that uses your plan, or your API credit) and how many are left
