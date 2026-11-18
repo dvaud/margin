@@ -217,7 +217,7 @@ def resolve_document(ws: Workspace, doc_id: str, backend, model: str, name: str 
     from . import access, runs, tasks
 
     # 0.11: the document's setting decides who reads it: the main model, the local model, or nobody
-    level = access.levels(ws, [doc_id]).get(doc_id, "none")
+    level = access.levels(ws, [doc_id], provider=access.provider_of(backend)).get(doc_id, "none")
     got = access.Readers(backend, model).for_level(level)
     if got is None:
         raise ValueError("This document is marked No AI: no model may read it, so its references are not followed."

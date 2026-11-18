@@ -25,6 +25,10 @@ from pydantic import BaseModel, Field
 
 from . import __version__, access, claimcheck, frameworks, ingest, tasks
 from . import home as core
+
+# stage 1 of other cloud providers: everything the connector shows or hands out goes to Claude, so every document's
+# setting is worked out for Anthropic (a document that allows other providers only is not shown)
+CLAUDE = access.ANTHROPIC
 from .sources import document_overview
 
 INSTRUCTIONS = """Margin checks claims and hypotheses against the user's own documents (reports and papers kept in
@@ -166,7 +170,7 @@ def _shareable(ws, check_id: str) -> tuple[bool, set[str]]:
             except ValueError:
                 every = False
                 continue
-            if access.label_payload(cx, payload) == "cloud":
+            if access.label_payload(cx, payload, provider=CLAUDE) == "cloud":
                 ok |= {p.get("passage_id") for p in payload.get("passages", [])}
             else:
                 every = False
@@ -175,7 +179,7 @@ def _shareable(ws, check_id: str) -> tuple[bool, set[str]]:
 
 def _summary(ws, check_id: str) -> dict:
     r = claimcheck.result(ws, check_id)
-    lv = access.levels(ws, {p["doc_id"] for p in r["passages"]})
+    lv = access.levels(ws, {p["doc_id"] for p in r["passages"]}, provider=CLAUDE)
     every, ok = _shareable(ws, check_id)
     evidence, restricted = [], {"supports": 0, "partially_supports": 0, "refutes": 0, "waiting_for_the_user": 0,
                                 "waiting_for_the_local_model": 0}
@@ -350,7 +354,7 @@ def build_server():
         name, ws = _project(project)
         docs = document_overview(ws)
         hidden = access.restricted_titles(ws)
-        lv = access.levels(ws)
+        lv = access.levels(ws, provider=CLAUDE)
         return {"project": name, "documents": [{"id": d["doc_id"], "title": hidden.get(d["doc_id"], d["title"]),
                                                  "pages": d["pages"], "passages": d["passages"],
                                                  "ai_access": lv.get(d["doc_id"], "none"),
@@ -444,7 +448,7 @@ def build_server():
         name, ws = _project(project)
         hidden = access.restricted_titles(ws)
         # 0.11: lines only from documents Claude may read; hits in the others as counts
-        levels = access.levels(ws)
+        levels = access.levels(ws, provider=CLAUDE)
         wanted = set(document_ids) if document_ids else None
         cloud = sorted(d for d, lv in levels.items() if lv == "cloud" and (wanted is None or d in wanted))
         r = concordance.search(ws, query, mode, cloud or ["-"], "doc", max(0, int(offset)), max(1, min(int(lines), 200)),
@@ -483,7 +487,7 @@ def build_server():
         codebooks.follow(ws, framework)  # 0.16: labels follow the codebook's renames and merges
         profile.ensure_pass1(ws, framework)
         d = profile.doc_profile(ws, framework, document_id)
-        level = access.levels(ws, [document_id]).get(document_id, "none")
+        level = access.levels(ws, [document_id], provider=CLAUDE).get(document_id, "none")
         restricted = level != "cloud"  # 0.11: a restricted document's codes, shares and pages, without quotes
         codes_out = []
         for c in d["codes"][:max(1, int(codes))]:
@@ -517,7 +521,7 @@ def build_server():
         n = max(1, min(int(lines), 50))
         c = terms.card(ws, tid, 0, 200)
         hidden = access.restricted_titles(ws)
-        lv = access.levels(ws)
+        lv = access.levels(ws, provider=CLAUDE)
         lines_ = [x for x in c["lines"] if lv.get(x["doc_id"]) == "cloud"][:n]  # 0.11: example lines from cloud documents
         access.record_passages(ws, [x["passage_id"] for x in lines_ if x.get("passage_id")], access.ROUTE_NAMES["chat"],
                                "concept")

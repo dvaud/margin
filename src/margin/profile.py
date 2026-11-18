@@ -437,7 +437,7 @@ def run_labels(ws: Workspace, framework: str, backend, model: str, doc_ids: list
     if force and readers.gate is not None:
         readers.gate.open(force=True)  # 0.19.13: "Start it anyway" is the local model's own Start
     dflt = access.default(ws)
-    lv = access.levels(ws)
+    lv = access.levels(ws, provider=readers.provider)   # for the main model's provider (providers.py)
     doc_of = access.doc_of_passages(ws._conn(), plan["passage_ids"]) if plan["passage_ids"] else {}
     reader_of = {}
     skipped = 0

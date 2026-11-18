@@ -189,6 +189,7 @@ def test_embeddings_on_another_computer_skip_restricted_passages(mixed):
             return [[1.0, 0.0] for _ in texts]
 
     far = FarEmbedder()
+    access.set_providers_default(ws, ["anthropic", "other"])   # stage 1 of other cloud providers: allowed to it
     r = embed.build(ws, far)
     assert not any("zqx" in t.lower() for t in far.seen) and far.seen
     assert r["complete"] and r["restricted_not_embedded"] > 0

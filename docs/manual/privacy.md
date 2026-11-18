@@ -21,6 +21,7 @@ promise: [PRIVACY.md](../PRIVACY.md).
 | **To a folder your team shares** (0.17.0) | Only once you choose one for a project: the documents' text and files, and what you shared of your own work. Your cloud service or network drive carries it from there ([Working together](#working-together)). |
 | **To Anthropic, on your Claude plan** | With Claude Code: only the passages inside the tasks it takes, from documents Claude may read. *See what is sent*, under the line that says so, shows the next batch word for word. Margin never sees your Claude login. |
 | **To Anthropic, on a team key** | With the Claude API, only after *Allow cloud models* is switched on (or `--backend anthropic` on the command line): the hypothesis and the passages read. |
+| **To another cloud provider** | Only if you set one up (OpenAI, Google Gemini, Mistral, Azure, OpenRouter) and allow a document to it: the hypothesis and the passages read, nothing else. Its own terms decide what it keeps ([Other cloud providers](#other-cloud-providers)). |
 | **Into your chat** | With the [connector](claude-code.md#claude-in-a-chat-the-connector): the passages shown to Claude are part of your chat. |
 | **Nowhere** | With a model on this computer, every word stays on it. |
 
@@ -81,6 +82,28 @@ interview transcript.
 Projects made before 0.11 keep *Claude may read it* for every document until you change it; a project zip made before
 0.11 asks once when it is imported. On an installation without cloud models the default is *Only a local AI*, and
 Claude is not offered.
+
+### Other cloud providers
+
+*Claude may read it* means Anthropic, unless you allow more. A document marked that way also says **which cloud
+providers may read it**, and by default that is only Anthropic: a project you already have means exactly what it did,
+and nothing reaches OpenAI, Google, Mistral, Azure or OpenRouter until you allow it ([Settings](settings.md#another-cloud-provider-with-an-api-key)).
+
+- **Where.** On the Documents page, the line *Cloud AI may read it: …* above the list opens the project's choice, as
+  tick boxes of providers; a document's own AI-setting dialog (*Add a note on why*, in its details) has its own.
+- **The words change.** While no provider other than Anthropic is set up, the page says *Claude may read it*. Once
+  one is (a key stored, or chosen as the main route), it says *Cloud AI may read it* and shows the tick boxes. The
+  page also shows how much each provider has read.
+- **A document that does not allow the provider of the main route** is treated as *Only a local AI* for that route:
+  its excerpts go to the local model for restricted documents, or wait for your judgement. Claude Code and the Claude
+  connector always count as Anthropic.
+- **A model server on another computer** (not `localhost`, `127.0.0.1` or `::1`) counts as a cloud provider too: an
+  OpenAI address as OpenAI, any other as *a server on another computer*, which no document allows until you do.
+- **In a shared project** only Anthropic may read documents marked *Claude may read it*, whatever your copy allows,
+  and the page says why: *Other providers come to shared projects later: your colleagues have not agreed to them.*
+  Setting another provider there is refused.
+- **Your key** is kept in the system's keychain, never in a project, a log or a moving file. Each provider's terms
+  decide what it keeps and whether it trains on it: check them first.
 
 ### What happens in each feature
 
@@ -144,7 +167,7 @@ it load.
 ## What Claude has read
 
 Margin writes down every passage at the moment it leaves for Claude (Claude Code, the Claude API, a Claude chat through
-the connector).
+the connector) or for another cloud provider, with the provider that received it (a *Provider* column in the list).
 
 - A document's details on the Documents page (the arrow at the end of its line) show the share of its text under
   *Sent to Claude*; *See what it read* lists the passages, when, and for which feature.

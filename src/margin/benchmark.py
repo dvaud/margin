@@ -380,7 +380,9 @@ def _agreement_sample(ws: Workspace, kind: str, n: int, seed: int) -> tuple[list
         raise ValueError(f"There is no decision to compare for {kind} tasks.")
     rows = _sample(ws, kind, 10 ** 9, seed)
     with ws.connect() as cx:
-        ok = [t for t in rows if access.label_payload(cx, json.loads(t["payload_json"])) == "cloud"]
+        # the agreement compares with Claude: Anthropic's reading
+        ok = [t for t in rows if access.label_payload(cx, json.loads(t["payload_json"]),
+                                                      provider=access.ANTHROPIC) == "cloud"]
     rng = random.Random(seed)
     return rng.sample(ok, min(n, len(ok))), len(rows) - len(ok)
 

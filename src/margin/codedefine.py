@@ -112,7 +112,7 @@ def gather(ws: Workspace, quotes: list, settings: dict | None = None) -> dict:
             left["elsewhere"] += 1
             continue
         hits.append((q, got))
-    lv = access.levels(ws, list({g["doc_id"] for _q, g in hits})) if hits else {}
+    lv = access.levels(ws, list({g["doc_id"] for _q, g in hits}), provider=access.route_provider(s)) if hits else {}
     local_ok = _local_reader(s)
     by_pid: dict[str, dict] = {}
     for q, g in hits:
@@ -170,7 +170,7 @@ def offer(ws: Workspace, quotes: list, settings: dict | None = None) -> dict:
 
 
 def _offer_of(g: dict, s: dict) -> dict:
-    from .routing import OFF_COMPUTER
+    from .routing import CLAUDE_ROUTES
 
     n = len(g["passages"])
     out = {"passages": n, "left_out": g["left_out"], "left_line": _left_line(g["left_out"])}
@@ -181,7 +181,7 @@ def _offer_of(g: dict, s: dict) -> dict:
         return {"offered": False, "why": why, "reader": None, **out}
     if g["level"] == "local":
         return {"offered": True, "why": None, "reader": "local", **out}
-    claude = (s.get("backend") or "auto") in OFF_COMPUTER
+    claude = (s.get("backend") or "auto") in CLAUDE_ROUTES
     return {"offered": True, "why": None, "reader": "claude" if claude else "main", **out}
 
 
@@ -299,7 +299,7 @@ def draft(ws: Workspace, codebook: str, code: str, group: str, quotes: list, bac
         progress(0, 1)
     tid = make_task(ws, payload, call)
     with ws.connect() as cx:  # worked out again as the text is about to leave (an add-on's floor may hold it back)
-        now_lv = access.recheck(cx, tid)
+        now_lv = access.recheck(cx, tid, provider=access.provider_of(be))
     if now_lv is None or now_lv not in access.backend_levels(be):
         raise ValueError("A document of these examples may not be sent to this AI.")
     before = ws.scalar("SELECT status FROM tasks WHERE task_id=?", (tid,))

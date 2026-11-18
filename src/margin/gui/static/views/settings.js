@@ -2,7 +2,7 @@
 import { saveBlob, App, api, h, icon, tabs, replace, clear, toast, showError, fmt, pageHead, watchJob, P, field, switchControl, rangeControl, confirmDialog, dialog, download, VERSION, TERMINAL, strictness, statusBadge, copyLine, tesseractHelp, helpMark, rememberClaude, claudeAccount, appName, Updates, checkUpdate, speedPicker, saveSpeed, thoughtPicker, saveThought, choice, planTier, button, card, fold, link, notice, downloadButton, input as fieldInput, select as selectField, tag, optionCards, readsLine, stopButton, inset, workState, aiWhere, myLink, WhatsNew, loadWhatsNew, showWhatsNew, whatsNewLink, aiButton, setBusy, aiSide, aiSides } from "../lib.js";
 import { withAI } from "../features.js";
 import { aiRun } from "./progress.js";
-import { restrictedModelCard, termsPanel } from "./ai-access.js";
+import { remoteServerLine, restrictedModelCard, termsPanel } from "./ai-access.js";
 import { localModelHelp } from "./local-model.js";
 import { queueSection } from "./queue.js";
 
@@ -251,6 +251,7 @@ async function save(changes, stateEl) {
     const r = await api("PUT", "/api/settings", changes);
     App.state.settings = r.settings;
     App.state.backend_label = r.backend_label;
+    if (r.providers) App.state.providers = r.providers;   // which cloud providers are set up (the Documents page's words)
     for (const fn of App.listeners) fn(App.state);
     if (stateEl) stateEl.textContent = "Saved.";
     return r;
@@ -278,7 +279,9 @@ function modelSection(s, servers, watchers, info = { servers }) {
     ["local", "A model on this computer", "house", "", "Ollama, LM Studio, llama.cpp, Jan or vLLM. Free and fully private; needs a capable computer and judges less well than Claude.", "Nothing leaves this computer"],
     ["baseline", "No AI (demo)", "eye-off", "", "A word-overlap stand-in, to see how the app works. Search, keyword profiles, the glossary and themes work fully without AI.", "Nothing leaves this computer"],
     ["anthropic", "Claude API (team key)", "key", "", "For a shared installation: the Claude API with the team's key, billed per use.", "The excerpts read go to Anthropic"],
+    ["cloud_api", "Another cloud provider (API key)", "key", "", "OpenAI, Google Gemini, Mistral, Azure OpenAI or OpenRouter, with your own API key, billed per use. Not yet measured with Margin.", "The excerpts read go to the provider you choose"],
   ];
+  const CLOUD_ROUTES = ["claude_code", "anthropic", "cloud_api"];
   const routeOf = (b) => (isLocal(b) ? "local" : b);
   // which AI: option cards holding real radio inputs (docs/DESIGN.md 4.7); a pick that needs a yes first goes back
   // to the previous card when the answer is no
@@ -307,13 +310,24 @@ function modelSection(s, servers, watchers, info = { servers }) {
       });
       if (!ok) { select(prev); return; }
     }
+    if (key === "cloud_api" && prev !== "cloud_api") {
+      const ok = await dialog({
+        title: "Use another cloud provider with your API key?",
+        body: h("div", {}, h("p", {}, "The hypothesis and the excerpts the AI reads are then sent to the provider you choose below (OpenAI, Google, Mistral, Microsoft or OpenRouter), and the use is billed to your key."),
+          h("p", {}, h("strong", {}, "Only documents that allow that provider are sent."), " Every document allows Anthropic only until you tick another provider for it on the Documents page; the others are read by your local model, or wait for you."),
+          h("p", { class: "muted small" }, "Nothing is sent before you also switch on “Allow cloud models”, store a key and save. Margin's models and settings were measured with Claude only.")),
+        actions: [{ text: "Back", value: false, primary: true, id: "dlg-safe" }, { text: "Continue with another provider", value: true }],
+        onOpen(dlg) { const b = dlg.querySelector("#dlg-safe"); if (b) b.focus(); },
+      });
+      if (!ok) { select(prev); return; }
+    }
     backend = key === "local" ? (isLocal(s.backend) ? s.backend : "auto") : key;
     drawDetail();
   };
   radiosWrap = optionCards({ name: "route", class: "route-cards", label: "Which AI reads the documents", value: routeOf(backend), onPick: onRoute,
-    options: ROUTES.filter(([key]) => !(localOnly && (key === "claude_code" || key === "anthropic"))).map(([key, title, ic, badge, sub, where]) => ({
+    options: ROUTES.filter(([key]) => !(localOnly && CLOUD_ROUTES.includes(key))).map(([key, title, ic, badge, sub, where]) => ({
       value: key, title, icon: ic, tag: badge || null, text: sub,
-      foot: [icon(key === "claude_code" || key === "anthropic" ? "cloud" : "house", { size: 12 }), where] })) });
+      foot: [icon(CLOUD_ROUTES.includes(key) ? "cloud" : "house", { size: 12 }), where] })) });
   const lockedLine = localOnly ? h("p", { class: "muted small" }, icon("house", { size: 13 }), " Cloud models are switched off on this computer by whoever installed Margin.") : null;
   // which local server (the three local routes of 0.8, as one choice)
   const localKind = () => {
@@ -379,6 +393,16 @@ function modelSection(s, servers, watchers, info = { servers }) {
       field("Reasoning (thinking models only)", fields.think, { help: "Reasoning can make judgements more careful but makes each check slower. “Only when judging excerpts” reasons where it can help and not for search words or splitting a hypothesis. Test it before relying on it (Test a model, with reasoning on and off)." }),
       h("div", { class: "field" }, h("label", { class: "field-label" }, "Reasoning budget (tokens)", fields.think_budget), budgetNote));
     if (isLocal(backend)) detail.append(localKind());
+    // a model server on another computer: it reads only the documents allowed to it (one line, no pop-up)
+    if (isLocal(backend) && backend === (s.backend || "auto") && remoteServerLine(null)) {
+      const farBox = h("div", {}, remoteServerLine(null));
+      detail.append(farBox);
+      const project = App.state && App.state.project;
+      if (project) api("GET", `/api/projects/${encodeURIComponent(project)}`).then((r) => {
+        const line = remoteServerLine(project, (r && r.ai_access) || {}, () => replace(farBox, remoteServerLine(project, { providers_default: [...((r.ai_access || {}).providers_default || ["anthropic"]), App.state.providers.route] })));
+        if (line) replace(farBox, line);
+      }).catch(() => { /* the line without the button stays */ });
+    }
     if (backend === "auto") {
       detail.append(serverList(), h("p", { class: "muted small" }, "The first server found is used. If a chat model is named below for Ollama or an OpenAI-compatible server, it is preferred when that server has it."),
         fields.ollamaModel = modelPicker("m-ollama", s.ollama_model, ollamaSrv ? ollamaSrv.chat_models : [], "e.g. qwen3:8b"), thinkRow());
@@ -390,6 +414,8 @@ function modelSection(s, servers, watchers, info = { servers }) {
       detail.append(serverList(), h("div", { class: "fields-2" }, field("Server address", fields.openai_url, { help: "The /v1 base URL of LM Studio, llama.cpp, Jan, vLLM…" }), fields.openaiModel = modelPicker("m-openai", s.openai_model, openaiSrv ? openaiSrv.chat_models : [], "leave empty for the first model listed")));
     } else if (backend === "anthropic") {
       detail.append(cloudBox, field("Stronger model", fields.anthropic_model, { help: "For example claude-opus-5-5: a task an AI model was unsure of goes to it once. Checks start on Sonnet; each kind of task has its own model (“AI model per task” under Technical)." }), keyBox(), fableSwitch(), agreeBox());
+    } else if (backend === "cloud_api") {
+      detail.append(cloudProviderBox());
     } else if (backend === "claude_code") {
       detail.append(claudeCodeBox(), fableSwitch());
     } else {
@@ -555,6 +581,87 @@ function modelSection(s, servers, watchers, info = { servers }) {
         h("div", { class: "field-help" }, "When Claude Code stops because your plan's usage limit is reached: wait (the queue keeps the work; start Claude Code again when the limit resets), or let your local model answer what waits, where it may.")));
   }
 
+  // Another cloud provider (stage 1): which one, its key (only "stored: yes or no" ever comes back), its model from
+  // its list (Azure: the deployment's name, typed) and an optional smaller one, Azure's address, and that it is not
+  // measured yet. The line under "Allow cloud models" names the provider the text goes to.
+  function cloudProviderBox() {
+    const pst = () => (App.state && App.state.providers) || {};
+    const list = (pst().list || []).filter((p) => p.id !== "anthropic");
+    let pid = list.some((p) => p.id === s.cloud_provider) ? s.cloud_provider : (list[0] || {}).id || "";
+    const info = () => list.find((p) => p.id === pid) || {};
+    const where = h("div", {});
+    const keyHolder = h("div", {}), modelHolder = h("div", {}), measured = h("p", { class: "muted small" });
+    fields.cloud_provider = selectField({ id: "cloud-provider" }, ...list.map((p) => h("option", { value: p.id, selected: p.id === pid }, p.title)));
+    fields.azure_url = fieldInput({ mono: true, type: "url", id: "azure-url", value: s.azure_url || "", placeholder: "https://my-resource.openai.azure.com" });
+    const azure = field("Azure OpenAI resource address", fields.azure_url, { help: "From the Azure portal: your Azure OpenAI resource › Keys and Endpoint." });
+    const mine = (k) => (pid === s.cloud_provider ? s[k] || "" : "");
+    const picker = (id, label, current, models, help, placeholder) => {
+      const wrap = h("div", { class: "field" });
+      const txt = fieldInput({ mono: true, type: "text", id: id + "-txt", value: current, placeholder, "aria-label": label });
+      if (models.length) {
+        const sel = selectField({ id }, h("option", { value: "" }, "Choose a model…"), ...models.map((m) => h("option", { value: m, selected: m === current }, m)),
+          ...(current && !models.includes(current) ? [h("option", { value: current, selected: true }, `${current} (not in the list)`)] : []),
+          h("option", { value: "__other" }, "Other (type a name)…"));
+        txt.hidden = true;
+        sel.addEventListener("change", () => { txt.hidden = sel.value !== "__other"; if (sel.value === "__other") txt.focus(); });
+        wrap.append(h("label", { class: "field-label", for: id }, label), sel, txt);
+        wrap.pick = () => (sel.value === "__other" ? txt.value.trim() : sel.value);
+      } else {
+        wrap.append(h("label", { class: "field-label", for: id + "-txt" }, label), txt);
+        wrap.pick = () => txt.value.trim();
+      }
+      if (help) wrap.append(h("div", { class: "field-help" }, help));
+      return wrap;
+    };
+    const drawModels = async () => {
+      const p = info();
+      let models = [], problem = "";
+      if (p.lists_models && (pst().keys || {})[p.id]) {
+        try { const r = await api("GET", `/api/settings/provider-models?provider=${encodeURIComponent(p.id)}`); models = r.models || []; problem = r.problem || ""; }
+        catch (e) { problem = e.message; }
+      }
+      if (p.id !== pid) return;   // another provider was picked meanwhile
+      const help = problem || (!p.lists_models ? "Azure lists no models: type your deployment's name." : models.length ? "" : "Store a key to choose from the provider's list, or type a model's name.");
+      fields.cloudModel = picker("m-cloud", "Model", mine("cloud_model"), models, help, p.id === "azure" ? "your deployment's name" : "a model's name");
+      fields.cloudSmall = picker("m-cloud-small", "Smaller model for labels and links (optional)", mine("cloud_small_model"), models,
+        "Labels and links are many small tasks: a smaller model answers them faster and for less. Empty: the model above answers them too.", p.id === "azure" ? "another deployment's name" : "optional");
+      replace(modelHolder, h("div", { class: "fields-2" }, fields.cloudModel, fields.cloudSmall));
+    };
+    const keyCard = () => {
+      const p = info();
+      const have = !!(pst().keys || {})[p.id];
+      const input = fieldInput({ mono: true, type: "password", id: "cloud-key", placeholder: p.placeholder || "API key", autocomplete: "off", "aria-label": `${p.title} API key` });
+      const st = h("span", { class: "save-state", "aria-live": "polite" });
+      const after = (r, words) => { App.state.providers = r.providers; st.textContent = words; replace(keyHolder, keyCard()); drawModels(); };
+      const saveKey = button({ sm: true, onClick: async () => {
+        if (!input.value.trim()) { input.focus(); return; }
+        try { after(await api("POST", "/api/settings/provider-key", { provider: p.id, key: input.value.trim() }), ""); toast(`${p.title} key stored on this computer.`, "ok"); }
+        catch (e) { showError(e); }
+      } }, icon("key", { size: 13 }), "Save the key");
+      const forget = button({ kind: "quiet", sm: true, hidden: !have, onClick: async () => {
+        try { after(await api("DELETE", "/api/settings/provider-key", { provider: p.id }), ""); toast(`${p.title} key forgotten.`, "ok"); } catch (e) { showError(e); }
+      } }, "Forget the key");
+      return card({ as: "div", class: "set-key" },
+        h("div", { class: "field-label" }, `${p.title} API key`),
+        have ? notice({ kind: "done", class: "set-key-notice" }, h("p", {}, "A key is stored on this computer, in its keychain."))
+          : h("p", { class: "muted small" }, `No key stored yet.${p.key_hint ? ` Get one at ${p.key_hint}.` : ""}`),
+        h("div", { class: "row" }, input), h("div", { class: "row set-key-row" }, saveKey, forget, st));
+    };
+    const draw = () => {
+      const p = info();
+      replace(where, aiWhere(`With ${p.title} the hypothesis and the excerpts read leave this computer for ${p.company} and are billed to your key. Only documents that allow ${p.title} are sent.`, "cloud"));
+      azure.hidden = pid !== "azure";
+      measured.textContent = `${p.title} is not yet measured with Margin: its models and settings were measured with Claude only. Check its answers before you rely on them.`;
+      replace(keyHolder, keyCard());
+      drawModels();
+    };
+    fields.cloud_provider.addEventListener("change", () => { pid = fields.cloud_provider.value; draw(); });
+    if (!list.length) return notice({ kind: "attention" }, h("p", {}, "No cloud provider is known to this copy of Margin."));
+    draw();
+    return h("div", { class: "stack cloud-provider" }, inset({ class: "cloud-box" }, allowCloud, where),
+      field("Cloud provider", fields.cloud_provider), keyHolder, azure, modelHolder, measured);
+  }
+
   function keyBox() {
     const k = (App.state && App.state.key) || {};
     const have = k.env ? "from the environment variable ANTHROPIC_API_KEY" : k.stored ? "saved on this computer" : k.session ? "for this session" : "";
@@ -589,6 +696,12 @@ function modelSection(s, servers, watchers, info = { servers }) {
     if (fields.ollamaModel) c.ollama_model = fields.ollamaModel.value();
     if (fields.openaiModel) c.openai_model = fields.openaiModel.value();
     if (fields.anthropic_model) c.anthropic_model = fields.anthropic_model.value.trim();
+    if (backend === "cloud_api" && fields.cloud_provider) {
+      c.cloud_provider = fields.cloud_provider.value;
+      if (fields.cloudModel) c.cloud_model = fields.cloudModel.pick();
+      if (fields.cloudSmall) c.cloud_small_model = fields.cloudSmall.pick();
+      if (c.cloud_provider === "azure") c.azure_url = fields.azure_url.value.trim();
+    }
     if (fields.think && (backend === "ollama" || backend === "auto")) {
       c.think = fields.think.value;
       c.think_budget = Math.max(0, Math.round(Number(fields.think_budget.value) || 0));

@@ -65,9 +65,14 @@ class DocumentsApi:
             kw["note"] = body.get("note")
         if "budget" in body:
             kw["budget"] = body.get("budget")
+        if "providers" in body:   # stage 1 of other cloud providers: a list, or null for the project's choice
+            kw["allow"] = body.get("providers")
         if not kw:
-            raise ApiError(400, "Give ai_access, note or budget.")
-        r = access.set_documents(ws, ids, **kw)
+            raise ApiError(400, "Give ai_access, note, budget or providers.")
+        try:
+            r = access.set_documents(ws, ids, **kw)
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
         return {**r, **self.app.documents(name)}
 
     def put_project_access(self, name, q):
@@ -75,6 +80,11 @@ class DocumentsApi:
         ws = self.app.ws(name)
         if body.get("default"):
             access.set_default(ws, body["default"])
+        if "providers_default" in body:   # stage 1 of other cloud providers
+            try:
+                access.set_providers_default(ws, body["providers_default"])
+            except ValueError as e:
+                raise ApiError(400, str(e)) from None
         if body.get("dismiss_banner"):
             access.dismiss_banner(ws)
         return {"ai_access": access.project_info(ws)}
@@ -86,12 +96,15 @@ class DocumentsApi:
         return access.document_ledger(ws, doc_id)
 
     def get_ai_sent_csv(self, name, q):
-        rows = [{"Sent at": r["sent_at"], "Route": r["route"], "Feature": r["feature"], "Document": r["title"],
+        from .. import providers
+
+        rows = [{"Sent at": r["sent_at"], "Route": r["route"], "Provider": providers.company(r["provider"]),
+                 "Feature": r["feature"], "Document": r["title"],
                  "Document id": r["doc_id"], "Passage id": r["passage_id"], "Page": r["page"] if r["page"] else "",
                  "Task": r["task_id"]} for r in access.ledger(self.app.ws(name))]
         if not rows:
-            rows = [{"Sent at": "", "Route": "", "Feature": "", "Document": "Nothing has been sent to Claude from this "
-                     "project.", "Document id": "", "Passage id": "", "Page": "", "Task": ""}]
+            rows = [{"Sent at": "", "Route": "", "Provider": "", "Feature": "", "Document": "Nothing has been sent to "
+                     "Claude from this project.", "Document id": "", "Passage id": "", "Page": "", "Task": ""}]
         stem = _filename(f"Margin sent to Claude - {name} - {time.strftime('%Y-%m-%d')}", "csv")
         return self._send(200, _csv(rows), "text/csv; charset=utf-8", {"Content-Disposition": _disposition(stem)})
 

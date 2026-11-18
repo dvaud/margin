@@ -92,6 +92,8 @@ class RecordingOpener:
 ])
 def test_embeddings_never_post_restricted_passages_to_another_computer(mixed, settings, remote):
     ws, ids = mixed
+    if remote:  # stage 1 of other cloud providers: a server on another computer reads only what allows it ("other")
+        access.set_providers_default(ws, ["anthropic", "other"])
     emb = core.make_embedder({"embed_model": "some-embed", **settings})
     assert embed.remote(emb) is remote
     seen = RecordingOpener()
@@ -149,6 +151,11 @@ def test_second_opinion_sends_a_remote_server_nothing_from_restricted_documents(
     hyp = "Green hydrogen production can increase water stress in arid regions."
     hid = claimcheck.check_hypothesis(ws, hyp, Cloud(), "claude-opus", k=12, per_doc=4)  # all three documents compete
     remote = Remote()
+    # stage 1 of other cloud providers: a server on another computer is the provider "other", which reads nothing
+    # until the person allows it ("Claude may read it" is Anthropic only)
+    out = claimcheck.second_opinion(ws, [hid], remote, "main-m", "second-m")
+    assert out["restricted"] > 0 and not remote.sent
+    access.set_providers_default(ws, ["anthropic", "other"])
     out = claimcheck.second_opinion(ws, [hid], remote, "main-m", "second-m")
     text = remote.text().lower()
     assert not any(m in text for m in MARKS), "restricted text reached the second model on another computer"

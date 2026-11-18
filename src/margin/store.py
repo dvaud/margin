@@ -472,6 +472,10 @@ MIGRATIONS = [("documents", "declared_ref", "TEXT"), ("vca_refs", "alias_of", "T
               # 0.18.6: a document marked Non-scientific (docrole.py): 1, or NULL. Its excerpts are read and judged,
               # and no judgement of them counts in an answer
               ("documents", "nonscientific", "INT"),
+              # stage 1 of other cloud providers (providers.py, access.py): the cloud providers a document marked
+              # `cloud` allows (a JSON list of providers.ALLOWABLE; NULL: the project's `ai_providers_default`, absent:
+              # Anthropic only), and who received each passage sent (NULL: Anthropic, as everything before)
+              ("documents", "ai_providers", "TEXT"), ("ai_sent", "provider", "TEXT"),
               ]
 
 

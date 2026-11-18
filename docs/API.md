@@ -172,6 +172,21 @@ while `local_only` is true). `project` sets the current project.
 `POST /api/settings/key` `{"key": "sk-ant-…", "remember": false}` → `{"key": {...}}`. Without `remember` the key is
 kept in memory for this run only. `DELETE /api/settings/key` forgets both. 403 when `local_only` is true (0.11.1).
 
+Other cloud providers. `backend` may be `"cloud_api"`, with settings `cloud_provider` (`openai`, `gemini`,
+`mistral`, `azure` or `openrouter`), `cloud_model`, `cloud_small_model` (optional, for labels and links) and
+`azure_url` (the resource address, HTTPS). Refused like `anthropic` while `allow_cloud` is false or `local_only` is
+true. `GET /api/state` gains `providers`: `{"list": [...], "keys": {"openai": true, …}, "route", "set_up",
+"other_set_up"}` (`keys` says only whether a key is stored; `route` is the provider of the main route; `set_up` and
+`other_set_up` say whether any provider, or any other than Anthropic, is set up). Provider ids: `anthropic`, `openai`,
+`gemini`, `mistral`, `azure`, `openrouter` and `other` (a model server on another computer).
+
+- `POST /api/settings/provider-key` `{"provider": "openai", "key": "…"}` → `{"providers": {…}}`. The key goes to the
+  keychain and is never returned, logged or put in settings. 403 when `local_only` is true.
+- `DELETE /api/settings/provider-key` `{"provider": "openai"}` → `{"providers": {…}}`.
+- `GET /api/settings/provider-models?provider=openai` → `{"models": [...], "lists": true, "problem": "…"}`. `lists`
+  is false for Azure, which has no list (type the deployment name); `problem` is a plain sentence when the list could
+  not be fetched (for example that the key was refused).
+
 `POST /api/quit` → `{"stopping": true, "jobs_stopped": n}`: stops the app ("Quit Margin" in the sidebar) once the
 running jobs have stopped (at most 20 s); 409 when this copy was not started in a way that can be stopped from here.
 0.14.3: every Claude Code run started from the app (`queue/claude-code`) is stopped first, and its batches go back to
@@ -976,6 +991,14 @@ project's default. The setting is enforced where tasks are made and run (see `ac
   the cap) → `{"documents": n, "tasks_changed": n, …the documents answer}`. Tasks not answered yet take the new
   setting at once; a queued one that is no longer `cloud` leaves the queue. 400 for an unknown setting, 404 for an
   unknown document; `cloud` is refused on a `--local-only` installation.
+- Cloud providers: `PUT documents/ai-access` also takes `providers` (a list of provider ids that may read the
+  documents, or null for the project's choice), and `PUT /api/projects/<p>/ai-access` takes `providers_default` (a
+  list; the default is `["anthropic"]`). In `GET /api/projects/<p>/documents` each document has `providers` (in
+  force), `providers_own` (its own list, or null) and, when a provider other than Anthropic has read some of it,
+  `sent_by` (`{provider: share}`). In a shared project (a shared folder, a storage space, an owner, or work from a
+  colleague) only `anthropic` holds, and a change of providers is refused with 400. A document that does not allow
+  the provider of the main route is treated as `local` for that route; Claude Code's queue and the connector always
+  count as `anthropic`. A model server on another computer is a provider (`other`, or a known one by its address).
 - `PUT /api/projects/<p>/ai-access` `{"default": "cloud"|"local"|"none"}` and/or `{"dismiss_banner": true}` →
   `{"ai_access": {…}}`.
 - `POST /api/projects/<p>/ingest` takes `ai_access` (who may read the new documents; the first answer in a project
@@ -984,7 +1007,7 @@ project's default. The setting is enforced where tasks are made and run (see `ac
 - `GET /api/projects/<p>/documents/<doc_id>/ai-sent` → what Claude has read of a document: `{"doc_id", "share",
   "since", "passages": [{"passage_id", "seq", "page", "preview", "times", "first", "last", "features", "routes"}]}`.
 - `GET /api/projects/<p>/ai-sent.csv` (also `?token=`) → the ledger: one row per passage sent (Sent at, Route,
-  Feature, Document, Document id, Passage id, Page, Task).
+  Feature, Document, Document id, Passage id, Page, Task). It also has a Provider column (who received it).
 - `POST /api/projects/<p>/hypotheses/<hyp_id>/read-local` → job (kind `read-local`): the excerpts of the check that
   wait for the local model (made in a Claude chat, or while the app was closed) are read by it; without one they wait
   for a person. `result`: `{"hyp_id", "parts", "status"}`. 0.13.11: the job has a check's `progress` (the local

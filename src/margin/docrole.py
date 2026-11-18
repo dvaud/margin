@@ -343,7 +343,7 @@ def kept_here(ws: Workspace) -> set[str]:
     rows = ws.query("SELECT hyp_id, origin_id FROM hypotheses WHERE origin=?", (ORIGIN,))
     if not rows:
         return set()
-    lv = access.levels(ws, [r[1] for r in rows if r[1]])
+    lv = access.levels(ws, [r[1] for r in rows if r[1]], provider=access.ANTHROPIC)   # the connector's reader: Claude
     return {hid for hid, d in rows if not d or lv.get(d, "none") != "cloud"}
 
 

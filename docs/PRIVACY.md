@@ -19,6 +19,7 @@ Releases are downloaded from GitHub ([below](#other-online-services-not-ai)).
 | --- | --- | --- |
 | The researcher (and their institution) | Decides what is processed, and how | Everything: the projects stay on their computer |
 | Anthropic | Runs the Claude models, when the researcher uses Claude | The passages and text inside the AI tasks Claude answers, from documents Claude may read ([below](#what-goes-to-claude)) |
+| OpenAI, Google, Mistral, Microsoft (Azure) or OpenRouter | Run a model, only when the researcher sets that provider up and allows a document to it | The passages and text inside the AI tasks it answers, from documents that allow that provider ([below](#other-cloud-providers)) |
 | A model server on the computer (Ollama, LM Studio and others) | Runs a local model | The text of the tasks it answers; it stays on the computer |
 | The team's shared folder, or its storage space at Backblaze, Cloudflare or the institution's drive (WebDAV) | Carries the work a team shares | Only when the researcher sets one up ([Working together](#working-together)) |
 | Crossref | Answers a retraction lookup | DOIs, and the title, first author's family name and year of bibliography works without a DOI, only when the researcher asks ([Other online services](#other-online-services-not-ai)) |
@@ -30,10 +31,11 @@ Releases are downloaded from GitHub ([below](#other-online-services-not-ai)).
   and settings are kept in the data folder (`~/margin` or `MARGIN_HOME`).
 - **Each document has an AI setting**: *Claude may read it*, *Only a local AI*, or *No AI*. Margin enforces it in
   code, at the point where every AI task passes (`access.py`).
-- **Document text leaves the computer by three ways only**: a Claude route, from documents marked *Claude may read
-  it*, each passage written to a ledger as it leaves (`access.record_sent`); a model or embedding server the
-  researcher set up at another computer's address, from the same documents; and the team's shared folder or storage
-  space, once the researcher sets one up.
+- **Document text leaves the computer by three ways only**: a cloud route, from documents marked *Claude may read
+  it* that allow its provider (by default only Anthropic), each passage written to a ledger as it leaves
+  (`access.record_sent`); a model or embedding server the researcher set up at another computer's address, from
+  documents that allow it; and the team's shared folder or storage space, once the researcher sets one up. The cloud
+  routes are Claude's and [other providers'](#other-cloud-providers).
 - **The whole installation can be made local-only** (`--local-only`): no document text then goes to Claude
   ([Switching everything off](#switching-everything-off)).
 
@@ -51,7 +53,7 @@ AI](manual/privacy.md#who-may-read-each-document-with-ai)):
 
 | Setting | Who may read its text |
 | --- | --- |
-| *Claude may read it* (`cloud`) | The chosen route: Claude Code, the Claude API, or a model server |
+| *Claude may read it* (`cloud`) | Claude Code, the Claude API, and the cloud providers the document allows (by default only Anthropic) |
 | *Only a local AI* (`local`) | A model server on this computer, or a person |
 | *No AI* (`none`) | A person only |
 
@@ -69,8 +71,9 @@ has read a given share of its text, it is treated as *Only a local AI* for new t
 3. Claude Code's queue hands out only tasks Claude may read; the file queue writes only those
    (`tasks.export`).
 4. A model server counts as "on this computer" only when its address is `localhost` or a loopback address
-   (`access.on_this_computer`). A model server at any other address may read only documents marked *Claude may read
-   it*.
+   (`access.on_this_computer`). A model server at any other address is a cloud provider: a known one by its address
+   (an OpenAI address is OpenAI), otherwise "a server on another computer". It may read only documents marked
+   *Claude may read it* that allow that provider ([below](#other-cloud-providers)).
 
 The rule is code, not an instruction in a prompt. A feature that forgot to split its work would be stopped by the
 guard before anything is sent.
@@ -120,6 +123,33 @@ applies to everything not yet answered; what Claude has already read stays in th
 **Agreement between routes and model tests** send their samples through the same guard and ledger
 (`access.sending`), and are asked only when the researcher presses the button.
 
+## Other cloud providers
+
+The providers are one table (`providers.py`), reached through `llm.CloudBackend`. *Settings → AI* has a fourth choice,
+**Another cloud provider (API key)**: OpenAI, Google Gemini, Mistral, Azure OpenAI or OpenRouter, each through its
+OpenAI-compatible chat API, over HTTPS only. It needs *Allow cloud models*, and is refused on a local-only
+installation ([Switching everything off](#switching-everything-off)).
+
+- **Who may read what.** A document marked *Claude may read it* also lists the cloud providers that may read it, **by
+  default only Anthropic**. So every project made before means what it did, and nothing reaches another provider until
+  the researcher allows it: for the project (on the *Documents* page) or per document (its AI setting). A document that does not
+  allow the provider of the main route is treated as *Only a local AI* for that route: its excerpts go to the local
+  model for restricted documents, or wait for the researcher's judgement. Claude Code's queue and the Claude connector
+  always count as Anthropic, whatever the main route.
+- **What a provider receives.** The same text Claude receives (the hypothesis and the excerpts inside the AI's tasks,
+  [above](#what-goes-to-claude)), only from documents that allow it. Its own terms decide what it keeps and whether it
+  trains on it: Margin decides nothing there. Check the provider's API data terms. OpenRouter passes the text on to the
+  model's own provider.
+- **The ledger** names the provider that received each passage (a *Provider* column in the CSV).
+- **A model server on another computer** is a provider too (see *Local models* below): this closes a gap in versions
+  before this one, where such a server, typed into the local server field (an OpenAI address, or a lab's GPU server),
+  could read every document marked *Claude may read it*. Documents now wait until the researcher allows it.
+- **Shared projects.** The allowance does not travel with a shared project yet. In a project that is shared (a shared
+  folder, a storage space, an owner, or work exchanged with a colleague) only Anthropic may read documents marked
+  *Claude may read it*, whatever this copy allows, and setting another provider there is refused: the colleagues have
+  not agreed to it.
+- **Not measured.** Margin's default models and routing were measured on Claude only.
+
 ## Local models
 
 A model served on the computer (Ollama, LM Studio, llama.cpp, Jan, vLLM) keeps every word on it
@@ -128,12 +158,15 @@ local AI*. Requests go to its address on this computer; nothing about them is se
 
 Points for an assessment:
 
-- **A model server on another computer** (an address that is not `localhost`) is treated like a cloud route for the
-  settings: it may read only documents marked *Claude may read it* (`access.backend_levels`). Passages sent to it are
-  **not** written to the ledger, which records Claude routes and the file queue only.
+- **A model server on another computer** (an address that is not `localhost`, `127.0.0.1` or `::1`) is treated like a
+  cloud provider: it may read only documents marked *Claude may read it* that allow it (`access.backend_levels`;
+  [Other cloud providers](#other-cloud-providers)). Passages sent to it are written to the ledger, with the provider
+  it is (`other` for a server that is none of the known providers). A researcher who used such a server before this
+  version finds its documents waiting until they allow it.
 - **Search by meaning** sends passages to the embedding server. An embedding server on another computer receives
-  neither passages of documents marked *Only a local AI* or *No AI* nor glossary terms found only in them
-  (`embed.py`, `terms.py`); it does receive the text of searches.
+  neither passages of documents marked *Only a local AI* or *No AI*, nor of documents that do not allow its provider
+  (`other`, or a known one by its address), nor glossary terms found only in them (`embed.py`, `terms.py`); it does
+  receive the text of searches.
 - **Getting a model** downloads Ollama's installer from ollama.com and a model from Ollama's library, only when the
   researcher presses the button. No document is sent.
 
@@ -271,6 +304,10 @@ in with their work, with a count of what Claude read there.
   password) are kept in the system's keychain: macOS Keychain, Windows Credential Manager, or `secret-tool` on Linux. Where none can be used,
   they are kept in files in Margin's folder readable by the user only (`keychain.py`). Never in a project, a zip, the
   shared folder or the space.
+- **A cloud provider's API key** (OpenAI, Gemini, Mistral, Azure, OpenRouter) is kept in the system's keychain, or in
+  a user-only key file where there is none (`keychain.py`). Never in `settings.json`, a log, an error message, the
+  record of how an answer was made, a project, or a *Move Margin to another computer* file. The app shows only
+  whether a key is stored.
 - **A Claude API key**, if saved, is kept in `credentials.json` in the data folder, readable by the user only, or
   read from `ANTHROPIC_API_KEY` (`home.py`). It is never in a project or a move file.
 - **Claude Code's login** is Claude Code's own; Margin never sees it.
@@ -297,7 +334,7 @@ Whoever installs Margin can remove every cloud option for good, with `margin-gui
 
 - every document counts as *Only a local AI*, and no document can be set to *Claude may read it* (`access.levels`,
   `access.set_documents`);
-- the Claude API and Claude Code are hidden and refused, Margin never starts Claude Code, its plugin is not written
+- the Claude API, the other cloud providers and Claude Code are hidden and refused, Margin never starts Claude Code, its plugin is not written
   (`claude_setup.py`), and the queue hands out no tasks (`taskqueue.py`);
 - the Crossref lookup is off.
 
@@ -314,6 +351,8 @@ on a local-only installation.
   and link to Anthropic's own page with the date it was checked ([Your Claude account and
   licences](manual/privacy.md#your-claude-account-and-licences)). Check Anthropic's current privacy policy, terms and
   the account's data settings for the application; mark documents that must not reach Anthropic *Only a local AI*.
+- **Another cloud provider's handling of the text it receives** (OpenAI, Google, Mistral, Microsoft, OpenRouter and the
+  provider behind it): set by that provider's API terms, not by Margin. Check them before allowing a document to it.
 - **The shared folder's service** (OneDrive, Dropbox, a network drive), **the storage company** and **the
   institution's drive** and its administrators, under the institution's or team's own agreement with them. A service
   may keep earlier or deleted versions for a while.

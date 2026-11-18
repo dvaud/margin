@@ -638,7 +638,7 @@ def _passage_at(ws: Workspace, doc_id: str, at: int | None) -> str | None:
                      (doc_id, at, at))
 
 
-def _evidence_titles(ws: Workspace, skip: set[str], levels_ok: set[str]) -> list[str]:
+def _evidence_titles(ws: Workspace, skip: set[str], levels_ok: set[str], provider: str | None = None) -> list[str]:
     """The titles of the evidence documents the frame's reader may read (their titles only: no id, so they never make
     the payload's setting stricter), at most MAX_EVIDENCE_TITLES."""
     from . import access
@@ -646,7 +646,7 @@ def _evidence_titles(ws: Workspace, skip: set[str], levels_ok: set[str]) -> list
 
     skip = skip | not_evidence_docs(ws._conn())
     rows = [r for r in ws.query("SELECT doc_id, title FROM documents ORDER BY title") if r["doc_id"] not in skip]
-    lv = access.levels(ws, [r["doc_id"] for r in rows]) if rows else {}
+    lv = access.levels(ws, [r["doc_id"] for r in rows], provider=provider) if rows else {}
     dflt = access.default(ws)
     out = [_clean(r["title"], 140) or "untitled" for r in rows if (lv.get(r["doc_id"]) or dflt) in levels_ok]
     return out[:MAX_EVIDENCE_TITLES]
@@ -885,7 +885,7 @@ def read(ws: Workspace, backend, model: str, progress: Callable | None = None,
         if d not in titles:
             problems.append("A document of this draft is no longer in the project.")
             continue
-        lv = theorycodes._level(ws, d)
+        lv = theorycodes._level(ws, d, readers.provider)
         levels[d] = lv
         if lv == "none":
             problems.append(f"{titles[d]}: marked No AI, so only the terms it defines itself are used.")
@@ -954,14 +954,14 @@ def read(ws: Workspace, backend, model: str, progress: Callable | None = None,
             kept = [x for x in by_doc if x[0]["doc_id"] not in left]
             documents = [{"doc_id": x[0]["doc_id"], "title": titles[x[0]["doc_id"]]} for x in kept]
             try:
-                payload, sent = fit_payload(documents, _evidence_titles(ws, set(ids), ok_levels), focus, kept,
+                payload, sent = fit_payload(documents, _evidence_titles(ws, set(ids), ok_levels, access.provider_of(be)), focus, kept,
                                             _room(be, settings)) if kept else (None, [])
             except ValueError as e:
                 payload, frame_problem = None, str(e)
             if payload:
                 frame_task = make_task(ws, payload, call)
                 with ws.connect() as cx:
-                    now_lv = access.recheck(cx, frame_task)
+                    now_lv = access.recheck(cx, frame_task, provider=access.provider_of(be))
                     if now_lv is not None and now_lv in access.backend_levels(be) \
                             and getattr(be, "name", "") == "claude_code":
                         tasks.mark_queued(cx, [frame_task])

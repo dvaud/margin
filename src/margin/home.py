@@ -3,6 +3,7 @@
 Everything lives in one folder on this computer, MARGIN_HOME (default ~/margin):
 - settings.json      choices made in Settings (local model server, models, search options)
 - credentials.json   the Claude API key, only when cloud models are allowed and "remember" is ticked (user-only)
+- the system's keychain: the API keys of other cloud providers (keychain.py; never in settings.json)
 - projects/<name>/   one workspace per project, the same format the command line uses
 - links.json         projects that live in another folder (linked, not copied)
 - frameworks/*.csv   codebooks available to every project (a project's own frameworks/ folder adds more)
@@ -22,17 +23,17 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .llm import (AnthropicBackend, BackendError, BaselineBackend, LocalBackend, OllamaBackend, detect_local,
-                  is_chat_model)
-from . import routing, taskkinds
+from .llm import (AnthropicBackend, BackendError, BaselineBackend, CloudBackend, LocalBackend, OllamaBackend,
+                  detect_local, is_chat_model)
+from . import providers, routing, taskkinds
 from .store import Workspace
 
 DEFAULTS = {
     # 0.9: subscription first. A new installation answers with Claude Code on the researcher's own Claude plan; the
     # tasks wait in the project's queue on this computer and leave it only when the researcher runs Claude Code
     # (or presses "Start Claude Code" in the app). Local-only installations fall back to "auto" (see load_settings).
-    "backend": "claude_code",          # claude_code | auto | ollama | openai | anthropic | baseline
-    "allow_cloud": False,              # the Claude API can be used only when this is on
+    "backend": "claude_code",          # claude_code | auto | ollama | openai | anthropic | cloud_api | baseline
+    "allow_cloud": False,              # the Claude API (or another cloud provider) can be used only when this is on
     "anthropic_model": "claude-opus-5-5",
     "ollama_url": "http://localhost:11434",
     "ollama_model": "",
@@ -108,6 +109,14 @@ DEFAULTS = {
     "sync_every_minutes": 2,
     "sync_paused": False,
     "sync_paused_projects": [],
+    # stage 1 of other cloud providers (providers.py): the main route "cloud_api" is another cloud provider's API with
+    # the person's key (kept in the keychain, never here): which provider, its model for every kind of task, an
+    # optional smaller one for the kinds a local small model takes (labels, links), and Azure's resource address.
+    # None of them is ever in a move zip (bundle.MACHINE_SETTINGS)
+    "cloud_provider": "",              # "" | openai | gemini | mistral | azure | openrouter
+    "cloud_model": "",
+    "cloud_small_model": "",
+    "azure_url": "",                   # e.g. https://my-resource.openai.azure.com
     # roles (DESIGN-roles §3.2, §4.11): this installation's own id, written into the shared folder (`head.json`), so a
     # copy of this data folder on another computer is stopped before it writes there under the same person. Made once
     # (`installation_id`), and made anew when the data folder is not the one it was made in (`installation_place`: a
@@ -118,8 +127,8 @@ DEFAULTS = {
 
 BACKEND_LABELS = {"claude_code": "Claude Code (your subscription)", "auto": "Local model (automatic)",
                   "ollama": "Ollama", "openai": "Local OpenAI-compatible server", "anthropic": "Claude API (cloud)",
-                  "baseline": "Offline demo"}
-CLOUD_BACKENDS = {"anthropic"}
+                  providers.CLOUD_ROUTE: "Another cloud provider (API key)", "baseline": "Offline demo"}
+CLOUD_BACKENDS = {"anthropic", providers.CLOUD_ROUTE}   # they need "Allow cloud models"
 OFF_COMPUTER = routing.OFF_COMPUTER   # the passages read leave this computer
 
 
@@ -410,6 +419,15 @@ def clean_settings(changes: dict) -> dict:
         raise ValueError("ocr must be auto or off.")
     if "ocr_lang" in out and not re.fullmatch(r"[A-Za-z_]{2,}(\+[A-Za-z_]{2,})*", out["ocr_lang"] or ""):
         raise ValueError("ocr_lang must be Tesseract language codes joined by +, for example eng or eng+nld.")
+    if "cloud_provider" in out and out["cloud_provider"] not in ("",) + providers.CLOUD_IDS:
+        raise ValueError(f"cloud_provider must be one of {', '.join(providers.CLOUD_IDS)} (or empty).")
+    for k in ("cloud_model", "cloud_small_model"):
+        if k in out and (len(out[k]) > 200 or any(c.isspace() for c in out[k])):
+            raise ValueError("A model's name has no spaces and is at most 200 characters.")
+    if out.get("azure_url"):
+        if not out["azure_url"].lower().startswith("https://") or any(c.isspace() for c in out["azure_url"]):
+            raise ValueError("The Azure OpenAI address must start with https://, for example "
+                             "https://my-resource.openai.azure.com.")
     if "restricted_server" in out and out["restricted_server"] not in ("", "ollama", "openai"):
         raise ValueError("restricted_server must be ollama, openai or empty (no local model for restricted documents).")
     if "account_type" in out and out["account_type"] not in ("", "personal", "commercial"):
@@ -472,16 +490,40 @@ def save_settings(s: dict) -> None:
 def update_settings(changes: dict) -> dict:
     with LOCK, to_change():  # read, changed and written as one step: two changes at once each kept only its own
         s = load_settings()
+        old = dict(s)
         s.update(clean_settings(changes))
         if local_only() and (s["backend"] in OFF_COMPUTER or s["allow_cloud"] or s.get("allow_claude_code")):
             raise ValueError("Cloud models are switched off on this computer by whoever installed Margin: "
                              "everything stays on this computer.")
         if s["backend"] in CLOUD_BACKENDS and not s["allow_cloud"]:
-            raise ValueError("Allow cloud models first: with the Claude API the passages read leave this computer.")
+            what = ("the Claude API" if s["backend"] == "anthropic"
+                    else providers.title(s.get("cloud_provider")) if s.get("cloud_provider") else "a cloud provider")
+            raise ValueError(f"Allow cloud models first: with {what} the passages read leave this computer.")
+        if s["backend"] == providers.CLOUD_ROUTE and s.get("cloud_provider") not in providers.CLOUD_IDS:
+            raise ValueError("Choose which cloud provider reads the documents.")
         if s["backend"] == "claude_code" and not s.get("allow_claude_code"):
             raise ValueError("Confirm Claude Code first: the passages inside the tasks it takes are sent to Anthropic.")
         save_settings(s)
-        return s
+    _relabel_after(old, s)
+    return s
+
+
+def _relabel_after(old: dict, new: dict) -> None:
+    """Stage 1 of other cloud providers: another main route may be another provider, which may read other documents.
+    The current project's tasks not answered yet get their setting for it at once (`access.sync_labels`, looser or
+    stricter); every other project's when the app next opens it, and the guard works each task out again as it
+    leaves (`access.recheck`)."""
+    from .access import route_provider, sync_labels
+
+    if route_provider(old) == route_provider(new):
+        return
+    name = new.get("project") or ""
+    try:
+        if not name or name not in list_projects():
+            return
+        sync_labels(open_project(name), route_provider(new))
+    except Exception:  # noqa: BLE001 - the guard as each task leaves still holds
+        pass
 
 
 def stored_key() -> str:
@@ -496,6 +538,59 @@ def stored_key() -> str:
 
 def env_key() -> str:
     return os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+# stage 1 of other cloud providers: their keys, in the system's keychain (keychain.py) under the registry's name. The
+# app only ever learns whether one is stored (`cloud_keys`), never the key itself. Kept known in memory once looked up
+# (asking the macOS keychain takes a moment).
+_KEY_STORED: dict[str, bool] = {}
+
+
+def _key_name(provider: str) -> str:
+    p = providers.get(provider)
+    if p is None or not p.keychain:
+        raise ValueError(f"Unknown cloud provider {provider!r}.")
+    return p.keychain
+
+
+def cloud_key(provider: str) -> str:
+    """The stored API key of a cloud provider ("" when none)."""
+    from . import keychain
+
+    try:
+        got = keychain.get(_key_name(provider)) or ""
+    except Exception:  # noqa: BLE001 - a keychain that cannot be read: no key
+        got = ""
+    _KEY_STORED[provider] = bool(got)
+    return got
+
+
+def set_cloud_key(provider: str, key: str) -> None:
+    from . import keychain
+
+    if local_only():
+        raise ValueError("Cloud models are switched off on this computer by whoever installed Margin: an API key "
+                         "cannot be used here.")
+    key = (key or "").strip()
+    if not key or any(c.isspace() for c in key) or len(key) > 4000:
+        raise ValueError("Give the API key: one line, no spaces.")
+    keychain.put(_key_name(provider), key)
+    _KEY_STORED[provider] = True
+
+
+def forget_cloud_key(provider: str) -> None:
+    from . import keychain
+
+    keychain.delete(_key_name(provider))
+    _KEY_STORED[provider] = False
+
+
+def cloud_keys() -> dict[str, bool]:
+    """Whether a key is stored, per cloud provider: {"openai": True, ...} (yes or no only)."""
+    for p in providers.CLOUD_IDS:
+        if p not in _KEY_STORED:
+            cloud_key(p)
+    return {p: _KEY_STORED.get(p, False) for p in providers.CLOUD_IDS}
 
 
 def remember_key(key: str) -> None:
@@ -669,6 +764,26 @@ def _make_backend(settings: dict, api_key: str = "", kinds: tuple[str, ...] = ("
             raise BackendError("Cloud models are switched off. Allow them in Settings to use the Claude API "
                                "(the passages read are then sent to Anthropic), or choose a local model.")
         return AnthropicBackend(api_key=api_key or env_key() or stored_key() or None), settings["anthropic_model"]
+    if b == providers.CLOUD_ROUTE:
+        pid = settings.get("cloud_provider") or ""
+        if local_only():
+            raise BackendError("Cloud models are switched off on this computer by whoever installed Margin. "
+                               "Choose a local model in Settings.")
+        if pid not in providers.CLOUD_IDS:
+            raise BackendError("Choose which cloud provider reads the documents in Settings → AI.")
+        title = providers.title(pid)
+        if not settings.get("allow_cloud"):
+            raise BackendError(f"Cloud models are switched off. Allow them in Settings → AI to use {title} (the "
+                               f"passages read are then sent to {providers.company(pid)}), or choose a local model.")
+        model = (settings.get("cloud_model") or "").strip()
+        if not model:
+            raise BackendError(f"Choose the {title} model in Settings → AI.")
+        try:
+            url = providers.base_url(pid, settings.get("azure_url") or "")
+        except ValueError as e:
+            raise BackendError(str(e)) from None
+        be = CloudBackend(pid, cloud_key(pid), base_url=url, seed=_seed(settings))
+        return be, model
     if b == "ollama":
         chosen = settings.get("ollama_model") or ""
         probe = OllamaBackend(base_url=settings["ollama_url"], timeout=3)
@@ -710,11 +825,13 @@ def _make_backend(settings: dict, api_key: str = "", kinds: tuple[str, ...] = ("
                 model = (settings.get("ollama_model") if _installed(settings.get("ollama_model") or "", models)
                          else pick_chat_model(models, srv.get("loaded") or (), srv.get("modified") or {}))
                 if model:
+                    _auto_chose(srv["url"])
                     return _ollama(settings, srv["url"], model, think, kinds), model
             else:
                 model = (settings.get("openai_model") if settings.get("openai_model") in models
                          else pick_chat_model(models, srv.get("loaded") or ()))
                 if model:
+                    _auto_chose(srv["url"])
                     return LocalBackend(base_url=srv["url"], seed=_seed(settings)), model
         if found:
             raise BackendError("A local model server is running but has no chat model. With Ollama, download one "
@@ -723,6 +840,13 @@ def _make_backend(settings: dict, api_key: str = "", kinds: tuple[str, ...] = ("
                            "button, then download a model there; or open LM Studio, or choose the offline demo in "
                            "Settings.")
     return BaselineBackend(), "baseline"
+
+
+def _auto_chose(url: str) -> None:
+    """The automatic route chose this server: its provider is the route's (access.route_provider)."""
+    from .access import auto_chose
+
+    auto_chose(url)
 
 
 def main_reads_local(settings: dict) -> bool:
@@ -798,7 +922,10 @@ def backend_label(settings: dict) -> str:
     model = {"auto": settings.get("ollama_model") or settings.get("openai_model") or "first model found",
              "anthropic": "a model per task" if settings.get("routing", True) else settings.get("anthropic_model"),
              "claude_code": "a helper and model per task", "ollama": settings.get("ollama_model") or "no model chosen",
-             "openai": settings.get("openai_model") or "first model listed", "baseline": "word overlap, no model"}.get(b, "")
+             "openai": settings.get("openai_model") or "first model listed", "baseline": "word overlap, no model",
+             providers.CLOUD_ROUTE: settings.get("cloud_model") or "no model chosen"}.get(b, "")
+    if b == providers.CLOUD_ROUTE and settings.get("cloud_provider") in providers.CLOUD_IDS:
+        return f"{providers.title(settings['cloud_provider'])} (API key) · {model}"
     return f"{BACKEND_LABELS.get(b, b)} · {model}"
 
 
@@ -996,7 +1123,8 @@ def make_second_backend(settings: dict, api_key: str = ""):
         raise ValueError("Choose a model for second opinions in Settings first.")
     if b == "baseline":
         raise ValueError("The offline demo cannot give second opinions. Choose a local model in Settings.")
-    key = {"anthropic": "anthropic_model", "openai": "openai_model"}.get(b, "ollama_model")
+    key = {"anthropic": "anthropic_model", "openai": "openai_model",
+           providers.CLOUD_ROUTE: "cloud_model"}.get(b, "ollama_model")
     changed = {**settings, key: second}
     if b == "auto":
         changed.update(ollama_model=second, openai_model=second)

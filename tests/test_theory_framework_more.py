@@ -209,7 +209,7 @@ def test_a_document_stricter_when_its_parts_are_sent_stays_out_of_the_frame(proj
     _started(ws, meadows, practice)
     access.set_documents(ws, [practice], "none")
     real = theorycodes._level
-    monkeypatch.setattr(theorycodes, "_level", lambda w, d: "cloud" if d == practice else real(w, d))
+    monkeypatch.setattr(theorycodes, "_level", lambda w, d, *a: "cloud" if d == practice else real(w, d, *a))
     be = FakeModel()
     r = theoryframe.read(ws, be, "claude-sonnet-5-5")
     title = ws.scalar("SELECT title FROM documents WHERE doc_id=?", (practice,))

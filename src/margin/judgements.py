@@ -151,10 +151,11 @@ def reread_excerpt(ws: Workspace, claim_id: str, passage_id: str, backend, model
     if note is None and v:
         note = v.get("user_note")
     # 0.11: the excerpt is read again by a model its document's setting allows: the main one, or the local model
-    level = access.levels(ws, [p["doc_id"]]).get(p["doc_id"], "none")
+    rd = _cc._readers(backend, model, readers)
+    level = access.levels(ws, [p["doc_id"]], provider=rd.provider).get(p["doc_id"], "none")
     # 0.19.0 (N3): and by the setting of the document the hypothesis's words come from (access.floor)
-    own = _cc._own_level(ws, uc["hyp_id"] or claim_id)
-    reader = _cc._readers(backend, model, readers).for_level(access.most([level, own]))
+    own = _cc._own_level(ws, uc["hyp_id"] or claim_id, rd.provider)
+    reader = rd.for_level(access.most([level, own]))
     if reader is None:
         raise ValueError(cannot_reread(level, own))
     backend, model = reader

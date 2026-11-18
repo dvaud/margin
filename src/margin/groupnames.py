@@ -379,10 +379,10 @@ def offer(ws: Workspace, docs: set[str] | None, settings: dict | None = None) ->
     """Whether the AI may be asked to name the groups: {"offered", "why", "reader": "claude" | "local" | "main" |
     None}. From the documents in scope and their AI settings only; nothing is asked of a model."""
     from . import access, home
-    from .routing import OFF_COMPUTER
+    from .routing import CLAUDE_ROUTES
 
     s = settings if settings is not None else home.load_settings()
-    lv = access.levels(ws, sorted(docs)) if docs else {}
+    lv = access.levels(ws, sorted(docs), provider=access.route_provider(s)) if docs else {}
     dflt = access.default(ws)
     kinds = {lv.get(d) or dflt for d in (docs or ())}
     local_ok = _local_reader(s)
@@ -394,7 +394,7 @@ def offer(ws: Workspace, docs: set[str] | None, settings: dict | None = None) ->
     if "cloud" not in kinds or home.main_reads_local(s):
         reader = "local" if "cloud" not in kinds else "main"
     else:
-        reader = "claude" if (s.get("backend") or "auto") in OFF_COMPUTER else "main"
+        reader = "claude" if (s.get("backend") or "auto") in CLAUDE_ROUTES else "main"
     return {"offered": True, "why": None, "reader": reader}
 
 
@@ -463,7 +463,10 @@ def payloads(ws: Workspace, f, n: int, which: str, allowed: set[str], settings: 
     m = concept_map(ws, f, n, settings=settings)
     g = _Graph(ws)
     lab = {x["id"]: x["label"] for x in m["nodes"]}
-    lv = access.levels(ws)
+    from . import home
+
+    s = settings if settings is not None else home.load_settings()
+    lv = access.levels(ws, provider=access.route_provider(s))   # for the main route's provider
     dflt = access.default(ws)
     out: dict = {"tasks": [], "skipped": 0, "person": 0, "map": m}
     for gr in m["groups"]:
@@ -621,7 +624,7 @@ def name_groups(ws: Workspace, f, n: int, which: str, backend, model: str, progr
     tally = threading.Lock()
     seen = [0]
     dflt = access.default(ws)
-    level = {tid: ws.scalar("SELECT COALESCE(access, 'cloud') FROM tasks WHERE task_id=?", (tid,)) for _g, tid in todo}
+    level = {tid: readers.level_of(ws, tid) for _g, tid in todo}   # for the main model's provider
     local_ids = {tid for _g, tid in todo if level[tid] == "local" and "local" not in readers.main_levels}
     gated = bool(local_ids) and readers.defers()
     used_models: set[str] = set()

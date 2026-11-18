@@ -576,7 +576,8 @@ def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, mod
         with ws.connect() as cx:  # the setting of now: a document marked No AI since is never answered by an AI's answer
             dflt0 = access._default_from_cx(cx)
             try_ids = [t for t in cand[:max(2 * int(n or BATCH.get(k, 5)), 20)] if not t["attempts"]
-                       and t["status"] != "done" and access.recheck(cx, t["task_id"], dflt0, budget=False) == "cloud"]
+                       and t["status"] != "done" and access.recheck(cx, t["task_id"], dflt0, budget=False,
+                                                                    provider=access.ANTHROPIC) == "cloud"]
         kept = [t for t in try_ids if answer_from_cache(ws, t["task_id"], effective_model(t, r), "Claude Code")]
         if kept:
             gone = {t["task_id"] for t in kept}
@@ -617,7 +618,10 @@ def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, mod
                 # the setting worked out again as the text leaves, not trusted from the column: a document's cap
                 # counts the tasks of this batch recorded just before; one that is no longer `cloud` leaves the
                 # queue and waits for the local model or the person
-                if access.recheck(cx, t["task_id"], dflt) != "cloud":
+                if access.recheck(cx, t["task_id"], dflt, provider=access.ANTHROPIC) != "cloud":
+                    # Claude Code is Anthropic: a task of a document that allows other providers only leaves the queue
+                    # (a wait for it ends; the local model or the person reads it), it never sits there for good
+                    cx.execute("UPDATE tasks SET queued=0, queued_at=NULL WHERE task_id=?", (t["task_id"],))
                     continue
                 _sys, user = render(ws, full)
                 cost = estimate_tokens(user)
@@ -629,7 +633,8 @@ def next_tasks(ws: Workspace, kind: str | None = None, n: int | None = None, mod
                     picked.append({"task_id": t["task_id"], "prompt": user, "payload_json": full["payload_json"]})
                     budget += cost
                     # 0.11: the passages of this task leave the computer now, with the batch
-                    access.record_sent(cx, t["task_id"], json.loads(full["payload_json"]), "Claude Code", k)
+                    access.record_sent(cx, t["task_id"], json.loads(full["payload_json"]), "Claude Code", k,
+                                       provider=access.ANTHROPIC)
             if not picked:
                 continue
             cx.execute("INSERT INTO task_claims(claim_id, kind, model, helper, route, taken_by, task_ids_json, claimed_at, "
@@ -1130,6 +1135,7 @@ def run_here(ws: Workspace, backend, kinds: list[str] | None = None, limit: int 
     todo_kinds = [k for k in o if k not in held and (not kinds or k in kinds)]
     out: dict = {"answered": 0, "failed": 0, "kinds": {}}
     may = access.backend_levels(backend)
+    prov = access.provider_of(backend)
     dflt = access.default(ws)
     total = sum(_waiting_count(ws, k) for k in todo_kinds)
     i = 0
@@ -1145,7 +1151,7 @@ def run_here(ws: Workspace, backend, kinds: list[str] | None = None, limit: int 
                 progress(i, total)
             with ws.connect() as cx:  # taken by this program, so a Claude Code session does not take it meanwhile
                 # the setting worked out again first: a document's cap counts what the tasks before this one sent
-                if access.recheck(cx, tid, dflt) not in may:
+                if access.recheck(cx, tid, dflt, provider=prov) not in may:
                     continue  # left for a model that may read it, or the person
                 got = cx.execute(f"UPDATE tasks SET claimed_by='here', claimed_at=? WHERE task_id=? AND "
                                  f"{_FREE.replace('t.', '')}", (now(), tid, _cutoff())).rowcount
@@ -1231,7 +1237,7 @@ def answer_on_copy(ws: Workspace, items: list[tuple[str, str, dict, str]], backe
         # copy's own ledger starts empty: what Claude Code actually takes from it is written there (next_tasks) and
         # carried into this project's ledger below, so a test stopped before a batch left records nothing (0.11.1)
         with ws.connect() as wcx:
-            items = [it for it in items if access.label_payload(wcx, it[2]) == "cloud"]
+            items = [it for it in items if access.label_payload(wcx, it[2], provider=access.ANTHROPIC) == "cloud"]
         with copy.connect() as cx:
             cx.execute("DELETE FROM ai_sent")
             for tid, kind, payload, model in items:

@@ -4,6 +4,9 @@
 - LocalBackend calls any other OpenAI-compatible server (LM Studio, llama.cpp, Jan, vLLM), also local.
 - detect_local() finds which of these servers are running and which models they offer.
 - AnthropicBackend calls the Claude API (cloud: needs a key and the `anthropic` package; opt-in in the app).
+- CloudBackend calls another cloud provider's OpenAI-compatible API (OpenAI, Gemini, Mistral, Azure OpenAI,
+  OpenRouter; providers.py) with the person's key: LocalBackend's request, sent to the provider over HTTPS.
+- Every backend says which cloud provider it is (`provider`; None: it reads on this computer), for access.py.
 - BaselineBackend is a keyword heuristic with the same output format. It runs offline, drives the tests,
   and gives a floor that any model has to beat on the gold set.
 - The file queue (tasks export / tasks import) lets any outside worker answer tasks, including Claude in a chat.
@@ -16,7 +19,7 @@ import os
 import re
 from typing import Protocol
 
-from . import taskkinds
+from . import providers, taskkinds
 from .textutil import content_words, overlap, split_sentences
 
 
@@ -278,6 +281,7 @@ class AnthropicBackend:
     """The Claude API. The system prompt is cached, so repeated tasks of one kind pay for it once."""
 
     name = "anthropic"
+    provider = providers.ANTHROPIC
 
     def __init__(self, api_key: str | None = None, max_tokens: int = 8000, client=None, base_url: str | None = None,
                  timeout: float = 600):
@@ -348,6 +352,11 @@ class OllamaBackend:
     """
 
     name = "ollama"
+
+    @property
+    def provider(self) -> str | None:
+        """None on this computer; on another computer the provider of its address (`other` for a lab's server)."""
+        return providers.of_url(self.base_url)
 
     def __init__(self, base_url: str | None = None, num_ctx: int = 16384, think: bool | None = None,
                  keep_alive: str = "15m", timeout: int = 1800, opener=None,
@@ -808,6 +817,13 @@ class LocalBackend:
     name = "local"
     FORMATS = ("json_schema", "json_object", "none")
 
+    @property
+    def provider(self) -> str | None:
+        """None on this computer; on another computer the provider of its address: an OpenAI address typed into the
+        local server field is OpenAI, any other server `other` (access.py: neither reads a document that allows
+        Anthropic only)."""
+        return providers.of_url(self.base_url)
+
     def __init__(self, base_url: str | None = None, api_key: str | None = None, timeout: int = 1800, opener=None,
                  stall_timeout: int = 600, stream: bool = True, seed: int | None = DEFAULT_SEED):
         url = (base_url or os.environ.get("MARGIN_LOCAL_URL") or "http://localhost:8080/v1").rstrip("/")
@@ -866,11 +882,9 @@ class LocalBackend:
         from .schema import output_schema
 
         cap = OUTPUT_CAP.get(kind, 2000) + THINK_ALLOWANCE
-        base = {"model": model, "temperature": 0, "max_tokens": cap, "stream": self.stream,
-                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
-        if self.seed is not None:  # llama.cpp, vLLM and LM Studio take a seed; a server that does not ignores it
-            base["seed"] = int(self.seed)
-        order = list(self.FORMATS[self.FORMATS.index(self._format):])
+        base = self._body(model, system, user, cap)
+        formats = tuple(getattr(self, "formats", self.FORMATS))
+        order = list(formats[formats.index(self._format):]) if self._format in formats else list(formats)
         last: Exception | None = None
         for fmt in order:
             body = dict(base)
@@ -890,6 +904,8 @@ class LocalBackend:
                 except Exception:
                     detail = ""
                 e.read = lambda d=detail.encode(): d  # keep the body readable for _error
+                if self._drop_refused(e.code, detail, base):
+                    return self.complete(kind, system, user, model, payload)  # asked again without the field
                 if e.code in (400, 422, 500) and ("response_format" in detail or "json" in detail.lower()
                                                   or "schema" in detail.lower() or "grammar" in detail.lower()):
                     continue  # this server does not take this answer format: try the next one
@@ -897,6 +913,18 @@ class LocalBackend:
             except Exception as e:
                 raise self._error(e, model) from e
         raise self._error(last or RuntimeError("no answer"), model)
+
+    def _body(self, model: str, system: str, user: str, cap: int) -> dict:
+        """The request's fields besides the answer format."""
+        base = {"model": model, "temperature": 0, "max_tokens": cap, "stream": self.stream,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+        if self.seed is not None:  # llama.cpp, vLLM and LM Studio take a seed; a server that does not ignores it
+            base["seed"] = int(self.seed)
+        return base
+
+    def _drop_refused(self, code: int, detail: str, body: dict) -> bool:
+        """A field the server refused, left out from now on (CloudBackend: a model that takes no temperature of 0)."""
+        return False
 
     def _run(self, kind: str, model: str, body: dict, prompt_tokens: int, cap: int) -> str:
         import time
@@ -1041,6 +1069,216 @@ class LocalBackend:
         out: dict = {"ok": True, "url": self.base_url, "models": self.models()}
         if model:
             out["model_available"] = model in out["models"]
+        return out
+
+
+def _no_redirect_opener():
+    """urlopen that follows no redirect: a 3xx answer is an error, so the key is never sent on to another address and
+    HTTPS cannot be left on the way (CloudBackend)."""
+    import urllib.request
+
+    class _Refuse(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None   # urllib then raises HTTPError with the 3xx code
+
+    opener = urllib.request.build_opener(_Refuse)
+
+    def open_(req, *a, **k):
+        return opener.open(req, *a, **k)
+    return open_
+
+
+_KEY_SHAPES = re.compile(r"\b(sk-[A-Za-z0-9_*.\-]{6,}|AIza[A-Za-z0-9_\-]{10,})")
+
+
+class CloudBackend(LocalBackend):
+    """Another cloud provider's chat API (stage 1 of other cloud providers): OpenAI, Google Gemini, Mistral, Azure
+    OpenAI or OpenRouter, all in the OpenAI chat-completions format (providers.py). LocalBackend's request, with:
+
+    - the person's key (kept in the system's keychain, home.cloud_key), sent as the provider wants it (a Bearer token,
+      or Azure's api-key header), and nowhere else: never in settings.json, a log, an error message, the provenance of
+      an answer or a move zip (errors are cleaned of anything shaped like a key);
+    - HTTPS only (an address on this computer, such as a test's stand-in or a local gateway, may use http);
+    - only the fields each provider documents (providers.TABLE's quirks: Mistral's random_seed in place of seed,
+      OpenAI's max_completion_tokens, no seed for Gemini); a field a model refuses (temperature 0 on OpenAI's
+      reasoning models) is left out and the task asked again;
+    - none of LM Studio's own calls; the models from GET {base}/models where the provider lists them (Azure: the
+      deployment's name is typed);
+    - errors in plain words, with the provider's name: the key refused (401, 403, Gemini's 400 API_KEY_INVALID), a
+      limit reached (429), a redirect refused (3xx: the key is never sent on);
+    - timeouts for a server far away: an answer that sends nothing for 5 minutes (a reasoning model may think that
+      long before its first word), or takes over 10, is given up.
+    """
+
+    name = providers.CLOUD_ROUTE
+
+    def __init__(self, provider: str, key: str, base_url: str | None = None, timeout: int = 600, opener=None,
+                 stall_timeout: int = 300, stream: bool = True, seed: int | None = DEFAULT_SEED):
+        spec = providers.get(provider)
+        if spec is None or provider == providers.ANTHROPIC:
+            raise BackendError(f"Unknown cloud provider {provider!r}: choose one in Settings → AI.")
+        if not key:
+            raise BackendError(f"No API key for {spec.title} is stored on this computer. Enter one in Settings → AI.")
+        url = (base_url or spec.base_url or "").strip().rstrip("/")
+        if not url or "{" in url:
+            raise BackendError(f"Give the address of your {spec.title} resource in Settings → AI.")
+        if not url.lower().startswith("https://") and not providers.on_this_computer(url):
+            raise BackendError(f"{spec.title} is reached only over HTTPS, so the text read is encrypted on its way: "
+                               f"{url} is not an https:// address.")
+        super().__init__(base_url=url, api_key="-", timeout=timeout, opener=opener or _no_redirect_opener(),
+                         stall_timeout=stall_timeout, stream=stream, seed=seed)
+        self.base_url = url            # as the provider gives it (Gemini's ends in /openai, not /v1)
+        self.api_key = None            # the key is sent in the request's header only (`_headers`)
+        self._provider = provider
+        self._spec = spec
+        self.__key = key
+        q = spec.quirks
+        self._seed_field = q.get("seed", "seed")
+        if not self._seed_field:
+            self.seed = None           # a provider that takes no seed: none is sent, and none is recorded
+        self._max_field = q.get("max_tokens", "max_tokens")
+        self.formats = tuple(q.get("formats") or self.FORMATS)
+        self._format = self.formats[0]
+        self._dropped: dict[str, set[str]] = {}   # per model: the fields it refused, left out from then on
+        self._model = ""                          # the model of the request being made
+        self.model_note = None
+
+    @property
+    def provider(self) -> str:
+        return self._provider
+
+    def dropped(self, model: str) -> set[str]:
+        """The fields this model refused (temperature 0 on a reasoning model, a seed)."""
+        return self._dropped.get(model, set())
+
+    def seed_sent(self, model: str) -> int | None:
+        """The seed sent with this model's requests (None: none is sent)."""
+        if not self._seed_field or self.seed is None or self._seed_field in self.dropped(model):
+            return None
+        return int(self.seed)
+
+    @property
+    def title(self) -> str:
+        return self._spec.title
+
+    def __repr__(self) -> str:   # never the key
+        return f"CloudBackend({self._provider!r}, {self.base_url!r})"
+
+    def _scrub(self, text: str) -> str:
+        """A message without the key (or anything shaped like a key a provider may echo back)."""
+        t = str(text or "")
+        if self.__key:
+            t = t.replace(self.__key, "[key]")
+        return _KEY_SHAPES.sub("[key]", t)
+
+    def _headers(self) -> dict:
+        if self._spec.auth == "api-key":
+            return {"api-key": self.__key}
+        return {"Authorization": f"Bearer {self.__key}"}
+
+    def _request(self, path: str, body: dict | None = None):
+        from urllib.request import Request
+
+        return Request(f"{self.base_url}{path}", data=json.dumps(body).encode() if body is not None else None,
+                       method="POST" if body is not None else "GET",
+                       headers={"Content-Type": "application/json", **self._headers()})
+
+    def _body(self, model: str, system: str, user: str, cap: int) -> dict:
+        body = {"model": model, "stream": self.stream,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                self._max_field: cap}
+        if "temperature" not in self.dropped(model):
+            body["temperature"] = 0
+        if self.seed_sent(model) is not None:
+            body[self._seed_field] = self.seed_sent(model)
+        return body
+
+    def _drop_refused(self, code: int, detail: str, body: dict) -> bool:
+        if code not in (400, 422):
+            return False
+        low = (detail or "").lower()
+        model = body.get("model", "")
+        for f in ("temperature", self._seed_field):
+            if f and f in body and f not in self.dropped(model) and f in low:
+                self._dropped.setdefault(model, set()).add(f)
+                return True
+        return False
+
+    def complete(self, kind: str, system: str, user: str, model: str, payload: dict) -> str:
+        try:
+            return super().complete(kind, system, user, model, payload)
+        except BackendError as e:
+            msg = self._scrub(str(e)).replace("The local server", self.title).replace("the local server", self.title)
+            if msg != str(e):
+                e.args = (msg,)
+            raise
+
+    def _error(self, e: Exception, model: str = "") -> BackendError:
+        from urllib.error import HTTPError
+
+        t = self.title
+        if isinstance(e, BackendError):
+            return BackendError(self._scrub(str(e))) if self._scrub(str(e)) != str(e) else e
+        if isinstance(e, HTTPError):
+            detail, raw = "", ""
+            try:
+                raw = e.read().decode()
+                d = json.loads(raw)
+                if isinstance(d, list) and d:   # Gemini: [{"error": {...}}]
+                    d = d[0]
+                detail = d.get("error", "") if isinstance(d, dict) else ""
+                if isinstance(detail, dict):
+                    detail = detail.get("message", "")
+                elif isinstance(d, dict) and not detail:
+                    detail = d.get("message", "") or d.get("detail", "")
+            except Exception:
+                pass
+            detail = self._scrub(str(detail or ""))[:300]
+            if 300 <= e.code < 400:
+                return BackendError(f"{t} answered with a redirect ({e.code}); Margin follows none, so the key is "
+                                    "never sent on. Check the address in Settings → AI.")
+            if e.code in (401, 403) or (e.code == 400 and ("API_KEY_INVALID" in raw or "API key not valid" in raw)):
+                return BackendError(f"{t} refused the key ({e.code}). Check it in Settings → AI, or make a new one"
+                                    + (f" ({self._spec.key_hint})." if self._spec.key_hint else "."))
+            if e.code == 429:
+                return BackendError(f"{t}: the limit of this key is reached (too many requests, or no credit left). "
+                                    f"Wait a minute and try again, or check your {t} account.")
+            if e.code == 404:
+                return BackendError(f"{t} does not offer the model {model!r} to this key. Check the model's name in "
+                                    "Settings → AI." if model else f"{t} did not find this address ({e.code}).")
+            if e.code >= 500:
+                return BackendError(f"{t} had a problem on its side ({e.code}). Try again in a few minutes.")
+            return BackendError(f"{t} refused the request ({e.code}): {detail or e.reason}")
+        if "timed out" in str(e).lower() or isinstance(e, TimeoutError):
+            return BackendError(f"{t} sent nothing for {self.stall_timeout} seconds. Try again later.")
+        return BackendError(f"Could not reach {t}. Check the internet connection.")
+
+    # -- information: no LM Studio calls ---------------------------------------------------------
+    def models(self, timeout: float = 10) -> list[str]:
+        if not self._spec.lists_models:
+            return []
+        ids = super().models(timeout)
+        prefix = self._spec.quirks.get("model_prefix")
+        if prefix:
+            ids = sorted(i[len(prefix):] if i.startswith(prefix) else i for i in ids)
+        return ids
+
+    def loaded(self, timeout: float = 3) -> list[str]:
+        return []
+
+    def inventory(self, timeout: float = 10) -> dict:
+        return {"models": self.models(timeout), "loaded": [], "modified": {}}
+
+    def digest(self, model: str) -> str | None:
+        return f"name:{self._provider}/{model}"
+
+    def check(self, model: str | None = None) -> dict:
+        out: dict = {"ok": True, "provider": self._provider, "models": self.models()}
+        if model:
+            out["model_available"] = model in out["models"] if self._spec.lists_models else True
+        if not self._spec.lists_models:
+            out["warning"] = (f"{self.title} does not list its models: the first task says whether "
+                              f"{model or 'the deployment name'} is right.")
         return out
 
 
@@ -1250,6 +1488,7 @@ def _horizon(s: str) -> str:
 
 class BaselineBackend:
     name = "baseline"
+    provider = None
 
     def complete(self, kind: str, system: str, user: str, model: str, payload: dict) -> str:
         if kind == "extract":
@@ -1394,6 +1633,7 @@ class ClaudeCodeBackend:
     never handles its login."""
 
     name = "claude_code"
+    provider = providers.ANTHROPIC
 
     def __init__(self, router=None):
         self.router = router
@@ -1427,13 +1667,19 @@ def provenance(backend, model: str) -> dict:
     if name in ("claude_code", "anthropic"):
         # Claude Code sets no temperature and no seed; nor does the Claude API request (0.18.1: it was recorded as 0)
         settings.pop("temperature")
+    if name == providers.CLOUD_ROUTE:  # another cloud provider: which one (never its key)
+        settings["provider"] = getattr(backend, "provider", None)
+        settings["route"] = providers.title(settings["provider"])
+        if "temperature" in backend.dropped(model):
+            settings.pop("temperature")
     if getattr(backend, "num_ctx", None):
         settings["num_ctx"] = int(backend.num_ctx)
     if name == "ollama":
         settings["think"] = ("judging" if getattr(backend, "think_kinds", None) else
                              {True: "on", False: "off", None: "default"}[getattr(backend, "think", None)])
         settings["think_budget"] = int(getattr(backend, "think_budget", 0) or 0)
-    return {"digest": digest, "seed": getattr(backend, "seed", None), "settings": settings}
+    seed = backend.seed_sent(model) if name == providers.CLOUD_ROUTE else getattr(backend, "seed", None)
+    return {"digest": digest, "seed": seed, "settings": settings}
 
 
 def repeatable(backend, model: str) -> dict:
@@ -1453,6 +1699,17 @@ def repeatable(backend, model: str) -> dict:
                         "twice. Measure how much two readings differ with the acceptance runs (--again), or compare "
                         "a sample of labels."}
     payload = {"claim": "Green hydrogen production can increase water stress in arid regions."}
+    if name == providers.CLOUD_ROUTE:  # another cloud provider: asked like a server, and named
+        a = backend.complete("expand", system_prompt("expand"), user_prompt("expand", payload), model, payload)
+        b = backend.complete("expand", system_prompt("expand"), user_prompt("expand", payload), model, payload)
+        same = a.strip() == b.strip()
+        who = f"{providers.title(backend.provider)} ({model})"
+        return {"repeatable": same, "seed": backend.seed_sent(model) is not None, "provider": backend.provider,
+                "model": model, "digest": backend.digest(model),
+                "note": (f"{who} gave the same answer twice. Cloud providers do not promise it: check again "
+                         "now and then." if same else
+                         f"{who} gave two different answers to the same question: it does not guarantee repeatable "
+                         "answers.")}
     a = backend.complete("expand", system_prompt("expand"), user_prompt("expand", payload), model, payload)
     b = backend.complete("expand", system_prompt("expand"), user_prompt("expand", payload), model, payload)
     same = a.strip() == b.strip()
@@ -1487,5 +1744,7 @@ def get_backend(name: str, **kw) -> Backend:
         return BaselineBackend()
     if name == "claude_code":
         return ClaudeCodeBackend()
+    if name == providers.CLOUD_ROUTE:
+        return CloudBackend(**kw)
     raise ValueError(f"unknown backend {name!r}; use 'auto', 'ollama', 'local', 'anthropic', 'claude_code' or "
                      "'baseline', or the file queue (export-tasks / import-results)")

@@ -151,9 +151,14 @@ class App(LibraryMixin, QueueMixin):
         if name not in home.list_projects():
             raise ApiError(404, f"No project called {name!r}.")
         try:
-            return home.open_project(name)
+            ws = home.open_project(name)
         except Exception as e:
             raise ApiError(409, f"Could not open project {name!r}: {e}") from e
+        try:  # stage 1 of other cloud providers: the tasks' settings are for the main route's provider (once per change)
+            access.sync_labels(ws, access.route_provider(self.settings()))
+        except Exception:  # noqa: BLE001 - the guard works each task out again as it leaves
+            pass
+        return ws
 
     def backend(self, kinds: tuple[str, ...] = ("check", "expand", "decompose", "reread"), k: int | None = None,
                 wake: bool = False):
@@ -266,6 +271,7 @@ class App(LibraryMixin, QueueMixin):
                "ocr": ingest.ocr_status(),
                "installation": _installation(),
                "key": {"session": bool(self.session_key), "env": bool(home.env_key()), "stored": bool(home.stored_key())},
+               "providers": self.providers_state(s),   # stage 1 of other cloud providers
                "statuses": [{"status": k, "text": v, "help": claimcheck.STATUS_HELP.get(k, ""),
                              "next": claimcheck.STATUS_NEXT.get(k, "")} for k, v in claimcheck.STATUS_TEXT.items()],
                "jobs": self.job_views(active_only=True),
@@ -274,6 +280,23 @@ class App(LibraryMixin, QueueMixin):
                "profile_framework_team": self._team_framework(current)}
         out.update(addons.state(self, set(out)))  # 0.13.6: an add-on's keys, never in place of Margin's
         return out
+
+    def providers_state(self, s: dict | None = None) -> dict:
+        """The cloud providers for Settings and the Documents page: the table, whether a key is stored for each (yes
+        or no, never the key), and whether one other than Anthropic is set up (a key stored, or the main route is
+        one): the Documents page then says "Cloud AI may read it" instead of "Claude may read it"."""
+        from .. import providers
+
+        s = s if s is not None else self.settings()
+        keys = {} if home.local_only() else home.cloud_keys()
+        route = access.route_provider(s)
+        others = sorted({p for p, have in keys.items() if have}
+                        | ({route} if route not in (None, providers.ANTHROPIC) else set()))
+        return {"list": providers.summary(), "keys": keys, "route": route, "set_up": others,
+                "other_set_up": bool(others) and not home.local_only(),
+                # a model server on another computer as the main route: its address, for the line that says it reads
+                # only the documents allowed to it
+                "route_address": access.route_address(s) if s.get("backend") in ("auto", "ollama", "openai") else None}
 
     def _team_framework(self, name: str | None) -> dict | None:
         """The project's default codebook, set by its owner, when this copy holds it ({"name", "title"}): it takes the
@@ -438,6 +461,11 @@ class App(LibraryMixin, QueueMixin):
         elif out["backend"] == "anthropic":
             out["message"] = (f"Connected to the Claude API. {model} is available." if out["model_available"]
                               else f"Connected, but {model} is not in this key's model list.")
+        elif out["backend"] == "cloud_api":
+            title = getattr(be, "title", "The provider")
+            out["provider"] = getattr(be, "provider", None)
+            out["message"] = (f"Connected to {title}. {model} is available." if out["model_available"]
+                              else f"Connected to {title}, but {model} is not in this key's model list.")
         else:
             out["message"] = "The offline demo grades by word overlap. Its results are not findings."
         emb = home.make_embedder(s)
@@ -1577,6 +1605,10 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("PUT", r"/api/settings", "put_settings"),
     ("POST", r"/api/settings/key", "post_key"),
     ("DELETE", r"/api/settings/key", "delete_key"),
+    # stage 1 of other cloud providers: a provider's key (only "stored: yes or no" ever comes back) and its models
+    ("POST", r"/api/settings/provider-key", "post_provider_key"),
+    ("DELETE", r"/api/settings/provider-key", "delete_provider_key"),
+    ("GET", r"/api/settings/provider-models", "get_provider_models"),
     ("POST", r"/api/quit", "post_quit"),
     ("POST", r"/api/restart", "post_restart"),
     ("GET", r"/api/update", "get_update"),

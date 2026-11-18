@@ -270,15 +270,16 @@ def _person_rows(cx, task_id: str, cid: str, passages: list[dict], by_choice: bo
 
 
 def _add_round(ws: Workspace, cid: str, base: str, payload: dict, model: str, main_levels=("cloud",),
-               local_reader: bool = False, cx=None) -> dict[str, str]:
+               local_reader: bool = False, cx=None, provider: str | None = access.ANTHROPIC) -> dict[str, str]:
     """Create the parts of one round (see above). Returns {"main"|"local"|"person": task id} for the parts made."""
     if cx is None:
         with ws.connect() as c:
-            return _add_round(ws, cid, base, payload, model, main_levels, local_reader, c)
-    lv = access.levels(cx, [p["doc_id"] for p in payload["passages"]])
+            return _add_round(ws, cid, base, payload, model, main_levels, local_reader, c, provider)
+    # stage 1 of other cloud providers: for the main model's provider (Claude's routes: Anthropic)
+    lv = access.levels(cx, [p["doc_id"] for p in payload["passages"]], provider=provider)
     # 0.13.7: an add-on's floor for the check's own text (access.register_floor) goes with every excerpt, so each is
     # read by a model allowed to read both, and not by the main model on its document's setting alone
-    beside = access.floor(cx, payload)
+    beside = access.floor(cx, payload, provider=provider)
     main, local, person = [], [], []
     for p in payload["passages"]:
         level = access.most([lv.get(p["doc_id"], "none"), beside])
@@ -688,17 +689,17 @@ def _readers(backend, model: str, readers=None):
 _MAIN = object()  # _run_check: the hypothesis's own words go to the main model
 
 
-def _own_level(ws: Workspace, hyp_id: str) -> str:
+def _own_level(ws: Workspace, hyp_id: str, provider: str | None = None) -> str:
     """0.19.0 (N3): how far the hypothesis's own words may go, by the floors for its text (`access.floor`): a check
     started from a document's text keeps that document's AI setting, an add-on's draft its own; `cloud` otherwise."""
-    return access.floor(ws._conn(), {"hyp_id": hyp_id})
+    return access.floor(ws._conn(), {"hyp_id": hyp_id}, provider=provider)
 
 
 def _own_reader(ws: Workspace, hyp_id: str, readers):
     """0.19.0 (N3): (backend, model) that may read the hypothesis's own words to split it or to propose search words:
     the main model, the local model for restricted documents, or None (no model may: it is checked as written, with
     its own words)."""
-    lv = _own_level(ws, hyp_id)
+    lv = _own_level(ws, hyp_id, readers.provider)
     if lv in readers.main_levels:
         return readers.backend, readers.model
     return readers.for_level(lv)
@@ -973,7 +974,7 @@ def queue_check(ws: Workspace, text: str, router, framework: str | None = None, 
     # 0.19.0 (N3): Claude Code may not read words a floor keeps on this computer (a check started from a document
     # marked Only a local AI or No AI): the hypothesis is checked as written, with its own words, and its excerpts are
     # judged by the local model or by the person (_add_round)
-    if _own_level(ws, hid) != "cloud":
+    if _own_level(ws, hid, access.ANTHROPIC) != "cloud":   # (the queue's reader: Claude Code)
         options.update(expand=options["expand"] and given_terms is not None, decompose=bool(given and len(given) > 1))
         decompose = False
         with ws.connect() as cx:
@@ -1196,9 +1197,9 @@ def _run_check(ws, cid, backend, model, used, k, per_doc, expand, doc_ids, say, 
     stop()
     readers = _readers(backend, model, readers)
     parts = _add_round(ws, cid, f"check:{cid}", _payload(ws, cid, claim, uc["target"], uc["framework"], picked, terms),
-                       used, tuple(readers.main_levels), readers.local_configured())
+                       used, tuple(readers.main_levels), readers.local_configured(), provider=readers.provider)
     n = _part_counts(ws, parts)
-    say("grade", _grade_text(n, access.is_cloud(backend)), {"split": n} if len(n) > 1 else {})
+    say("grade", _grade_text(n, access.provider_of(backend) == access.ANTHROPIC), {"split": n} if len(n) > 1 else {})
     ok = _run_round(ws, parts, backend, model, readers, say)
     graded = ws.scalar("SELECT COUNT(*) FROM verifications WHERE subject_kind='user_claim' AND subject_id=? "
                        "AND verdict != 'not_enough_info'", (cid,)) or 0
@@ -1252,13 +1253,14 @@ def continue_check(ws: Workspace, cid: str, backend, model: str, k: int = 8, ter
     readers = _readers(backend, model, readers)
     terms_before = ws.scalar("SELECT terms_json FROM user_claims WHERE claim_id=?", (cid,)) if terms else None
     r = more_passages(ws, cid, k=k, model=used, terms=terms, embedder=embedder, doc_ids=doc_ids,
-                      main_levels=tuple(readers.main_levels), local_reader=readers.local_configured())
+                      main_levels=tuple(readers.main_levels), local_reader=readers.local_configured(),
+                      provider=readers.provider)
     if not r["passages"]:
         say("rank_done", "No further excerpts match", {"passages": 0})
         return r
     say("rank_done", f"Found {len(r['passages'])} more excerpts", {"passages": len(r["passages"])})
     parts = r.pop("parts", {})
-    say("grade", _grade_text(_part_counts(ws, parts), access.is_cloud(backend)), {})
+    say("grade", _grade_text(_part_counts(ws, parts), access.provider_of(backend) == access.ANTHROPIC), {})
     try:
         ok = _run_round(ws, parts, backend, model, readers, say)
     except BaseException:
@@ -1337,7 +1339,7 @@ def _chat_round(ws: Workspace, parts: dict[str, str]) -> dict:
 
 def more_passages(ws: Workspace, cid: str, k: int = 8, model: str = CHAT_MODEL, terms: list[str] | None = None,
                   embedder=None, doc_ids: list[str] | None = None, main_levels=("cloud",),
-                  local_reader: bool | None = None) -> dict:
+                  local_reader: bool | None = None, provider: str | None = access.ANTHROPIC) -> dict:
     """The next best passages, none of them shown before, as a new round of the same check.
 
     With `terms`, the ranking uses these new search terms (with the claim) instead of the earlier ones, and only
@@ -1370,7 +1372,7 @@ def more_passages(ws: Workspace, cid: str, k: int = 8, model: str = CHAT_MODEL, 
         return {"check_id": cid, "round": n, "passages": []}
     payload = _payload(ws, cid, uc["text"], uc["target"], uc.get("framework"), picked, new_terms or old_terms)
     parts = _add_round(ws, cid, f"check:{cid}:r{n}" if groups else f"check:{cid}", payload, model, tuple(main_levels),
-                       _local_configured() if local_reader is None else local_reader)
+                       _local_configured() if local_reader is None else local_reader, provider=provider)
     if model == CHAT_MODEL:  # a Claude chat (the connector): it is shown the excerpts it may read
         return {"check_id": cid, "round": n, **_chat_round(ws, parts)}
     return {"check_id": cid, "round": n, "passages": _shown(payload), "parts": parts}
@@ -1529,7 +1531,7 @@ def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, 
     stop = _stopper(should_stop)
     if not second_model:
         raise ValueError("Choose a model for second opinions in Settings first.")
-    if second_model == main_model and getattr(backend, "name", "") not in ("claude_code", "anthropic"):
+    if second_model == main_model and getattr(backend, "name", "") not in routing.CLAUDE_ROUTES:
         # on Claude the auditor gives the second opinion; it may run on the same model as the checker (Opus)
         raise ValueError("The model for second opinions must be another model than the main one.")
     todo = []
@@ -1544,7 +1546,7 @@ def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, 
                     continue  # 0.19.17: not read yet (waits for the local model, Claude Code, or failed): no first
                     # reading to compare with, and the excerpts are not shown as cards to find the difference on
                 with ws.connect() as cx:  # the setting of its documents now (it may have changed since)
-                    lv = access.label_payload(cx, json.loads(t["payload_json"]))
+                    lv = access.label_payload(cx, json.loads(t["payload_json"]), provider=access.provider_of(backend))
                 if lv not in may:  # 0.11: a local excerpt has a second opinion only from a second local model
                     restricted += len(json.loads(t["payload_json"])["passages"])
                     continue

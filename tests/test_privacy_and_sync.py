@@ -579,6 +579,7 @@ def test_glossary_terms_of_restricted_documents_stay_off_another_computer(mixed,
     cloud = [d for d, lv in access.levels(ws).items() if lv == "cloud"]
     assert not terms.terms_in_docs(ws, secret, cloud)
     far = Embedder("http://10.1.2.3:11434")
+    access.set_providers_default(ws, ["anthropic", "other"])   # stage 1 of other cloud providers: allowed to it
     terms.meaning_variants(ws, far)
     assert far.sent and not [t for t in far.sent if "zqx" in t.lower()]
     near = Embedder("http://localhost:11434")  # on this computer: every term may be embedded

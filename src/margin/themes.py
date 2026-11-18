@@ -1201,7 +1201,7 @@ def _allowed_reps(ws: Workspace, run_id: str, theme: dict, allowed: set[str], lv
 
 
 def make_name_tasks(ws: Workspace, run_id: str, model: str, allowed: set[str] | None = None,
-                    theme_ids: set[int] | None = None) -> int:
+                    theme_ids: set[int] | None = None, provider: str | None = None) -> int:
     """A naming task per theme, with representatives from documents of the `allowed` settings only (0.11: the
     ones the reader may read; default: every document an AI may read). A theme without such passages gets none."""
     from . import access
@@ -1209,7 +1209,7 @@ def make_name_tasks(ws: Workspace, run_id: str, model: str, allowed: set[str] | 
 
     allowed = allowed or {"cloud", "local"}
     v = view(ws, run_id)
-    lv = access.levels(ws)
+    lv = access.levels(ws, provider=provider)   # for the reader's provider (providers.py)
     n = 0
     with ws.connect() as cx:
         for t in v["themes"]:
@@ -1309,7 +1309,7 @@ def name_with_model(ws: Workspace, run_id: str, backend, model: str, progress: C
     # 0.11: representatives from documents the main model may read; a theme with none of those is named by the
     # local model (from its restricted passages) or keeps its key terms
     readers = access.Readers(backend, model)
-    make_name_tasks(ws, run_id, model, readers.main_levels)
+    make_name_tasks(ws, run_id, model, readers.main_levels, provider=readers.provider)
     head = f"theme:{run_id}:"
     made = {r[0] for r in ws.query("SELECT task_id FROM tasks WHERE kind='theme' AND substr(task_id, 1, ?) = ?",
                                    (len(head), head))}
@@ -1329,8 +1329,7 @@ def name_with_model(ws: Workspace, run_id: str, backend, model: str, progress: C
     dflt = access.default(ws)
     # 0.19.13: in a job of the app the themes only the local model may name wait for its own Start (when Claude names
     # others), and are named beside Claude's once it is pressed (the job's local gate)
-    level = {r[0]: r[1] for r in ws.query("SELECT task_id, COALESCE(access, 'cloud') FROM tasks WHERE kind='theme' "
-                                          "AND substr(task_id, 1, ?) = ?", (len(head), head))}
+    level = {tid: readers.level_of(ws, tid) for tid in todo}   # for the main model's provider
     local_ids = {t for t in todo if level.get(t) not in readers.main_levels and level.get(t) == "local"}
     gated = bool(local_ids) and readers.defers()
     seen = [0]

@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import taskkinds
+from . import providers, taskkinds
 
 STEP_UP_BELOW = 0.6
 
@@ -70,8 +70,11 @@ TO_AUDITOR = taskkinds.Names(lambda k: k.to_auditor)
 
 ROUTE_NAMES = {"claude_code": "Claude Code", "anthropic": "Claude API", "local": "local model server",
                "ollama": "local model server", "baseline": "offline demo", "file": "file queue",
-               "chat": "Claude app (connector)"}
-OFF_COMPUTER = frozenset({"anthropic", "claude_code"})   # the backends whose passages leave this computer
+               "chat": "Claude app (connector)", providers.CLOUD_ROUTE: "another cloud provider"}
+# the backends whose passages leave this computer: Claude's two routes and another cloud provider's API (providers.py
+# is the one table: each route's provider is there)
+CLAUDE_ROUTES = frozenset(providers.ROUTE_PROVIDER)
+OFF_COMPUTER = CLAUDE_ROUTES | {providers.CLOUD_ROUTE}
 
 
 # 0.18.1 (N2): how much thought Claude gives each kind of task, beside every Start Claude Code (Settings'
@@ -177,9 +180,9 @@ def tier_defaults(kind: str, tier: str) -> tuple[str, str | None]:
 
 
 def route_of(backend_name: str) -> str:
-    """The route family of a backend name: claude_code, anthropic, local (Ollama and other local servers) or
-    baseline."""
-    if backend_name in ("claude_code", "anthropic", "baseline"):
+    """The route family of a backend name: claude_code, anthropic, cloud_api (another cloud provider's API), local
+    (Ollama and other local servers) or baseline."""
+    if backend_name in ("claude_code", "anthropic", "baseline", providers.CLOUD_ROUTE):
         return backend_name
     return "local"
 
@@ -267,7 +270,9 @@ class Router:
         if self.route in ("claude_code", "anthropic"):
             m = chosen or self._defaults(kind)[0]
             return self._auditor() if m == "auditor" else m
-        if self.route == "local":
+        if self.route in ("local", providers.CLOUD_ROUTE):
+            # stage 1 of other cloud providers: their chosen model answers every kind, the small one (if set) the
+            # kinds a local small model takes; no per-task models or ladders of their own yet
             if chosen:
                 return chosen
             role = LOCAL_DEFAULTS[kind]
@@ -298,7 +303,7 @@ class Router:
             if (self.route == "claude_code" or self.thought != "balanced") and moved and nxt in RANK and start in RANK and RANK[nxt] <= RANK[start]:
                 return None
             return nxt
-        if self.route == "local":
+        if self.route in ("local", providers.CLOUD_ROUTE):
             if LOCAL_DEFAULTS[kind] == "small" and self.small and self.large and self.small != self.large \
                     and start != self.large:
                 return self.large
@@ -352,8 +357,13 @@ def from_settings(settings: dict, route: str | None = None, large: str = "") -> 
         models = {}
     family = "claude" if route in ("claude_code", "anthropic") else "local"
     overrides = {k: v for k, v in (models.get(family) or {}).items() if isinstance(v, str) and v.strip()}
+    small = (settings.get("local_small_model") or "").strip() if route == "local" else ""
+    if route == providers.CLOUD_ROUTE:  # a local model's per-task names mean nothing to a cloud provider
+        overrides = {}
+        large = large or (settings.get("cloud_model") or "").strip()
+        small = (settings.get("cloud_small_model") or "").strip()
     return Router(route=route, fable=bool(settings.get("use_fable")), overrides=overrides, large=large,
-                  small=(settings.get("local_small_model") or "").strip() if route == "local" else "",
+                  small=small,
                   second=(settings.get("second_model") or "").strip(),
                   opus_id=settings.get("anthropic_model") or API_IDS["opus"],
                   tier=settings_tier(settings) if route == "claude_code" else "",

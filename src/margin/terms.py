@@ -1057,7 +1057,7 @@ def meaning_variants(ws: Workspace, embedder, limit: int = MEANING_TERMS, thresh
 
     rows = ws.query("SELECT term_id, label, stems FROM terms ORDER BY tf DESC, term_id LIMIT ?", (int(limit),))
     if remote(embedder):
-        restricted = _restricted_docs(ws)
+        restricted = _restricted_docs(ws, embedder)   # for the embedder's provider (its address)
         if restricted:
             allowed = [r[0] for r in ws.query("SELECT doc_id FROM documents") if r[0] not in restricted]
             ok = terms_in_docs(ws, [r["term_id"] for r in rows], allowed)
@@ -1579,16 +1579,17 @@ def passage_term_counts(ws: Workspace) -> dict[str, Counter]:
 # ---------------------------------------------------------------------------------------------
 # link tasks (the model judges how two terms relate) and wordings proposed by the model
 # ---------------------------------------------------------------------------------------------
-def snippets(ws: Workspace, term: str, n: int = 3, width: int = 150, allowed: set[str] | None = None) -> list[dict]:
+def snippets(ws: Workspace, term: str, n: int = 3, width: int = 150, allowed: set[str] | None = None,
+             provider: str | None = None) -> list[dict]:
     """Up to n short passages where a term occurs, from different documents where possible; with `allowed` (0.11),
-    only from documents of those AI settings."""
+    only from documents of those AI settings (for `provider`'s reading: providers.py)."""
     rows = ws.query("SELECT m.passage_id, p.doc_id, m.start, m.end, p.text, p.start AS pstart, d.title FROM term_mentions m "
                     "JOIN passages p ON p.passage_id=m.passage_id JOIN documents d ON d.doc_id=p.doc_id "
                     "WHERE m.term_id=? ORDER BY p.doc_id, m.start", (term,))
     if allowed is not None:
         from . import access
 
-        lv = access.levels(ws, {r["doc_id"] for r in rows})
+        lv = access.levels(ws, {r["doc_id"] for r in rows}, provider=provider)
         rows = [r for r in rows if lv.get(r["doc_id"]) in allowed]
     picked, docs = [], set()
     for r in rows:
@@ -1614,7 +1615,7 @@ def snippets(ws: Workspace, term: str, n: int = 3, width: int = 150, allowed: se
 
 
 def make_link_task(ws: Workspace, a: str, b: str, model: str, allowed: set[str] | None = None,
-                   local_reader: bool = False) -> str | None:
+                   local_reader: bool = False, provider: str | None = None) -> str | None:
     """A `link` task for two terms (each with up to three passages where it occurs); returns its id.
 
     0.11: the passages come from documents of the `allowed` settings (those the reader may read; default: every
@@ -1628,7 +1629,7 @@ def make_link_task(ws: Workspace, a: str, b: str, model: str, allowed: set[str] 
     if len(info) < 2:
         raise KeyError(a if a not in info else b)
     allowed = set(allowed or {"cloud", "local"})
-    sn = {t: snippets(ws, t, allowed=allowed) for t in (a, b)}
+    sn = {t: snippets(ws, t, allowed=allowed, provider=provider) for t in (a, b)}  # the main model's provider
     if not all(sn.values()):
         if not (local_reader and "local" not in allowed):
             return None
@@ -1664,14 +1665,13 @@ def judge_links(ws: Workspace, pairs: list[tuple[str, str]], backend, model: str
     readers = access.Readers(backend, model)
     dflt = access.default(ws)
     # every task first (0.8): with Claude Code they all wait in the queue at once, to be answered in batches
-    made = [make_link_task(ws, a, b, model, readers.main_levels, readers.local_configured()) for a, b in pairs]
+    made = [make_link_task(ws, a, b, model, readers.main_levels, readers.local_configured(), readers.provider)
+            for a, b in pairs]
     ids = [t for t in made if t]
     kept = len(made) - len(ids)  # pairs whose terms occur only in documents no model here may read
     # 0.19.13: in a job of the app the pairs only the local model may judge wait for its own Start (when Claude
     # judges others), and are judged beside Claude's once it is pressed (the job's local gate)
-    level = {}
-    for tid in ids:
-        level[tid] = ws.scalar("SELECT COALESCE(access, 'cloud') FROM tasks WHERE task_id=?", (tid,))
+    level = {tid: readers.level_of(ws, tid) for tid in ids}   # for the main model's provider
     local_ids = {t for t in ids if level.get(t) == "local" and "local" not in readers.main_levels}
     gated = bool(local_ids) and readers.defers()
     seen = [0]
@@ -1730,7 +1730,8 @@ def propose_wordings(ws: Workspace, term: str, backend, model: str) -> list[dict
 
     ids = concept_of(ws, term)
     # 0.11: only wordings found in documents this model may read are sent
-    ids = sorted(terms_in_docs(ws, ids, access.allowed_docs(ws, access.backend_levels(backend))))
+    ids = sorted(terms_in_docs(ws, ids, access.allowed_docs(ws, access.backend_levels(backend),
+                                                            provider=access.provider_of(backend))))
     if not ids:
         raise ValueError("This concept occurs only in documents this model may not read, so its wordings are not sent.")
     labels = [r[0] for r in ws.query(f"SELECT label FROM terms WHERE term_id IN ({','.join('?' * len(ids))}) "
@@ -1742,7 +1743,7 @@ def propose_wordings(ws: Workspace, term: str, backend, model: str) -> list[dict
         tasks._insert_task(cx, tid, "expand", model, {"concept": term, "claim": f"the concept: {labels[0]}"
                                                        + (f" (also written: {', '.join(labels[1:6])})" if labels[1:] else "")})
         # worked out again as it leaves, as in the runs of several tasks (an add-on's floor may hold it back)
-        if access.recheck(cx, tid) not in access.backend_levels(backend):
+        if access.recheck(cx, tid, provider=access.provider_of(backend)) not in access.backend_levels(backend):
             raise ValueError("This concept's wordings may not be sent to this model.")
     tasks.run_one(ws, tid, backend, model)
     return suggested_wordings(ws, term)
