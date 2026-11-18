@@ -1,5 +1,7 @@
-# 0.19.19: Other cloud providers, with your consent per provider
-*You can now use OpenAI, Google Gemini, Mistral, Azure OpenAI or OpenRouter with your own API key instead of Claude.*
-- Another cloud provider, with an API key
-- Consent per document and per provider
-- A model server on another computer no longer reads Claude may read it documents until you allow it
+# 0.20.0: Codex and Antigravity, set up like Claude Code
+*You can now use Codex on a ChatGPT plan, or Antigravity on a Google account (free or paid).*
+- Codex and Antigravity answer the queue on your own plan, as Claude Code does
+- Every set-up of something outside Margin works the same way
+- Work a provider may not read says so, and goes on once you allow it
+- Recommended models, applied by themselves
+- Another cloud provider no longer uses one model for everything
