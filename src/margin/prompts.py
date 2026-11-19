@@ -37,6 +37,10 @@ def system_prompt(kind: str) -> str:
     k = taskkinds.get(kind)
     if k is not None and k.system is not None:  # 0.13.6: an add-on's kind builds its own
         return k.system()
+    if kind == "point":  # I6: the small local model's short answer form (pointing.py)
+        from .pointing import system_prompt as point_system
+
+        return point_system()
     if kind == "extract":
         return f"""You extract evidence-backed impact claims from scientific and policy texts about the green hydrogen value chain,
 for a Value Chain Assessment against the UN Sustainable Development Goals.
@@ -198,8 +202,13 @@ Each term comes with short passages where it occurs. For each pair of terms, giv
 - same: the documents use both for the same thing (a synonym, an abbreviation, another spelling);
 - broader: the first term (a) is a broader category that includes the second (b);
 - narrower: the first term (a) is a kind or part of the second (b);
-- related: different things that are discussed together or depend on each other;
+- needs: the first term (a) requires or depends on the second (b);
+- shapes: the first term (a) influences or determines the second (b);
+- clashes: the two are at odds or in conflict (the same from both ends);
+- related: different things that are discussed together, when none of the above fits;
 - different: unrelated, or different things that share words.
+needs and shapes run from a to b: when the documents say it the other way round, give the pair turned round
+(a: 2, b: 1). Use needs, shapes or clashes only when the passages say so; otherwise related.
 When the request asks how the terms relate as elements of a practice, use these relations instead:
 - requires: doing or using the first (a) needs the second (b), such as a skill that needs a device;
 - shapes: a changes how b is done, what it takes or what it means;
@@ -211,8 +220,9 @@ Judge from the passages, not from outside knowledge. For each side give one quot
 that term, that shows how the documents use it. confidence: your probability that the relation is right.
 
 Output format
-{{"relations": [{{"a": 1, "b": 2, "relation": "same|broader|narrower|related|different", "confidence": 0.0-1.0,
-  "quote_a": "exact words from a passage of term 1", "quote_b": "exact words from a passage of term 2"}}]}}
+{{"relations": [{{"a": 1, "b": 2, "relation": "same|broader|narrower|needs|shapes|clashes|related|different",
+  "confidence": 0.0-1.0,
+  "quote_a": "exact words from a passage of term a", "quote_b": "exact words from a passage of term b"}}]}}
 {_JSON_RULE}"""
     if kind == "theme":
         return f"""You name a theme: a group of passages from a set of documents that discuss the same subject.
@@ -331,6 +341,23 @@ Output format
  "when_to_use": "one sentence", "when_to_use_quote": {{"passage": 2, "quote": "exact words"}},
  "when_not_to_use": "one sentence or empty", "note": null}}
 {_JSON_RULE}"""
+    if kind == "group_name":  # D1 rest (the optional AI part): a short name for a group of the concept map
+        return f"""You name one group of concepts that a concept map of a researcher's documents found: concepts the
+documents mention together more often than by chance.
+
+You are given the group's concepts, the most mentioned first, and a few passages where several of them are mentioned
+together. Write, from these passages only:
+- name: a short name for what the group is about in these documents, two to six words, in the documents' own terms and
+  in the language of the passages, in sentence case (a capital first letter, the rest as the documents write it), with
+  no quotation marks; not a list of its concepts joined by "and" unless nothing more telling fits; not a judgement;
+- name_quote: one quote, copied exactly from one passage, at least three whole words, that shows the name best, with
+  that passage's number;
+- note: one line when the concepts seem to form more than one group, else null.
+Use no outside knowledge and no knowledge of the field: only what the passages show.
+
+Output format
+{{"name": "Remote work and commuting", "name_quote": {{"passage": 1, "quote": "exact words"}}, "note": null}}
+{_JSON_RULE}"""
     if kind == "resolve":
         return f"""You find chains of references in consecutive passages of one document: the places that refer to the same
 thing (a plant, a policy, a country, a group of people, a technology).
@@ -416,6 +443,10 @@ def user_prompt(kind: str, payload: dict, codes_once: bool = False) -> str:
     k = taskkinds.get(kind)
     if k is not None and k.user is not None:  # 0.13.6: an add-on's kind builds its own
         return k.user(payload)
+    if kind == "point":  # I6
+        from .pointing import user_prompt as point_user
+
+        return point_user(payload)
     if kind == "extract":
         parts = [f"DOCUMENT: {payload.get('title') or 'untitled'}"]
         if payload.get("doi"):
@@ -508,10 +539,13 @@ def user_prompt(kind: str, payload: dict, codes_once: bool = False) -> str:
             parts.append("\n".join(lines))
         n = len(payload["terms"])
         pairs = ", ".join(f"({a}, {b})" for a in range(1, n + 1) for b in range(a + 1, n + 1))
-        if payload.get("relations") == "elements":  # 0.9
+        if payload.get("relations") == "elements":  # Margin 0.9
             parts.append("Judge how the terms relate as elements of a practice: requires, shapes, replaces, "
                          "element_of, clashes_with, related or different.")
-        parts.append(f"Give the relation for each pair: {pairs}.")
+            parts.append(f"Give the relation for each pair: {pairs}.")
+        else:
+            parts.append(f"Give the relation for each pair: {pairs} (needs and shapes: turned round when the documents "
+                         "say it the other way).")
         return "\n\n".join(parts)
     if kind == "theme":
         parts = [f"KEY TERMS: {', '.join(payload.get('terms') or [])}"]
@@ -539,6 +573,15 @@ def user_prompt(kind: str, payload: dict, codes_once: bool = False) -> str:
         for p in payload["passages"]:
             ex = "\n".join(f"EXAMPLE: \u201c{e}\u201d" for e in p.get("examples") or [])
             parts.append(f"P{p['n']}" + (f" (page {p['page']})" if p.get("page") else "") + f"\n{ex}\n{p['text']}")
+        return "\n\n".join(parts)
+    if kind == "group_name":
+        parts = ["GROUP OF CONCEPTS: " + ", ".join(payload.get("concepts") or [])]
+        if payload.get("before"):   # "Name the groups again": the researcher wants another name than this one
+            parts.append(f"NAME DRAFTED BEFORE (the researcher asked for another; do not give it again): "
+                         f"{payload['before']}")
+        for p in payload["passages"]:
+            parts.append(f"P{p['n']}" + (f" (page {p['page']})" if p.get("page") else "")
+                         + "\nCONCEPTS IN IT: " + ", ".join(p.get("concepts") or []) + f"\n{p['text']}")
         return "\n\n".join(parts)
     if kind == "resolve":
         parts = [f"DOCUMENT: {payload.get('title') or 'untitled'}"]

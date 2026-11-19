@@ -1,0 +1,7 @@
+{
+  "name": "margin-run",
+  "version": "{{VERSION}}",
+  "description": "Works through a Margin project's task queue: labels, concept links, theme names, codes, references, search words and checks, each kind with a helper agent. Margin keeps the documents and checks every quote; Antigravity only reads the passages handed out.",
+  "author": {"name": "Margin"},
+  "keywords": ["margin", "research", "documents", "hypotheses"]
+}

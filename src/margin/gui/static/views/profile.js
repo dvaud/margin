@@ -4,7 +4,7 @@
 // says why it is there; a person can agree, change or reject it (in the document viewer, Codes panel).
 // The pieces shared with the document viewer (the AI-labelling card, the keyword pass, wording) are exported from here.
 import { featureEyebrow, viewTabs, withAI } from "../features.js";
-import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, addDocumentsFirst, fmt, pageHead, P, emptyState, download, switchControl, navigate, plural, shortTitle, cap, runningJob, heatCell, downloadLinks, helpMark, drawInSteps, button, link, notice, card, tag, input, select, fold, choice, readsLine, inset, heatGrid, heatHead } from "../lib.js";
+import { App, api, h, icon, madeWithFact, replace, clear, toast, showError, addDocumentsFirst, fmt, pageHead, P, emptyState, download, switchControl, navigate, plural, shortTitle, cap, runningJob, heatCell, downloadLinks, helpMark, drawInSteps, button, link, notice, card, tag, input, select, fold, choice, readsLine, localPanel, inset, heatGrid, heatHead, codesAreNames, aiButton } from "../lib.js";
 import { jobCard } from "./progress.js";
 import { roleTag } from "./doc-role.js";   // 0.19.0 (N3): a working document's row in the grid
 
@@ -88,6 +88,7 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
   let all = null;   // null: the codebook's default (0.9: a small codebook is read passage by passage, all of them)
   let limit = "";
   let compareResult = null;
+  let lastLocal = null;   // 0.19.4: the last run's result, when the local model's passages were left waiting
   let running = false;
   const one = docIds && docIds.length === 1;
   el.append(h(compact ? "h3" : "h2", { id: hid, class: "pf-ai-title" }, one ? "Let the AI read this document" : "Let the AI read the passages"), body, jobBox);
@@ -136,12 +137,12 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
       h("p", { class: "field-help", id: hid + "-lim" }, "To try the AI on a few passages first. Leave it empty to read them all; you can stop at any time.")));
     // what changed since the last run
     const changed = run.changed || [];
-    const startBtn = button({ kind: "main", sm: !!compact, disabled: !lim }, !toRead ? "Nothing left to read" : changed.length ? `Label ${plural(lim, "passage")} anyway` : `Let the AI label ${plural(lim, "passage")}`);
+    const startBtn = aiButton({ kind: "main", sm: !!compact, disabled: !lim }, !toRead ? "Nothing left to read" : changed.length ? `Label ${plural(lim, "passage")} anyway` : `Label ${plural(lim, "passage")}`);
     startBtn.addEventListener("click", () => start(startBtn));
     if (changed.length) {
       const last = run.last || {};
       const cmpBox = h("div");
-      const cmpBtn = button({ sm: true }, icon("scale", { size: 13 }), "Label a sample (up to 50) again first");
+      const cmpBtn = aiButton({ sm: true }, "Label a sample of up to 50 again first");
       cmpBtn.addEventListener("click", () => compare(cmpBtn, cmpBox, plan));
       bits.push(notice({ kind: "attention", class: "pf-changed" }, h("div", { class: "grow" },
         h("p", {}, h("strong", {}, `Something changed since the last labelling${last.started_at ? ` (${fmt.date(last.started_at)})` : ""}. `), "New labels may differ from the earlier ones for that reason alone:"),
@@ -153,9 +154,30 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
           h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Setting"), h("th", { scope: "col" }, "Last run"), h("th", { scope: "col" }, "Now"))),
           h("tbody", {}, changed.map((c) => h("tr", {}, h("td", {}, c.field), h("td", { class: "mono small" }, shown(c.was)), h("td", { class: "mono small" }, shown(c.now))))))))));
     }
-    if (toRead) bits.push(h("div", { class: "btn-row pf-start-actions" }, withAI(startBtn)));
-    else bits.push(h("p", { class: "it pf-read-all" }, icon("check", { size: 14 }), every ? " The AI has read every passage." : " The AI has read every passage with a candidate code."));
-    if (toRead || changed.length) bits.push(readsLine("the passages it labels"));
+    // 0.19.4: passages of documents marked Only a local AI are read by the local model, first: its own panel says so,
+    // with its memory against what this computer has free (and, when that is too little, Start it anyway)
+    const lm = plan.local_model;
+    let localBox = null, localOnly = false;
+    if (toRead && plan.local && lm && !lm.same_as_main) {
+      // the last run's refusal counts unless the memory is known to be enough now; its numbers are the newer ones
+      const last = lastLocal && lastLocal.memory && !(lm.memory && !lm.memory.short) ? lastLocal.memory : null;
+      const memory = last || lm.memory;
+      const short = !!(memory && memory.short);
+      const only = plan.local >= toRead;   // all that is left is the local model's
+      localOnly = only;                    // then the panel's Start is the one start
+      const n = plan.local, rest = toRead - plan.local;
+      localBox = localPanel({ model: lm.model, memory, problem: lm.problem || (lastLocal && lastLocal.local_problem),
+        blocking: only, count: n,
+        head: only ? null : `${fmt.num(n)} of these ${n === 1 ? "comes" : "come"} from documents marked Only a local AI: your local model reads ${n === 1 ? "it" : "them"}`,
+        sub: only ? null : short ? `Claude labels the other ${fmt.num(rest)} meanwhile; ${n === 1 ? "this one waits" : "these wait"} until there is room.` : `Once the labelling begins, ${n === 1 ? "it waits" : "they wait"} for this computer’s own Start; Claude labels the other ${fmt.num(rest)}.`,
+        anywayText: only ? null : `Label all ${fmt.num(toRead)}, the local ${n === 1 ? "one" : "ones"} too`,
+        status: only && lastLocal && lastLocal.memory ? `Still only ${(lastLocal.memory.free / 2 ** 30).toFixed(1)} GB free: it was not started.` : null,
+        onStart: (force) => start(startBtn, force, true) });   // 0.20.1: its own Start: no second one in the job
+    }
+    if (toRead && !localOnly) bits.push(h("div", { class: "btn-row pf-start-actions" }, withAI(startBtn)));
+    else if (!toRead) bits.push(h("p", { class: "it pf-read-all" }, icon("check", { size: 14 }), every ? " The AI has read every passage." : " The AI has read every passage with a candidate code."));
+    if ((toRead && !localOnly) || changed.length) bits.push(readsLine("the passages it labels"));
+    if (localBox) bits.push(localBox);
     bits.push(opts);
     bits.push(fold({}, "Technical details", h("dl", { class: "ev-tech-list" },
       h("div", {}, h("dt", {}, "AI model"), h("dd", {}, shown(run.now && run.now.model))),
@@ -185,14 +207,16 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
     watchers.push(jobCard(box, r.job.id, "Labelling a sample again to compare", compareLabel, (job) => {
       if (job.state === "done") { compareResult = job.result || {}; box.hidden = true; draw(plan); }
       else btn.disabled = false;
-    }, { small: true, plain: true, stoppedText: "Stopped. Nothing was stored." }));
+    }, { small: true, plain: true, ai: true, noun: "passage", stoppedText: "Stopped. Nothing was stored." }));
   }
 
-  async function start(btn) {
+  async function start(btn, force, ownStart) {
     btn.disabled = true;
     const lim = Number(limit) > 0 ? Math.floor(Number(limit)) : undefined;
     const payload = { framework };
     if (all !== null) payload.all_passages = all;
+    if (force) payload.force = true;   // 0.19.4: Start it anyway (the local model, with too little memory free)
+    if (ownStart) payload.local = force ? "force" : "go";   // 0.20.1: pressed in the local model's own panel
     if (docIds) payload.doc_ids = docIds;
     if (lim) payload.limit = lim;
     let r;
@@ -212,11 +236,13 @@ export function aiLabelCard({ project, framework, docIds = null, watchers, onEnd
         const ch = res.changes || {};
         toast(`The AI read ${plural(res.read || 0, "passage")}${res.failed ? `; ${res.failed} could not be read` : ""}. Of the codes the keywords found there, it confirmed ${fmt.num(ch.confirmed || 0)} and did not confirm ${fmt.num(ch.not_confirmed || 0)}; it added ${fmt.num(ch.added || 0)} the keywords had missed.`, res.failed ? "warn" : "ok", { ttl: 12000 });
         jobBox.hidden = true;
+        // 0.19.4: the local model could not start: its passages wait; the plan's local panel says why (load() below)
+        lastLocal = res.local_waiting ? res : null;
       }
       body.hidden = false;
       load();
       if (onEnd) onEnd(job);
-    }, { small: compact, plain: compact, stoppedText: "Stopped. The passages read so far keep their labels; start again to go on where it stopped." }));
+    }, { small: compact, plain: compact, ai: true, noun: "passage", stoppedText: "Stopped. The passages read so far keep their labels; start again to go on where it stopped." }));
   }
 
   load();
@@ -437,9 +463,11 @@ export async function renderProfile(view, params, query) {
       const max = Math.max(1, ...codes.map((c) => c.passages));
       topBox.appendChild(h("section", { class: "section", "aria-labelledby": "pf-top-h" },
         h("div", { class: "section-title" }, h("h2", { id: "pf-top-h" }, level === "group" ? `The ${groupWord()}s addressed most` : `The ${fw.label || "code"}s addressed most`)),
-        h("ol", { class: "pf-top" }, codes.map((c) => h("li", {},
+        // 0.19.4: a codebook of your own has names for codes ("Practice-arrangement bundle"); in the column made for a
+        // mark ("3.4") a name ran over its description. Names are set as the heat grid sets them (codesAreNames).
+        h("ol", { class: "pf-top" + (codesAreNames(codes.map((c) => c.code)) ? " pf-top-named" : "") }, codes.map((c) => h("li", {},
           h("span", { class: "pf-top-code" }, c.code),
-          h("span", { class: "pf-top-desc" }, c.description || ""),
+          h("span", { class: "pf-top-desc", title: c.description || null }, c.description || ""),
           h("span", { class: "pf-top-bar", "aria-hidden": "true" }, h("span", { style: { width: `${Math.max(2, Math.round((c.passages / max) * 100))}%` } })),
           h("span", { class: "pf-top-n" }, `${plural(c.passages, "passage")} · ${plural(c.documents, "document")}`))))));
     }

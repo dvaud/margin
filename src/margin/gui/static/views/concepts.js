@@ -2,8 +2,8 @@
 // concept: its wordings, the documents that discuss it, the passages as concordance lines, and related concepts
 // (a person accepts or rejects the links proposed by search by meaning or by the AI).
 import { featureEyebrow, withAI, viewTabs } from "../features.js";
-import { App, api, h, icon, replace, clear, toast, showError, failedLoad, noDocuments, addDocumentsFirst, fmt, pageHead, watchJob, P, emptyState, debounce, switchControl, plural, shortTitle, runningJob, button, link, notice, card, tag, input, select, textarea, fold, readsLine, inset, searchHref } from "../lib.js";
-import { MiniJob, jobCard as jobCardOf } from "./progress.js";
+import { App, api, h, icon, replace, clear, toast, showError, failedLoad, noDocuments, addDocumentsFirst, fmt, pageHead, watchJob, P, emptyState, debounce, switchControl, plural, shortTitle, runningJob, button, link, notice, card, tag, input, select, textarea, fold, readsLine, inset, searchHref, jobFailed, aiButton, setBusy } from "../lib.js";
+import { MiniJob, isStopped, jobCard as jobCardOf } from "./progress.js";
 import { pathsCard, timeCard } from "./concept-paths.js";   // 0.18.1: D3 and D4
 
 const PAGE = 50;       // glossary entries per page
@@ -141,26 +141,27 @@ export async function renderConcepts(view, params, query) {
   }
 
   function drawJudge() {
-    const btn = button({ sm: true }, "Let the AI judge the proposed pairs");
+    const btn = aiButton({ sm: true }, "Judge the proposed pairs");
     const mini = h("div");
     btn.addEventListener("click", async () => {
-      btn.disabled = true;
+      setBusy(btn, true);
       let r;
       try { r = await api("POST", `/api/projects/${P(project)}/concepts/judge`, {}); }
       catch (e) {
-        btn.disabled = false;
+        setBusy(btn, false);
         if (e.status === 400 && /no pair/i.test(e.message)) toast("There is no proposed pair left to judge: search by meaning proposed none, or they were all judged.", "info");
         else showError(e);
         return;
       }
-      const m = new MiniJob({ title: "The AI judges the proposed pairs" });
+      const m = new MiniJob({ title: "The AI judges the proposed pairs", noun: "pair" });
       mini.appendChild(m.el);
       const w = watchJob(r.job.id, (job) => m.update(job));
       watchers.push(w);
       w.promise.then((job) => {
-        if (job.state === "done") { const res = job.result || {}; toast(`The AI judged ${plural(res.judged || 0, "pair")}${res.failed ? `; ${res.failed} could not be judged` : ""}. Open a concept to see its links.`, "ok"); }
-        else if (job.state === "error") showError({ message: job.error, kind: job.error_kind });
-        btn.disabled = false;
+        if (isStopped(job)) toast("Stopped. The pairs judged so far are kept.", "info", { small: true, ttl: 2500 });
+        else if (job.state === "done") { const res = job.result || {}; toast(`The AI judged ${plural(res.judged || 0, "pair")}${res.failed ? `; ${res.failed} could not be judged` : ""}. Open a concept to see its links.`, "ok"); }
+        else if (job.state === "error") jobFailed(job);
+        setBusy(btn, false);
         load();
       }).catch(showError);
     });
@@ -249,25 +250,31 @@ const GROUPS = [
   // 0.9: as elements of a practice (Shove, Pantzar and Watson 2012), seen from this concept
   ["element_of", "An element of these practices", "A thing, skill or meaning these practices are made of. An element of two or more practices is shared by them."],
   ["has_element", "Its elements", "The things, skills and meanings this practice is made of."],
-  ["requires", "Needs these", null],
-  ["required_by", "Needed by these", null],
-  ["shapes", "Shapes these", null],
-  ["shaped_by", "Shaped by these", null],
-  ["clashes_with", "Clashes with these", null],
+  ["requires", "Needs these (as elements)", null],
+  ["required_by", "Needed by these (as elements)", null],
+  ["clashes_with", "Gets in the way of these", null],
   ["related", "Related to it", null],
   // 0.18.1 (D2): links the sentences state, "X leads to Y", "X instead of Y" (seen from this concept)
   ["effect", "What it leads to", "The documents say this concept leads to, causes or changes these."],
   ["effect_of", "What leads to it", "The documents say these lead to, cause or change this concept."],
+  // D1 rest: shapes, needs (seen from this concept), and clashes
+  ["shapes", "What it shapes", "The documents say this concept shapes or influences these."],
+  ["shaped_by", "What shapes it", "The documents say these shape or influence this concept."],
+  ["needs", "What it needs", "The documents say this concept needs, requires or depends on these."],
+  ["needed_by", "What needs it", "The documents say these need, require or depend on this concept."],
   ["replaces", "What it replaces", "The documents use this concept instead of these."],
   ["replaced_by", "What replaces it", "The documents use these instead of this concept."],
+  ["clashes", "What it clashes with", "The documents say this concept and these conflict or work against each other."],
   ["different", "Judged not the same", null],
 ];
 const RELATION_CHOICES = [["same", "is the same as"], ["broader", "is broader than (includes)"], ["narrower", "is narrower than (is part of)"], ["related", "is related to"],
-  ["effect", "leads to"], ["effect_of", "is an effect of"], ["replaces", "replaces"], ["replaced_by", "is replaced by"], ["different", "is different from"]];
+  ["effect", "leads to"], ["effect_of", "is an effect of"],
+  ["shapes", "shapes"], ["shaped_by", "is shaped by"], ["needs", "needs"], ["needed_by", "is needed by"],
+  ["replaces", "replaces"], ["replaced_by", "is replaced by"], ["clashes", "clashes with"], ["different", "is different from"]];
 // 0.9 (Margin): how the elements of a practice relate (offered when the chosen codebook names practices and elements);
-// "replaces" is in the choices above for every link
-const ELEMENT_CHOICES = [["element_of", "is an element of the practice"], ["has_element", "is a practice with the element"], ["requires", "needs"], ["shapes", "shapes"], ["clashes_with", "clashes with"]];
-const ELEMENT_RELATIONS = new Set(ELEMENT_CHOICES.map(([v]) => v).concat(["required_by", "shaped_by"]));
+// "shapes" and "replaces" are in the choices above for every link
+const ELEMENT_CHOICES = [["element_of", "is an element of the practice"], ["has_element", "is a practice with the element"], ["requires", "requires (as an element)"], ["clashes_with", "gets in the way of"]];
+const ELEMENT_RELATIONS = new Set(ELEMENT_CHOICES.map(([v]) => v).concat(["required_by"]));
 // the relation choices as <option>s, with the element ones in a group of their own when they apply
 function relationOptions(withElements, selected, text = (t) => t) {
   const opt = ([v, t]) => h("option", { value: v, selected: v === selected }, text(t));
@@ -363,11 +370,11 @@ export async function renderConcept(view, [termId], query) {
           if (w.term_id === termId) location.hash = `#/concepts/${encodeURIComponent(termId)}`; else await reload();
         } catch (err) { showError(err); b.disabled = false; }
       } }, icon("x", { size: 12 }), "Not the same") : null)));
-    const ask = button({ sm: true, disabled: jobRunning }, "Ask the AI for other wordings");
+    const ask = aiButton({ sm: true, disabled: jobRunning }, "Propose other wordings");
     ask.addEventListener("click", async () => {
-      ask.disabled = true;
+      setBusy(ask, true);
       let r;
-      try { r = await api("POST", `${base}/concepts/${P(termId)}/wordings`, {}); } catch (e) { showError(e); ask.disabled = false; return; }
+      try { r = await api("POST", `${base}/concepts/${P(termId)}/wordings`, {}); } catch (e) { showError(e); setBusy(ask, false); return; }
       jobRunning = true;
       const m = new MiniJob({ title: "The AI proposes other wordings" });
       replace(wordJob, m.el);
@@ -375,10 +382,11 @@ export async function renderConcept(view, [termId], query) {
       watchers.push(w);
       w.promise.then(async (job) => {
         jobRunning = false;
-        if (job.state === "done") {
+        if (isStopped(job)) toast("Stopped.", "info", { small: true, ttl: 2500 });
+        else if (job.state === "done") {
           const n = ((job.result || {}).suggested || []).length;
           toast(n ? `${plural(n, "other wording")} ${n === 1 ? "is" : "are"} used in the documents.` : "The AI proposed no other wording that the documents use.", n ? "ok" : "info");
-        } else if (job.state === "error") showError({ message: job.error, kind: job.error_kind });
+        } else if (job.state === "error") jobFailed(job);
         clear(wordJob);
         await reload();
       }).catch((e) => { jobRunning = false; showError(e); });
@@ -443,7 +451,7 @@ export async function renderConcept(view, [termId], query) {
   }
 
   function judgePair(lk, btn, opts = {}) {
-    btn.disabled = true;
+    setBusy(btn, true);
     api("POST", `${base}/concepts/judge`, opts.body || { pairs: [[lk.a, lk.b]] }).then((r) => {
       jobRunning = true;
       const m = new MiniJob({ title: opts.title || `The AI judges “${c.label}” and “${lk.label}”` });
@@ -452,13 +460,14 @@ export async function renderConcept(view, [termId], query) {
       watchers.push(w);
       w.promise.then(async (job) => {
         jobRunning = false;
-        if (job.state === "done" && opts.body) toast(job.result && job.result.judged ? `The AI judged ${plural(job.result.judged, "pair")}: see the links below.` : "The AI could not judge the pairs.", job.result && job.result.judged ? "ok" : "warn");
+        if (isStopped(job)) toast("Stopped.", "info", { small: true, ttl: 2500 });
+        else if (job.state === "done" && opts.body) toast(job.result && job.result.judged ? `The AI judged ${plural(job.result.judged, "pair")}: see the links below.` : "The AI could not judge the pairs.", job.result && job.result.judged ? "ok" : "warn");
         else if (job.state === "done") toast(job.result && job.result.judged ? "The AI has judged the pair: see what it says below." : "The AI could not judge the pair.", job.result && job.result.judged ? "ok" : "warn");
-        else if (job.state === "error") showError({ message: job.error, kind: job.error_kind });
+        else if (job.state === "error") jobFailed(job);
         clear(linkJob);
         await reload();
       }).catch((e) => { jobRunning = false; showError(e); });
-    }).catch((e) => { showError(e); btn.disabled = false; });
+    }).catch((e) => { showError(e); setBusy(btn, false); });
   }
 
   function linkRow(lk) {
@@ -472,7 +481,7 @@ export async function renderConcept(view, [termId], query) {
       actions.append(
         button({ sm: true, onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "accept" }, e.currentTarget, "Accepted.") }, icon("check", { size: 13 }), lk.relation === "same" ? "Yes, the same" : "Yes, right"),
         button({ kind: "quiet", sm: true, onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "reject" }, e.currentTarget, "Rejected.", { undo: true }) }, icon("x", { size: 13 }), lk.relation === "same" ? "No, not the same" : "No"));
-      if (lk.source === "meaning") actions.append(...withAI(button({ kind: "quiet", sm: true, disabled: jobRunning, onClick: (e) => judgePair(lk, e.currentTarget) }, "Ask the AI")));
+      if (lk.source === "meaning") actions.append(...withAI(aiButton({ sm: true, disabled: jobRunning, onClick: (e) => judgePair(lk, e.currentTarget) }, "Judge this pair")));
     } else if (lk.source !== "abbreviation") {
       actions.append(button({ kind: "quiet", sm: true, onClick: (e) => saveLink({ a: lk.a, b: lk.b, decision: "reject" }, e.currentTarget, "Removed.", { undo: true }) }, icon("x", { size: 13 }), "Not right"));
     }

@@ -71,9 +71,15 @@ warns (`WriteBudgetWarning`), so a new heavy test is caught the day it is added;
 that wrote the most at the end of a run, `MARGIN_WRITES_JSON=<file>` keeps every test's number, and `--durations=15`
 the slowest.
 
+**A view is tested by running it.** `tests/_views.py` runs a real view of the page in Node, with the real `lib.js` and
+the modules it imports, under a fake DOM and with the server stood in for (each call answered from the test's table; a
+call it did not expect fails the test), and reads back what a person sees: the text, the buttons, the focus, what was
+sent (`tests/test_views_*.py`). Test a view this way, not by looking for strings in its source: such a test proves no
+behaviour and breaks on a refactor.
+
 Tests never touch a real Claude Code, uv or the network: `tests/conftest.py` points `MARGIN_CLAUDE` nowhere, gives
 every test its own `MARGIN_HOME` (and keeps secrets in files there, `MARGIN_KEYCHAIN=file`, never the computer's
-keychain) and reads added documents one at a time (`MARGIN_READ_WORKERS=1`, so a stand-in a test puts in this process
+keychain), shows no notification on the screen (`MARGIN_NO_NOTIFY=1`, the dev server too) and reads added documents one at a time (`MARGIN_READ_WORKERS=1`, so a stand-in a test puts in this process
 is what reading sees; `tests/test_speed.py` reads at once on purpose); `tests/fake_claude_cli.py`,
 `tests/fake_claude_installer.py`, `tests/fake_servers.py` and `tests/fake_zotero.py` stand in for the real programs. A
 release's tests go in a new file `tests/test_<X>_<Y>_<Z>_<topic>.py`; older files keep their names.
@@ -115,6 +121,7 @@ themes and at 390 px wide.
 | `codebooks.py` | Your own codebook (0.16, K1): made fresh, from themes, as a copy or from a CSV, kept with one project or with all; the editor's state, saved with a side file `<name>.json` (a stable id for each code, renames, merges and rewordings, removed codes, where each example quote was found); labels follow renames and merges (`follow`, in every project using it, when opened) and wait under removed codes; `stale` and `relabel_passages` for a code reworded after the AI labelled with it; `try_codes` (the keyword pass, no AI); each saved change is a version (`history.py`) and a research log entry |
 | `codenames.py` | Short code names for a codebook made from themes (0.16.1), without AI: words of each theme's name, the shortest that is not too generic for the documents (most passages using it in the theme), a ladder from less to more specific, no two themes alike |
 | `researchlog.py` | The research log (0.16, F4): `record` writes an entry in the transaction of the change it records (so it is undone with it); the entries a person adds, their *why*; `entries`, `table` and `markdown` read it |
+| `ailog.py` | The AI log (I7 stage 3, `#/log/ai`): the ledger (`ai_sent`, with `model`) grouped into one row per sending, with provider, route, model, kind of task, subject and excerpts |
 | `keychain.py` | Secrets kept in the system's keychain (a saved key of the Claude API, say): macOS `security` (the secret never on a command line), Windows Credential Manager, `secret-tool`, or a file in Margin's folder readable by this user only (`MARGIN_KEYCHAIN=file`: tests and the dev server always) |
 | `notes.py` | Notes and highlights (0.16, F2): a span of a document's text with its words as `quote`, checked as every quote is and found again by its words when the text is read again (`move`, which also sets the page, or `lost`; listing notes writes only when a note's place changed); search and downloads; `use_as_evidence` (the passage holding the words becomes an excerpt the person judged) |
 | `history.py` | Earlier versions (0.16, F5): the state of a set of themes, a person's judgements in a check or a codebook kept before each change (`snapshot`); `compare` says what differs in words, `restore` puts it back after keeping the present state; `codebooks.py` keeps its own beside its file |
@@ -255,9 +262,9 @@ editing its files is in [EXTENDING.md](EXTENDING.md).
   update the sidebar has *What's new* until it is opened, and Settings has it always.
 - The README's *New in* is written by `prepare` (between its two `<!-- new-in -->` markers); update the manual and
   the other sections of the README as the last two sections say.
-- **Release candidates (0.15).** The roadmap ([`docs/ROADMAP.md`](ROADMAP.md): what each release builds, and what
-  waits) gives every minor release a release candidate, in use for at least a
-  week: a `## 0.15.0rc1` changelog entry, tagged `v0.15.0rc1` (the package's version is made from the tag).
+- **Release candidates (0.15).** Every minor release has a release candidate first, in use for at least a week,
+  unless the owner asks for a stable release straight away: a `## 0.15.0rc1` changelog entry, tagged `v0.15.0rc1`
+  (the package's version is made from the tag).
   The workflow drafts it as a GitHub pre-release, which the install line and the app's *Update* never take (GitHub's
   *latest* is the latest full release); its notes give install lines with its own files. A copy of a candidate is
   offered the release when it comes (`update.version_tuple` puts `0.15.0rc1` after every earlier release and before
@@ -286,7 +293,15 @@ editing its files is in [EXTENDING.md](EXTENDING.md).
 
   `score` writes `tools/validation/runs/<date>-<route>.json` with every answer, its model, prompt version, Margin
   version and date. A local model answers the same projects with `margin --ws "<project folder>" queue run --backend
-  ollama` instead of `/margin-run`. Delete the two projects afterwards. The gold set itself (`tools/validation/`, its
+  ollama --model <model> --think off` instead of `/margin-run`, run again until it answers nothing more (a check's
+  steps follow one another); its run file is named after the model (`<date>-qwen3-5-4b.json`). `report --latest`
+  sets the newest run of each route side by side, then gives each in full. Delete the projects afterwards.
+
+  **A real project, labelled by a person.** `margin validate person --project "<name>" --label "<name to show>"`
+  writes `tools/validation/runs/person/<date>-<label>.json`: the AI's grades of the excerpts a person then judged, and
+  the AI's codes a person accepted, changed or rejected, with no document text (only grades, codes, model names and
+  prompt versions). The report adds them, the newest of each project, as their own section. Ask the project's owner
+  before committing one, and give `--label` when the project's name should not be published. The gold set itself (`tools/validation/`, its
   README says how it was made) changes only on purpose: its fingerprint is in every run file, and a report made from
   a run on an older gold set says so.
 

@@ -35,6 +35,7 @@ from operator import itemgetter
 from typing import Callable
 
 from . import __version__, frameworks
+from . import providers
 from .store import Workspace, now
 from .textutil import STOPWORDS, _TOKEN_RE, fast_normalise, stem, tokens
 
@@ -495,17 +496,31 @@ class _WsShim:
 
 def run_labels(ws: Workspace, framework: str, backend, model: str, doc_ids: list[str] | None = None,
                all_passages: bool = False, limit: int | None = None, progress: Callable | None = None,
-               should_stop: Callable[[], bool] | None = None, passage_ids: list[str] | None = None) -> dict:
+               should_stop: Callable[[], bool] | None = None, passage_ids: list[str] | None = None,
+               force: bool = False) -> dict:
     """The model pass as a job: make the tasks, answer them one by one (resumable), record the run. `passage_ids`:
-    only these passages (0.16)."""
+    only these passages (0.16).
+
+    0.19.4: the passages of documents marked Only a local AI are read first, by the local model, while Claude Code
+    takes its own from the queue. When the local model cannot start (too little memory free: `llm.MemoryShort`, or it
+    cannot be reached), those passages wait and the others are read all the same: the result says how many wait and
+    why (`local_waiting`, `memory_short`, `local_problem`). `force` starts the local model even when this computer
+    seems to have too little memory free for it (the person chose "Start it anyway").
+
+    0.19.13: in a job of the app, when Claude reads passages too, the local model's passages wait for its own Start
+    (the job's local gate) and are then read beside Claude's; a memory refusal waits for Start again (Start it
+    anyway) instead of ending the local part."""
     from . import runs, tasks
+    from .llm import BackendError, MemoryShort
 
     from . import access
 
     plan = label_plan(ws, framework, doc_ids, all_passages, limit, passage_ids)
-    readers = access.Readers(backend, model)
+    readers = access.Readers(backend, model, should_stop=should_stop, check_memory=False if force else None)
+    if force and readers.gate is not None:
+        readers.gate.open(force=True)  # 0.19.13: "Start it anyway" is the local model's own Start
     dflt = access.default(ws)
-    lv = access.levels(ws)
+    lv = access.levels(ws, provider=readers.provider)   # for the main model's provider (providers.py)
     doc_of = access.doc_of_passages(ws._conn(), plan["passage_ids"]) if plan["passage_ids"] else {}
     reader_of = {}
     skipped = 0
@@ -516,47 +531,115 @@ def run_labels(ws: Workspace, framework: str, backend, model: str, doc_ids: list
         else:
             reader_of[pid] = got
     plan["passage_ids"] = [p for p in plan["passage_ids"] if p in reader_of]
+    # the local model's passages first: it reads here while Claude Code answers its own from the queue
+    by_local = {p for p, got in reader_of.items() if got[0] is not backend}
+    plan["passage_ids"].sort(key=lambda p: p not in by_local)
+    local_off: str | None = None   # why the local model reads nothing more in this run
+    local_said = False             # whether the page was told the local model has ended
     make_label_tasks(ws, framework, plan["passage_ids"], model, all_passages)
     run_id = runs.start(ws, "label", framework, backend, model, len(plan["passage_ids"]))
     done = failed = 0
     change = {"confirmed": 0, "not_confirmed": 0, "added": 0}   # the keyword codes against the AI's, passage by passage
+    # 0.19.13: in a job of the app the local model's passages wait for its own Start (when Claude reads others too),
+    # and are read beside Claude's by the job's local gate once it is pressed
+    gated = bool(by_local) and readers.defers()
+    has_cloud = any(p not in by_local for p in plan["passage_ids"])
+    total = len(plan["passage_ids"])
+    seen = [0]
+    import threading
     import time
 
-    for i, pid in enumerate(plan["passage_ids"], 1):
+    tally = threading.Lock()   # the counts, kept by the job's thread and the local gate's worker
+
+    def one(pid: str) -> None:
+        nonlocal skipped, local_off, local_said, done, failed
         if should_stop and should_stop():
-            break
+            return
         tid = f"label:{framework}:{pid}"
+        with tally:
+            seen[0] += 1
         if progress:
-            progress(i, len(plan["passage_ids"]))
+            progress(min(seen[0], total), total)
         t0 = time.time()
         # its setting worked out again as its text is about to leave, as `tasks.run` does: a document's cap counts
         # what the passages before this one sent (and a passage Claude has read already adds nothing to it)
         with ws.connect() as cx:
             if access.recheck(cx, tid, dflt) is None:
-                skipped += 1
-                continue
+                with tally:
+                    skipped += 1
+                return
         got = readers.for_task(ws, tid)
         if got is None:
-            skipped += 1
-            continue
-        ok, _errs = tasks.run_one(ws, tid, got[0], got[1])
-        if getattr(backend, "name", "") != "claude_code":  # by queue the connector measures (waiting is not reading)
+            with tally:
+                skipped += 1
+            return
+        local = got[0] is not backend
+        if local and local_off:
+            return  # waits for the local model, as the passages before it
+        if not local and by_local and not local_said and not gated:
+            local_said = True
+            readers.local_ended(readers.memory_short or local_off)  # its passages came first: its panel says it has ended
+        try:
+            ok, _errs = tasks.run_one(ws, tid, got[0], got[1])
+        except MemoryShort as e:
+            readers.memory_short = e
+            if not gated:  # with the gate, it waits for Start (or Start it anyway) and is read again then
+                local_off = str(e)
+            with tally:
+                seen[0] -= 1
+            return
+        except BackendError as e:
+            if not local or readers.stopped():
+                raise
+            readers.local_problem = local_off = str(e)
+            return
+        if getattr(backend, "name", "") not in providers.AGENT_ROUTES:  # by queue the connector measures (waiting is not reading)
             runs.timing(ws, "label", runs._routed(backend, "label", model), time.time() - t0)
-        done += ok
-        failed += not ok
         if ok:
             cand = {c["code"] for c in candidates_of(ws, framework, pid)}
             got = {r[0] for r in ws.query("SELECT code FROM labels WHERE framework=? AND passage_id=? AND source='model'",
                                           (framework, pid))}
-            change["confirmed"] += len(cand & got)
-            change["not_confirmed"] += len(cand - got)
-            change["added"] += len(got - cand)
+        with tally:
+            if local:
+                readers.read += 1
+            done += ok
+            failed += not ok
+            if ok:
+                change["confirmed"] += len(cand & got)
+                change["not_confirmed"] += len(cand - got)
+                change["added"] += len(got - cand)
+
+    for pid in plan["passage_ids"]:
+        if should_stop and should_stop():
+            break
+        if gated and pid in by_local:
+            readers.later(lambda pid=pid: one(pid), noun="passage", mixed=has_cloud, ws=ws)
+            continue
+        one(pid)
+    if gated:
+        readers.drain()
     if getattr(getattr(backend, "router", None), "route", "") == "local" and not (should_stop and should_stop()):
         tasks.run_stepups(ws, backend, ["label"], should_stop)  # the stronger model once, after the small one
+    if by_local and not local_said:
+        readers.local_ended(readers.memory_short or local_off)
     runs.finish(ws, run_id, done + failed)
+    readers.free_memory()  # a large local model lets go of its memory once it has read
+    waiting = 0
+    if local_off or (gated and (readers.memory_short or (should_stop and should_stop()))):
+        head = f"label:{framework}:"
+        waiting = int(ws.scalar(
+            f"SELECT COUNT(*) FROM tasks WHERE task_id IN ({','.join('?' * len(by_local))}) AND status != 'done'",
+            [head + p for p in by_local]) or 0) if by_local else 0
+    local_model = readers._local[1] if readers._local and by_local else None
     return {"framework": framework, "read": done, "failed": failed, "planned": len(plan["passage_ids"]),
             "stopped": bool(should_stop and should_stop()), "changes": change,
-            "skipped_restricted": skipped + plan.get("no_ai", 0)}
+            "skipped_restricted": skipped + plan.get("no_ai", 0),
+            "local_read": readers.read, "local_waiting": waiting, "local_model": local_model,
+            "memory_short": str(readers.memory_short) if readers.memory_short else None,
+            # 0.19.4: the numbers, so the local panel writes its one sentence (need and free, in bytes)
+            "memory": ({"need": readers.memory_short.need, "free": readers.memory_short.free, "short": True}
+                       if readers.memory_short else None),
+            "local_problem": None if readers.memory_short else (local_off or None)}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1006,7 +1089,7 @@ def compare_sample(ws: Workspace, framework: str, backend, model: str, n: int = 
                     "ORDER BY task_id", (len(f"label:{framework}:"), f"label:{framework}:"))
     from . import access
 
-    if getattr(backend, "name", "") != "claude_code":  # by queue, answer_on_copy leaves restricted ones out
+    if getattr(backend, "name", "") not in providers.AGENT_ROUTES:  # by queue, answer_on_copy leaves restricted ones out
         rows = [r for r in rows if access.may_read(ws, json.loads(r["payload_json"]), backend)]
     rng = random.Random(seed)
     sample = rng.sample(list(rows), min(n, len(rows)))
@@ -1018,7 +1101,7 @@ def compare_sample(ws: Workspace, framework: str, backend, model: str, n: int = 
     compared = 0
     errors = 0
     queued = None
-    if getattr(backend, "name", "") == "claude_code":
+    if getattr(backend, "name", "") in providers.AGENT_ROUTES:
         from .taskqueue import answer_on_copy
 
         queued, _secs = answer_on_copy(ws, [(t["task_id"], "label", json.loads(t["payload_json"]), model)

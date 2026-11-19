@@ -259,33 +259,59 @@ def _is_person(t) -> bool:
     return (t["model"] or "") == PERSON
 
 
-def _person_rows(cx, task_id: str, cid: str, passages: list[dict]) -> None:
-    """The excerpts of a part no model reads: each waits for a person's judgement (no AI verdict)."""
+BY_CHOICE = "by-choice"  # 0.19.8: the prompt_version of a person's row the person chose over the local model
+
+
+def _person_rows(cx, task_id: str, cid: str, passages: list[dict], by_choice: bool = False) -> None:
+    """The excerpts of a part no model reads: each waits for a person's judgement (no AI verdict). `by_choice`: the
+    person chose to judge them instead of starting the local model (0.19.8: "Awaiting manual review")."""
     for p in passages:
         vid = f"v{tasks._h(task_id, p['passage_id'])}"
         cx.execute("INSERT OR REPLACE INTO verifications(ver_id, subject_kind, subject_id, passage_id, doc_id, verdict, "
                    "confidence, quote, start, end, page, model, prompt_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (vid, "user_claim", cid, p["passage_id"], p["doc_id"], "not_enough_info", None, None, None, None,
-                    p.get("page"), PERSON, None))
+                    p.get("page"), PERSON, BY_CHOICE if by_choice else None))
 
 
 def _add_round(ws: Workspace, cid: str, base: str, payload: dict, model: str, main_levels=("cloud",),
-               local_reader: bool = False, cx=None) -> dict[str, str]:
-    """Create the parts of one round (see above). Returns {"main"|"local"|"person": task id} for the parts made."""
+               local_reader: bool = False, cx=None, provider: str | None = access.ANTHROPIC,
+               hold: bool = False) -> dict[str, str]:
+    """Create the parts of one round (see above). Returns {"main"|"local"|"person": task id} for the parts made.
+
+    Stage 2 (`hold`, a check by queue): excerpts of documents marked for cloud AI that do not allow the queue's
+    provider (the project allows Anthropic only, and Codex answers) wait in the round's main task when no excerpt of
+    the round may go to that provider: the task is held out of the queue, the check says why, and once the person
+    allows the provider the same task goes to the queue (advance_queued). When some excerpts may go, the others are
+    read by the local model or the person, as before."""
     if cx is None:
         with ws.connect() as c:
-            return _add_round(ws, cid, base, payload, model, main_levels, local_reader, c)
-    lv = access.levels(cx, [p["doc_id"] for p in payload["passages"]])
-    beside = access.text_floor(cx, payload)  # 0.13.7: the claim's own text (a citation's draft) and the add-ons' floors
-    main, local, person = [], [], []  # (Margin 0.1: a claim of a draft keeps the draft's setting, a floor of access.py)
+            return _add_round(ws, cid, base, payload, model, main_levels, local_reader, c, provider, hold)
+    # stage 1 of other cloud providers: for the main model's provider (Claude's routes: Anthropic)
+    lv = access.levels(cx, [p["doc_id"] for p in payload["passages"]], provider=provider)
+    # 0.13.7: the claim's own text (a citation's draft) and the add-ons' floors (access.register_floor) go with every
+    # excerpt, so each is read by a model allowed to read both, and not by the main model on its document's setting
+    # alone (Margin 0.1: a claim of a draft keeps the draft's setting, a floor of access.py)
+    beside = access.text_floor(cx, payload, provider=provider)
+    chosen = beside0 = None
+    if hold and provider is not None:
+        chosen = access.levels(cx, [p["doc_id"] for p in payload["passages"]], provider=None)
+        beside0 = access.text_floor(cx, payload, provider=None)
+    main, local, person, held = [], [], [], []
     for p in payload["passages"]:
         level = access.most([lv.get(p["doc_id"], "none"), beside])
         if level in main_levels:
             main.append(p)
+        elif chosen is not None and access.most([chosen.get(p["doc_id"], "none"), beside0]) == "cloud":
+            held.append(p)   # the provider is not allowed yet (stage 2): see above
         elif level == "local" and local_reader:
             local.append(p)
         else:
             person.append(p)
+    if held:
+        if main:
+            (local if local_reader else person).extend(held)
+        else:
+            main = held
     total = len(payload["passages"])
     out: dict[str, str] = {}
     for key, tid, ps in (("main", base, main), ("local", base + ":local", local), ("person", base + ":person", person)):
@@ -307,8 +333,9 @@ def _add_round(ws: Workspace, cid: str, base: str, payload: dict, model: str, ma
     return out
 
 
-def _to_person(ws: Workspace, task_id: str) -> None:
-    """A local part whose local model is not there: its excerpts wait for a person's judgement instead."""
+def _to_person(ws: Workspace, task_id: str, by_choice: bool = False) -> None:
+    """A local part whose local model is not there (or, `by_choice`, that the person chose to judge rather than start
+    the local model): its excerpts wait for a person's judgement instead."""
     with ws.connect() as cx:
         t = cx.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         if t is None or t["status"] == "done":
@@ -318,7 +345,48 @@ def _to_person(ws: Workspace, task_id: str) -> None:
         cx.execute("DELETE FROM results WHERE task_id=?", (task_id,))
         cx.execute("UPDATE tasks SET status='done', model=?, attempts=0, queued=0, claimed_by=NULL WHERE task_id=?",
                    (PERSON, task_id))
-        _person_rows(cx, task_id, cid, payload["passages"])
+        _person_rows(cx, task_id, cid, payload["passages"], by_choice)
+
+
+def judge_local_yourself(ws: Workspace, hyp_id: str) -> int:
+    """0.19.8: the excerpts of a check that wait for the local model (documents marked Only a local AI) wait for the
+    person instead: they would rather judge them than start the model ("Judge it myself"). Still no model reads them.
+    Returns the number of excerpts handed over. The tasks of the AI mix that wait for the local model are left alone:
+    they are not excerpts of such documents, and Claude Code answers them when no local model does."""
+    rows = [r for r in local_waiting(ws, [hyp_id], retry_failed=True) if not r.get("mix")]
+    for r in rows:
+        _to_person(ws, r["task_id"], by_choice=True)
+    return sum(r["passages"] for r in rows)
+
+
+def local_again(ws: Workspace, hyp_id: str) -> int:
+    """0.19.12: the way back from `judge_local_yourself` ("I changed my mind"): the parts the person chose to judge
+    instead of starting the local model wait for the local model again. An excerpt the person judged or commented on
+    keeps its row, so the judgement stays and still counts over the model's; the others lose their empty row, as
+    before they were handed over. Returns the number of excerpts handed back (0 when none were by choice)."""
+    claims = [r["claim_id"] for r in ws.query("SELECT claim_id FROM user_claims WHERE hyp_id=?", (hyp_id,))]
+    n = 0
+    with ws.connect() as cx:
+        for cid in claims:
+            for t in _check_tasks(ws, cid):
+                if not (t["task_id"].endswith(":local") and _is_person(t)):
+                    continue
+                rows = cx.execute("SELECT ver_id, passage_id, prompt_version, user_verdict, user_note FROM "
+                                  "verifications WHERE subject_kind='user_claim' AND subject_id=? AND model=?",
+                                  (cid, PERSON)).fetchall()
+                ids = {p["passage_id"] for p in json.loads(t["payload_json"])["passages"]}
+                mine = [r for r in rows if r["passage_id"] in ids]
+                if not mine or any(r["prompt_version"] != BY_CHOICE for r in mine):
+                    continue  # no model may read these (or a part from before 0.19.8): not the person's choice
+                for r in mine:
+                    judged = r["user_verdict"] or r["user_note"]   # Margin: your judgement is on the row itself (no judgements table)
+                    if not judged:
+                        cx.execute("DELETE FROM verifications WHERE ver_id=?", (r["ver_id"],))
+                main = cx.execute("SELECT model FROM tasks WHERE task_id=?", (t["task_id"][:-len(":local")],)).fetchone()
+                cx.execute("UPDATE tasks SET status='pending', model=?, attempts=0, queued=0, claimed_by=NULL "
+                           "WHERE task_id=?", (main[0] if main and main[0] != PERSON else "local", t["task_id"]))
+                n += len(ids)
+    return n
 
 
 def _part_counts(ws: Workspace, parts: dict[str, str]) -> dict[str, int]:
@@ -347,38 +415,151 @@ def _run_round(ws: Workspace, parts: dict[str, str], backend, model: str, reader
     """Answer the parts of a round: the main one with the main model, the local one with the local model (or, when
     it cannot be reached, it waits for a person). Returns whether the main part's answer was accepted (True when
     there is none). Backend errors of the main model propagate."""
-    from .llm import BackendError, MemoryShort
-
     ok = True
     if "main" in parts:
         ok, _errs = tasks.run_one(ws, parts["main"], backend, model)
     if "local" in parts:
-        got = readers.local() if readers is not None else None
-        if got is not None and readers.memory_short:
-            pass  # 0.13.11: no room for the local model earlier in this check: these excerpts wait as well
-        elif got is None:
-            _to_person(ws, parts["local"])
-            if readers is not None and readers.local_problem:
-                say("note", f"The local model could not be used ({readers.local_problem}); those excerpts wait for "
-                            "your judgement", {})
+        if readers is not None and readers.defers():
+            # 0.19.13: in a job of the app the local part waits for the local model's own Start, and is read beside
+            # Claude's once it is pressed (the job waits for it at its end: `_local_after`). A check under Claude is
+            # Claude's work too, so its local part never starts by itself.
+            tid = parts["local"]
+            readers.later(lambda: _read_local_part(ws, tid, readers, say),
+                          n=_part_counts(ws, {"local": tid})["local"], noun="excerpt", mixed=True, ws=ws)
         else:
-            n = _part_counts(ws, {"local": parts["local"]})["local"]
-            try:
-                lok, _errs = tasks.run_one(ws, parts["local"], got[0], got[1])
-                readers.read += 1
-                if not lok:  # 0.11.1: said on the progress and the result, instead of passing in silence
-                    say("note", "The local model's answers for the excerpts of documents marked Only a local AI could "
-                                "not be used; they are shown without a judgement", {})
-            except MemoryShort as e:
-                # 0.13.11: not loaded on a computer without room for it; the excerpts wait ("Read them now")
-                readers.memory_short = e
-                say("note", f"{e} {_waiting_words(n)}", {"keep": True})
-            except BackendError as e:
-                if readers.stopped():
-                    raise
-                _to_person(ws, parts["local"])
-                say("note", f"The local model could not be reached ({e}); those excerpts wait for your judgement", {})
+            _read_local_part(ws, parts["local"], readers, say)
     return ok
+
+
+def _shared_in_job(backend, model: str):
+    """0.19.13: one Readers for every part of a further round in a job of the app (its local parts wait for one Start
+    and are read after Claude's); None outside the app, where each part has its own, as before."""
+    from .localgate import GATE
+
+    return access.Readers(backend, model) if GATE.get() is not None else None
+
+
+def _local_after(readers) -> None:
+    """0.19.13: wait for the local parts a check handed to the job's local gate (read once the person starts the local
+    model). Stopped meanwhile, the first round of a check keeps them waiting for the local model, and the check keeps
+    what Claude read; a further round is reset instead (`_undo_unread`)."""
+    if readers is not None:
+        readers.drain()
+
+
+def _was_stopped(should_stop: Callable[[], bool] | None, readers=None) -> bool:
+    """Whether the job was stopped (its own Stop, or the Stop the backend was wired to)."""
+    try:
+        if should_stop is not None and should_stop():
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return readers is not None and readers.stopped()
+
+
+def _drop_parts(cx, tids: list[str]) -> None:
+    """Remove parts of a round: their tasks, answers and excerpt rows, and a second opinion asked of them."""
+    tids = [t for t in tids if t]
+    for tid in tids:
+        pl = cx.execute("SELECT payload_json FROM tasks WHERE task_id=?", (tid,)).fetchone()
+        for p in (json.loads(pl[0])["passages"] if pl else []):
+            cx.execute("DELETE FROM verifications WHERE ver_id=?", (f"v{tasks._h(tid, p['passage_id'])}",))
+        # second:<part>:<model>; the main part's prefix also starts its local and person parts' ids, kept unless dropped
+        head = f"second:{tid}:"
+        seconds = [r[0] for r in cx.execute("SELECT task_id FROM tasks WHERE substr(task_id, 1, ?) = ?", (len(head), head))
+                   if not any(r[0].startswith(f"{head}{s}:") for s in ("local", "person"))
+                   or any(r[0].startswith(f"second:{o}:") for o in tids if o != tid)]
+        for t in [tid, *seconds]:
+            cx.execute("DELETE FROM results WHERE task_id=?", (t,))
+            cx.execute("DELETE FROM tasks WHERE task_id=?", (t,))
+
+
+def _person_judged(cx, cid: str, tid: str) -> bool:
+    """Whether the person judged or commented on an excerpt of a part that waits for them."""
+    pl = cx.execute("SELECT payload_json FROM tasks WHERE task_id=?", (tid,)).fetchone()
+    for p in (json.loads(pl[0])["passages"] if pl else []):
+        row = cx.execute("SELECT user_verdict, user_note FROM verifications WHERE ver_id=?",
+                         (f"v{tasks._h(tid, p['passage_id'])}",)).fetchone()
+        if row is not None and (row[0] or row[1]):   # Margin: no judgements table, the row holds your judgement
+            return True
+    return False
+
+
+def _undo_unread(ws: Workspace, cid: str, parts: dict[str, str], terms_before: str | None = None) -> bool:
+    """0.19.17: Stop resets a further round of a check (Read it, Read these, Read more excerpts, Search with other
+    words): what no model read is taken back, as if it had not been asked, so the page shows the button that asked it
+    again instead of a panel that waits for a model (the owner's rule: after Stop, start again by its own click; a
+    document's AI setting changed meanwhile then decides who reads it). Nothing read: the whole round goes, and the
+    search words it added with it. Claude read its part: that stays, and only the local part that waits goes. A
+    judgement of the person stays. Returns whether anything was taken back."""
+    with ws.connect() as cx:
+        st = {}
+        for key, tid in parts.items():
+            row = cx.execute("SELECT status FROM tasks WHERE task_id=?", (tid,)).fetchone()
+            if row is not None:
+                st[key] = row[0]
+        if not st or st.get("local") in ("done", "failed"):
+            return False   # gone already, or the local model has read it: kept
+        if st.get("main") in ("done", "failed"):
+            if st.get("local") not in ("pending", "retry"):
+                return False
+            _drop_parts(cx, [parts["local"]])
+            return True
+        if "person" in st and _person_judged(cx, cid, parts["person"]):
+            drop = [parts[k] for k in ("main", "local") if k in st]
+        else:
+            drop = [parts[k] for k in st]
+            if terms_before is not None:
+                cx.execute("UPDATE user_claims SET terms_json=? WHERE claim_id=?", (terms_before, cid))
+        if not drop:
+            return False
+        _drop_parts(cx, drop)
+        return True
+
+
+def _undo_rounds(ws: Workspace, made: list[tuple[str, dict]]) -> bool:
+    """`_undo_unread` for every round a job made; whether anything was taken back."""
+    undone = False
+    for cid, parts in made:
+        try:
+            undone = _undo_unread(ws, cid, parts) or undone
+        except Exception:  # noqa: BLE001 - one round that cannot be reset never keeps the others waiting
+            pass
+    return undone
+
+
+def _read_local_part(ws: Workspace, task_id: str, readers, say=lambda *a, **k: None) -> None:
+    """The local part of a round, with the local model (or, when it cannot be reached, it waits for a person)."""
+    from .llm import BackendError, MemoryShort
+
+    if ws.scalar("SELECT status FROM tasks WHERE task_id=?", (task_id,)) in (None, "done"):
+        return  # removed with its check (stopped by a problem), or read meanwhile ("Read them now")
+    got = readers.local() if readers is not None else None
+    if got is not None and readers.memory_short:
+        return  # 0.13.11: no room for the local model earlier in this check: these excerpts wait as well
+    if got is None:
+        _to_person(ws, task_id)
+        if readers is not None and readers.local_problem:
+            say("note", f"The local model could not be used ({readers.local_problem}); those excerpts wait for "
+                        "your judgement", {})
+        return
+    n = _part_counts(ws, {"local": task_id})["local"]
+    try:
+        lok, _errs = tasks.run_one(ws, task_id, got[0], got[1])
+        readers.read += 1
+        if not lok:  # 0.11.1: said on the progress and the result, instead of passing in silence
+            say("note", "The local model's answers for the excerpts of documents marked Only a local AI could "
+                        "not be used; they are shown without a judgement", {})
+    except MemoryShort as e:
+        # 0.13.11: not loaded on a computer without room for it; the excerpts wait ("Read them now"; 0.19.13: or
+        # the local side's Start it anyway, in a job of the app)
+        readers.memory_short = e
+        say("note", f"{e} {_waiting_words(n)}", {"keep": True})
+    except BackendError as e:
+        if readers.stopped():
+            raise
+        _to_person(ws, task_id)
+        say("note", f"The local model could not be reached ({e}); those excerpts wait for your judgement", {})
 
 
 def _waiting_words(n: int) -> str:
@@ -453,7 +634,22 @@ def run_local_parts(ws: Workspace, hyp_ids: list[str] | None = None, readers=Non
         if on_start is not None:
             on_start(got[1], sum(r["passages"] for r in rows))
     n = 0
+    gate = getattr(readers, "gate", None)
+    # 0.19.13: the job's local side counts down what is left as it is read (excerpts, or tasks of the AI mix), so a
+    # finished read says none wait any more
+    left = sum(1 if r.get("mix") else r["passages"] for r in rows)
+    if gate is not None and got is not None:
+        gate.involve(waiting=left, noun="task" if all(r.get("mix") for r in rows) else "excerpt")
+
+    def counted(r) -> None:
+        nonlocal left
+        left = max(0, left - (1 if r.get("mix") else r["passages"]))
+        if gate is not None and got is not None:
+            gate.involve(waiting=left)
+
     for r in rows:
+        if got is not None and gate is not None and not gate.is_open and gate.state != "auto":
+            break  # 0.19.13: the local side's Stop: the rest waits for its Start again
         if r.get("mix"):  # 0.18.1 (I1, I2): the local model first; Claude when it is unsure, or when there is none
             if got is None:
                 with ws.connect() as cx:
@@ -471,6 +667,7 @@ def run_local_parts(ws: Workspace, hyp_ids: list[str] | None = None, readers=Non
                     readers.memory_short = e
                     return n
             n += 1
+            counted(r)
             continue
         with ws.connect() as cx:
             if r["status"] == "failed":
@@ -495,6 +692,7 @@ def run_local_parts(ws: Workspace, hyp_ids: list[str] | None = None, readers=Non
                 readers.local_problem = str(e)  # said on the progress
                 _to_person(ws, r["task_id"])
         n += 1
+        counted(r)
     return n
 
 
@@ -505,6 +703,51 @@ def only_local_waits(ws: Workspace, hyp_id: str) -> bool:
     return _only_local(claims, lambda cid: _check_tasks(ws, cid))
 
 
+def held_parts(ws: Workspace, hyp_ids: list[str]) -> list[dict]:
+    """Stage 2: the parts of these checks by queue held out of the queue: open main parts of a round not in the queue
+    because a document in them may not be read by the queue's provider now. Each {"task_id", "passages", "why"}:
+    "provider" (its documents are marked for cloud AI but do not allow that provider: allowing it lets the check go
+    on), "limit" (I7 stage 3: they would, but the owner's limit of the providers the team may use leaves that provider
+    out: the note says so, teamproviders.note), or "setting" (a document's setting or cap keeps it from any cloud AI
+    now)."""
+    if not hyp_ids:
+        return []
+    prov = tasks.queue_provider()
+    out = []
+    for (cid,) in ws.query(f"SELECT claim_id FROM user_claims WHERE stage='judge' AND hyp_id IN "
+                           f"({','.join('?' * len(hyp_ids))})", list(hyp_ids)):
+        for t in _check_tasks(ws, cid):
+            if t["status"] not in ("pending", "retry") or t["queued"] or t["task_id"] != round_base(t["task_id"]) \
+                    or (t["claimed_by"] or ""):
+                continue
+            docs = sorted({p["doc_id"] for p in json.loads(t["payload_json"])["passages"]})
+            with ws.connect() as cx:
+                mine = access.levels(cx, docs, provider=prov, budget=False)
+                chosen = access.levels(cx, docs, provider=None, budget=False)
+                now = access.levels(cx, docs, provider=prov)   # with each document's cap, as the queue reads it
+            if all(now.get(d) == "cloud" for d in docs):
+                # allowed since the queue last looked (the person allowed the provider a moment ago): not held, it
+                # goes to the queue at the next advance. Read as "setting", it went to the person for good
+                continue
+            why = "provider" if any(chosen.get(d) == "cloud" and mine.get(d) != "cloud" for d in docs) else "setting"
+            if why == "provider" and prov is not None:
+                from .solo import allows as team_allows
+
+                try:
+                    if not team_allows(ws._conn(), prov):
+                        why = "limit"
+                except Exception:  # noqa: BLE001 - read as the person's own consent
+                    pass
+            out.append({"task_id": t["task_id"], "passages": len(json.loads(t["payload_json"])["passages"]),
+                        "why": why})
+    return out
+
+
+def hand_to_person(ws: Workspace, task_id: str) -> None:
+    """A held part no AI can read now: its excerpts wait for the person's judgement (the check can finish)."""
+    _to_person(ws, task_id)
+
+
 def _readers(backend, model: str, readers=None):
     return readers if readers is not None else access.Readers(backend, model)
 
@@ -512,17 +755,17 @@ def _readers(backend, model: str, readers=None):
 _MAIN = object()  # _run_check: the hypothesis's own words go to the main model
 
 
-def _own_level(ws: Workspace, hyp_id: str) -> str:
+def _own_level(ws: Workspace, hyp_id: str, provider: str | None = None) -> str:
     """0.19.0 (N3): how far the hypothesis's own words may go, by the floors for its text (`access.floor`): a check
     started from a document's text keeps that document's AI setting, an add-on's draft its own; `cloud` otherwise."""
-    return access.floor(ws._conn(), {"hyp_id": hyp_id})
+    return access.floor(ws._conn(), {"hyp_id": hyp_id}, provider=provider)
 
 
 def _own_reader(ws: Workspace, hyp_id: str, readers):
     """0.19.0 (N3): (backend, model) that may read the hypothesis's own words to split it or to propose search words:
     the main model, the local model for restricted documents, or None (no model may: it is checked as written, with
     its own words)."""
-    lv = _own_level(ws, hyp_id)
+    lv = _own_level(ws, hyp_id, readers.provider)
     if lv in readers.main_levels:
         return readers.backend, readers.model
     return readers.for_level(lv)
@@ -623,6 +866,8 @@ def check_hypothesis(ws: Workspace, text: str, backend, model: str, framework: s
     readers = access.Readers(backend, model) if own else readers
     try:
         words_by = _own_reader(ws, hid, readers)  # 0.19.0 (N3): who may read the hypothesis's own words
+        if words_by is not None and words_by[0] is not backend:
+            readers.mixed()  # 0.19.13: the local model reads its words, Claude its excerpts: two Starts
         plan = [{"text": text, "role": None, "part": 0}]
         if given is not None:
             plan = given
@@ -658,7 +903,12 @@ def check_hypothesis(ws: Workspace, text: str, backend, model: str, framework: s
             cx.execute("UPDATE hypotheses SET model=? WHERE hyp_id=?", (used, hid))
     except BaseException:
         delete_hypothesis(ws, hid, unmade=True)  # a check stopped by a connection or key problem should not linger in the history
+        if own:
+            _let_go(readers)
         raise
+    try:
+        if own:
+            _local_after(readers)  # 0.19.13: after Claude's part, outside the clean-up: a stop now keeps the check
     finally:
         if own:
             _let_go(readers)
@@ -785,7 +1035,8 @@ def queue_check(ws: Workspace, text: str, router, framework: str | None = None, 
     given_terms = [clean_terms(t) if t is not None else None for t in terms] if terms is not None else None
     model = (router.model("check") if router is not None else None) or "opus"
     options = {"k": k, "per_doc": per_doc, "expand": expand, "decompose": decompose, "doc_ids": doc_ids or [],
-               "backend": "claude_code", "model": model, "queue": True,
+               "backend": router.route if router is not None and router.route in routing.AGENT_ROUTES
+               else "claude_code", "model": model, "queue": True,
                "search": "keywords+meaning" if embed_model else "keywords", "embed_model": embed_model,
                "second_pass": bool(second_pass), **(extra or {})}
     if given is not None or given_terms is not None:
@@ -802,7 +1053,7 @@ def queue_check(ws: Workspace, text: str, router, framework: str | None = None, 
     # 0.19.0 (N3): Claude Code may not read words a floor keeps on this computer (a check started from a document
     # marked Only a local AI or No AI): the hypothesis is checked as written, with its own words, and its excerpts are
     # judged by the local model or by the person (_add_round)
-    if _own_level(ws, hid) != "cloud":
+    if _own_level(ws, hid, access.ANTHROPIC) != "cloud":   # (the queue's reader: Claude Code)
         options.update(expand=options["expand"] and given_terms is not None, decompose=bool(given and len(given) > 1))
         decompose = False
         with ws.connect() as cx:
@@ -867,7 +1118,10 @@ def _queue_router():
     try:
         from .home import load_settings
 
-        return from_settings(load_settings(), route="claude_code")
+        from .taskqueue import queue_route
+
+        s = load_settings()
+        return from_settings(s, route=queue_route(s))
     except Exception:  # noqa: BLE001
         return None
 
@@ -937,13 +1191,21 @@ def _advance_one(ws: Workspace, h: dict, r=None) -> bool:
                 if moved and picked:
                     payload = _payload(ws, cid, c["text"], c["target"], c["framework"], picked, terms)
                     _add_round(ws, cid, f"check:{cid}", payload, (r.model("check") if r else None) or "opus",
-                               ("cloud",), _local_configured(), cx)
+                               ("cloud",), _local_configured(), cx, provider=tasks.queue_provider(), hold=True)
             if picked:
                 open_ = True
             continue
         if stage == "judge":
-            sts = [t["status"] for t in _check_tasks(ws, cid)]
+            rows = _check_tasks(ws, cid)
+            sts = [t["status"] for t in rows]
             if any(st in ("pending", "retry") for st in sts):  # the local part too (the app reads it, see _follow)
+                # stage 2: a part held out of the queue (its provider not allowed yet) goes to it once its documents
+                # allow the queue's provider (the person allowed it, or the main route changed): the check goes on
+                back = [t["task_id"] for t in rows if t["status"] in ("pending", "retry") and not t["queued"]
+                        and (t["access"] or "cloud") == "cloud" and t["task_id"] == round_base(t["task_id"])]
+                if back:
+                    with ws.connect() as cx:
+                        tasks.mark_queued(cx, back)
                 open_ = True
                 continue
             with ws.connect() as cx:
@@ -1025,15 +1287,18 @@ def _run_check(ws, cid, backend, model, used, k, per_doc, expand, doc_ids, say, 
     stop()
     readers = _readers(backend, model, readers)
     parts = _add_round(ws, cid, f"check:{cid}", _payload(ws, cid, claim, uc["target"], uc["framework"], picked, terms),
-                       used, tuple(readers.main_levels), readers.local_configured())
+                       used, tuple(readers.main_levels), readers.local_configured(), provider=readers.provider)
     n = _part_counts(ws, parts)
-    say("grade", _grade_text(n, access.is_cloud(backend)), {"split": n} if len(n) > 1 else {})
+    say("grade", _grade_text(n, access.provider_of(backend) == access.ANTHROPIC), {"split": n} if len(n) > 1 else {})
     ok = _run_round(ws, parts, backend, model, readers, say)
     graded = ws.scalar("SELECT COUNT(*) FROM verifications WHERE subject_kind='user_claim' AND subject_id=? "
                        "AND verdict != 'not_enough_info'", (cid,)) or 0
     attempts = ws.scalar("SELECT attempts FROM tasks WHERE task_id=?", (f"check:{cid}",)) or 1
+    # I6: with the local model's suggestions, which wait for the person's judgement too
     waiting = ws.scalar("SELECT COUNT(*) FROM verifications WHERE subject_kind='user_claim' AND subject_id=? AND "
-                        "model=? AND user_verdict IS NULL", (cid, PERSON)) or 0
+                        "(model=? OR suggestion_json IS NOT NULL) AND user_verdict IS NULL", (cid, PERSON)) or 0
+    graded -= ws.scalar("SELECT COUNT(*) FROM verifications WHERE subject_kind='user_claim' AND subject_id=? AND "
+                        "suggestion_json IS NOT NULL AND verdict != 'not_enough_info'", (cid,)) or 0
     say("grade_done", (f"{graded} of {len(picked)} excerpts are about the hypothesis; every quote was checked against "
                        "the document" if ok else "The AI's answers could not be used, even after three tries")
         + (f" ({attempts} tries)" if attempts > 1 and ok else "")
@@ -1084,28 +1349,31 @@ def continue_check(ws: Workspace, cid: str, backend, model: str, k: int = 8, ter
     _stopper(should_stop)()
     used = _used(backend, model)
     say("rank", "Looking for further excerpts not read yet", {})
+    own = readers is None
     readers = _readers(backend, model, readers)
+    terms_before = ws.scalar("SELECT terms_json FROM user_claims WHERE claim_id=?", (cid,)) if terms else None
     r = more_passages(ws, cid, k=k, model=used, terms=terms, embedder=embedder, doc_ids=doc_ids,
-                      main_levels=tuple(readers.main_levels), local_reader=readers.local_configured())
+                      main_levels=tuple(readers.main_levels), local_reader=readers.local_configured(),
+                      provider=readers.provider)
     if not r["passages"]:
         say("rank_done", "No further excerpts match", {"passages": 0})
         return r
     say("rank_done", f"Found {len(r['passages'])} more excerpts", {"passages": len(r["passages"])})
     parts = r.pop("parts", {})
-    say("grade", _grade_text(_part_counts(ws, parts), access.is_cloud(backend)), {})
+    say("grade", _grade_text(_part_counts(ws, parts), access.provider_of(backend) == access.ANTHROPIC), {})
     try:
         ok = _run_round(ws, parts, backend, model, readers, say)
     except BaseException:
         with ws.connect() as cx:  # a round stopped by a backend problem is removed, so it can be asked again
-            for tid in parts.values():
-                pl = cx.execute("SELECT payload_json FROM tasks WHERE task_id=?", (tid,)).fetchone()
-                for p in (json.loads(pl[0])["passages"] if pl else []):
-                    cx.execute("DELETE FROM verifications WHERE ver_id=?", (f"v{tasks._h(tid, p['passage_id'])}",))
-                cx.execute("DELETE FROM results WHERE task_id=?", (tid,))
-                cx.execute("DELETE FROM tasks WHERE task_id=?", (tid,))
+            _drop_parts(cx, list(parts.values()))
         raise
+    if own:
+        _local_after(readers)  # 0.19.13: its local part, once the local model is started
+        # 0.19.17: stopped while its local part waited: the round is reset, and the job ends as stopped
+        if _was_stopped(should_stop, readers) and _undo_unread(ws, cid, parts, terms_before):
+            _stopper(lambda: True)()
     say("grade_done", "Read; every quote was checked against the document" if ok else "The AI's answers could not be used, even after three tries", {"ok": ok})
-    return {**r, "ok": ok}
+    return {**r, "ok": ok, "parts": parts}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1130,8 +1398,11 @@ def _shown(payload: dict) -> list[dict]:
 
 def open_check(ws: Workspace, text: str, terms: list[str] | None = None, target: str | None = None, k: int = 8,
                per_doc: int = 2, doc_ids: list[str] | None = None, model: str = CHAT_MODEL,
-               framework: str | None = None) -> dict:
-    """Pick the passages for a claim and return them; the grades come back through `submit_grades`."""
+               framework: str | None = None, provider: str | None = access.ANTHROPIC,
+               route: str | None = None) -> dict:
+    """Pick the passages for a claim and return them; the grades come back through `submit_grades`. I7 stage 3:
+    `provider` is the connector's (Codex's: OpenAI), for the split and the ledger; `route` the name the ledger
+    gives it (mcp_server.sent_route)."""
     if not ws.scalar("SELECT COUNT(*) FROM passages WHERE section='body'"):
         raise ValueError("This project has no readable documents yet. Add sources first.")
     terms = clean_terms(terms)
@@ -1145,18 +1416,20 @@ def open_check(ws: Workspace, text: str, terms: list[str] | None = None, target:
     if not picked:
         return {"check_id": cid, "round": 1, "passages": []}
     payload = _payload(ws, cid, uc["text"], uc["target"], uc["framework"], picked, terms)
-    parts = _add_round(ws, cid, f"check:{cid}", payload, model, ("cloud",), _local_configured())
-    return {"check_id": cid, "round": 1, **_chat_round(ws, parts)}
+    parts = _add_round(ws, cid, f"check:{cid}", payload, model, ("cloud",), _local_configured(), provider=provider)
+    return {"check_id": cid, "round": 1, **_chat_round(ws, parts, provider, route)}
 
 
-def _chat_round(ws: Workspace, parts: dict[str, str]) -> dict:
+def _chat_round(ws: Workspace, parts: dict[str, str], provider: str | None = access.ANTHROPIC,
+                route: str | None = None) -> dict:
     """The excerpts of a round a Claude chat may read (the main part), and how many others there are (0.11)."""
     main = ws.scalar("SELECT payload_json FROM tasks WHERE task_id=?", (parts["main"],)) if "main" in parts else None
     shown = _shown(json.loads(main)) if main else []
     if main:
         with ws.connect() as cx:
             # the chat sees the excerpts alone (`_shown`): no context passage enters the ledger (0.11.1)
-            access.record_sent(cx, parts["main"], json.loads(main), access.ROUTE_NAMES["chat"], "check", context=False)
+            access.record_sent(cx, parts["main"], json.loads(main), route or access.ROUTE_NAMES["chat"], "check",
+                               context=False, provider=provider)
     n = _part_counts(ws, {k: v for k, v in parts.items() if k != "main"})
     out: dict = {"passages": shown}
     if n:
@@ -1171,7 +1444,8 @@ def _chat_round(ws: Workspace, parts: dict[str, str]) -> dict:
 
 def more_passages(ws: Workspace, cid: str, k: int = 8, model: str = CHAT_MODEL, terms: list[str] | None = None,
                   embedder=None, doc_ids: list[str] | None = None, main_levels=("cloud",),
-                  local_reader: bool | None = None) -> dict:
+                  local_reader: bool | None = None, provider: str | None = access.ANTHROPIC,
+                  route: str | None = None) -> dict:
     """The next best passages, none of them shown before, as a new round of the same check.
 
     With `terms`, the ranking uses these new search terms (with the claim) instead of the earlier ones, and only
@@ -1204,9 +1478,9 @@ def more_passages(ws: Workspace, cid: str, k: int = 8, model: str = CHAT_MODEL, 
         return {"check_id": cid, "round": n, "passages": []}
     payload = _payload(ws, cid, uc["text"], uc["target"], uc.get("framework"), picked, new_terms or old_terms)
     parts = _add_round(ws, cid, f"check:{cid}:r{n}" if groups else f"check:{cid}", payload, model, tuple(main_levels),
-                       _local_configured() if local_reader is None else local_reader)
+                       _local_configured() if local_reader is None else local_reader, provider=provider)
     if model == CHAT_MODEL:  # a Claude chat (the connector): it is shown the excerpts it may read
-        return {"check_id": cid, "round": n, **_chat_round(ws, parts)}
+        return {"check_id": cid, "round": n, **_chat_round(ws, parts, provider, route)}
     return {"check_id": cid, "round": n, "passages": _shown(payload), "parts": parts}
 
 
@@ -1247,21 +1521,60 @@ def read_new_documents(ws: Workspace, hyp_id: str, backend, model: str, k: int =
                        progress: Progress | None = None, should_stop: Callable[[], bool] | None = None) -> dict:
     """Read the documents added since a check, for every part, as a further round restricted to them (the check
     is not run again, so a person's reviews are kept). Documents without a matching excerpt are only marked as
-    looked at. Returns {"hyp_id", "documents", "matching", "passages", "rounds"}."""
+    looked at. Returns {"hyp_id", "documents", "matching", "passages", "rounds", "before", "after", "changed"}:
+    `before`/`after` the answer and its counts (`_answer_now`), `changed` what differs (`_what_changed`)."""
     say = _adapt(progress)
     new = new_documents(ws, hyp_id)
     docs = [d["doc_id"] for d in new if d["matching"]]
-    total, rounds = 0, []
+    total, rounds, made = 0, [], []
+    before = _answer_now(ws, hyp_id) if docs else None
     if docs:
-        for c in ws.query("SELECT claim_id FROM user_claims WHERE hyp_id=? ORDER BY part, rowid", (hyp_id,)):
-            r = continue_check(ws, c["claim_id"], backend, model, k=k, embedder=embedder, should_stop=should_stop,
-                               doc_ids=docs, progress=lambda s, m, i=None: say(s, m, i or {}))
-            total += len(r["passages"])
-            rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
-                           "ok": r.get("ok")})
+        readers = _shared_in_job(backend, model)  # 0.19.13: in the app, every part's local part at one Start
+        try:
+            try:
+                for c in ws.query("SELECT claim_id FROM user_claims WHERE hyp_id=? ORDER BY part, rowid", (hyp_id,)):
+                    r = continue_check(ws, c["claim_id"], backend, model, k=k, embedder=embedder,
+                                       should_stop=should_stop, doc_ids=docs,
+                                       progress=lambda s, m, i=None: say(s, m, i or {}), readers=readers)
+                    made.append((c["claim_id"], r.get("parts") or {}))
+                    total += len(r["passages"])
+                    rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
+                                   "ok": r.get("ok")})
+                _local_after(readers)
+            finally:
+                if readers is not None:
+                    _let_go(readers)
+        except BaseException:
+            _undo_rounds(ws, made)   # 0.19.17: stopped or failed half-way: the documents wait for Read it again
+            raise
+        # 0.19.17: stopped while a local part waited: reset to before Read it (the documents still count as added
+        # since the check, so the card and its button come back), and the job ends as stopped
+        if _was_stopped(should_stop, readers) and _undo_rounds(ws, made):
+            _stopper(lambda: True)()
     with ws.connect() as cx:
         cx.execute("UPDATE hypotheses SET docs_checked_at=? WHERE hyp_id=?", (now(), hyp_id))
-    return {"hyp_id": hyp_id, "documents": len(new), "matching": len(docs), "passages": total, "rounds": rounds}
+    after = _answer_now(ws, hyp_id) if docs else None
+    return {"hyp_id": hyp_id, "documents": len(new), "matching": len(docs), "passages": total, "rounds": rounds,
+            "before": before, "after": after, "changed": _what_changed(before, after)}
+
+
+def _answer_now(ws: Workspace, hyp_id: str) -> dict | None:
+    """A hypothesis's answer and its counts of excerpts that count, as the Hypotheses list shows them."""
+    rows = history(ws, limit=1, hyp_id=hyp_id)
+    if not rows:
+        return None
+    r = rows[0]
+    return {k: r[k] for k in ("status", "supports", "partly", "refutes")}
+
+
+def _what_changed(before: dict | None, after: dict | None) -> str:
+    """0.20.3: what reading the new documents changed: "answer" (the answer is another), "evidence" (the same
+    answer, other counts of excerpts that count) or "" (nothing the list shows)."""
+    if not before or not after:
+        return ""
+    if before["status"] != after["status"]:
+        return "answer"
+    return "evidence" if any(before[k] != after[k] for k in ("supports", "partly", "refutes")) else ""
 
 
 UNREAD_ROUND_MAX = 40   # N5: the most excerpts one press of *Read these* reads per part
@@ -1298,23 +1611,36 @@ def read_unread_documents(ws: Workspace, hyp_id: str, backend, model: str, k: in
     docs = split[1] if split else set()
     hyp_limit = set(json.loads(ws.scalar("SELECT options_json FROM hypotheses WHERE hyp_id=?", (hyp_id,)) or "{}")
                     .get("doc_ids") or [])
-    total, rounds = 0, []
-    for c in ws.query("SELECT claim_id, text, terms_json, options_json FROM user_claims WHERE hyp_id=? "
-                      "ORDER BY part, rowid", (hyp_id,)) if docs else []:
-        limit = set(json.loads(c["options_json"] or "{}").get("doc_ids") or []) or hyp_limit
-        # each part reads the documents that hold its own words, within its limit
-        mine = sorted(docs_matching(ws, c["text"], json.loads(c["terms_json"] or "[]"), docs & limit if limit else docs,
-                                    min_words=UNREAD_MIN_WORDS))
-        if not mine:   # never an empty list: that would mean every document
-            continue
-        # one excerpt per document if need be (up to UNREAD_ROUND_MAX), not only the check's usual k: the button
-        # says "Read these"; what is left over stays on the card for the next press
-        r = continue_check(ws, c["claim_id"], backend, model, k=max(k, min(len(mine), UNREAD_ROUND_MAX)),
-                           embedder=embedder, should_stop=should_stop, doc_ids=mine,
-                           progress=lambda s, m, i=None: say(s, m, i or {}))
-        total += len(r["passages"])
-        rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
-                       "ok": r.get("ok")})
+    total, rounds, made = 0, [], []
+    readers = _shared_in_job(backend, model)  # 0.19.13: in the app, every part's local part at one Start
+    try:
+        try:
+            for c in ws.query("SELECT claim_id, text, terms_json, options_json FROM user_claims WHERE hyp_id=? "
+                              "ORDER BY part, rowid", (hyp_id,)) if docs else []:
+                limit = set(json.loads(c["options_json"] or "{}").get("doc_ids") or []) or hyp_limit
+                # each part reads the documents that hold its own words, within its limit
+                mine = sorted(docs_matching(ws, c["text"], json.loads(c["terms_json"] or "[]"),
+                                            docs & limit if limit else docs, min_words=UNREAD_MIN_WORDS))
+                if not mine:   # never an empty list: that would mean every document
+                    continue
+                # one excerpt per document if need be (up to UNREAD_ROUND_MAX), not only the check's usual k: the
+                # button says "Read these"; what is left over stays on the card for the next press
+                r = continue_check(ws, c["claim_id"], backend, model, k=max(k, min(len(mine), UNREAD_ROUND_MAX)),
+                                   embedder=embedder, should_stop=should_stop, doc_ids=mine,
+                                   progress=lambda s, m, i=None: say(s, m, i or {}), readers=readers)
+                made.append((c["claim_id"], r.get("parts") or {}))
+                total += len(r["passages"])
+                rounds.append({"claim_id": c["claim_id"], "round": r["round"], "passages": len(r["passages"]),
+                               "ok": r.get("ok")})
+            _local_after(readers)
+        finally:
+            if readers is not None:
+                _let_go(readers)
+    except BaseException:
+        _undo_rounds(ws, made)   # 0.19.17: stopped or failed half-way: the documents wait for Read these again
+        raise
+    if _was_stopped(should_stop, readers) and _undo_rounds(ws, made):
+        _stopper(lambda: True)()   # 0.19.17: reset to before Read these, and the job ends as stopped
     after = _unread_split(ws, hyp_id) if rounds else None
     left = after[1] if after else docs
     return {"hyp_id": hyp_id, "documents": len(docs), "documents_read": len(docs - left), "left": len(left & docs),
@@ -1334,7 +1660,7 @@ def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, 
     stop = _stopper(should_stop)
     if not second_model:
         raise ValueError("Choose a model for second opinions in Settings first.")
-    if second_model == main_model and getattr(backend, "name", "") not in ("claude_code", "anthropic"):
+    if second_model == main_model and getattr(backend, "name", "") not in routing.AUDITOR_ROUTES:
         # on Claude the auditor gives the second opinion; it may run on the same model as the checker (Opus)
         raise ValueError("The model for second opinions must be another model than the main one.")
     todo = []
@@ -1345,8 +1671,11 @@ def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, 
             for t in _check_tasks(ws, c["claim_id"]):
                 if _is_person(t):
                     continue  # no model may read these excerpts
+                if t["status"] != "done":
+                    continue  # 0.19.17: not read yet (waits for the local model, Claude Code, or failed): no first
+                    # reading to compare with, and the excerpts are not shown as cards to find the difference on
                 with ws.connect() as cx:  # the setting of its documents now (it may have changed since)
-                    lv = access.label_payload(cx, json.loads(t["payload_json"]))
+                    lv = access.label_payload(cx, json.loads(t["payload_json"]), provider=access.provider_of(backend))
                 if lv not in may:  # 0.11: a local excerpt has a second opinion only from a second local model
                     restricted += len(json.loads(t["payload_json"])["passages"])
                     continue
@@ -1394,14 +1723,14 @@ def second_opinion(ws: Workspace, hyp_ids: list[str], backend, main_model: str, 
 
 def history(ws: Workspace, threshold: float | None = None, limit: int | None = None, query: str | None = None,
             status: str | None = None, batch_id: str | None = None, _checks: dict | None = None,
-            citations: bool = False) -> list[dict]:
+            citations: bool = False, hyp_id: str | None = None) -> list[dict]:
     """Every hypothesis checked in the project, newest first, with its status (computed in a few queries).
     0.13.7: the checks of citations are left out (they are on the Citations page), unless `citations`.
 
     `supports`, `partly`, `refutes` count the excerpts whose judgement counts at this threshold; `uncounted` the
     judged excerpts below it; `docs_*` count documents as on the result page. With `limit`, the checks and
     judgements of each hypothesis are read as it is reached, so a short list does not read every check.
-    `_checks`: every claim's check tasks already read (`_light_checks`, by `evidence_map`).
+    `_checks`: every claim's check tasks already read (`_light_checks`, by `evidence_map`). `hyp_id`: only that one.
     """
     thr = _threshold(ws, threshold)
     hyps = ws.query("SELECT * FROM hypotheses ORDER BY created_at DESC, rowid DESC")
@@ -1427,8 +1756,8 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
         """The check tasks and judgements of these claims (of all, with None)."""
         if _checks is None:
             rounds.update(_light_checks(ws, cids))
-        sql = ("SELECT subject_id, passage_id, verdict, confidence, doc_id, user_verdict, model, ai_history_json "
-               "FROM verifications WHERE subject_kind='user_claim'")
+        sql = ("SELECT subject_id, passage_id, verdict, confidence, doc_id, user_verdict, model, ai_history_json, "
+               "suggestion_json FROM verifications WHERE subject_kind='user_claim'")
         if cids is None:
             vs = ws.query(sql)
         else:
@@ -1449,7 +1778,8 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
             e["_changed"] = changed_by_person(v) and e["_mine"]
             e["_ai_judged"] = v["verdict"] in ("supports", "partially_supports", "refutes")
             ver.setdefault(v["subject_id"], []).append(e)
-            ai_of[(v["subject_id"], v["passage_id"])] = v["verdict"] if v["verdict"] in GRADES else None
+            if v["model"] != PERSON:  # 0.19.17: a second opinion differs only from a model's first reading
+                ai_of[(v["subject_id"], v["passage_id"])] = v["verdict"] if v["verdict"] in GRADES else None
 
     if not limit:
         load(None)
@@ -1478,6 +1808,8 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
         if q and q not in (h["text"] or "").lower():
             continue
         if batch_id and h["batch_id"] != batch_id:
+            continue
+        if hyp_id and h["hyp_id"] != hyp_id:
             continue
         parts = claims.get(h["hyp_id"], [])
         if limit:
@@ -1515,7 +1847,7 @@ def history(ws: Workspace, threshold: float | None = None, limit: int | None = N
                 for pid, did, *_title in shown:
                     shown_docs.add(did)
                     key = (c["claim_id"], pid)
-                    if key in second and second[key] != ai_of.get(key):
+                    if key in second and key in ai_of and second[key] != ai_of[key]:
                         disagree += 1
             limited = limited or bool(json.loads(c["options_json"] or "{}").get("doc_ids"))
             for v in ver.get(c["claim_id"], []):
@@ -1625,7 +1957,9 @@ def check_batch(ws: Workspace, items: list[dict], backend, model: str, progress:
     problem with the model service stops the batch (what was done is kept)."""
     readers = access.Readers(backend, model)  # 0.13.11: one local model for the whole batch, let go at its end
     try:
-        return _check_each(ws, items, backend, model, _adapt(progress), should_stop, readers, options)
+        out = _check_each(ws, items, backend, model, _adapt(progress), should_stop, readers, options)
+        _local_after(readers)  # 0.19.13: the local parts of every check, once the local model is started
+        return out
     finally:
         _let_go(readers)
 

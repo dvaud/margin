@@ -137,11 +137,13 @@ def test_the_sidebar_card_and_the_settings_checklist():
     body = app[app.index("function renderPrivacy()"):app.index("function sidebarScrollInit()")]
     assert "title:" not in body and '"aria-describedby": "privacy-card"' in body and 'role: "tooltip"' in body
     assert "Signed in to Claude Code as" in body and "Escape" in body
-    assert "mouseenter" in body and "claudeStatus()" in body
+    # stage 2: the line asks the agent of the main route (agentStatus: claudeStatus() for Claude Code)
+    assert "mouseenter" in body and "agentStatus(route)" in body
+    assert 'if (route === "claude_code") return claudeStatus(maxAge)' in lib
     # one shared answer, asked again after a minute; Settings hands on what it reads fresh
     for name in ("claudeStatus", "claudeSeenNow", "rememberClaude", "claudeAccount"):
         assert f"export function {name}(" in lib, name
-    assert "rememberClaude(info.status" in settings and "rememberClaude(r.status" in settings
+    assert "rememberClaude(r.status" in settings   # the set-up card (claudeAdapter) hands on what it reads
     assert "/api/claude-setup" not in overview   # 0.17.0: the Overview AI box is gone; the sidebar line asks
     # Settings → AI: "Signed in with your Claude plan" names the account
     assert "accountText(st)" in settings and '"Pro, Max, Team or Enterprise"' in settings

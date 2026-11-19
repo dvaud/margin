@@ -1,6 +1,7 @@
 // 0.17.0: the research log beside any page. A button fixed at the top right of the window opens a panel on the right:
 // write an entry while looking at anything, and see the entries kept with the page you are on (or all of them).
-// The whole log, with search, export and the rest, stays on its own page (#/log).
+// The whole log, with search, export and the rest, is its own place (#/log): there the button and the panel hide (the
+// page has the write box and every entry), and the panel comes back on the next page if it was open.
 import { App, api, h, icon, clear, session, fmt, toast, showError, P, button, link, textarea, choice, drawer, drawerButton, setDrawerOpen } from "../lib.js";
 import { subjectHref, entryText, entrySubject } from "./log.js";
 
@@ -31,17 +32,20 @@ export function initLogDrawer() {
   const shell = document.getElementById("shell");
   if (!shell) return;
   const body = document.body;
-  let open = false;
+  let open = session("logdrawer-open") === true;   // wanted open (remembered); shown only off the Research log page
   let mode = session("logdrawer-mode") === "all" ? "all" : "page";
   let shown = PAGE;
   let token = 0;               // the newest refresh wins
   const docTitles = new Map(); // "project, document" -> its title, each asked for once when a document page is the context
+  // the Research log page (#/log) has the write box and every entry: no button and no panel there
+  const onLogPage = () => /^#\/log\/?(?:\?|$)/.test(location.hash);
+  const showing = () => open && !onLogPage();
 
-  // ---- the door (docs/DESIGN.md 4.19): one button, fixed at the top right (in the top bar under 861 px), soft teal
-  // while the drawer is open
+  // ---- the button (docs/DESIGN.md 4.19): the drawer component's, soft teal while the drawer is open; in the top bar
+  // under 861 px
   const phone = () => window.matchMedia("(max-width: 860px)").matches;
-  const btn = drawerButton({ id: "logdrawer-btn", controls: "logdrawer", label: "Research log", icon: "notebook",
-    title: "The research log, beside this page", onClick: () => { if (open) close(true); else openIt(true); } });
+  const btn = drawerButton({ id: "logdrawer-btn", controls: "logdrawer", label: "Write in the log", icon: "notebook",
+    title: "The research log, beside this page", onClick: () => (open ? close(true) : openIt(true)) });
   const placeBtn = () => {
     const bar = document.getElementById("topbar");
     if (phone() && bar) { if (btn.parentNode !== bar) bar.appendChild(btn); }
@@ -49,12 +53,11 @@ export function initLogDrawer() {
       const skip = document.querySelector(".skip-link");
       if (skip) skip.after(btn); else body.prepend(btn);
     }
-    markDoors();
   };
-  const markDoors = () => btn.setAttribute("aria-expanded", open ? "true" : "false");
 
   // ---- the drawer: its frame is the drawer component; its parts are the Research log page's own (the write box and
-  // the list of entries, .log-new and .log-entries), so an entry looks the same on the page and here
+  // the list of entries, .log-new and .log-entries), so an entry looks the same on the page and here. Its one control,
+  // This page | All, is in its head (docs/DESIGN.md 4.19: at most one control)
   const which = choice({ label: "Show entries of", filter: true, sm: true, value: mode, options: [["page", "This page"], ["all", "All"]],
     onPick: (v) => { mode = v; session("logdrawer-mode", mode); shown = PAGE; refresh(); } });
   const pageBtn = which.querySelector('[data-value="page"]');
@@ -62,14 +65,13 @@ export function initLogDrawer() {
   const keptWith = h("p", { class: "muted small logdrawer-kept" });
   const addBtn = button({ kind: "main", sm: true, onClick: add }, "Add to the log");
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); add(); } });
-  const note = h("p", { class: "muted small", hidden: true });
+  // the note line: said when This page has nothing and all entries show
+  const note = h("p", { class: "muted small log-show", hidden: true });
   const list = h("div", { class: "logdrawer-list", "aria-live": "polite" });
-  // This page | All filters the log's entries only, so it sits above its entries
-  const logSections = [h("div", { class: "log-new" }, h("h2", { class: "visually-hidden" }, "Research log"), ta, h("div", { class: "log-new-foot" }, keptWith, addBtn)),
-    h("div", { class: "log-show" }, which, note), list];
-  const aside = drawer({ id: "logdrawer", title: "Research log", icon: "notebook",
-    onClose: () => close(true), closeLabel: "Close the panel", sections: logSections,
-    foot: [link({ href: "#/log" }, "The whole research log"), h("span", { class: "muted" }, " on the Overview")] });
+  const aside = drawer({ id: "logdrawer", title: "Research log", icon: "notebook", control: which,
+    onClose: () => close(true), closeLabel: "Close the research log",
+    sections: [h("div", { class: "log-new" }, ta, h("div", { class: "log-new-foot" }, keptWith, addBtn)), note, list],
+    foot: link({ href: "#/log" }, "The whole research log") });
   const closeBtn = aside.closeButton;
   shell.appendChild(aside);
   placeBtn();
@@ -77,12 +79,16 @@ export function initLogDrawer() {
 
   const overlay = () => window.matchMedia("(max-width: 999px)").matches;
 
+  // shows or hides the panel and the button for the page: open or not, and never on the Research log page
+  function place() {
+    btn.hidden = onLogPage();
+    aside.hidden = !showing();
+    setDrawerOpen(showing(), btn);
+  }
   function openIt(byUser) {
     open = true;
     session("logdrawer-open", true);
-    aside.hidden = false;
-    setDrawerOpen(true, null);
-    markDoors();
+    place();
     refresh();
     if (byUser) (phone() ? closeBtn : ta).focus();
   }
@@ -90,10 +96,8 @@ export function initLogDrawer() {
     const hadFocus = aside.contains(document.activeElement);
     open = false;
     session("logdrawer-open", false);
-    aside.hidden = true;
-    setDrawerOpen(false, null);
-    markDoors();
-    if (returnFocus || hadFocus) (btn).focus();
+    place();
+    if ((returnFocus || hadFocus) && !btn.hidden) btn.focus();
   }
 
   // ---- what this page is
@@ -113,7 +117,7 @@ export function initLogDrawer() {
 
   // ---- reading
   async function refresh() {
-    if (!open || !App.project) return;
+    if (!showing() || !App.project) return;   // the log reads itself only when it is shown
     const mine = ++token;
     const project = App.project;
     const ctx = context();
@@ -200,14 +204,13 @@ export function initLogDrawer() {
   }
 
   // ---- when to read again, and when to close
-  window.addEventListener("hashchange", () => { shown = PAGE; refresh(); });
-  App.onChange(() => {
-    if (open) { shown = PAGE; refresh(); }
-  });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && open && !e.defaultPrevented && !document.querySelector("#dialogs dialog[open]")) close(aside.contains(document.activeElement)); });
+  window.addEventListener("hashchange", () => { shown = PAGE; place(); refresh(); });
+  App.onChange(() => { if (showing()) { shown = PAGE; refresh(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && showing() && !e.defaultPrevented && !document.querySelector("#dialogs dialog[open]")) close(aside.contains(document.activeElement)); });
   document.addEventListener("click", (e) => {
-    if (open && overlay() && !aside.contains(e.target) && !btn.contains(e.target) && !e.target.closest(".sidebar, .topbar, .toasts, #dialogs")) close(false);
+    if (showing() && overlay() && !aside.contains(e.target) && !btn.contains(e.target) && !e.target.closest(".sidebar, .topbar, .toasts, #dialogs")) close(false);
   });
 
-  if (session("logdrawer-open") === true) openIt(false);
+  place();
+  if (showing()) refresh();
 }

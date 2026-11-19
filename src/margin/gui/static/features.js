@@ -109,14 +109,14 @@ export const FEATURES = {
   researchlog: {
     section: "project", title: "Research log", icon: "notebook", href: "#/log", ai: "none",
     what: "A dated record of what was decided: documents added, checks made and dropped, themes removed, codebook changes. Add your own entries, say why, and go back to an earlier version.",
-    overview: false,   // 0.17.0: a view of the Overview, and the drawer beside every page
+    overview: false,   // a place of the sidebar's Project group, and the drawer beside every page
   },
   // 0.18.1 part A (documents, theory, concepts): its features below this line
   // end of 0.18.1 part A
   // 0.18.1 part B (AI mix, checks, retractions): its features below this line
   retractions: {
     section: "project", title: "Retractions and corrections", icon: "alert-triangle", href: "#/bibliography", ai: "none",
-    what: "Asks Crossref, when you press a button, whether the works of your bibliography and your documents have been retracted, corrected or flagged. Only DOIs are sent; works whose document is marked No AI are left out.",
+    what: "Asks Crossref, when you press a button, whether the works of your bibliography and your documents have been retracted, corrected or flagged. Only DOIs are sent, and for a work of your bibliography without one its title, first author’s family name and year; works whose document is marked No AI, and your own drafts, are left out.",
     overview: false,   // a button and a warning on the Bibliography, and a mark on excerpts
   },
   agreement: {
@@ -133,14 +133,16 @@ export { aiTag, withAI } from "./lib.js";
 
 // 0.17.0: the places of the sidebar, in its order, and the views each place has (tabs on its pages). A view is
 // [key, label, href, icon]; its key is the FEATURES key of the page when there is one. `section` is the sidebar group
-// (null: the project's own, above the groups). `match` lists the routes (as their FEATURES/nav keys) that light it.
+// (null: above the groups, the Overview only). `match` lists the routes (as their FEATURES/nav keys) that light it.
 export const PLACES = {
   overview: { title: "Overview", icon: "grid", href: "#/overview", section: null,
-    what: "Your project: what is made so far, where to go next, and the research log.",
-    views: [["overview", "Overview", "#/overview", "grid"], ["researchlog", "Research log", "#/log", "notebook"]] },
-  documents: { title: "Documents", icon: "book-open", href: "#/sources", section: null,
+    what: "Your project: what is made so far and where to go next.", views: [] },
+  // the Project group: the project's own places (the documents, the research log; Margin has no team)
+  documents: { title: "Documents", icon: "book-open", href: "#/sources", section: "project",
     what: "Your reports, papers and web pages: add them, read one, your notes on them, and your Zotero library.",
     views: [["sources", "Documents", "#/sources", "book-open"], ["annotations", "Notes", "#/notes", "highlighter"], ["bibliography", "Bibliography", "#/bibliography", "library"]] },
+  researchlog: { title: "Research log", icon: "notebook", href: "#/log", section: "project",
+    what: "A dated record of what was decided in this project; add your own entries and say why.", views: [] },
   search: { title: "Search", icon: "text-search", href: "#/search", section: "explore",
     what: "Every place a word or phrase occurs in the documents, one line per place.", views: [] },
   codes: { title: "Codes", icon: "tag", href: "#/profile", section: "explore",

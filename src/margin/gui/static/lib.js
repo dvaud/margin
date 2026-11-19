@@ -86,6 +86,8 @@ function connection(down) {
 
 export async function api(method, path, body, opts = {}) {
   const headers = { "X-Margin-Token": TOKEN };
+  // after 0.19.7: this tab is in front of the person: work that ends now needs no notification (gui/notify.py)
+  try { if (document.visibilityState === "visible" && document.hasFocus()) headers["X-Margin-Seen"] = "1"; } catch (_) { /* no document */ }
   let payload;
   if (body instanceof Blob || body instanceof ArrayBuffer) {
     headers["Content-Type"] = "application/octet-stream";
@@ -421,7 +423,7 @@ export const norm = (t) => String(t || "").split(/\s+/).filter(Boolean).join(" "
 // Plain vocabulary, used consistently on every screen. Technical names stay available in "details" places.
 export const GRADE_TEXT = { supports: "Supports", partially_supports: "Partly supports", refutes: "Contradicts" };
 // Short status words for dense places (tables, chips); the full texts from /api/state are used on the answer card.
-export const STATUS_SHORT = { supported: "Supported", partially_supported: "Partly supported", contested: "Mixed evidence", contradicted: "Contradicted", uncertain: "Only uncertain evidence", unsupported: "No evidence found", no_passages: "Nothing matched", not_checked: "Not finished", failed: "Did not work", waiting: "Waiting for Claude Code" };
+export const STATUS_SHORT = { supported: "Supported", partially_supported: "Partly supported", contested: "Mixed evidence", contradicted: "Contradicted", uncertain: "Only uncertain evidence", unsupported: "No evidence found", no_passages: "Nothing matched", not_checked: "Not finished", failed: "Did not work", get waiting() { return `Waiting for ${agentTitle()}`; } };
 export const KIND_TEXT = { pdf: "PDF", html: "web page", text: "text", txt: "text", md: "Markdown", markdown: "Markdown", docx: "Word" };
 
 // The AI's certainty in words. The number stays in the details.
@@ -445,11 +447,30 @@ export function strictness(t) {
 // per task switched off. `opts.claude` / `opts.fable` override the settings (the Settings page has them from
 // /api/routing).
 export function auditorName(s = App.settings(), opts = {}) {
-  const claude = opts.claude !== undefined ? opts.claude : (["claude_code", "anthropic"].includes(s.backend) && s.routing !== false);
+  const claude = opts.claude !== undefined ? opts.claude : ((isAgent(s) || s.backend === "anthropic") && s.routing !== false);
   if (!claude) return null;
+  // stage 2: an agent CLI of another provider gives them with its strongest model (the line-up's, in Settings → AI)
+  if (isAgent(s) && s.backend !== "claude_code" && opts.claude === undefined) return `${agentTitle(s)}’s strongest model`;
   if (s.backend === "claude_code" && planTier(s) === "free") return "sonnet";  // 0.13.10: no Opus or Fable on Free
   return (opts.fable !== undefined ? opts.fable : s.use_fable) ? "fable" : "opus";
 }
+// Stage 2 of other cloud providers: the main routes that answer through the task queue, on the person's own plan:
+// Claude Code, and the agent CLIs of other providers (Codex: OpenAI; Antigravity: Google). isAgent(s): the main route
+// is one of them; agentTitle(s): how the app names it ("Claude Code" for any other route: the queue is then Claude
+// Code's, as before). A queue's own answer names its agent too (q.agent_title: queueTitle(q)).
+export const AGENT_TITLES = { claude_code: "Claude Code", codex: "Codex", antigravity: "Antigravity" };
+const AGENT_PLAN = { claude_code: "on your Claude plan", codex: "on your ChatGPT plan", antigravity: "with your Google account" };
+const AGENT_COMPANY = { claude_code: "Anthropic", codex: "OpenAI", antigravity: "Google" };
+export const isAgentRoute = (route) => Object.prototype.hasOwnProperty.call(AGENT_TITLES, route || "");
+export function isAgent(s = App.settings()) { return isAgentRoute((s || {}).backend); }
+export function agentRoute(s = App.settings()) { return isAgent(s) ? s.backend : "claude_code"; }
+export function agentTitle(s = App.settings()) { return AGENT_TITLES[agentRoute(s)]; }
+// "on your Claude plan", "on your ChatGPT plan", "with your Google account"
+export function agentPlan(s = App.settings()) { return AGENT_PLAN[agentRoute(s)]; }
+export function agentCompany(s = App.settings()) { return AGENT_COMPANY[agentRoute(s)]; }
+export function queueTitle(q) { return (q && q.agent_title) || agentTitle(); }
+// the seat of the AI run panel that is not this computer: "Claude", or the agent CLI ("Codex", "Antigravity")
+export function cloudName() { const r = agentRoute(); return r === "claude_code" ? "Claude" : AGENT_TITLES[r]; }
 // 0.13.10: the Claude plan the recommended models follow (free | pro | max; "" not known): set by hand, else the one
 // Claude Code names (found in the background)
 export function planTier(s = App.settings()) {
@@ -550,14 +571,23 @@ export function showError(e, extra = {}) {
 // ---------------------------------------------------------------------------------------------
 // `lock` (0.14.3): { on: true } while a request of the dialog runs: Escape, a click outside, the X and Cancel then do
 // nothing, so the dialog cannot be closed on work that goes on without it (its report would never be seen)
-export function dialog({ title, body, actions, danger, onOpen, wide, lock }) {
+export function dialog({ title, body, actions, danger, onOpen, wide, lock, onDismiss }) {
   return new Promise((resolve) => {
     const dlg = h("dialog", { class: "dialog" + (wide ? " dialog-wide" : ""), "aria-labelledby": "dlg-title" });
     const close = (value) => { if (lock && lock.on) return; dlg.close(); dlg.remove(); resolve(value); };
+    // onDismiss(): asked before the dialog goes without an answer (Escape, the x, a click beside it); false keeps it
+    // open (a set-up half done, with something pasted: a slip of the hand does not lose the place)
+    let asking = false;
+    const dismiss = async () => {
+      if (asking || (lock && lock.on)) return;
+      if (onDismiss) { asking = true; let go; try { go = await onDismiss(); } finally { asking = false; } if (go === false) return; }
+      close(null);
+    };
     const btns = (actions || [{ text: "Close", value: null }]).map((a) =>
       button({
         kind: a.primary ? (danger ? "confirm" : "main") : "quiet",
         id: a.id,
+        icon: a.icon,
         disabled: a.disabled,
         onClick: async () => {
           if (a.onClick) { const r = await a.onClick(dlg); if (r === false) return; }
@@ -566,22 +596,22 @@ export function dialog({ title, body, actions, danger, onOpen, wide, lock }) {
       }, a.text));
     append(dlg, [
       h("div", { class: "dialog-head" }, h("h2", { id: "dlg-title" }, title),
-        iconButton({ icon: "x", label: "Close", onClick: () => close(null) })),
+        iconButton({ icon: "x", label: "Close", onClick: dismiss })),
       h("div", { class: "dialog-body" }, body),
       h("div", { class: "dialog-actions" }, btns),
     ]);
-    dlg.addEventListener("cancel", (e) => { e.preventDefault(); close(null); });
-    dlg.addEventListener("click", (e) => { if (e.target === dlg) close(null); });
+    dlg.addEventListener("cancel", (e) => { e.preventDefault(); dismiss(); });
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) dismiss(); });
     document.getElementById("dialogs").appendChild(dlg);
     dlg.showModal();
     if (onOpen) onOpen(dlg);
   });
 }
 
-export function confirmDialog({ title, message, confirmText = "Confirm", typeToConfirm, danger = true }) {
+export function confirmDialog({ title, message, confirmText = "Confirm", typeToConfirm, danger = true, confirmIcon }) {
   let input = null;
   const body = h("div", {}, typeof message === "string" ? h("p", {}, message) : message);
-  const actions = [{ text: "Cancel", value: false }, { text: confirmText, value: true, primary: true, id: "dlg-confirm", disabled: !!typeToConfirm }];
+  const actions = [{ text: "Cancel", value: false }, { text: confirmText, value: true, primary: true, id: "dlg-confirm", disabled: !!typeToConfirm, icon: confirmIcon }];
   if (typeToConfirm) {
     input = h("input", withClass(UI.input, { type: "text", autocomplete: "off", "aria-label": `Type ${typeToConfirm} to confirm` }));
     append(body, [h("label", { class: "field" }, h("span", { class: "field-label" }, "Type ", h("code", {}, typeToConfirm), " to confirm"), input)]);
@@ -592,7 +622,9 @@ export function confirmDialog({ title, message, confirmText = "Confirm", typeToC
       if (input) {
         const btn = dlg.querySelector("#dlg-confirm");
         input.addEventListener("input", () => { btn.disabled = input.value.trim() !== typeToConfirm; });
-        input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) btn.click(); });
+        // Enter confirms. preventDefault: without it the same key press, once the dialog has closed and focus is
+        // back on the button that opened it, presses that button too and opens the dialog again
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (!btn.disabled) btn.click(); } });
         input.focus();
       }
     },
@@ -755,6 +787,9 @@ export const App = {
     const s = App.settings();
     const b = s.backend || "auto";
     if (b === "anthropic") return { where: "cloud", label: "Claude, through an API key", plain: "Excerpts of your documents are sent to the Claude API (cloud)", detail: `Claude API · ${s.anthropic_model || ""}`, icon: "cloud" };
+    // stage 2: Codex and Antigravity, on the person's own plan, as Claude Code
+    if (b === "codex") return { where: "cloud", label: "Codex, on your ChatGPT plan", sent: "Codex reads the passages on your ChatGPT plan (sent to OpenAI).", short: "Only the passages of AI tasks leave this computer", plain: "Your documents stay here; only the passages inside the AI's tasks go to OpenAI.", detail: "Codex (your ChatGPT plan) · a helper and model per task", icon: "cloud" };
+    if (b === "antigravity") return { where: "cloud", label: "Antigravity, on your Google account", sent: "Antigravity reads the passages with your Google account (sent to Google).", short: "Only the passages of AI tasks leave this computer", plain: "Your documents stay here; only the passages inside the AI's tasks go to Google.", detail: "Antigravity (your Google account) · a helper and model per task", icon: "cloud" };
     if (b === "claude_code") return { where: "cloud", label: "Claude, on your plan", sent: "Claude Code reads the passages on your Claude plan (sent to Anthropic).", short: "Only the passages of AI tasks leave this computer", plain: "Your documents stay here; only the passages inside the AI's tasks go to Anthropic.", detail: "Claude Code (your subscription) · a helper and model per task", icon: "cloud" };
     if (b === "baseline") return { where: "none", label: "Demo mode", short: "A stand-in, not an AI: results are not findings", plain: "No AI model: a simple word-overlap stand-in. Results are not findings.", detail: "offline demo", icon: "alert-triangle" };
     const labels = (App.state && App.state.backend_labels) || {};
@@ -783,6 +818,24 @@ export function claudeStatus(maxAge = 60000) {
 // The answer last seen (or null), and a fresher one from Settings (Check again, a sign-in), so the sidebar has it too.
 export function claudeSeenNow() { return claudeSeen.status; }
 export function rememberClaude(st) { claudeSeen.status = st || {}; claudeSeen.at = Date.now(); return claudeSeen.status; }
+
+// Stage 2: what Codex or Antigravity says about itself (found, signed in, its account), as claudeStatus() for Claude
+// Code: GET /api/agent-setup, asked again after a minute at most. rememberAgent(): a fresher answer from the set-up
+// dialog; when it changes whether the agent is ready, the app's chrome (the sidebar's line) is drawn again.
+const agentSeen = new Map();
+export function agentStatus(route, maxAge = 60000) {
+  if (route === "claude_code") return claudeStatus(maxAge);
+  const c = agentSeen.get(route);
+  if (c && Date.now() - c.at < maxAge) return Promise.resolve(c.status);
+  return api("GET", `/api/agent-setup?route=${encodeURIComponent(route)}`).then((r) => rememberAgent(route, r.status || {}, false));
+}
+export const agentSeenNow = (route) => (route === "claude_code" ? claudeSeenNow() : (agentSeen.get(route) || {}).status || null);
+export function rememberAgent(route, st, tell = true) {
+  const before = agentSeenNow(route);
+  const now = route === "claude_code" ? rememberClaude(st) : (agentSeen.set(route, { at: Date.now(), status: st || {} }), st || {});
+  if (tell && (!!(before && before.ready) !== !!now.ready || !!(before && before.found) !== !!now.found || (before && before.signed_in) !== now.signed_in)) for (const fn of App.listeners) fn(App.state);
+  return now;
+}
 
 // 0.13.6: whether a newer version waits (GET /api/update), shared by the sidebar's Update button, its pop-up and
 // Settings → Check for updates. The page asks when it opens and every UPDATE_EVERY; the server keeps its answer a
@@ -1170,10 +1223,12 @@ export function searchField(opts = {}) {
 // summary holds those children and takes its look from where it is placed (the project switch, docs/DESIGN.md 5.1).
 // listClass: the list's own class for placement. Escape and a click outside close it.
 export function menu(opts = {}) {
-  const [o, attrs] = split(opts, ["items", "text", "label", "title", "trigger", "listClass"]);
+  const [o, attrs] = split(opts, ["items", "text", "label", "title", "trigger", "listClass", "iconOnly"]);
   const list = h("div", { class: o.listClass ? `${UI.menu} ${o.listClass}` : UI.menu, role: "menu" });
+  // iconOnly: the more icon alone (a small icon button named and tipped "More"), where every row of a list has a menu
   const trigger = o.trigger
     ? h("summary", { "aria-haspopup": "menu", "aria-label": o.label || null, title: o.title || null }, o.trigger)
+    : o.iconOnly ? h("summary", { class: UI.iconButtonSm, "aria-haspopup": "menu", "aria-label": o.label || "More", title: o.title || "More" }, icon("more-horizontal", { size: 16 }))
     : h("summary", { class: `${UI.button.quiet} ${UI.sm}`, "aria-haspopup": "menu", "aria-label": o.label || null, title: o.title || null },
       icon("more-horizontal", { size: 14 }), o.text || "More");
   const det = h("details", withClass("menu", attrs), trigger, list);
@@ -1280,6 +1335,56 @@ export function listGroup(heading, ...rows) {
     h("ul", { class: "list-rows" }, ...rows));
 }
 
+// Guided steps: a task done in a fixed order, one step at a time (setting up a storage space; docs/DESIGN.md 4.28). A numbered
+// rail down the left: the step in hand is open, the ones done show a tick and their title, the ones to come their
+// title in muted words, so the whole way is in view from the start.
+// steps: [{ title, body, next }]: title says what to do, body how (its lines and fields), next the words of the small
+// button that goes on to the following step ("I have an account"; "Next step" when none is given). The last step has
+// no such button: what ends the task is the dialog's or card's own main button. From the second step on, a quiet Back.
+// next: false, back: false: a step without that button (the step the main button ends; a step shown once it is done).
+// label: the list's name for a screen reader. current: the step open at first. onStep(i): after every move.
+// .go(i) opens a step from code, .at() says which is open, .count how many there are. Fields of a closed step stay in
+// the page (hidden), so a form reads them all at the end.
+export function guidedSteps(opts = {}) {
+  const [o, attrs] = split(opts, ["label", "steps", "current", "onStep"]);
+  const list = (o.steps || []).filter(Boolean);
+  const last = list.length - 1;
+  let at = Math.min(Math.max(0, o.current || 0), Math.max(0, last));
+  const parts = list.map((s, i) => {
+    const mark = h("span", { class: "guided-step-mark", "aria-hidden": "true" });
+    const said = h("span", { class: "visually-hidden" });
+    const title = h("h3", { class: "guided-step-title", tabindex: "-1" }, said, s.title);
+    const onward = i < last && s.next !== false, back = i > 0 && s.back !== false;
+    const move = onward || back ? h("div", { class: "btn-row guided-step-move" },
+      onward ? button({ sm: true, class: "guided-step-next", onClick: () => go(i + 1, true) }, s.next || "Next step") : null,
+      back ? button({ kind: "quiet", sm: true, class: "guided-step-back", onClick: () => go(i - 1, true) }, "Back") : null) : null;
+    const body = h("div", { class: "guided-step-body" }, s.body, move);
+    return { li: h("li", { class: "guided-step" }, mark, h("div", { class: "guided-step-main" }, title, body)), mark, said, title, body };
+  });
+  const el = h("ol", withClass("guided-steps", { "aria-label": o.label || "Steps", ...attrs }), parts.map((x) => x.li));
+  const paint = () => parts.forEach((x, i) => {
+    const state = i < at ? "done" : i === at ? "current" : "todo";
+    x.li.dataset.state = state;
+    if (i === at) x.li.setAttribute("aria-current", "step"); else x.li.removeAttribute("aria-current");
+    replace(x.mark, state === "done" ? icon("check", { size: 14 }) : String(i + 1));
+    x.said.textContent = `Step ${i + 1} of ${parts.length}${state === "done" ? ", done" : ""}: `;
+    x.body.hidden = i !== at;
+  });
+  // byUser: the focus goes to the step opened (its first field, or its title), so the keyboard is where the eyes are
+  function go(i, byUser = false) {
+    if (!parts.length) return;
+    at = Math.min(Math.max(0, i), last);
+    paint();
+    if (o.onStep) o.onStep(at);
+    if (byUser) (parts[at].body.querySelector("input:not([type=hidden]), textarea, select") || parts[at].title).focus();
+  }
+  paint();
+  el.go = (i) => go(i, false);
+  el.at = () => at;
+  el.count = parts.length;
+  return el;
+}
+
 // A work state: work under way, waiting, not running, done or did not work, in words and an icon (never a pill).
 // state: "running" | "waiting" (queued: starts when … has finished) | "stopped" (not running) | "done" (finished)
 // | "failed" | "attention" (needs you) | "paused" (you paused it: grey)
@@ -1291,10 +1396,10 @@ export function workState(state, words, time) {
     h("span", {}, words), time !== undefined && time !== null ? h("span", { class: "work-state-time" }, fmt.secs(time)) : null);
 }
 
-// The drawer: your own working space beside any page (the research log). One panel on
-// the right, opened by one button in the same place on every page (drawerButton()). Its head shows the title, or, when
-// it holds two or more tabs, the tabs (tabs: [{ key, label, icon }], current, onTab(key): the head's view tabs); then at
-// most one control (a choice) and the close button. `sections` are its body's parts, top to bottom, each drawn by its
+// The drawer: your own working space beside any page (the research log). One panel on the right, opened by one button
+// in the same place on every page (drawerButton()). Its head shows an icon and the title, or, when it holds two or more
+// tabs, the tabs (tabs: [{ key, label, icon }], current, onTab(key): the head's view tabs; nothing uses them now); then
+// at most one control (a choice) and the close button. `sections` are its body's parts, top to bottom, each drawn by its
 // content's own components (a write box, a list); the last may grow and scroll. `foot`: one link to the whole view.
 // A new tab is a new entry in `tabs` whose onTab draws its own sections (setSections()); a new section is one more
 // element in `sections`. Opening and closing: body[data-drawer="open"], set by setDrawerOpen().
@@ -1355,12 +1460,18 @@ export function aiWhere(text, where = "cloud", attrs = {}) {
   return h("p", withClass(where === "attention" ? "ai-where ai-where-attention" : "ai-where", attrs), icon(ic, { size: 13 }), h("span", {}, text));
 }
 
+// 0.20.1: after a line that says the local model for restricted documents reads something: it starts only with its own
+// Start (nothing when the local model is the main AI: then the feature's own button starts it)
+export function ownStartNote() {
+  return App.privacy().where === "local" ? "" : " It starts when you press its own Start.";
+}
+
 // The AI line of the AI chosen in Settings: who reads `what`, and where the text goes. opts.model: the model that reads
 // when it is not the main one (a second local model); opts.class: the page's own class for placement.
 export function readsLine(what = "the excerpts it needs", opts = {}) {
   const p = App.privacy(), s = App.settings();
   const attrs = opts.class ? { class: opts.class } : {};
-  if (s.backend === "claude_code") return aiWhere(`${p.label}, reads ${what}.`, "cloud", attrs);   // "Claude, on your plan, reads…"
+  if (isAgent(s)) return aiWhere(`${p.label}, reads ${what}.`, "cloud", attrs);   // "Claude, on your plan, reads…", "Codex, on your ChatGPT plan, reads…"
   if (p.where === "cloud") return aiWhere(`Claude, through the Claude API${s.anthropic_model ? ` (${s.anthropic_model})` : ""}, reads ${what}: the text is sent to Anthropic.`, "cloud", attrs);
   if (p.where === "local") return aiWhere(`The AI on this computer (${opts.model || p.detail}) reads ${what}: your documents never leave it.`, "local", attrs);
   return aiWhere("Demo mode: no AI reads the excerpts. A simple word-overlap stand-in answers, so the answers are not findings.", "attention", attrs);
@@ -1373,7 +1484,9 @@ export function field(label, control, opts = {}) {
   const id = control.id || ("f" + Math.random().toString(36).slice(2, 8));
   control.id = id;
   const wrap = h("div", { class: "field " + (opts.class || "") });
-  const lab = h("label", { for: id, class: "field-label" }, label);
+  const lab0 = h("label", { for: id, class: "field-label" }, label);
+  // about: [title, text]: the longer explanation, in a help mark beside the label (Settings' grammar)
+  const lab = opts.about ? h("div", { class: "setting-head" }, lab0, helpMark(opts.about[0], opts.about[1])) : lab0;
   if (opts.inline) {
     append(wrap, [h("div", { class: "field-inline" }, control, lab)]);
   } else {
@@ -1394,21 +1507,25 @@ export function switchControl(label, checked, opts = {}) {
   const id = "sw" + Math.random().toString(36).slice(2, 8);
   input.id = id;
   if (opts.help) input.setAttribute("aria-describedby", id + "-help");
+  // about: [title, text]: the longer explanation, in a help mark beside the label (outside the <label>: a button there
+  // would be inside the switch's label)
+  const sw = h("label", { class: "switch", for: id }, input, h("span", { class: "switch-track", "aria-hidden": "true" }), h("span", { class: "switch-label" }, label));
   const wrap = h("div", { class: "switch-field" },
-    h("label", { class: "switch", for: id }, input, h("span", { class: "switch-track", "aria-hidden": "true" }), h("span", { class: "switch-label" }, label)),
+    opts.about ? h("div", { class: "setting-head" }, sw, helpMark(opts.about[0], opts.about[1])) : sw,
     opts.help ? h("div", { class: "field-help", id: id + "-help" }, opts.help) : null);
   wrap.input = input;
   return wrap;
 }
 
-export function rangeControl(label, { min, max, step, value, format, help, ends }) {
+export function rangeControl(label, { min, max, step, value, format, help, ends, about }) {
   const input = h("input", { type: "range", min, max, step, value, class: "range" });
   const out = h("output", { class: "range-out" }, format ? format(value) : String(value));
   input.addEventListener("input", () => { out.textContent = format ? format(input.valueAsNumber) : input.value; });
   const id = "rg" + Math.random().toString(36).slice(2, 8);
   input.id = id;
   const wrap = h("div", { class: "field range-field" },
-    h("div", { class: "range-head" }, h("label", { for: id, class: "field-label" }, label), out),
+    // about: [title, text]: the longer explanation, in a help mark beside the label
+    h("div", { class: "range-head" }, about ? h("span", { class: "setting-head" }, h("label", { for: id, class: "field-label" }, label), helpMark(about[0], about[1])) : h("label", { for: id, class: "field-label" }, label), out),
     input,
     ends ? h("div", { class: "range-ends", "aria-hidden": "true" }, h("span", {}, ends[0]), h("span", {}, ends[1])) : null,
     help ? h("div", { class: "field-help" }, help) : null);
@@ -1521,6 +1638,8 @@ export function heatHead(text, { title, spoken } = {}) {
 // grid fits its frame that way. Once it would not, a name per column shows four of thirty codes at a time, so the
 // names are set at a slant over narrow columns instead (`.heat-slant`), which shows most of them at once.
 const NAMED_HEAD = 10, NAME_COL = 6.5;
+// The same question for any place that sets codes (0.19.4: the Codes profile's ranked codes): are these names?
+export const codesAreNames = (codes) => codes.some((c) => String(c).length > NAMED_HEAD);
 
 // 0.18.2: a heat grid in its frame (components.css, 4.25 The heat grid). Both of its axes are data, so a grid wider
 // than the page still scrolls sideways, but never silently: while columns are out of sight, a bar above it says which
@@ -1531,7 +1650,7 @@ const NAMED_HEAD = 10, NAME_COL = 6.5;
 // `label` names the grid (its region, the layer's title); `unit` is what its columns are, in the plural.
 export function heatGrid(table, { label, unit = "columns" } = {}) {
   const texts = [...table.querySelectorAll("thead .heat-head-text")];
-  const named = texts.some((t) => t.textContent.length > NAMED_HEAD);
+  const named = codesAreNames(texts.map((t) => t.textContent));
   table.classList.toggle("heat-named", named);
   // the head of the column under the pointer (or holding the focus) is marked, so that a name is found from a cell far
   // below it
@@ -1933,21 +2052,6 @@ export function copyLine(text, label = "Copy", where = "Claude Code", lead = "te
   return h("div", { class: "copy-line" }, icon(lead, { size: 13 }), code, btn);
 }
 
-// What waits for Claude Code, for a page that waits on it: the line, the estimate, a button that starts Claude Code
-// (0.9), the command to type instead (opts.foldType: in a fold, 0.12), and the privacy note.
-export function queueNotice(q, opts = {}) {
-  if (!q) return null;
-  const est = q.estimate || "";
-  // a notice (attention while nothing answers it), its one action Start Claude Code, and the AI line once, at its foot
-  return notice({ kind: q.paused ? "attention" : "info", icon: q.paused ? "pause" : "inbox", class: `queue-notice${q.paused ? " queue-paused" : ""}`, role: "status" },
-    h("p", { class: "qn-head" }, h("strong", {}, q.text || "Waiting for Claude Code"),
-      q.being_answered ? h("span", { class: "muted small qn-answered" }, ` · ${q.being_answered} being answered now`) : null),
-    est && !q.paused ? h("p", { class: "muted small" }, est.charAt(0).toUpperCase() + est.slice(1) + ".") : null,
-    q.paused && q.paused_text ? h("p", { class: "small" }, q.paused_text) : null,
-    App.project ? startClaude(App.project, { command: q.command, foldType: opts.foldType, kind: q.kind }) : null,
-    opts.privacy === false || opts.foldType ? null : queueAiLine(q.privacy, App.project, q.kind));
-}
-
 // The AI line of the queue (Claude Code), with "See what is sent" after its sentence: a dialog with the next batch of
 // `kind` (the first kind that waits when none) exactly as Claude Code receives it. Nothing is claimed or recorded.
 export function queueAiLine(text, project, kind) {
@@ -1975,150 +2079,633 @@ export async function showSent(project, kind) {
     if (btn) btn.hidden = !r.more;
   }
   load();
-  return dialog({ title: "What Claude Code is sent", body, wide: true,
+  return dialog({ title: `What ${agentTitle()} is sent`, body, wide: true,
     actions: [{ ...more, id: "sent-more" }, { text: "Close", value: null, primary: true }] });
 }
 
 function sentParts(r) {
-  if (!r.tasks || !r.tasks.length) return [h("p", {}, r.note || "Nothing waits for Claude Code now, so nothing is about to be sent.")];
+  const t = agentTitle();
+  if (!r.tasks || !r.tasks.length) return [h("p", {}, r.note || `Nothing waits for ${t} now, so nothing is about to be sent.`)];
   const pages = (d) => d.pages && d.pages.length ? `, ${d.pages.length > 1 ? "pp." : "p."} ${d.pages.join(", ")}` : "";
-  const from = r.start ? `Tasks ${r.start + 1} to ${r.start + r.tasks.length}` : `The next ${r.tasks.length === 1 ? "task" : `${r.tasks.length} tasks`}`;
+  const n = r.tasks.length;
+  // nothing more waits, but Claude Code is at work: show what it was sent and is answering now, not "nothing"
+  const from = r.answering ? `${t} is answering ${n === 1 ? "this task" : `these ${n} tasks`} now. Nothing more waits for it, so nothing new is about to be sent. ${n === 1 ? "It is" : "They are"} of ${r.title}, word for word as its helper received ${n === 1 ? "it" : "them"}`
+    : `${r.start ? `Tasks ${r.start + 1} to ${r.start + n}` : `The next ${n === 1 ? "task" : `${n} tasks`}`} of ${r.title}, word for word as ${t}'s helper receives them`;
+  const counts = r.answering ? `${r.being_answered.toLocaleString()} being answered now${r.being_answered > n ? ` (the first ${n} shown)` : ""}`
+    : `${r.waiting.toLocaleString()} waiting${r.being_answered ? ` · ${r.being_answered} being answered now` : ""}`;
   return [
-    h("p", {}, `${from} of ${r.title}, word for word as Claude Code's helper receives them: the instruction once, then each task's text. Nothing else from this project goes with them: not the documents' files, other passages, your results or your reviews.`),
-    h("p", { class: "muted small" }, `${r.waiting.toLocaleString()} waiting${r.being_answered ? ` · ${r.being_answered} being answered now` : ""} · ${r.helper ? `${r.helper} on ` : "on "}${r.model}. Claude Code adds its own instructions for the helper (the same for every project) and its own working; they hold none of your documents.`),
+    h("p", {}, `${from}: the instruction once, then each task's text. Nothing else from this project goes with them: not the documents' files, other passages, your results or your reviews.`),
+    h("p", { class: "muted small" }, `${counts} · ${r.helper ? `${r.helper} on ` : "on "}${r.model_id || r.model || cloudName()}. ${t === "Claude Code" ? "Claude Code adds its own instructions for the helper (the same for every project) and its own working" : `The helper’s instructions go with them (the same for every project), and ${t} adds its own working`}; they hold none of your documents.`),
     fold({ sm: true }, "The instruction (the same for every task of the batch)", inset({ class: "sent-box" }, h("pre", { class: "sent-text" }, r.system))),
     ...r.tasks.map((t, i) => h("section", { class: "sent-task" },
       h("h3", {}, `Task ${r.start + i + 1}`, (t.documents || []).length ? h("span", { class: "muted small" }, ` · ${t.documents.map((d) => `${d.title}${pages(d)}`).join("; ")}`) : null),
       inset({ class: "sent-box" }, h("pre", { class: "sent-text" }, t.prompt)))),
-    fold({ sm: true }, "As Claude Code receives it (the connector's reply)", inset({ class: "sent-box" }, h("pre", { class: "sent-text" }, r.raw)),
+    fold({ sm: true }, `As ${t} receives it (the connector's reply)`, inset({ class: "sent-box" }, h("pre", { class: "sent-text" }, r.raw)),
       button({ kind: "quiet", sm: true, icon: "copy", onClick: async () => {
         try { await navigator.clipboard.writeText(r.raw); toast("Copied.", "ok", { ttl: 2000 }); } catch (_) { toast("Select the text and copy it with Ctrl+C (or Cmd+C).", "info"); }
       } }, "Copy it")),
   ];
 }
 
-// 0.9: "Start Claude Code": Margin starts Claude Code (signed in with its own login, on the researcher's plan) for
-// the project's queue, and shows while it works. The command to type in Claude Code yourself stays one line below.
-// The element keeps itself current while it is on the page.
-export function startClaude(project, opts = {}) {
-  const box = h("div", { class: "start-claude", dataset: { project } });
-  let timer = null;
-  let busy = false;
-  const ago = (s) => (s < 60 ? "just now" : `${Math.round(s / 60)} min ago`);
-  // 0.11.3: an unpressed button asks for attention: the step above it spins, which reads as if work were under way.
-  // A few seconds after work starts waiting with nothing answering it, the button pulses and its line says that
-  // nothing runs until it is pressed. Changed in place, so the button never moves under the pointer.
-  function nudge(b, hint) {
-    if (b.classList.contains("sc-nudge")) return;
-    b.classList.add("sc-nudge");
-    b.style.animationDelay = `-${Date.now() % NUDGE_PULSE}ms`;  // in step with the other buttons, and across redraws
-    hint.classList.add("sc-wake");
-    if (!opts.foldType) replace(hint, h("strong", {}, "Nothing runs until you press it."), " Then it works on your Claude plan, in the background, and stops by itself when nothing waits.");
+// ---------------------------------------------------------------------------------------------
+// 0.19.13: the AI run panel (docs/DESIGN.md 4.21). Every place where AI runs shows two seats, this computer on the LEFT
+// and Claude on the RIGHT, at every size. A seat whose engine has no work in this job is an empty, dashed seat. One
+// split bar runs above the two: its left half is this computer's progress, its right half Claude's (an empty track:
+// waits for you; teal: at work, as far as it has got; amber: needs you; grey: done; no track: not in this job). Each
+// side says its state once, in its head, with an icon and words. aiRun() (views/progress.js) is the whole panel; these
+// are its pieces, and queueNotice(), localPanel() and memoryRefused() draw them alone, in a card.
+// ---------------------------------------------------------------------------------------------
+const AR_PERIOD = 15000;   // ms: a common multiple of the head's breath (5 s) and its flow (once in 15 s)
+// In step across redraws: every period starts from the clock, not from when the element was made. One custom property
+// on the element; the animations of it and of what it holds read it as their delay, so a panel drawn again goes on
+// where the old one was, and two on one page breathe together.
+export function inStep(el) {
+  if (el) el.style.setProperty("--ar-sync", `-${Date.now() % AR_PERIOD}ms`);
+  return el;
+}
+
+// An ask button: a button that asks the AI for work (Check, Name the themes, Draft from the examples). The play icon
+// first, a verb and what it works on, never who does it; withAI() after it, as every AI button has. Only a panel's own
+// Start Claude Code / Start <model> names an engine (aiStart()).
+export function aiButton(opts = {}, ...children) {
+  return button({ ...opts, icon: "play" }, ...children);
+}
+
+// stage 2: the cloud seat names the agent that answers ("To Codex"); Claude for Claude Code and the Claude API
+const AR_WHO = { local: "On this computer", get cloud() { return `To ${cloudName()}`; } };
+const AR_NONE = { local: "No model on this computer works in this job", get cloud() { return `Nothing in this job goes to ${cloudName()}`; } };
+// a side's state, said once in its head: [its icon (null: the running dot), its words, the split bar's state]
+const AR_STATE = {
+  wait: ["clock", "Waits for you", "wait"], run: [null, "At work", "run"], need: ["alert-triangle", "Needs you", "need"],
+  paused: ["pause", "Paused", "need"], done: ["check", "Done", "done"], later: ["clock", "Not yet", "wait"],
+  stopped: ["minus", "Stopped", "wait"],
+};
+const arSep = () => h("span", { class: "ar-sep", "aria-hidden": "true" }, "·");
+const arWhat = (strong, muted) => h("p", { class: "ab-what" }, h("strong", {}, strong), muted ? h("span", { class: "muted" }, ` · ${muted}`) : null);
+const arHint = (first, rest, wake) => h("p", { class: "ar-hint" }, h("span", { class: wake ? "ar-wake" : null }, first), rest ? ` ${rest}` : null);
+
+// one half of the split bar (aria-hidden: the side's words say the same)
+function arHalf(where) {
+  const half = h("span", { class: "ab-half ab-s-none", "aria-hidden": "true" }, h("i"));
+  half.dataset.where = where;
+  return half;
+}
+// key: wait | run | need | done | none; pct: how far, 0–100 (null while at work with no count: the sliding bar)
+function setHalf(half, key, pct = null) {
+  const slide = key === "run" && (pct === null || pct === undefined);
+  half.className = `ab-half ab-s-${key}${slide ? " ab-indet" : ""}`;
+  half.firstChild.style.width = key === "run" && !slide ? `${Math.max(2, Math.min(100, Math.round(pct)))}%` : "";
+}
+
+// the side's head: the tile at the OUTER edge (the house far left, the cloud far right), its name, its state
+function arHead(where, key) {
+  const [ic, words] = AR_STATE[key] || AR_STATE.wait;
+  const st = h("span", { class: "ab-state" }, ic ? icon(ic, { size: 13 }) : h("span", { class: "running-dot", "aria-hidden": "true" }), words);
+  const tile = h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 15 }));
+  const who = h("span", { class: "ab-who" }, AR_WHO[where]);
+  return h("div", { class: "ab-sh" }, ...(where === "cloud" ? [st, who, tile] : [tile, who, st]));
+}
+
+// (re)fill a side in place: the element stays, so the block and the page keep their hold of it
+function fillSide(el, key, lines) {
+  const bar = (AR_STATE[key] || AR_STATE.wait)[2];
+  const attn = key === "need" || key === "paused";
+  el.className = `ab-side ar-${el.dataset.where} ab-s-${bar}${attn ? " ar-attn" : ""}`;
+  el.dataset.state = key;
+  replace(el, arHead(el.dataset.where, key), ...lines.flat().filter(Boolean));
+  if (el.arHalf && (key !== "run" || !el.arHalf.classList.contains("ab-s-run"))) setHalf(el.arHalf, bar, key === "run" ? el.arPct ?? null : null);
+  if (el.arOnState) el.arOnState(key);
+}
+function sideShell(where, half, onState) {
+  const el = h("div", { class: `ab-side ar-${where}`, role: "group", "aria-label": AR_WHO[where] });
+  el.dataset.where = where;
+  el.arHalf = half || arHalf(where);
+  el.arOnState = onState || null;
+  return el;
+}
+// how far the side has got, written into its half of the bar (null: at work, no count)
+function sidePct(el, pct) {
+  el.arPct = pct;
+  if (el.arHalf && el.dataset.state === "run") setHalf(el.arHalf, "run", pct);
+}
+
+// The lead of a panel's head: waiting for you (a clock), at work (the running dot), needs you (the amber pause), done,
+// stopped, did not work
+const AR_LEAD = { waiting: "clock", attention: "pause", done: "check", error: "alert-circle", stopped: "minus" };
+export function aiLead(kind) {
+  return kind === "running" ? h("span", { class: "running-dot", "aria-hidden": "true" }) : icon(AR_LEAD[kind] || "clock", { size: 15 });
+}
+
+// The empty seat: the place of the engine this job gives no work (a dashed tile, nothing else; said in words to a
+// screen reader and in its tooltip).
+export function aiSeat(where) {
+  const el = h("div", { class: `ab-seat ar-${where}`, title: AR_NONE[where] },
+    h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 14 })),
+    h("span", { class: "visually-hidden" }, `${AR_NONE[where]}.`));
+  el.dataset.where = where;
+  el.arHalf = arHalf(where);
+  return el;
+}
+
+// The two seats under one split bar, this computer first (the order seen is the order read). local / cloud: a side
+// (aiSide()) or null for its empty seat. opts.compact: the block alone, in a card.
+export function aiSides(local, cloud, opts = {}) {
+  const l = local || aiSeat("local"), c = cloud || aiSeat("cloud");
+  const block = h("div", { class: `ab-sides ${local && cloud ? "ab-both" : local ? "ab-only-local" : "ab-only-cloud"}` }, l.arHalf, c.arHalf, l, c);
+  return opts.compact ? inStep(h("div", { class: "ab ab-compact" }, block)) : block;
+}
+// put a side (or an empty seat) in its place in a block, with its half of the bar
+export function placeSide(block, where, el) {
+  const sides = block.classList.contains("ab-sides") ? block : block.querySelector(".ab-sides");
+  const old = [...sides.children].find((c) => !c.classList.contains("ab-half") && c.dataset.where === where);
+  if (old === el) return;
+  if (old) { old.arHalf.replaceWith(el.arHalf); old.replaceWith(el); }
+  const has = (w) => [...sides.children].some((c) => c.dataset.where === w && c.classList.contains("ab-side"));
+  sides.classList.remove("ab-both", "ab-only-local", "ab-only-cloud");
+  sides.classList.add(has("local") && has("cloud") ? "ab-both" : has("local") ? "ab-only-local" : "ab-only-cloud");
+}
+
+// The start row alone: Start Claude Code (where "cloud") or Start <model> (where "local"), the AI mark after it (and
+// after o.also, the buttons beside it), and its hint under it. After a few seconds with nothing answering, the button
+// takes the head's slow breath and the hint says that nothing runs until it is pressed (o.nudge: when the wait began,
+// a time in ms; true: now). o.compact: the hint's first sentence only. Returns the row; .start is its button.
+export function aiStart(o = {}) {
+  const name = o.where === "cloud" ? (o.agent || agentTitle()) : (o.model || "your local model");
+  const b = button({ kind: o.kind || "main", sm: true, icon: "play", onClick: o.onClick }, `Start ${name}`);
+  const rest = o.compact ? "" : o.where === "cloud" ? `It then works ${agentPlan()}, in the background, and stops by itself when nothing waits.`
+    : "It then runs here, in this app, and stops by itself when nothing waits.";
+  const hint = o.hint === false ? null : typeof o.hint === "string" ? arHint(o.hint) : arHint("Nothing runs until you press it.", rest);
+  const box = h("div", { class: "ar-start" }, h("div", { class: "ar-row" }, o.before || null, withAI(b, ...(o.also || []).filter(Boolean))), hint);
+  box.start = b;
+  box.nudge = () => {
+    if (b.classList.contains("ar-nudge") || b.disabled) return;
+    inStep(b);
+    b.classList.add("ar-nudge");
+    const w = hint && hint.querySelector("span");
+    if (w) w.classList.add("ar-wake");
+  };
+  if (o.nudge) {
+    const left = NUDGE_AFTER - (Date.now() - (o.nudge === true ? Date.now() : o.nudge));
+    if (left <= 0) box.nudge(); else setTimeout(() => { if (box.isConnected) box.nudge(); }, left);
   }
-  function watchIdle(b, hint) {
+  return box;
+}
+
+// ---- this computer's side ------------------------------------------------------------------------------------------
+const GiB = 1 << 30;
+const gb = (n) => `${(n / GiB).toFixed(1)} GB`;
+const LOCAL_PHASE = { waiting: "is loading and reading", thinking: "is thinking it over", writing: "is writing its answer", done: "has finished" };
+const LOCAL_WAIT_SINCE = new Map();   // when each job's local part began to wait for its Start (the nudge)
+
+// the memory line: what the model needs against what is free, a small bar and the words (amber with the triangle when short)
+function arMemory(mem, short) {
+  const pct = mem.need ? Math.round(100 * Math.min(1, mem.free / mem.need)) : 100;
+  const bar = h("span", { class: "ar-mem-bar", "aria-hidden": "true" }, h("span", { style: { width: `${pct}%` } }));
+  if (!short) return h("p", { class: "ar-mem" }, bar, h("span", { class: "ar-mem-words" }, `Needs about ${gb(mem.need)} of memory · ${gb(mem.free)} free now`));
+  return h("p", { class: "ar-mem ar-mem-short" }, icon("alert-triangle", { size: 14 }), bar,
+    h("span", { class: "ar-mem-words" }, `Needs about ${gb(mem.need)} of memory · ${gb(mem.free)} free now · `, h("strong", {}, `${gb(Math.max(0, mem.need - mem.free))} short`)),
+    h("span", { class: "ar-mem-help" }, "Close other programs, or choose a smaller model in Settings › AI."));
+}
+
+// What a running model has written and how fast, from its report (`m`, progress.model) and what the page kept since
+// the last poll (`seen`: when the count last changed, and the tokens a second of the last 30 s for the small graph).
+// → { bits: [the figures], quiet: words when nothing new came for a while, spark: 30 heights (0–100), words: its latest words }
+const QUIET_AFTER = 20;   // seconds without a new token before it says so
+export function modelFigures(m, seen = {}) {
+  if (!m || !m.phase || m.phase === "queue" || m.phase === "done" || m.phase === "refused" || m.phase === "ready") return null;
+  const now = Date.now();
+  const made = (m.thinking_tokens || 0) + (m.answer_tokens || 0);
+  if (made !== seen.made) { seen.made = made; seen.at = now; }
+  const sec = Math.floor(now / 1000);
+  seen.rates = (seen.rates || []).filter((r) => r[0] > sec - 30);
+  if (m.rate && m.phase !== "waiting" && seen.at === now) {
+    const last = seen.rates[seen.rates.length - 1];
+    if (last && last[0] === sec) last[1] = Number(m.rate); else seen.rates.push([sec, Number(m.rate)]);
+  }
+  const bits = [];
+  let quiet = null;
+  if (m.phase === "waiting") {
+    bits.push(m.prompt_tokens ? `reading a prompt of about ${fmt.num(m.prompt_tokens)} tokens` : "reading the prompt");
+    if ((m.seconds || 0) >= 1) bits.push(`${fmt.secs(m.seconds)} so far`);
+    if ((m.seconds || 0) > 60 && m.who === "local") bits.push("a model on this computer can take a few minutes to start");
+  } else {
+    if (m.thinking_tokens) bits.push(`${fmt.num(m.thinking_tokens)} tokens of reasoning`);
+    if (m.answer_tokens) bits.push(`${fmt.num(m.answer_tokens)} ${m.thinking_tokens ? "of its answer" : "tokens of its answer"}`);
+    if (m.rate) bits.push(`${Number(m.rate).toFixed(1)} a second`);
+    if (m.budget_reached) bits.push("its reasoning budget is used up, so it answers from its notes now");
+    const still = seen.at ? (now - seen.at) / 1000 : 0;
+    if (made && still >= QUIET_AFTER) quiet = `Nothing new for ${fmt.secs(still)}; it may still be working.`;
+  }
+  const top = Math.max(1, ...seen.rates.map((r) => r[1]));
+  const spark = Array.from({ length: 30 }, (_, i) => { const r = seen.rates.find((x) => x[0] === sec - 29 + i); return r ? Math.round(100 * r[1] / top) : 0; });
+  const words = m.phase === "thinking" || m.phase === "writing" ? String(m.tail || "").split(/\s+/).join(" ").trim().slice(-200) : "";
+  return { bits, quiet, spark, words };
+}
+// the latest words on one line, then the figures as one muted line with the small graph; written in place each poll
+function writeFine(el, fig) {
+  let tail = el.querySelector(":scope > .ar-tail"), fine = el.querySelector(":scope > .ar-fine");
+  if (!fig) { if (tail) tail.remove(); if (fine) fine.remove(); return; }
+  const anchor = el.querySelector(":scope > .ab-count") || el.querySelector(":scope > .ab-run-row");
+  if (!fine) { fine = h("p", { class: "ar-fine" }); (anchor || el.firstChild).after(fine); }
+  if (fig.words) {
+    if (!tail) { tail = h("p", { class: "ar-tail", "aria-hidden": "true" }, h("span")); fine.before(tail); }
+    if (tail.firstChild.textContent !== `…${fig.words}▍`) tail.firstChild.textContent = `…${fig.words}▍`;
+  } else if (tail) tail.remove();
+  const key = JSON.stringify([fig.bits, fig.quiet, fig.spark]);
+  if (fine.dataset.key === key) return;
+  fine.dataset.key = key;
+  const parts = [];
+  fig.bits.forEach((b, i) => { if (i) parts.push(arSep()); parts.push(h("span", {}, b)); });
+  const lastOn = fig.spark.reduce((a, v, i) => (v ? i : a), -1);
+  const spark = fig.spark.some(Boolean) ? h("span", { class: "ar-spark", "aria-hidden": "true", title: "Tokens a second, the last 30 seconds" },
+    fig.spark.map((v, i) => h("i", { class: i === lastOn ? "ar-now" : null, style: { height: `${v}%` } }))) : null;
+  replace(fine, fig.quiet ? h("span", { class: "ar-quiet" }, fig.quiet) : null, ...parts, spark);
+}
+
+// The model's row and the house line (in a compact side, folded away under "The model")
+function localTail(o, nouns) {
+  const row = h("p", { class: "ab-modelrow" }, "Model ", h("span", { class: "mono" }, o.model || "none chosen"), " · ",
+    link({ href: "#/settings/model" }, o.problem && !o.model ? "Choose one in Settings › AI" : "Change it in Settings › AI"));
+  const line = aiWhere(o.done ? `The ${nouns} it read never left this computer.` : `The ${nouns} it reads never leave this computer.`, "local");
+  if (o.done || o.running) return o.compact ? null : line;
+  return o.compact ? fold({ sm: true }, "The model", row, line) : [row, line];
+}
+
+// This computer's side. opts (the local panel's, kept): model (its name), memory ({ loaded } or { need, free, short }
+// in bytes, from /api/local-status or job.local.memory), problem (why no local model can be used: then no Start),
+// count + noun (what waits: 33, "passage"), head (the side's first line in other words), sub (one more line under
+// it: "Claude Code reads the other 28 meanwhile."), refused (a start was refused for memory: these words, when there
+// are no numbers), blocking (its work is all that is left, so a model that cannot start needs you), running ({ phase,
+// seconds, done, total }: the model reads), done ({ text }), onStart(force) (the start row; force: Start it anyway),
+// onStop (Stop <model>, while it reads), onYourself + yourselfText + yourselfNote (Judge it myself, the main button,
+// first), anywayText (only Start it anyway, in these words), status (what came of the last press), note (a line where
+// the buttons would be), confirm (false: Start it anyway asks nothing), since (when the wait began: the nudge),
+// compact (in a card: the model's row folded away), half (its half of the split bar, when a block holds it).
+function localSide(o, el) {
+  el = el || sideShell("local", o.half, o.onState);
+  const name = o.model || "your local model";
+  const noun = o.noun || "passage";
+  const nouns = `${noun}s`;
+  const mem = o.memory;
+  const short = !!(mem && mem.short) || !!o.refused;
+  const lines = [];
+  let key = "wait";
+  if (o.plain) {   // one line and a state (not yet, stopped): nothing to press
+    fillSide(el, o.plain.key, [arWhat(o.plain.what, o.plain.muted), o.plain.line || null]);
+    return el;
+  }
+  if (o.done) {
+    key = "done";
+    lines.push(arWhat(o.done.text || `${o.model || "Your local model"} has read its part`, o.done.muted), localTail(o, nouns));
+    fillSide(el, key, lines);
+    return el;
+  }
+  if (o.running) {
+    key = "run";
+    const stop = o.onStop ? stopButton({ text: `Stop ${o.model || "the local model"}`, onClick: async () => {
+      setBusy(stop, true);
+      try { await o.onStop(); } catch (e) { showError(e); setBusy(stop, false); }
+    } }) : null;
+    // Stop <model> was pressed: it puts down nothing it has in hand, so it says when it stops
+    const stopping = !stop && o.stopping ? h("span", { class: "muted small ab-stopping", role: "note" }, o.stopping) : null;
+    lines.push(h("div", { class: "ab-run-row" }, arWhat(`${o.model || "Your local model"} ${LOCAL_PHASE[o.running.phase] || "is reading"}`), stop || stopping));
+    const r = o.running;
+    lines.push(h("p", { class: "ab-count" }, r.total ? `${fmt.num(r.done || 0)} of ${plural(r.total, noun)} done` : (o.count ? `${plural(o.count, noun)} ${o.count === 1 ? "waits" : "wait"} for it` : ""),
+      r.seconds ? `${r.total || o.count ? " · " : ""}${fmt.secs(r.seconds)}` : ""));
+    if (o.sub) lines.push(h("p", { class: "muted" }, o.sub));
+    lines.push(localTail(o, nouns));
+    fillSide(el, key, lines);
+    sidePct(el, r.total ? 100 * (r.done || 0) / r.total : null);
+    return el;
+  }
+  const alarm = !!o.problem || (short && (o.blocking || o.refused));
+  key = alarm ? "need" : "wait";
+  const waits = o.count ? `${plural(o.count, noun)} ${o.count === 1 ? "waits" : "wait"} for ${name}` : `Waiting for ${name}`;
+  lines.push(o.refused || (short && o.blocking) ? arWhat(o.head || `${name} was not started: too little memory is free`, o.count && !o.head ? `${plural(o.count, noun)} ${o.count === 1 ? "waits" : "wait"} for it` : "")
+    : arWhat(o.head || waits));
+  if (o.sub) lines.push(h("p", { class: "muted" }, o.sub));
+  if (o.problem) lines.push(h("p", {}, o.problem));
+  else if (mem && mem.need) lines.push(arMemory(mem, short));
+  else if (o.refused && typeof o.refused === "string") lines.push(h("p", {}, o.refused));
+  else if (mem && mem.loaded) lines.push(h("p", { class: "muted" }, `${o.model || "Your local model"} is in memory already: it starts at once.`));
+  // Judge it myself (0.19.8): the person may judge what waits instead; with it, it is the main button and comes first
+  const them = o.count === 1 ? "it" : "them";
+  const yourself = o.onYourself ? button({ kind: "main", sm: true, icon: "user", onClick: async () => {
+    yourself.disabled = true;
+    try { await o.onYourself(); } catch (e) { showError(e); yourself.disabled = false; }
+  } }, o.yourselfText || "Judge it myself") : null;
+  if (!o.problem && o.onStart) {
+    const go = async (b, force) => {
+      setBusy(b, true);
+      try { await o.onStart(force); } catch (e) { showError(e); setBusy(b, false); }
+    };
+    const anyway = short && !yourself ? button({ kind: o.anywayText ? "standard" : "quiet", sm: true, icon: "play", onClick: async () => {
+      const ok = o.confirm === false || await confirmDialog({ title: `Start ${name} anyway?`, danger: false, confirmText: "Start it anyway", confirmIcon: "play",
+        message: h("div", {}, h("p", {}, "The computer may become very slow, or stop answering for a while, until the model has finished. What you have open is kept."),
+          aiWhere(`The ${nouns} it reads never leave this computer.`, "local")) });
+      if (ok) go(anyway, true);
+    } }, o.anywayText || "Start it anyway") : null;
+    if (o.anywayText) {
+      if (anyway) lines.push(h("div", { class: "ar-row" }, withAI(anyway)));
+    } else {
+      // beside Judge it myself there is no Start it anyway: with too little memory free, Start itself asks first
+      const asks = !!yourself && short && o.confirm !== false;
+      const hint = yourself ? `Judge ${them} yourself and the model is not needed.${asks ? " Starting it now asks first: the computer may become very slow." : ""}`
+        : anyway ? "Start it once memory is free; it is checked again then. Start it anyway asks first: the computer may become very slow." : null;
+      const row = aiStart({ where: "local", model: o.model, kind: yourself ? "standard" : "main", compact: o.compact, before: yourself,
+        also: [anyway], hint: hint || undefined, nudge: !yourself && !anyway && !short ? (o.since || true) : false,
+        onClick: async () => {
+          if (!(yourself && short)) return go(row.start, false);
+          const ok = o.confirm === false || await confirmDialog({ title: `Start ${name} anyway?`, danger: false, confirmText: "Start it anyway", confirmIcon: "play",
+            message: h("div", {}, h("p", {}, "The computer may become very slow, or stop answering for a while, until the model has finished. What you have open is kept."),
+              aiWhere(`The ${nouns} it reads never leave this computer.`, "local")) });
+          if (ok) go(row.start, true);
+        } });
+      lines.push(row);
+    }
+  } else if (yourself) lines.push(h("div", { class: "ar-row" }, yourself));
+  else if (o.note) lines.push(h("p", { class: "muted" }, o.note));
+  if (yourself && o.yourselfNote) lines.push(h("p", { class: "muted" }, o.yourselfNote));
+  if (o.status) lines.push(h("p", {}, o.status));
+  lines.push(localTail(o, nouns));
+  fillSide(el, key, lines);
+  return el;
+}
+
+// ---- Claude's side ----------------------------------------------------------------------------------------------
+// Claude's side for work that waits for Claude Code: the live part. It asks the project's queue itself (one request
+// at a time per project, the answer shared) and keeps itself current while it is on the page: Start Claude Code while
+// work waits, Claude Code at work (Stop Claude Code), paused at the plan's limit, not found, not signed in. opts:
+// project, q (the job's own words for what waits: text, estimate, paused, paused_text, command, kind, being_answered;
+// `stale`: words kept from before, whose counts the project's queue overrules), compact (the choices and the cloud
+// line in one fold, Options and what is sent), privacy (false: no cloud line), always (Start even when nothing waits: the queue page), onDone (when a run it showed has ended), half.
+const AR_FOLD_OPEN = new Map();   // per project: Claude's choices left open, kept across redraws
+function thoughtWord(q) {
+  const v = (q.thought && q.thought.chosen) || "balanced";
+  return `${(THOUGHT_CHOICES.find((c) => c[0] === v) || [, "Balanced"])[1]} thought`;
+}
+function cloudSide(o) {
+  const project = o.project || App.project;
+  const el = sideShell("cloud", o.half, o.onState);
+  // stage 2: the agent's company may not read this project's documents (it allows Anthropic only): the line says so
+  // and allows it in one press (views/ai-access.js providerAllowLine), looked at again every 10 s at most
+  const allowBox = h("div", { class: "ar-allow" });
+  let allowAt = 0;
+  const refreshAllow = (force) => {
+    if (!project || (!force && Date.now() - allowAt < 10000)) return;
+    allowAt = Date.now();
+    import("./views/ai-access.js").then((m) => {
+      replace(allowBox, m.providerAllowLine(project, null, () => { QUEUE_CACHE.delete(project); allowAt = 0; refreshAllow(true); drawn = ""; draw(false); }));
+    }).catch(() => {});
+  };
+  el.dataset.project = project;
+  let jq = o.q || {};
+  let timer = null, busy = false, drawn = "";
+  const ago = (s) => (s < 60 ? "just now" : `${Math.round(s / 60)} min ago`);
+  function watchIdle(start) {
     if (!WAIT_SINCE.has(project)) WAIT_SINCE.set(project, Date.now());
     const left = NUDGE_AFTER - (Date.now() - WAIT_SINCE.get(project));
-    if (left <= 0) nudge(b, hint);
+    if (left <= 0) start.nudge();
     // look again when the nudge is due, then every 5 s: once something answers, draw the new state
     timer = setTimeout(async () => {
-      if (!b.isConnected || busy) return;
+      if (!el.isConnected || busy) return;
       let q;
       const c = QUEUE_CACHE.get(project);
       try { q = c && c.q && Date.now() - c.at < 3000 ? c.q : await queueFetch(project); } catch (_) { return; }
-      if (!b.isConnected || busy) return;
-      if (idleQueue(q)) watchIdle(b, hint); else draw(true);
+      if (!el.isConnected || busy) return;
+      if (idleQueue(q)) watchIdle(start); else draw(true);
     }, Math.max(left, 0) || 5000);
+  }
+  function choices(q, cmd, attn) {
+    const rows = [];
+    if (q.thought && !attn) rows.push(["Thought", thoughtPicker(q.thought.chosen, saveThought, { label: null, onSaved: () => { QUEUE_CACHE.delete(project); choiceChanged(project, el); } })]);
+    if (q.speed && !attn) {
+      const custom = customRun(RUN_CHOICE.get(project));
+      const chosen = q.speed.chosen || "normal";
+      const speed = h("span", { class: `sc-speed-line${custom ? " sc-speed-off" : ""}` }, `${(q.speed.options || {})[chosen] || 2} at a time`);
+      rows.push(["Helpers", [speed, arSep(), link({ href: "#/settings/speed" }, "Change in Settings"), helpersFold(project, q, () => {
+        speed.classList.toggle("sc-speed-off", customRun(RUN_CHOICE.get(project)));
+        choiceChanged(project, el);
+      })]]);
+    }
+    const t = queueTitle(q);
+    rows.push(["By hand", [copyLine(cmd, "Copy", t), h("span", { class: "muted" }, q.can_start ? `typed in ${t} does the same.` : `typed in ${t} (opened in any folder) answers it.`)]]);
+    const r = q.runner || {};
+    if (r.exit_code !== undefined && r.exit_code !== null && r.exit_code !== 0 && !r.stopped) {
+      rows.push(["Last run", fold({ sm: true }, workState("failed", "It stopped with a problem"), inset({ as: "pre", class: "mono small sc-report" }, r.report || "(no report)"))]);
+    }
+    return h("dl", { class: "ar-opts" }, rows.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]));
+  }
+  function optionsFold(q, cmd, attn, summary) {
+    const line = o.privacy === false ? null : queueAiLine(jq.privacy || q.privacy, project, jq.kind || o.kind);
+    const f = fold({ sm: true, open: !!AR_FOLD_OPEN.get(project) }, o.compact ? "Options and what is sent" : summary, choices(q, cmd, attn), o.compact ? line : null);
+    f.addEventListener("toggle", () => AR_FOLD_OPEN.set(project, f.open));
+    return o.compact ? f : [f, line];
   }
   async function draw(useCache) {
     clearTimeout(timer);
-    if (!box.isConnected && box.dataset.drawn) return;  // the page moved on
+    if (!el.isConnected && el.dataset.drawn) return;  // the page moved on
     let q;
     const cached = QUEUE_CACHE.get(project);
     if (useCache && cached && cached.q) {
       q = cached.q;  // draw at once from the last answer (a page that redraws often never waits)
-      if (Date.now() - cached.at > 3000) queueFetch(project).then(() => { if (box.isConnected) draw(true); }).catch(() => {});
+      if (Date.now() - cached.at > 3000) queueFetch(project).then(() => { if (el.isConnected) draw(true); }).catch(() => {});
     } else {
       try { q = await queueFetch(project); } catch (_) { return; }
     }
-    box.dataset.drawn = "1";
-    const cmd = opts.command || q.command || `/margin-run ${project}`;
-    const typeIt = h("div", { class: "sc-type" }, h("span", { class: "muted small" }, q.can_start ? "Or type this in Claude Code yourself:" : "In Claude Code (opened in any folder), type:"), copyLine(cmd));
-    // 0.12, opts.foldType (the result page's waiting card): one line under the button; how it works, the command to
-    // type and what is sent sit in a fold
-    const typeBlock = opts.foldType && q.can_start ? fold({ sm: true, class: "sc-type-fold" }, "How it works",
-      h("p", { class: "small" }, "It works on your Claude plan, in the background, and stops by itself when nothing waits."),
-      h("div", { class: "sc-type" }, h("span", { class: "muted small" }, "Or type this in Claude Code yourself:"), copyLine(cmd)),
-      queueAiLine(q.privacy, project, opts.kind)) : typeIt;
+    el.dataset.drawn = "1";
+    const cmd = jq.command || o.command || q.command || `/margin-run ${project}`;
     const r = q.runner || {};
-    const parts = [];
     const idle = idleQueue(q);
     if (!idle) WAIT_SINCE.delete(project);
-    if (q.route !== "claude_code") { replace(box, typeIt); return; }
-    if (r.running) {
-      parts.push(h("div", { class: "sc-running" }, h("span", { class: "running-dot", "aria-hidden": "true" }),
-        h("span", {}, h("strong", {}, "Claude Code is working on it"), h("span", { class: "muted small" }, ` · started ${ago(r.seconds || 0)} from ${appName()}${planText(r) ? ` · ${planText(r)}` : ""}`)),
-        stopButton({ text: "Stop Claude Code", onClick: async () => {
-          try { await api("POST", `/api/projects/${P(project)}/queue/claude-code/stop`, {}); toast("Claude Code stopped. What it had not answered waits again.", "ok"); QUEUE_CACHE.delete(project); draw(false); } catch (e) { showError(e); }
-        } })));  // 0.11.3: not just "Stop": the job beside it has its own
-    } else if (q.can_start && (q.waiting || q.being_answered || opts.always)) {
-      const b = button({ kind: "main", sm: true, onClick: async () => {
-        if (busy) return;
-        busy = true; b.disabled = true; b.classList.remove("sc-nudge");
-        const body = runBody(project, q);
-        const listed = (q.speed && q.speed.helpers) || [];
-        if (body.helpers && listed.length && !listed.some((r) => body.helpers[r.helper] > 0)) {
-          busy = false; b.disabled = false;
-          showError(new Error("Every helper is set to 0 under “Choose the helpers for this run”: give at least one helper 1 or more."));
-          return;
-        }
-        try {
-          await api("POST", `/api/projects/${P(project)}/queue/claude-code`, body);
-          RUN_CHOICE.delete(project);  // the helpers chosen were for this run only
-          toast("Claude Code started. You can keep working; the results appear as they come in.", "ok");
-        } catch (e) { showError(e); }
-        busy = false; QUEUE_CACHE.delete(project); await draw(false);
-        choiceChanged(project, box);
-      } }, icon("play", { size: 13 }), "Start Claude Code");
-      const hint = h("span", { class: "muted small" }, opts.foldType ? "Nothing runs until you press it." : "Runs on your Claude plan, in the background. It stops by itself when nothing waits.");
-      parts.push(h("div", { class: "sc-start" }, withAI(b), hint));
-      if (idle) watchIdle(b, hint);
-      // 0.18.1 (N2): how much thought Claude gives the tasks, chosen here and kept (Settings' claude_thought); how many
-      // helpers run at once is said, and chosen under Settings › AI only. The helpers for this run stay folded away.
-      if (q.thought) parts.push(thoughtPicker(q.thought.chosen, saveThought, { onSaved: () => { QUEUE_CACHE.delete(project); choiceChanged(project, box); } }));
-      if (q.speed) {
-        const custom = customRun(RUN_CHOICE.get(project));
-        const chosen = q.speed.chosen || "normal";
-        const speed = h("p", { class: "sc-speed small" }, h("span", { class: "sc-speed-line muted" },
-          `${helpersText((q.speed.options || {})[chosen] || 2)} at a time. `),
-          link({ href: "#/settings/speed" }, "Change in Settings"));
-        if (custom) speed.classList.add("sc-speed-off");
-        parts.push(speed, helpersFold(project, q, () => {
-          speed.classList.toggle("sc-speed-off", customRun(RUN_CHOICE.get(project)));
-          choiceChanged(project, box);
-        }));
-      }
-      if (r.exit_code !== undefined && r.exit_code !== null && r.exit_code !== 0 && !r.stopped) {
-        parts.push(fold({ sm: true }, workState("failed", "The last run stopped with a problem"), inset({ as: "pre", class: "mono small sc-report" }, r.report || "(no report)")));
-      }
-    } else if (!q.can_start && q.claude && !q.claude.found) {
-      parts.push(h("p", { class: "small sc-missing" }, icon("info", { size: 12 }), " Claude Code was not found on this computer. ", h("a", { href: "#/settings/model" }, "Set it up"), " to start it from here."));
+    // 0.19.14: a job's words kept from before (`stale`: the job reports the local model now, or nothing) keep their
+    // text, but whether anything still waits is the project's queue's to say
+    const stale = !!jq.stale;
+    const paused = stale ? !!q.paused : !!(jq.paused || (q.paused && !jq.text));
+    const waiting = stale ? q.waiting : jq.waiting ?? q.waiting;
+    const being = stale ? q.being_answered : jq.being_answered ?? q.being_answered;
+    // stage 2: any agent route answers the queue (Claude Code, Codex, Antigravity); `cli` is what its program says
+    const cli = q.cli || q.claude;
+    const t = queueTitle(q);
+    const state = !isAgentRoute(q.route) ? "other" : r.running ? "run" : paused ? "paused" : q.can_start ? ((waiting || being || o.always) ? "wait" : "idle")
+      : cli && !cli.found ? "missing" : "wait";
+    // the words of the job are drawn only while it waits: at work, a new count of the job's never redraws its Stop
+    const says = state === "wait" || state === "other" || state === "missing";
+    const key = JSON.stringify([state, says && jq.text, says && jq.estimate, paused && (jq.paused_text || q.paused_text), cmd, q.thought && q.thought.chosen, q.speed && q.speed.chosen,
+      // the helpers listed (one per kind of work that waits) are shown only while it waits: at work, the list
+      // shrinking as the queue empties must not draw its Stop again
+      state === "wait" && (q.speed && q.speed.helpers || []).length, cli && cli.signed_in, r.exit_code, r.stopped, r.parallel, !!r.helpers, t]);
+    if (key === drawn) {   // nothing to redraw: only the counts in place
+      const c = el.querySelector(":scope > .ab-count");
+      if (c && state === "run") c.textContent = runCount(q, r);
+      if (r.running) timer = setTimeout(() => { if (el.isConnected) queueFetch(project).then(() => draw(true)).catch(() => {}); }, 4000);
+      else if (idle) watchIdle(el.querySelector(".ar-start"));
+      return;
     }
-    if (q.claude && q.claude.signed_in === false) parts.push(h("p", { class: "small" }, icon("info", { size: 12 }), " Sign in to Claude Code once: open a terminal, type ", h("code", {}, "claude"), " and sign in with your Claude plan."));
-    replace(box, ...parts, r.running ? null : typeBlock);
-    // the page may have moved on (or re-drawn its panel) by then: a detached box fetches nothing
-    if (r.running) timer = setTimeout(() => { if (box.isConnected) queueFetch(project).then(() => draw(true)).catch(() => {}); }, 4000);
-    else if (r.seconds !== undefined && opts.onDone && box.dataset.wasRunning === "1") opts.onDone();
-    box.dataset.wasRunning = r.running ? "1" : "0";
+    drawn = key;
+    const lines = [];
+    let side = "wait";
+    // the same words for every agent: Settings → AI opens its sign-in (Claude Code's window, Codex's browser)
+    const signIn = !(cli && cli.signed_in === false) ? null
+      : h("p", {}, icon("info", { size: 12 }), ` Sign in to ${t} once: `, h("a", { href: "#/settings/model" }, "Settings → AI"), " opens the sign-in for you.");
+    const est = jq.estimate || "";
+    const aiLine = () => (o.privacy === false ? null : queueAiLine(jq.privacy || q.privacy, project, jq.kind || o.kind));
+    if (state === "other") {
+      lines.push(arWhat(jq.text || `Waiting for ${t}`), h("p", { class: "muted" }, `In ${t} (opened in any folder), type:`), copyLine(cmd, "Copy", t), aiLine());
+    } else if (state === "run") {
+      side = "run";
+      const stop = stopButton({ text: `Stop ${t}`, onClick: async () => {
+        setBusy(stop, true);
+        try { await api("POST", `/api/projects/${P(project)}/queue/agent/stop`, {}); toast(`${t} stopped. What it had not answered waits again.`, "ok"); QUEUE_CACHE.delete(project); draw(false); }
+        catch (e) { showError(e); setBusy(stop, false); }
+      } });  // 0.11.3: not just "Stop": the job beside it has its own
+      // compact: what is sent and typing it by hand stay in their fold while it works
+      lines.push(h("div", { class: "ab-run-row" }, arWhat(`${t} is working on it`, `started ${ago(r.seconds || 0)} from ${appName()}`), stop),
+        h("p", { class: "ab-count" }, runCount(q, r)), o.compact ? optionsFold(q, cmd, true, "") : aiLine());
+    } else if (state === "paused") {
+      side = "paused";
+      lines.push(arWhat("Paused at your plan’s limit"), jq.paused_text || q.paused_text ? h("p", {}, jq.paused_text || q.paused_text) : null);
+      if (q.can_start) lines.push(startRow(q, `Runs ${agentPlan()}, in the background, and stops by itself when nothing waits.`));
+      lines.push(optionsFold(q, cmd, true, "The last run, and typing it by hand"));
+    } else if (state === "missing") {
+      side = "need";
+      lines.push(arWhat(jq.text || `Waiting for ${t}`),
+        h("p", {}, `${t} was not found on this computer. `, h("a", { href: "#/settings/model" }, "Set it up"), " to start it from here."), aiLine());
+    } else if (state === "idle") {
+      side = "done";
+      lines.push(arWhat(el.dataset.ran ? `${t} has answered what waited for it` : `Nothing waits for ${t}`), o.compact || o.privacy === false ? null : queueAiLine(jq.privacy || q.privacy, project, jq.kind || o.kind));
+    } else {
+      const n = waiting || 0;
+      lines.push(arWhat(jq.text || (n ? `${plural(n, "task")} ${n === 1 ? "waits" : "wait"} for ${t}` : `Waiting for ${t}`), being ? `${fmt.num(being)} being answered now` : ""));
+      if (est && !o.compact) lines.push(h("p", { class: "muted" }, est.charAt(0).toUpperCase() + est.slice(1) + "."));
+      if (q.can_start) lines.push(startRow(q));
+      const helpers = q.speed ? (customRun(RUN_CHOICE.get(project)) ? "helpers chosen for this run" : `${helpersText((q.speed.options || {})[q.speed.chosen || "normal"] || 2)} at a time`) : "";
+      lines.push(optionsFold(q, cmd, false, [q.thought ? thoughtWord(q) : "", helpers, "or type it by hand"].filter(Boolean).join(" · ")));
+    }
+    lines.push(signIn, allowBox);
+    refreshAllow();
+    if (r.running) el.dataset.ran = "1";
+    fillSide(el, side, lines);
+    if (side === "run") sidePct(el, o.pct ?? null);
+    const start = el.querySelector(".ar-start");
+    if (start && idle) watchIdle(start);
+    // the page may have moved on (or drawn its panel again) by then: a detached side fetches nothing
+    if (r.running) timer = setTimeout(() => { if (el.isConnected) queueFetch(project).then(() => draw(true)).catch(() => {}); }, 4000);
+    else if (r.seconds !== undefined && o.onDone && el.dataset.wasRunning === "1") o.onDone();
+    el.dataset.wasRunning = r.running ? "1" : "0";
   }
+  const runCount = (q, r) => [q.being_answered ? `${fmt.num(q.being_answered)} being answered now` : "", q.waiting ? `${fmt.num(q.waiting)} still waiting` : "", planText(r)].filter(Boolean).join(" · ");
+  function startRow(q, hint) {
+    const row = aiStart({ where: "cloud", agent: queueTitle(q), compact: o.compact, hint, onClick: async () => {
+      const b = row.start;
+      if (busy) return;
+      busy = true; setBusy(b, true); b.classList.remove("ar-nudge");
+      const body = runBody(project, q);
+      const listed = (q.speed && q.speed.helpers) || [];
+      if (body.helpers && listed.length && !listed.some((x) => body.helpers[x.helper] > 0)) {
+        busy = false; setBusy(b, false);
+        showError(new Error("Every helper is set to 0 under “Choose the helpers for this run”: give at least one helper 1 or more."));
+        return;
+      }
+      try {
+        await api("POST", `/api/projects/${P(project)}/queue/agent`, body);
+        RUN_CHOICE.delete(project);  // the helpers chosen were for this run only
+        toast(`${queueTitle(q)} started. You can keep working; the results appear as they come in.`, "ok");
+      } catch (e) { showError(e); }
+      busy = false; QUEUE_CACHE.delete(project); drawn = ""; await draw(false);
+      choiceChanged(project, el);
+    } });
+    return row;
+  }
+  // the job's own words changed (a poll of the job): drawn again only if they differ
+  el.arSetQueue = (q) => { jq = q || {}; draw(true); };
   // 0.13.10: two of these for one project can be on the page at once (the sidebar's job and queue panels): a choice
   // made in one shows in the other
   for (const e of [...SC_LIVE]) if (e.box.dataset.drawn && !e.box.isConnected) SC_LIVE.delete(e);
-  SC_LIVE.add({ project, box, redraw: () => draw(true) });
+  SC_LIVE.add({ project, box: el, redraw: () => { drawn = ""; draw(true); } });
+  fillSide(el, "wait", [arWhat(jq.text || `Waiting for ${agentTitle()}`)]);
   draw(true);
-  return box;
+  return el;
 }
+
+// Claude's side when it needs no live queue: the Claude API reading (state "run"), its part done, not yet, stopped.
+// opts: state, what, muted, line (an AI line under it), pct (how far: its half of the bar).
+function cloudStatic(o, el) {
+  el = el || sideShell("cloud", o.half, o.onState);
+  fillSide(el, o.state, [arWhat(o.what || { run: "Claude reads the excerpts", done: "Claude has read its part", later: "Its part comes after the steps above", stopped: "Stopped" }[o.state] || "", o.muted), o.line || null]);
+  if (o.state === "run") sidePct(el, o.pct ?? null);
+  return el;
+}
+
+// One engine's side. where: "local" | "cloud". A cloud side with work for Claude Code (opts.live, or a project's
+// queue words in opts.q) keeps itself current from the queue; any other side is drawn from its opts (see localSide()
+// and cloudStatic()), and drawn again by its caller when they change. opts.onState(key): told each time its state
+// changes (wait, run, need, paused, done, later, stopped), for the panel's head.
+export function aiSide(opts = {}) {
+  if (opts.where === "cloud") return opts.live || opts.q ? cloudSide(opts) : cloudStatic(opts);
+  return localSide(opts);
+}
+// draw a local side again in place from new opts (the element and its half stay)
+export function redrawSide(el, opts) { return el.dataset.where === "cloud" ? cloudStatic(opts, el) : localSide(opts, el); }
+// a running model's figures, written in place (the side is not drawn again, so its Stop stays under the pointer)
+export function sideFigures(el, fig) { writeFine(el, fig); }
+export { setHalf, sidePct };
+
+// What waits for Claude Code, for a page that waits on it: Claude's side alone in a card (with the empty seat of this
+// computer). opts.foldType (0.12, a card that already says where text goes): its choices and the cloud line in one
+// fold; opts.privacy false: no cloud line.
+export function queueNotice(q, opts = {}) {
+  if (!q) return null;
+  if (!App.project) return aiSides(null, cloudStatic({ state: "wait", what: q.text || `Waiting for ${agentTitle()}`, muted: q.estimate || "" }), { compact: true });
+  return aiSides(null, cloudSide({ project: App.project, q, compact: true, privacy: opts.privacy, kind: q.kind }), { compact: true });
+}
+
+// 0.19.4: the local model's panel: this computer's side alone in a card, with Claude's empty seat. opts: as
+// localSide(); opts.load: it asks /api/local-status for the model and its memory itself, and fills them in when they come.
+export function localPanel(opts = {}) {
+  let st = { compact: true, ...opts };
+  const side = localSide(st);
+  const block = aiSides(side, null, { compact: true });
+  if (opts.load) api("GET", "/api/local-status").then((r) => {
+    if (!r || r.same_as_main) return;
+    st = { ...st, model: st.model || r.model, memory: st.memory || r.memory, problem: st.problem || r.problem };
+    localSide(st, side);
+  }).catch(() => {});
+  return block;
+}
+
+// 0.19.4: a job the local model was not started in (too little memory free: job.error_kind "memory"). Its side, in
+// place of an error: the memory against what is free, Start <model> (the job runs again, and the model is checked
+// again) and Start it anyway (the job runs again whatever memory is free), POST /api/jobs/<id>/again. `onStarted(job)`
+// follows the new job. Without `box`, a dialog holds it.
+export function memoryRefused(job, onStarted, opts = {}) {
+  const mem = job.memory || {};
+  const again = async (force) => {
+    const r = await api("POST", `/api/jobs/${P(job.id)}/again`, force ? { force: true } : {});
+    if (opts.close) opts.close();
+    if (onStarted) onStarted(r.job);
+  };
+  return localPanel({ model: mem.model, memory: mem.need ? mem : null, refused: mem.need ? true : (job.error || true), blocking: true,
+    head: opts.head || `${mem.model || "Your local model"} was not started, so “${job.title || "this work"}” waits for it`,
+    noun: opts.noun || "passage", confirm: opts.confirm, onStart: job.can_run_again ? again : null, load: true });
+}
+
+// What a page does with a job that did not work: a local model refused for memory gets its side (in `box`, or a
+// dialog), anything else the usual error toast.
+export function jobFailed(job, onStarted, box) {
+  onStarted = onStarted || ((j) => toast(`Started again: ${j.title}. It shows in the status area.`, "ok"));
+  if (job.error_kind === "memory" && job.can_run_again) {
+    if (box) { box.hidden = false; replace(box, memoryRefused(job, onStarted)); return; }
+    let dlg = null;
+    const body = memoryRefused(job, onStarted, { confirm: false, close: () => { if (dlg) { dlg.close(); dlg.remove(); } } });
+    dialog({ title: "Too little memory free for your local model", body, onOpen: (d) => { dlg = d; } });
+    return;
+  }
+  showError({ message: job.error, kind: job.error_kind });
+}
+
 const QUEUE_CACHE = new Map();
-const SC_LIVE = new Set();  // the Start Claude Code elements made, until they have left the page
+const SC_LIVE = new Set();  // Claude's live sides made, until they have left the page
 function choiceChanged(project, from) {
   for (const e of [...SC_LIVE]) {
     if (e.box === from || e.project !== project) continue;
@@ -2148,7 +2735,7 @@ export function speedPicker(chosen, options = { slower: 1, normal: 2, faster: 4 
   const line = h("span", { class: "muted small sc-speed-line" });
   const show = (v) => { line.textContent = `${helpersText(options[v] || 2)} at a time${SPEED_NOTE[v] || ""}.`; };
   // a choice (radio form): one Tab stop, the arrows move and pick, each pick saved at once
-  const group = choice({ sm: true, label: "Speed of Claude Code", class: "sc-speed-btns", value: current, options: SPEED_CHOICES,
+  const group = choice({ sm: true, label: `Speed of ${agentTitle()}`, class: "sc-speed-btns", value: current, options: SPEED_CHOICES,
     onPick: async (v) => {
       if (v === current && !(opts.custom && opts.custom())) return;  // the speed shown, picked again, undoes a choice of helpers
       const before = current;
@@ -2165,9 +2752,18 @@ export function speedPicker(chosen, options = { slower: 1, normal: 2, faster: 4 
 // stronger one. Kept (Settings' claude_thought); for Claude only (a local model keeps its own choice). Fable for the
 // auditor stays its own switch in Settings.
 export const THOUGHT_CHOICES = [["efficient", "Energy efficient"], ["balanced", "Balanced"], ["intelligence", "Intelligence"]];
-const THOUGHT_NOTE = { efficient: "A lighter model for each kind of task: easiest on your plan's limits and on energy. Unsure answers still go to a stronger model.",
-  balanced: "The recommended model for each kind of task.",
-  intelligence: "A stronger model for each kind of task, thinking harder: uses your plan's limits sooner." };
+// stage 2: every route on the three-tier ladder (Claude's two, the agent CLIs, another cloud provider) takes it; on a
+// route billed per use (an API key) it is the bill, not a plan's limits, that a stronger model spends
+const thoughtNote = (v, s = App.settings()) => {
+  const perUse = ["anthropic", "cloud_api"].includes((s || {}).backend);
+  const spend = perUse ? "costs least per task" : "easiest on your plan's limits";
+  const more = perUse ? "costs more per task" : "uses your plan's limits sooner";
+  return { efficient: `A lighter model for each kind of task: ${spend} and on energy. Unsure answers still go to a stronger model.`,
+    balanced: "The recommended model for each kind of task.",
+    intelligence: `A stronger model for each kind of task, thinking harder: ${more}.` }[v] || "";
+};
+// who is given the thought: the agent's name on an agent route, "the AI" on another provider's API, Claude otherwise
+const thoughtWho = (s = App.settings()) => (isAgent(s) ? agentTitle(s) : (s || {}).backend === "cloud_api" ? "the AI" : "Claude");
 
 export async function saveThought(thought) {
   const r = await api("PUT", "/api/settings", { claude_thought: thought });
@@ -2181,8 +2777,8 @@ export async function saveThought(thought) {
 export function thoughtPicker(chosen, onPick = saveThought, opts = {}) {
   let current = chosen || "balanced";
   const line = h("span", { class: "muted small sc-speed-line" });
-  const show = (v) => { line.textContent = THOUGHT_NOTE[v] || ""; };
-  const group = choice({ sm: true, label: "How much thought Claude gives the tasks", class: "sc-speed-btns", value: current, options: THOUGHT_CHOICES,
+  const show = (v) => { line.textContent = thoughtNote(v); };
+  const group = choice({ sm: true, label: `How much thought ${thoughtWho()} gives the tasks`, class: "sc-speed-btns", value: current, options: THOUGHT_CHOICES,
     onPick: async (v) => {
       if (v === current) return;
       const before = current;
@@ -2270,9 +2866,8 @@ function helpersFold(project, q, onChange) {
 // 0.11.3, the Start Claude Code nudge: when a project's work first waited with nothing answering it (kept per project, as
 // the sidebar draws its button again every 5 s and the progress panel whenever the queue's line changes).
 const NUDGE_AFTER = 5000;
-const NUDGE_PULSE = 1600;  // the length of one pulse of .btn.sc-nudge (components.css, 4.1)
 const WAIT_SINCE = new Map();
-const idleQueue = (q) => !!(q && q.route === "claude_code" && q.can_start && !(q.runner || {}).running && q.waiting && !q.being_answered);
+const idleQueue = (q) => !!(q && isAgentRoute(q.route) && q.can_start && !(q.runner || {}).running && q.waiting && !q.being_answered);
 // one request at a time per project; the answer is kept for the next element that draws
 function queueFetch(project) {
   const c = QUEUE_CACHE.get(project) || {};
@@ -2287,7 +2882,7 @@ function queueFetch(project) {
 // with the speed of Settings or the helpers chosen for this run. Settings › AI has the whole choice.
 export async function startClaudeNow(project) {
   const q = await queueFetch(project);
-  await api("POST", `/api/projects/${P(project)}/queue/claude-code`, runBody(project, q));
+  await api("POST", `/api/projects/${P(project)}/queue/agent`, runBody(project, q));
   RUN_CHOICE.delete(project);
   QUEUE_CACHE.delete(project);
 }

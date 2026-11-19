@@ -192,7 +192,7 @@ def test_the_endpoint_and_the_page_carry_it():
     assert '"/api/technical-details", "get_technical_details"' in server
     assert "/api/technical-details" in (ROOT / "docs/API.md").read_text("utf-8")
     js = (ROOT / "src/margin/gui/static/views/settings.js").read_text("utf-8")
-    assert "Copy technical details" in js and "Stable (recommended)" in js and "Try new versions early" in js
+    assert "Copy technical details" in js and '["stable", "Stable"], ["early", "Early"]' in js and 'id: "update-channel"' in js
     assert 'target: "_blank", rel: "noopener"' in js and "issues/new?template=problem.yml" in js
     assert '"https://github.com/dvaud/margin"' in js and 'href: REPO_URL }, "Source code (on GitHub)"' in js
 

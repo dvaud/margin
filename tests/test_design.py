@@ -101,9 +101,9 @@ def test_a_component_is_styled_in_one_section_only():
 
 # every helper of lib.js that draws a component and takes a page's class (docs/DESIGN.md 4: "a page's own class for
 # placement"); a page may import one under another name (card as cardBox)
-COMPONENT_HELPERS = {"button", "iconButton", "downloadButton", "fileButton", "link", "tag", "notice", "card", "fold",
+COMPONENT_HELPERS = {"button", "aiButton", "iconButton", "downloadButton", "fileButton", "link", "tag", "notice", "card", "fold",
                      "choice", "optionCards", "input", "select", "textarea", "searchField", "menu", "drawer", "statusBadge",
-                     "listRow", "listGroup", "inset", "stopButton", "switchControl",
+                     "listRow", "listGroup", "inset", "stopButton", "switchControl", "guidedSteps",
                      "field", "helpMark", "downloadLinks", "pageHead", "tabs", "strongerMark",
                      # the AI line: its attributes come after its sentence, aiWhere(text, where, { class })
                      "aiWhere", "readsLine",
@@ -399,7 +399,8 @@ def test_every_token_of_the_last_release_is_still_defined():
     missing = [t for t in RC4_TOKENS if t not in defined]
     assert not missing, missing
     used = set(re.findall(r"var\((--[a-z0-9-]+)", all_css()))
-    assert used <= defined | {"--swatch"}, used - defined
+    # --ar-sync: set at run time by inStep() (lib.js), the AI run panel's motion in step with the clock
+    assert used <= defined | {"--swatch", "--ar-sync"}, used - defined
 
 
 def test_no_inline_visual_styles():
@@ -604,7 +605,7 @@ def test_every_helper_is_on_the_reference_page():
                "optionCards", "input", "select", "textarea", "searchField", "menu", "workState", "aiWhere", "drawer",
                "drawerButton", "field", "switchControl", "rangeControl", "spinner", "emptyState", "statusBadge", "gradeBadge",
                "codeChip", "pageHead", "downloadLinks", "helpMark", "popNote", "toast", "dialog", "confirmDialog", "heatCell", "heatGrid",
-               "strongerMark", "aiTag", "viewTabs", "featureEyebrow", "reviewedMark", "listRow", "listGroup"]
+               "strongerMark", "aiTag", "viewTabs", "featureEyebrow", "reviewedMark", "listRow", "listGroup", "guidedSteps"]
     for name in helpers:
         assert re.search(rf"export function {name}\(", LIB + (STATIC / "features.js").read_text(encoding="utf-8")), name
         assert re.search(rf"\b{name}\(", ref), f"{name} is not drawn on the reference page (views/design.js)"
@@ -871,6 +872,7 @@ AI_LINE_DRAWN_BY = {
     ("concepts.js", "linkRow"): ["relatedCard"],
     ("doc-lookup.js", "lookup"): ["refsPanel"],   # 0.18.4: the References panel moved from sources.js
     ("drafts.js", "<top>"): ["aiLine"],   # Margin: withAIFor() marks the button; aiLine() is the one line the cards draw under it
+    ("concept-map.js", "failedNote"): ["drawGroups"],   # D1 rest: Name them again, under the Groups section's AI line
 }
 
 
@@ -1311,7 +1313,8 @@ def test_a_judged_excerpt_names_each_way_back():
     judgement, and its moved note offers Back to “…” only when your earlier judgement was your own, so no two buttons
     on a card go to the same place and each says where it goes. The place the card left has only Show it."""
     js = VIEW_JS["result.js"]
-    ph = js[js.index("const ph = "):js.index("if (oldList)")]
+    start = js.index('ph = notice({ kind: "info", icon: "arrow-right", class: "moved-ph" }')   # 0.19.8: set, not declared, there
+    ph = js[start:js.index("if (oldList)", start)]
     assert "button(" not in ph and '"Show it"' in ph, "the place a moved card left offers an action besides Show it"
     # the note's way back comes from noteWayBack() (tested below), and sits in its sentence (one line)
     assert "fa.undoText = noteWayBack(prev.verdict, verdict, p.read_by);" in js and "fa.undo = fa.undoText ? undo : null;" in js

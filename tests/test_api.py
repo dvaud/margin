@@ -157,6 +157,9 @@ def test_profile_concepts_themes_references_and_highlights(api, corpus, ollama):
     j = api.wait(r["job"]["id"])
     assert j["state"] == "done", j["error"]
     hid = j["result"]["hyp_id"]
+    from helpers import agree_with_suggestions
+
+    assert agree_with_suggestions(api, "P", hid)   # I6: the local model only suggests; the person's judgements count
     h = api("GET", f"/api/projects/P/hypotheses/{hid}")[1]
     graded = [x for p in h["parts"] for x in p["passages"] if x["verdict"]]
     doc = graded[0]["doc_id"]

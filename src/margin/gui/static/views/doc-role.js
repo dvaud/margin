@@ -145,6 +145,60 @@ export async function setRole(project, docId, title, role, done) {
   } catch (e) { showError(e); return null; }
 }
 
+// roadmap N3: one role for many documents, from the Documents list's bulk bar. Each role's words for several.
+const MANY = {
+  theory: { ask: (n) => `Mark ${n} documents as theory?`, button: "Mark as theory", done: (n) => `${n} documents marked as theory.`,
+    means: () => `They are then the lens the research is read through, not evidence about your field. They are still read, searched, opened and noted, but left out of ${LEFT_OUT}.` },
+  working: { ask: (n) => `Mark ${n} documents as your working documents?`, button: "Mark as my working documents", done: (n) => `${n} documents marked as your working documents.`,
+    means: () => `They are then your own drafts or notes, never a source. They are still read, searched, opened, noted and labelled with codebooks, but left out of ${WORKING_LEFT_OUT}.` },
+  evidence: { ask: (n) => `Mark ${n} documents as evidence again?`, button: "Mark as evidence", done: (n) => `${n} documents marked as evidence.`,
+    means: () => "They then count as evidence again: in themes, codebook labels, the excerpts a check reads and key terms." },
+};
+const ROLES_PUT = (p) => `/api/projects/${P(p)}/document-roles`;
+
+// the bulk bar's role items: each role not every ticked document already has. `docs`: [{doc_id, title}]; `roles`:
+// {doc id: role} as the list knows them; `done(answer)` after a change (and after its Undo)
+export function bulkRoleItems(project, docs, roles, done) {
+  const have = new Set(docs.map((d) => roles[d.doc_id] || null));
+  return [["evidence", null, "book-open", "Evidence"], ["theory", "theory", "book-marked", "Theory"], ["working", "working", "notebook", "Working document"]]
+    .map(([k, r, ic, text]) => ({ text, icon: ic, disabled: have.size === 1 && have.has(r),
+      title: have.size === 1 && have.has(r) ? `Every document selected is ${text === "Evidence" ? "evidence" : `marked as ${text.toLowerCase()}`} already` : null,
+      onClick: () => setRoles(project, docs, r, done) }));
+}
+
+// ask, then give every document of `docs` the role (null: evidence); one research-log entry for them all. A toast
+// offers Undo for a while: each document gets the role it had back.
+export async function setRoles(project, docs, role, done) {
+  if (docs.length === 1) return setRole(project, docs[0].doc_id, docs[0].title || "this document", role, done);
+  const w = MANY[role || "evidence"];
+  const n = docs.length;
+  const ok = await confirmDialog({ title: w.ask(n), danger: false, confirmText: w.button,
+    message: h("div", {},
+      h("p", {}, w.means()),
+      h("p", {}, "Results made before stay as they are: each document’s page lists them, so you can make them again. A document marked non-scientific keeps that mark."),
+      h("p", { class: "muted small" }, `${ROLE[role || "evidence"].small ? `${ROLE[role || "evidence"].small} ` : ""}In a project you share, the owner decides: your marks are proposals until they are accepted.`)) });
+  if (!ok) return null;
+  try {
+    const r = await api("PUT", ROLES_PUT(project), { doc_ids: docs.map((d) => d.doc_id), role });
+    const changed = (r.changed || []).length;
+    const was = r.was || {};
+    const undo = async () => {
+      const by = new Map();
+      for (const [id, old] of Object.entries(was)) { const k = old || ""; if (!by.has(k)) by.set(k, []); by.get(k).push(id); }
+      try {
+        let last = null;
+        for (const [k, ids] of by) last = await api("PUT", ROLES_PUT(project), { doc_ids: ids, role: k || null });
+        toast("Put back as they were.", "ok", { ttl: 2500 });
+        if (done) done(last);
+      } catch (e) { showError(e); }
+    };
+    toast(changed ? w.done(changed) : "No change: every document selected had that role already.", "ok",
+      changed ? { ttl: 9000, button: { text: "Undo", onClick: undo } } : { small: true });
+    if (done) done(r);
+    return r;
+  } catch (e) { showError(e); return null; }
+}
+
 // the row menu's items in the Documents list: every role the document does not have (N3: three roles)
 export function roleMenuItems(project, d, role, done) {
   const title = d.title || d.file || "this document";

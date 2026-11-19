@@ -7,10 +7,8 @@
 // minutes, so it is a page, not a dialog: DESIGN.md 4.16). The labels are the codebook editor's, so nothing is renamed
 // when *Make the codebook* turns the concepts in the codebook into codes. Every change is kept in the draft as you work.
 import { forgetFrameworks } from "./options.js";
-import { App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, P, plural, confirmDialog, dialog, field,
-  watchJob, cancelJob, emptyState, shortTitle, session, debounce, button, setButtonKind, iconButton, stopButton, link, notice,
-  card, tag, inset, input, select, textarea, choice, fold, readsLine, aiWhere, workState, withAI, aiTag, foundWords,
-  searchHref, queueNotice, setBusy, spinner, cap } from "../lib.js";
+import { aiRun } from "./progress.js";
+import { App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, P, plural, confirmDialog, dialog, field, watchJob, emptyState, shortTitle, session, debounce, button, setButtonKind, iconButton, stopButton, link, notice, card, tag, inset, input, select, textarea, choice, fold, readsLine, aiWhere, ownStartNote, workState, withAI, aiTag, foundWords, searchHref, setBusy, spinner, cap, aiButton, jobFailed } from "../lib.js";
 
 const MAX_CONCEPTS = 60;   // theoryframe.MAX_CONCEPTS
 const MAX_EXAMPLES = 8;    // a code keeps at most this many examples (codebooks.MAX_EXAMPLES)
@@ -196,7 +194,7 @@ export async function renderTheoryDraft(view) {
     const n = offered().length, parts = offer ? offer.parts : 0;
     return `${n === 1 ? "this whole document" : `these ${n} whole documents`}${parts > 1 ? `, in ${parts} parts` : ""}`;
   };
-  const localLine = () => `The AI on this computer reads ${readsWhat()}: the text never leaves it.`;
+  const localLine = () => `The AI on this computer reads ${readsWhat()}: the text never leaves it.${ownStartNote()}`;
   // the documents no AI may read, one line each
   const docLines = () => (offer ? offer.documents.filter((d) => !d.offered).map((d) => h("p", { class: "muted small" },
     d.level === "none" ? `“${d.title}” is marked No AI: only the terms it defines outright are used.` : `“${d.title}”: ${d.why}`)) : []);
@@ -217,7 +215,7 @@ export async function renderTheoryDraft(view) {
     const kids = [h("p", {}, found ? `Below ${found === 1 ? "is the one term" : `are the ${found} terms`} your theory documents define outright, found without AI: a start, not a framework.`
       : "Your theory documents define no term outright, so nothing was found without AI.")];
     if (offer && offer.offered) {
-      const btn = button({ kind: "main", icon: "book-open", onClick: (e) => readTheory(e.currentTarget) }, "Read the theory");
+      const btn = aiButton({ kind: "main", onClick: (e) => readTheory(e.currentTarget) }, "Read the theory");
       kids.push(h("p", {}, "Let the AI read the documents whole. It joins what the authors share into one framework, and says in plain words what each concept means and when to use it in your documents."),
         focusField(), h("div", { class: "btn-row" }, withAI(btn)),
         offer.reader === "local" ? aiWhere(localLine(), "local") : readsLine(readsWhat()));
@@ -226,30 +224,24 @@ export async function renderTheoryDraft(view) {
     }
     return card({ title: "The theory", class: "td-theory" }, kids, docLines());
   }
+  // 0.19.13: the reading's AI run panel (aiRun, full): its head with Stop, and the two sides (this computer for the
+  // documents only a local AI may read, Claude for the others), each with its own Start while its part waits
   function theoryRunning() {
-    runEls = { state: h("div", { class: "td-work" }), queue: h("div"), queued: null };
-    const c = card({ title: "The theory", class: "td-theory" }, runEls.state, runEls.queue,
+    runEls = { run: aiRun({ size: "full", title: "Reading the theory", noun: "document",
+      label: (j) => { const p = j.progress || {}; return j.waiting_for ? j.waiting_for.message : p.total ? `Reading the theory: ${p.done || 0} of ${plural(p.total, "step")} done` : "Reading the theory"; } }) };
+    const c = card({ title: "The theory", class: "td-theory" }, runEls.run.el,
       h("p", { class: "muted small" }, "You can leave this page: the reading goes on and the draft waits here."));
     tickRunning();
     return c;
   }
   function tickRunning() {
-    if (!runEls) return;
-    const p = (job && job.progress) || {};
-    const words = job && job.waiting_for ? job.waiting_for.message
-      : p.total ? `Reading the theory: ${p.done || 0} of ${plural(p.total, "step")} done` : "Reading the theory";
-    replace(runEls.state, workState("running", words, job ? (p.elapsed !== undefined ? p.elapsed : job.seconds) : null),
-      stopButton({ onClick: stopReading }));
-    // while the parts wait for Claude Code: the queue's notice with Start Claude Code, as every AI job shows it (made
-    // once: it keeps itself current)
-    const q = p.queue || (p.model && p.model.phase === "queue" ? p.model.queue || {} : null);
-    if (q && !runEls.queued) replace(runEls.queue, runEls.queued = queueNotice(q));
-    else if (!q && runEls.queued) { clear(runEls.queue); runEls.queued = null; }
+    if (!runEls || !job) return;
+    runEls.run.update(job);
   }
   function theoryRead() {
     const r = draft.reading;
     const ai = draft.concepts.filter((c) => c.how === "ai").length;
-    const btn = button({ icon: "refresh", onClick: (e) => readTheory(e.currentTarget) }, "Read again");
+    const btn = aiButton({ onClick: (e) => readTheory(e.currentTarget) }, "Read again");
     const aside = (draft.left_out || []).length;
     const sentence = `Read by ${r.model || "the AI"}${r.at ? ` on ${fmt.date(r.at)}` : ""}, in ${plural(r.parts_read || r.parts || 0, "part")}. Its ${plural(r.drafted || 0, "draft")} of concepts, many of them the same idea from two documents, became ${plural(ai, "concept")}${draft.groups.length ? ` in ${plural(draft.groups.length, "group")}` : ", not grouped"}${aside ? `; ${aside} ${aside === 1 ? "is" : "are"} set aside` : ""}.`;
     return card({ title: "The theory", class: "td-theory" },
@@ -266,7 +258,7 @@ export async function renderTheoryDraft(view) {
   function theoryFailed() {
     const r = draft.reading;
     const why = (r.problems || []).length ? r.problems[r.problems.length - 1] : "The reading did not work.";
-    const btn = button({ sm: true, icon: "refresh", onClick: (e) => readTheory(e.currentTarget) }, "Try again");
+    const btn = aiButton({ sm: true, onClick: (e) => readTheory(e.currentTarget) }, "Read it again");
     return card({ title: "The theory", class: "td-theory" },
       notice({ kind: "error" }, h("p", {}, why), offer && offer.offered ? h("div", { class: "btn-row" }, withAI(btn)) : null),
       offer && offer.offered ? (offer.reader === "local" ? aiWhere(localLine(), "local") : readsLine(readsWhat())) : null,
@@ -294,16 +286,11 @@ export async function renderTheoryDraft(view) {
     const res = j.result || {};
     job = null;
     await reload();
-    if (j.state === "error") toast(j.error || "The reading did not work.", "error");
+    if (j.state === "error") jobFailed(j, () => reload());   // memory: the local side, whose Start reads it again (followed after the reload)
     else if (j.state !== "done" || res.stopped) toast("The reading is stopped. The draft is as it was.", "info");
     else if (res.withdrawn) toast("The request was taken back before the AI answered. Read again.", "warn");
     else if (res.ok) toast(`The theory is read: ${plural(res.concepts || 0, "concept")} in ${plural(res.groups || 0, "group")}. Open each to check its words.`, "ok");
     else if (res.state === "read") toast("The AI could not put the framework together: the concepts are each document’s, not grouped. The card above says why.", "warn");
-  }
-  async function stopReading() {
-    const id = (job && job.id) || draft.reading.job;
-    if (!id) return;
-    try { await cancelJob(id); } catch (e) { showError(e); }
   }
 
   // ---- The framework

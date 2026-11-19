@@ -1,5 +1,5 @@
-"""0.15.1: an update of a git copy brings the layout reader (pdfminer), as the one-line install always has; and the
-version numbers: 0.15.1 is a release, so no number is withdrawn any more."""
+"""0.15.1: an update of a git copy brings the layout reader (pdfminer), as the one-line install always has.
+(That no number is withdrawn any more is in tests/test_version_numbers.py.)"""
 from __future__ import annotations
 
 

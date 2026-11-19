@@ -41,7 +41,7 @@ from .. import llm, modeladvice, ollama_setup
 from ..llm import BackendError, detect_local
 from ..store import now as _now
 from ..sources import document_overview
-from .progress import Tracker
+from .progress import LOCAL_PHASE, Tracker
 from .literature_api import LiteratureHandlers
 from ..literature import LiteratureError
 from .api_checks import ChecksApi
@@ -49,6 +49,7 @@ from .api_documents import DocumentsApi
 from .api_explore import ExploreApi
 from .api_record import RecordApi
 from .api_setup import SetupApi
+from .api_agents import AgentApi, agent_info  # stage 2 of other cloud providers: Codex, Antigravity
 from . import api_checks_extra, api_corpus  # 0.18.1: part B's and part A's routes, built side by side
 from .api_checks_extra import ChecksExtraApi
 from .api_corpus import CorpusApi
@@ -88,6 +89,8 @@ from .api_common import (  # noqa: F401 - the names are importable from here as 
 
 STATIC = Path(__file__).with_name("static")
 DRAFT_MAX = 50 * 1024 ** 2   # bytes of a draft file (Margin 0.1): a long thesis as a PDF
+# 0.19.13: the head of a job whose local model was refused for memory (its side has the numbers and the Starts)
+LOCAL_SHORT = "Your local model was not started: too little memory is free"
 FOLLOW_POLL = 2.0  # seconds between two looks at checks that wait for Claude Code (`follow_queued`; tests shorten it)
 
 
@@ -124,6 +127,12 @@ class App(LibraryMixin, QueueMixin):
         # the new one. None (tests, tools/dev_server.py): read from disk on every request, so page code can be edited
         # without a restart.
         self.frozen_static: dict[str, bytes] | None = None
+        # after 0.19.7: a notification from the computer when work the person started has finished (gui/notify.py);
+        # `seen`: the last request from a tab that was in front of the person (the page's X-Margin-Seen header)
+        from . import notify
+
+        self.seen = 0.0
+        self.jobs.ended.append(lambda job: notify.job_ended(self, job))
 
     def freeze_static(self) -> None:
         self.frozen_static = {f.relative_to(STATIC).as_posix(): f.read_bytes()
@@ -140,32 +149,58 @@ class App(LibraryMixin, QueueMixin):
         if name not in home.list_projects():
             raise ApiError(404, f"No project called {name!r}.")
         try:
-            return home.open_project(name)
+            ws = home.open_project(name)
         except Exception as e:
             raise ApiError(409, f"Could not open project {name!r}: {e}") from e
+        try:  # stage 1 of other cloud providers: the tasks' settings are for the main route's provider (once per change)
+            access.sync_labels(ws, access.route_provider(self.settings()))
+        except Exception:  # noqa: BLE001 - the guard works each task out again as it leaves
+            pass
+        return ws
 
-    def backend(self, kinds: tuple[str, ...] = ("check", "expand", "decompose", "reread"), k: int | None = None):
+    def backend(self, kinds: tuple[str, ...] = ("check", "expand", "decompose", "reread"), k: int | None = None,
+                wake: bool = False):
         """The main model. `k`: the excerpts a request reads at once, when more than Settings says (the automatic
-        context length must hold them)."""
+        context length must hold them). `wake` (0.19.15): the caller starts work a person just pressed for, so Ollama
+        on this computer is started first when it is not running (it must answer to choose the model and its context
+        length); a page that only looks (a plan, a status) never wakes it."""
         s = self.settings()
         if k and k > int(s.get("k") or 8):
             s = {**s, "k": k}
+        if wake and s.get("backend") in ("auto", "ollama"):
+            from .. import ollama_setup
+
+            ollama_setup.wake(s.get("ollama_url") or None)
         be, model = home.make_backend(s, self.api_key(), kinds=kinds)
         return be, model
 
     def queue_mode(self) -> bool:
-        """0.8: Claude Code (the researcher's own plan) answers: the AI buttons prepare tasks and wait for them."""
-        return self.settings().get("backend") == "claude_code"
+        """0.8: Claude Code (the researcher's own plan) answers: the AI buttons prepare tasks and wait for them.
+        Stage 2: so does an agent CLI of another provider (Codex, Antigravity)."""
+        from .. import providers
+
+        return self.settings().get("backend") in providers.AGENT_ROUTES
+
+    def agent_runner(self, name: str) -> dict:
+        """The run started from the app for this project by the main route's agent (Claude Code's, or an agent
+        CLI's: agentcli.py), as claude_setup.run_state says it."""
+        from .. import agentcli, claude_setup, providers
+
+        b = self.settings().get("backend")
+        if b in providers.AGENT_CLIS:
+            return agentcli.run_state(b, name)
+        return claude_setup.run_state(name)
 
     # -- 0.13.6: the public interface for add-ons (docs/EXTENDING.md). The old private names keep working. -----------
     def start_job(self, kind: str, title: str, name: str | None, fn, uses_model: bool = True,
-                  withdraw: tuple[str, ...] = (), ws=None) -> Job:
+                  withdraw: tuple[str, ...] = (), ws=None, local_start: str | None = None) -> Job:
         """A job; by queue (Claude Code) its tasks wait in the queue and it does not hold the model's turn. Stopping
         it takes its tasks that no session has taken yet back out of the queue (`withdraw`: their kinds).
 
         `fn(job)` does the work and returns the job's result; it checks `job.cancel.is_set()` to stop. The job shows
         in GET /api/jobs and the sidebar, can be stopped (POST /api/jobs/<id>/cancel), and is "not running"
-        (`on_hold`) while its tasks wait in the queue with nothing answering them."""
+        (`on_hold`) while its tasks wait in the queue with nothing answering them. `local_start` ("go", "force"): the
+        person pressed the local model's own Start to begin it (0.20.1: else its local part waits for that Start)."""
         q = self.queue_mode()
         since = _now()
 
@@ -177,7 +212,7 @@ class App(LibraryMixin, QueueMixin):
                     if q and job.cancel.is_set() and withdraw and ws is not None:
                         taskqueue.withdraw(ws, list(withdraw), since=since)
 
-        job = self.jobs.start(kind, title, name, run, uses_model=uses_model and not q)
+        job = self.jobs.start(kind, title, name, run, uses_model=uses_model and not q, local_start=local_start)
         job.queue = q
         return job
 
@@ -204,10 +239,11 @@ class App(LibraryMixin, QueueMixin):
     def queue_answering(self, name: str) -> bool:
         """0.12: whether something answers the project's queue now: Claude Code started from Margin, or a session
         typed in Claude Code. When that cannot be told, the work is not called on hold."""
-        from .. import claude_setup
+        from .. import agentcli, claude_setup
 
         try:
-            return bool(claude_setup.run_state(name).get("running")) or taskqueue.answering(home.open_project(name))
+            return bool(claude_setup.run_state(name).get("running")) or bool(agentcli.any_running(name)) \
+                or taskqueue.answering(home.open_project(name))
         except Exception:  # noqa: BLE001 - a project that cannot be opened: say nothing rather than "on hold"
             return True
 
@@ -248,6 +284,9 @@ class App(LibraryMixin, QueueMixin):
                "ocr": ingest.ocr_status(),
                "installation": _installation(),
                "key": {"session": bool(self.session_key), "env": bool(home.env_key()), "stored": bool(home.stored_key())},
+               "providers": self.providers_state(s),   # stage 1 of other cloud providers
+               # stage 2: the main route's agent (Claude Code, Codex, Antigravity), and the agent CLIs Margin knows
+               "agent": agent_info(s.get("backend")), "clis": _clis_summary(),
                "statuses": [{"status": k, "text": v, "help": claimcheck.STATUS_HELP.get(k, ""),
                              "next": claimcheck.STATUS_NEXT.get(k, "")} for k, v in claimcheck.STATUS_TEXT.items()],
                "jobs": self.job_views(active_only=True),
@@ -256,6 +295,27 @@ class App(LibraryMixin, QueueMixin):
                "profile_framework": self._profile_framework(current, s)}
         out.update(addons.state(self, set(out)))  # 0.13.6: an add-on's keys, never in place of Margin's
         return out
+
+    def providers_state(self, s: dict | None = None) -> dict:
+        """The cloud providers for Settings and the Documents page: the table, whether a key is stored for each (yes
+        or no, never the key), and whether one other than Anthropic is set up (a key stored, or the main route is
+        one): the Documents page then says "Cloud AI may read it" instead of "Claude may read it"."""
+        from .. import providers
+
+        s = s if s is not None else self.settings()
+        keys = {} if home.local_only() else home.cloud_keys()
+        route = access.route_provider(s)
+        others = sorted({p for p, have in keys.items() if have}
+                        | ({route} if route not in (None, providers.ANTHROPIC) else set()))
+        from .. import keychain
+
+        return {"list": providers.summary(), "keys": keys, "route": route, "set_up": others,
+                # where keys are kept ("file": Margin's own file, readable by this person only; else the keychain)
+                "keychain": keychain.backend(),
+                "other_set_up": bool(others) and not home.local_only(),
+                # a model server on another computer as the main route: its address, for the line that says it reads
+                # only the documents allowed to it
+                "route_address": access.route_address(s) if s.get("backend") in ("auto", "ollama", "openai") else None}
 
     def _profile_framework(self, name: str | None, s: dict) -> str:
         """The codebook the pages use when none is named, in the current project: the setting when this project has
@@ -290,8 +350,22 @@ class App(LibraryMixin, QueueMixin):
             advice = modeladvice.advise(modeladvice.computer(str(home.home())))
         except Exception:  # noqa: BLE001 - the advice is a convenience: the card works without it
             advice = None
+        # I6: a person who set up an older model keeps it; Settings → Technical offers the tier's model beside it
+        older = None
+        if advice:
+            # the main AI's Ollama model when the main AI is a local model, else the one for documents marked Only a
+            # local AI: the offer's download is then chosen for that use, never switching the main AI
+            if s.get("backend") in ("ollama", "auto") and s.get("ollama_model"):
+                chosen, use = s.get("ollama_model"), "ai"
+            elif s.get("restricted_server") == "ollama" and s.get("restricted_model"):
+                chosen, use = s.get("restricted_model"), "restricted"
+            else:
+                chosen, use = None, "ai"
+            older = modeladvice.older_model(chosen, advice)
+            if older:
+                older["use"] = use
         return {"servers": found, "suggested": modeladvice.suggested(advice) if advice else [dict(m) for m in llm.SUGGESTED_MODELS],
-                "advice": advice, "ollama_app": ollama_setup.status()}
+                "advice": advice, "older_model": older, "ollama_app": ollama_setup.status()}
 
     _OLLAMA_INSTALL = threading.Lock()   # two presses (two tabs) never start two downloads of 1.7 GB
 
@@ -407,9 +481,25 @@ class App(LibraryMixin, QueueMixin):
                               "yet: press Set up Claude Code.")
             if st.get("signed_in") is False:
                 out["warning"] = "Claude Code is not signed in: open a terminal, type claude and sign in once."
+        elif out["backend"] in ("codex", "antigravity"):
+            from .. import agentcli
+
+            title = agentcli.cli(out["backend"]).title
+            st = agentcli.status(out["backend"], refresh=True)
+            out["model_available"] = bool(st["ready"])
+            out["agent"] = st
+            out["message"] = (f"{title} is set up: {st.get('version') or 'found'}" + (
+                ", with Margin added" if st.get("connector") else "") + f". Press Start {title} where work waits."
+                if st["ready"] else f"{title} is not on this computer yet: set it up in Settings → AI."
+                if not st["found"] else f"{title} is found, but not signed in yet: sign in from Settings → AI.")
         elif out["backend"] == "anthropic":
             out["message"] = (f"Connected to the Claude API. {model} is available." if out["model_available"]
                               else f"Connected, but {model} is not in this key's model list.")
+        elif out["backend"] == "cloud_api":
+            title = getattr(be, "title", "The provider")
+            out["provider"] = getattr(be, "provider", None)
+            out["message"] = (f"Connected to {title}. {model} is available." if out["model_available"]
+                              else f"Connected to {title}, but {model} is not in this key's model list.")
         else:
             out["message"] = "The offline demo grades by word overlap. Its results are not findings."
         emb = home.make_embedder(s)
@@ -828,15 +918,18 @@ class App(LibraryMixin, QueueMixin):
         text, status, batch = (_str(q, "q") or "").lower().strip(), _str(q, "status"), _str(q, "batch")
         rows = claimcheck.history(ws, thr)
         counts: dict[str, int] = {}
+        waiting_local = 0   # 0.19.13: the "waiting" answers whose last part waits for the local model, not Claude Code
         for r in rows:
             counts[r["status"]] = counts.get(r["status"], 0) + 1
+            waiting_local += r["status"] == "waiting" and r.get("status_text") == claimcheck.WAITING_LOCAL
         if text or status or batch:
             rows = [r for r in rows if (not text or text in (r["text"] or "").lower())
                     and (not status or r["status"] == status) and (not batch or r["batch_id"] == batch)]
             if batch:
                 rows.reverse()  # a set reads in the order it was typed
         limit = int(_float(q, "limit", 0))
-        return {"hypotheses": rows[:limit] if limit else rows, "counts": counts, "threshold": thr}
+        rows = rows[:limit] if limit else rows
+        return {"hypotheses": rows, "counts": counts, "waiting_local": waiting_local, "threshold": thr}
 
     # -- jobs ------------------------------------------------------------------------------------
     def wire(self, job: Job, be, tracker: Tracker | None = None) -> None:
@@ -891,7 +984,7 @@ class App(LibraryMixin, QueueMixin):
         if prepared:
             prepared["edited"] = body.get("edited") if isinstance(body.get("edited"), dict) else {}
         prepared.update(self._from_doc(ws, body))
-        be, model = self.backend(k=opts["k"])
+        be, model = self.backend(k=opts["k"], wake=True)
         emb = home.make_embedder(s) if opts.pop("semantic", True) else None
         if self.queue_mode():
             def qrun(job: Job):
@@ -933,23 +1026,32 @@ class App(LibraryMixin, QueueMixin):
 
     def _read_local_now(self, ws, hyp_ids: list[str], tracker: Tracker, readers) -> bool:
         """0.13.11: read the excerpts that wait for the local model, saying so (they were read in silence, under
-        "Waiting for Claude Code")."""
+        "Waiting for Claude Code"). 0.19.13: only once the person has started the local model (the job's local
+        gate): until then they wait, and the job says how many."""
         if readers.memory_short:
-            return False  # said once; they wait for "Read them now"
+            return False  # said once; they wait for Start (Start it anyway), or "Read them now"
         waiting = claimcheck.local_waiting(ws, hyp_ids)
+        gate = readers.gate
         if not waiting:
+            if gate is not None and gate.involved:
+                gate.involve(waiting=0)
             return False
 
         # 0.18.1: besides the excerpts of documents marked Only a local AI, the AI mix's share of a check (I1, I2):
         # search words, splitting, judging excerpts. Each is said apart, as each ends apart
         n = sum(w["passages"] for w in waiting if not w.get("mix"))
         n_mix = sum(1 for w in waiting if w.get("mix"))
+        if gate is not None and not gate.is_open and readers.local() is not None:
+            gate.mixed()  # a check by queue is Claude Code's work too: the local part waits for its own Start
+            gate.involve(waiting=n + n_mix, noun="excerpt" if n else "task", look=readers.look,
+                         report=tracker.model_report)
+            return False
         what = " and ".join(x for x in (f"{n} {'excerpt' if n == 1 else 'excerpts'}" if n else "",
                                          f"{n_mix} {'task' if n_mix == 1 else 'tasks'} of the AI mix" if n_mix else "")
                             if x)
 
         def started(model: str, _n: int) -> None:
-            tracker.say(f"Your local model ({model}) is reading {what} on this computer")
+            tracker.say(f"Your local model ({model}) is reading {what} on this computer", step="grade")
 
         before, mix_before, claude_before = readers.read, readers.mix_read, readers.to_claude
         try:
@@ -960,6 +1062,9 @@ class App(LibraryMixin, QueueMixin):
             raise
         mixed, to_claude = readers.mix_read - mix_before, readers.to_claude - claude_before
         if readers.memory_short:
+            if gate is not None:   # 0.19.13: the local side says why and carries Start / Start it anyway: a short head
+                tracker.say(LOCAL_SHORT, step="grade")
+                return True
             tracker.step("note", f"{readers.memory_short} {claimcheck._waiting_words(max(n, n_mix))}", {"keep": True})
             return True
         if done and readers.read > before:
@@ -981,6 +1086,7 @@ class App(LibraryMixin, QueueMixin):
 
     def _follow_loop(self, job: Job, ws, hyp_ids: list[str], tracker: Tracker, readers, shown: dict, t0: float,
                      poll: float) -> None:
+        gate = readers.gate
         while True:
             left = taskqueue.advance(ws, hyp_ids)
             self._show_stages(ws, hyp_ids, tracker, shown)
@@ -990,19 +1096,76 @@ class App(LibraryMixin, QueueMixin):
                 self._show_stages(ws, hyp_ids, tracker, shown)
             if not left:
                 return
+            if not job.cancel.is_set() and self._held_now(ws, left, tracker, t0):
+                time.sleep(poll)
+                continue
+            look = job.cancel.is_set() or readers.memory_short or (gate is not None and gate.involved)
+            only_local = [hid for hid in left if claimcheck.only_local_waits(ws, hid)] if look else []
             if job.cancel.is_set():
                 for hid in left:
-                    claimcheck.delete_hypothesis(ws, hid, unmade=True)  # a stopped check leaves nothing behind, as in 0.7
+                    if hid not in only_local:  # 0.19.13: Claude's part done, the local part waits (kept, as before)
+                        claimcheck.delete_hypothesis(ws, hid, unmade=True)  # a stopped check leaves nothing behind
+                if only_local:   # the page says what was kept (it said "Nothing was saved")
+                    job.result = {"kept": only_local, "waiting_local": sum(
+                        w["passages"] for w in claimcheck.local_waiting(ws, only_local) if not w.get("mix"))}
                 raise Cancelled()
-            if readers.memory_short and all(claimcheck.only_local_waits(ws, hid) for hid in left):
+            if readers.memory_short and gate is None and len(only_local) == len(left):
                 return  # 0.13.11: Claude Code is done; the local excerpts wait for "Read them now" on the result
-            kind = {"decompose": "decompose", "terms": "expand"}.get(claimcheck.queue_stage(ws, left[0]).get("step"),
-                                                                      "check")
-            tracker.model_report({"phase": "queue", "seconds": time.time() - t0, **taskqueue.queue_info(ws, kind)})
+            if gate is not None and not gate.is_open and gate.involved and len(only_local) == len(left):
+                gate.say_ready()  # 0.19.13: Claude Code is done; the local part waits for its Start
+                # the head and the step say so, not "Waiting for Claude Code" (short: the side says the rest)
+                tracker.say(LOCAL_SHORT if (gate.memory or {}).get("short") else LOCAL_PHASE["ready"], step="grade")
+            else:
+                kind = {"decompose": "decompose", "terms": "expand"}.get(
+                    claimcheck.queue_stage(ws, left[0]).get("step"), "check")
+                tracker.model_report({"phase": "queue", "seconds": time.time() - t0,
+                                      **taskqueue.queue_info(ws, kind)})
             time.sleep(poll)
 
+    def _held_now(self, ws, left: list[str], tracker: Tracker, t0: float) -> bool:
+        """Stage 2: whether these checks wait only because the agent's company may not read their documents (the
+        project allows Anthropic only, and Codex answers): the job then says so, in plain words, instead of waiting
+        silently for an agent that is never handed the excerpts; once the person allows the company, the excerpts go
+        to the queue (claimcheck.advance_queued) and the job goes on. I7 stage 3: the owner's limit of the providers
+        the team may use holds them the same way, with a note naming the limit and who set it (they go on when the
+        owner widens it). Where a document's own setting keeps them from every cloud AI, the excerpts wait for the
+        person's judgement instead and the check finishes. True while it waits."""
+        held = claimcheck.held_parts(ws, left)
+        if not held:
+            return False
+        from .. import providers, solo as teamproviders
+
+        route = taskqueue.queue_route()
+        prov = taskqueue.route_provider(route)
+        title, company = taskqueue.route_title(route), providers.company(prov)
+        for h in held:
+            if h["why"] == "setting":
+                claimcheck.hand_to_person(ws, h["task_id"])
+                tracker.step("note", "A document's AI setting keeps these excerpts from every cloud AI now: "
+                             f"the {h['passages']} {'excerpt waits' if h['passages'] == 1 else 'excerpts wait'} for "
+                             "your judgement", {"keep": True})
+        # I7 stage 3: in a shared project too, the person's own consent; the owner's limit holds the work as well,
+        # with a note that names it and who set it (the person cannot allow it: the owner can, or another route)
+        waiting = [h for h in held if h["why"] in ("provider", "limit")]
+        if not waiting:
+            return False
+        n = sum(h["passages"] for h in waiting)
+        limit = teamproviders.note(ws._conn(), prov) if any(h["why"] == "limit" for h in waiting) else None
+        text = limit or (f"{title} reads only documents that allow {company}, and this project's do not: allow "
+                         f"{company} for this project and the check goes on by itself")
+        if not limit and ws.meta(access.PROVIDERS_RESET):  # I7 stage 3: the ticks that came from colleagues went
+            text += (". Your provider ticks that had come with a colleague's copy were cleared: each person now "
+                     "chooses their own")
+        tracker.model_report({"phase": "held", "seconds": time.time() - t0, "text": text, "agent": route,
+                              "agent_title": title, "provider": prov, "company": company, "excerpts": n,
+                              "limit": bool(limit)})
+        tracker.say(f"{n} {'excerpt waits' if n == 1 else 'excerpts wait'}: {title} may not read them yet", step="grade")
+        return True
+
     def _show_stages(self, ws, hyp_ids: list[str], tracker: Tracker, shown: dict) -> None:
-        """The steps of checks by queue, as far as they have come (said once per change)."""
+        """The steps of checks by queue, as far as they have come (said once per change). Stage 2: named after the
+        agent that answers the queue (Claude Code, Codex, Antigravity)."""
+        who = taskqueue.route_title(taskqueue.queue_route())
         for i, hid in enumerate(hyp_ids, 1):
             st = claimcheck.queue_stage(ws, hid)
             info = {"index": i, "total": len(hyp_ids)} if len(hyp_ids) > 1 else {}
@@ -1014,17 +1177,17 @@ class App(LibraryMixin, QueueMixin):
                 tracker.step("item", f"Hypothesis {i} of {len(hyp_ids)}",
                              {**info, "text": ws.scalar("SELECT text FROM hypotheses WHERE hyp_id=?", (hid,))})
             if st.get("step") == "decompose":
-                tracker.step("decompose", "Waiting for Claude Code to split the hypothesis into parts", info)
+                tracker.step("decompose", f"Waiting for {who} to split the hypothesis into parts", info)
             for n, (stage, text) in enumerate(zip(st.get("stages") or [], st.get("texts") or [])):
                 pinfo = {**info, **({"part": n + 1, "parts": len(st["stages"]), "claim": text}
                                     if len(st["stages"]) > 1 else {})}
                 if stage == "terms":
-                    tracker.step("terms", "Waiting for Claude Code to propose other words", pinfo)
+                    tracker.step("terms", f"Waiting for {who} to propose other words", pinfo)
                 elif stage in ("judge", "done"):
                     tracker.step("terms_done", "Search words ready", pinfo)
                     tracker.step("rank_done", "Excerpts chosen in your documents", pinfo)
                     if stage == "judge":
-                        tracker.step("grade", "Waiting for Claude Code to read the excerpts", pinfo)
+                        tracker.step("grade", f"Waiting for {who} to read the excerpts", pinfo)
                     else:
                         tracker.step("grade_done", "Read; every quote was checked against the document", pinfo)
 
@@ -1041,7 +1204,7 @@ class App(LibraryMixin, QueueMixin):
         decompose = bool(body["decompose"]) if "decompose" in body else bool(s["decompose"])
         expand = bool(body["expand"]) if "expand" in body else bool(s["expand"])
         origin = self._from_doc(ws, body)  # 0.19.0 (N3): words from a document keep its AI setting here too
-        be, model = self.backend()
+        be, model = self.backend(wake=True)
 
         def run(job: Job):
             tracker = Tracker(expand=expand, steps=("terms",))
@@ -1062,7 +1225,7 @@ class App(LibraryMixin, QueueMixin):
         note = body.get("note") if "note" in body else None
         if note is not None and not isinstance(note, str):
             raise ApiError(400, "note must be text.")
-        be, model = self.backend()
+        be, model = self.backend(wake=True)
         doc = ws.scalar("SELECT doc_id FROM passages WHERE passage_id=?", (passage_id,))
         level = access.levels(ws, [doc]).get(doc, "none") if doc else "none"
         with ws.connect() as cx:  # Margin: the claim of a draft, or of a citation, keeps its text's setting
@@ -1100,7 +1263,7 @@ class App(LibraryMixin, QueueMixin):
         ws = self.ws(name)
         if not ws.scalar("SELECT 1 FROM hypotheses WHERE hyp_id=?", (hyp_id,)):
             raise ApiError(404, "No such hypothesis.")
-        be, model = self.backend()
+        be, model = self.backend(wake=True)
 
         def run(job: Job):
             # 0.13.11: with progress and Stop, and not started when the computer has no room for the model
@@ -1108,7 +1271,7 @@ class App(LibraryMixin, QueueMixin):
             job.tracker = tracker
             self._wire(job, be, tracker)  # a local main model reads them itself
             readers = access.Readers(be, model, progress=tracker.model_report, should_stop=job.cancel.is_set,
-                                     check_memory=not force)
+                                     check_memory=False if force else None)
             try:
                 n = claimcheck.run_local_parts(
                     ws, [hyp_id], readers, retry_failed=True,
@@ -1122,9 +1285,37 @@ class App(LibraryMixin, QueueMixin):
             return {"hyp_id": hyp_id, "parts": n,
                     "status": claimcheck.hypothesis_result(ws, hyp_id, self.settings()["threshold"])["status"]}
 
-        job = self.jobs.start("read-local", "Reading excerpts with the local model", name, run, uses_model=True)
+        # 0.19.13: its own button, all the local model's work: no second Start ("force": Start it anyway)
+        job = self.jobs.start("read-local", "Reading excerpts with the local model", name, run, uses_model=True,
+                              local_start="force" if force else "go")
         job.scope = hyp_id  # 0.13.11: the result page that started it follows it again after a reload
         return job
+
+    def judge_local_yourself(self, name: str, hyp_id: str) -> dict:
+        """0.19.8: "Judge it myself": the excerpts of a check that wait for the local model wait for the person
+        instead, without starting the model (not while the local model reads them)."""
+        ws = self.ws(name)
+        if not ws.scalar("SELECT 1 FROM hypotheses WHERE hyp_id=?", (hyp_id,)):
+            raise ApiError(404, "No such hypothesis.")
+        with self.jobs.lock:
+            busy = any(j.kind == "read-local" and j.project == name and getattr(j, "scope", None) == hyp_id
+                       and j.state in ("queued", "running") for j in self.jobs.jobs.values())
+        if busy:
+            raise ApiError(409, "Your local model is reading these excerpts now. Stop it first to judge them yourself.")
+        n = claimcheck.judge_local_yourself(ws, hyp_id)
+        taskqueue.advance(ws, [hyp_id])
+        return {"hyp_id": hyp_id, "excerpts": n}
+
+    def local_again(self, name: str, hyp_id: str) -> dict:
+        """0.19.12: the way back from "Judge it myself": the excerpts the person chose to judge wait for the local
+        model again (those already judged keep the person's judgement). The page then starts the model."""
+        ws = self.ws(name)
+        if not ws.scalar("SELECT 1 FROM hypotheses WHERE hyp_id=?", (hyp_id,)):
+            raise ApiError(404, "No such hypothesis.")
+        if not home.restricted_choice(self.settings()):
+            raise ApiError(400, "No local model is chosen: choose one under Settings → AI first.")
+        n = claimcheck.local_again(ws, hyp_id)
+        return {"hyp_id": hyp_id, "excerpts": n}
 
     def start_batch(self, name: str, body: dict) -> Job:
         ws = self.ws(name)
@@ -1137,7 +1328,7 @@ class App(LibraryMixin, QueueMixin):
         if not items:
             raise ApiError(400, "No hypotheses found. Give one per line, or a CSV with a 'hypothesis' column.")
         opts = _check_options(body, s)
-        be, model = self.backend(k=opts["k"])
+        be, model = self.backend(k=opts["k"], wake=True)
         emb = home.make_embedder(s) if opts.pop("semantic", True) else None
         if self.queue_mode():
             def qrun(job: Job):
@@ -1220,7 +1411,7 @@ class App(LibraryMixin, QueueMixin):
         terms = [str(t) for t in (body.get("terms") or []) if str(t).strip()] or None
         if isinstance(body.get("terms"), str):
             terms = [t.strip() for t in body["terms"].split(",") if t.strip()] or None
-        be, model = self.backend(k=max(1, min(k, 20)))
+        be, model = self.backend(k=max(1, min(k, 20)), wake=True)
         emb = home.make_embedder(s)
 
         def run(job: Job):
@@ -1258,7 +1449,7 @@ class App(LibraryMixin, QueueMixin):
         """Read the documents added since each check, one hypothesis after the other (their reviews are kept)."""
         ws = self.ws(name)
         s = self.settings()
-        be, model = self.backend()
+        be, model = self.backend(wake=True)
         emb = home.make_embedder(s)
 
         def run(job: Job):
@@ -1276,7 +1467,10 @@ class App(LibraryMixin, QueueMixin):
                                                           progress=lambda st, m, info=None, _i=i: tracker.step(
                                                               st, m, {**(info or {}), "index": _i}),
                                                           should_stop=job.cancel.is_set))
-            return {"hypotheses": done, "passages": sum(d["passages"] for d in done)}
+            return {"hypotheses": done, "passages": sum(d["passages"] for d in done),
+                    # 0.20.3: how many answers the new documents changed, and how many only got other counts
+                    "answers_changed": sum(d["changed"] == "answer" for d in done),
+                    "evidence_changed": sum(d["changed"] == "evidence" for d in done)}
 
         title = "Reading the new documents" + (f" for {len(hyp_ids)} hypotheses" if len(hyp_ids) > 1 else "")
         return self._job("read-new", title, name, run)
@@ -1286,7 +1480,7 @@ class App(LibraryMixin, QueueMixin):
         limited to them (the check is not run again, so the reviews are kept)."""
         ws = self.ws(name)
         s = self.settings()
-        be, model = self.backend()
+        be, model = self.backend(wake=True)
         emb = home.make_embedder(s)
 
         def run(job: Job):
@@ -1310,7 +1504,7 @@ class App(LibraryMixin, QueueMixin):
         ws = self.ws(name)
         s = self.settings()
         ids = self._hyp_ids(ws, body)
-        main_be, main = self.backend()
+        main_be, main = self.backend(wake=True)
         be, second = home.make_second_backend(s, self.api_key())
         if second == main and not getattr(be, "router", None):
             raise ApiError(400, "The model for second opinions is the same as the main model. Choose another one in Settings.")
@@ -1492,6 +1686,12 @@ class App(LibraryMixin, QueueMixin):
 
 
 
+def _clis_summary() -> list[dict]:
+    from .. import providers
+
+    return providers.clis_summary()
+
+
 def _repair_plugin() -> None:
     """0.10: on start, when the Claude Code plugin names a Python that is not this one (Margin moved or was installed
     again), write it again and add it to Claude Code again, quietly, in the background."""
@@ -1501,6 +1701,12 @@ def _repair_plugin() -> None:
         r = claude_setup.repair()
         if r.get("repaired"):
             print(f"The Claude Code plugin was brought up to date ({r.get('reason')}).")
+        # stage 2: and what Margin added to Codex and Antigravity, when it no longer fits this installation
+        from .. import agentcli
+
+        for route, a in agentcli.repair().items():
+            if a.get("repaired"):
+                print(f"Margin in {agentcli.cli(route).title} was brought up to date ({a.get('reason')}).")
         # 0.13.10: which Claude plan Claude Code is signed in with, so the recommended models follow it from the start
         if home.load_settings().get("backend") == "claude_code" and not home.local_only():
             claude_setup.status(refresh=True)
@@ -1614,6 +1820,10 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("PUT", r"/api/settings", "put_settings"),
     ("POST", r"/api/settings/key", "post_key"),
     ("DELETE", r"/api/settings/key", "delete_key"),
+    # stage 1 of other cloud providers: a provider's key (only "stored: yes or no" ever comes back) and its models
+    ("POST", r"/api/settings/provider-key", "post_provider_key"),
+    ("DELETE", r"/api/settings/provider-key", "delete_provider_key"),
+    ("GET", r"/api/settings/provider-models", "get_provider_models"),
     ("POST", r"/api/quit", "post_quit"),
     ("POST", r"/api/restart", "post_restart"),
     ("GET", r"/api/update", "get_update"),
@@ -1621,11 +1831,13 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", r"/api/whats-new/read", "post_whats_new_read"),
     ("POST", r"/api/update", "post_update"),
     ("GET", r"/api/technical-details", "get_technical_details"),
+    ("POST", r"/api/notify/test", "post_notify_test"),
     ("GET", r"/api/servers", "get_servers"),
     ("POST", r"/api/servers/test", "post_test"),
     ("POST", r"/api/servers/pull", "post_pull"),
     # 0.15.6: Ollama installed (or started) from the app, as Claude Code is
     ("GET", r"/api/ollama", "get_ollama"),
+    ("GET", r"/api/local-status", "get_local_status"),
     ("POST", r"/api/ollama/install", "post_ollama_install"),
     ("POST", r"/api/ollama/start", "post_ollama_start"),
     ("GET", r"/api/projects", "get_projects"),
@@ -1639,10 +1851,13 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", rf"/api/projects/{P}/documents", "get_documents"),
     ("DELETE", rf"/api/projects/{P}/documents", "delete_documents"),
     ("PUT", rf"/api/projects/{P}/documents/ai-access", "put_documents_access"),
+    ("GET", rf"/api/projects/{P}/ai-access", "get_project_access"),   # stage 2: providerAllowLine's counts
     ("PUT", rf"/api/projects/{P}/ai-access", "put_project_access"),
     ("GET", rf"/api/projects/{P}/ai-sent\.csv", "get_ai_sent_csv"),
     ("GET", rf"/api/projects/{P}/documents/{P}/ai-sent", "get_document_sent"),
     ("POST", rf"/api/projects/{P}/hypotheses/{P}/read-local", "post_read_local"),
+    ("POST", rf"/api/projects/{P}/hypotheses/{P}/judge-local", "post_judge_local"),
+    ("POST", rf"/api/projects/{P}/hypotheses/{P}/local-again", "post_local_again"),
     ("GET", rf"/api/projects/{P}/documents/{P}", "get_document"),
     ("DELETE", rf"/api/projects/{P}/documents/{P}", "delete_document"),
     ("GET", rf"/api/projects/{P}/documents/{P}/file", "get_document_file"),
@@ -1692,6 +1907,9 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("GET", r"/api/jobs", "get_jobs"),
     ("GET", rf"/api/jobs/{P}", "get_job"),
     ("POST", rf"/api/jobs/{P}/cancel", "post_cancel"),
+    ("POST", rf"/api/jobs/{P}/again", "post_job_again"),
+    ("POST", rf"/api/jobs/{P}/local/start", "post_local_start"),   # 0.19.13: the local model's own Start and Stop
+    ("POST", rf"/api/jobs/{P}/local/stop", "post_local_stop"),
     ("POST", r"/api/benchmark", "post_benchmark"),
     # 0.7
     ("POST", r"/api/servers/repeatable", "post_repeatable"),
@@ -1759,6 +1977,9 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", rf"/api/projects/{P}/queue/run", "post_queue_run"),
     ("POST", rf"/api/projects/{P}/queue/claude-code", "post_claude_code_start"),
     ("POST", rf"/api/projects/{P}/queue/claude-code/stop", "post_claude_code_stop"),
+    # stage 2: the same, for whichever agent the main route is (Claude Code, Codex, Antigravity)
+    ("POST", rf"/api/projects/{P}/queue/agent", "post_claude_code_start"),
+    ("POST", rf"/api/projects/{P}/queue/agent/stop", "post_claude_code_stop"),
     ("GET", rf"/api/projects/{P}/overview", "get_overview"),
     ("POST", rf"/api/projects/{P}/tasks/{P}/stronger", "post_stronger"),
     ("POST", rf"/api/projects/{P}/hypotheses/{P}/stronger", "post_stronger_all"),
@@ -1768,6 +1989,12 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     # 0.10: set-up and moving
     ("POST", r"/api/claude-setup/claude-code", "post_install_claude_code"),
     ("POST", r"/api/claude-setup/sign-in", "post_claude_sign_in"),
+    # stage 2 of other cloud providers: one set-up for Claude Code, Codex and Antigravity (api_agents.py)
+    ("GET", r"/api/agent-setup", "get_agent_setup"),
+    ("POST", r"/api/agent-setup", "post_agent_setup"),
+    ("POST", r"/api/agent-setup/install", "post_agent_install"),
+    ("POST", r"/api/agent-setup/sign-in", "post_agent_sign_in"),
+    ("POST", r"/api/agent-setup/tidy", "post_agent_tidy"),
     ("GET", r"/api/move\.zip", "get_move_zip"),
     # Margin 0.1: check a draft, and ENLENS's projects
     ("POST", r"/api/import-enlens", "post_import_enlens"),
@@ -1824,6 +2051,7 @@ ROUTES: list[tuple[str, re.Pattern, str]] = [(m, re.compile("^" + p + "$"), h) f
     ("POST", r"/api/literature/zotero", "lit_post_zotero"),
     ("POST", r"/api/literature/export", "lit_post_export"),
     # 0.16: the research log, notes and highlights, earlier versions, your own codebooks (api_record.py)
+    ("GET", rf"/api/projects/{P}/ai-log", "get_ai_log"),   # I7 stage 3: who ran which AI work (ailog.py)
     ("GET", rf"/api/projects/{P}/log", "get_log"),
     ("POST", rf"/api/projects/{P}/log", "post_log"),
     ("GET", rf"/api/projects/{P}/log\.(md|xlsx)", "get_log_export"),
@@ -1865,9 +2093,11 @@ DOWNLOADS = {"get_hypothesis_export", "get_export", "get_document_file", "get_pr
 DOWNLOADS |= api_corpus.DOWNLOADS | api_checks_extra.DOWNLOADS
 # (these may take the token as ?token=, for plain links)
 
+_HEADER_CTRL = re.compile(r"[\x00-\x1f\x7f]")  # never in a header value: CR and LF would start a header of their own
+
 
 class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreApi, ChecksApi, SetupApi, RecordApi,
-              CorpusApi, ChecksExtraApi):
+              CorpusApi, ChecksExtraApi, AgentApi):
     app: App
     server_version = f"margin/{__version__}"
     protocol_version = "HTTP/1.1"
@@ -1876,6 +2106,11 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
         pass
 
     # -- plumbing --------------------------------------------------------------------------------
+    def send_header(self, keyword: str, value) -> None:
+        # http.server writes a value as it is: a line break in one (a file name from someone's zip) would add headers
+        # of its own, such as a second Content-Type that turns a "PDF" into a page of this app's origin
+        super().send_header(keyword, _HEADER_CTRL.sub(" ", str(value)))
+
     def _send(self, status: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
         self.send_response(status)
         # one header of each name: an endpoint's own (`extra`) takes the place of the default. Sent after it, as a
@@ -2016,6 +2251,8 @@ class Handler(LiteratureHandlers, BaseHTTPRequestHandler, DocumentsApi, ExploreA
                     token = self.headers.get("X-Margin-Token") or (_str(q, "token") if hname in downloads else None)
                     if not token or not secrets.compare_digest(token, self.app.token):
                         raise ApiError(401, "Missing or wrong token. Open Margin from its icon (or run margin-gui).")
+                    if self.headers.get("X-Margin-Seen") == "1":  # a tab in front of the person (gui/notify.py)
+                        self.app.seen = time.time()
                     args = [unquote(g) for g in mt.groups()]
                     out = getattr(self, name)(*args, q=q) if isinstance(name, str) else name(self, *args, q=q)
                     if out is not None:

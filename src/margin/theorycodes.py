@@ -67,6 +67,7 @@ from collections import Counter
 from typing import Callable, Iterable
 
 from .store import Workspace
+from . import providers
 from .textutil import split_sentences
 
 MAX_TERM_WORDS = 4
@@ -707,10 +708,11 @@ def _h(*parts: str) -> str:
     return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()
 
 
-def _level(ws: Workspace, doc_id: str) -> str:
+def _level(ws: Workspace, doc_id: str, provider: str | None = None) -> str:
+    """A document's setting for the reader's provider (providers.py; None: as the person chose it)."""
     from . import access
 
-    return access.levels(ws, [doc_id]).get(doc_id) or access.default(ws)
+    return access.levels(ws, [doc_id], provider=provider).get(doc_id) or access.default(ws)
 
 
 def ai_offer(ws: Workspace, doc_id: str, settings: dict | None = None) -> dict:
@@ -723,12 +725,14 @@ def ai_offer(ws: Workspace, doc_id: str, settings: dict | None = None) -> dict:
     if not ws.scalar("SELECT 1 FROM documents WHERE doc_id=?", (doc_id,)):
         raise KeyError(doc_id)
     s = settings if settings is not None else home.load_settings()
-    lv = _level(ws, doc_id)
+    from . import access
+
+    lv = _level(ws, doc_id, access.route_provider(s))
     if lv == "none":
         return {"offered": False, "why": NO_AI, "reader": None, "level": lv}
-    from .routing import OFF_COMPUTER
+    from .routing import AUDITOR_ROUTES
 
-    claude = (s.get("backend") or "auto") in OFF_COMPUTER
+    claude = (s.get("backend") or "auto") in AUDITOR_ROUTES
     # the parts the AI would read the document in (theory-codes-v2: the whole document, a part at a time)
     parts = len(_ai_parts(ws, doc_id, []))
     if lv == "local":
@@ -1003,7 +1007,7 @@ def read_parts(ws: Workspace, batches: list[dict], progress: Callable | None = N
                     b["refused"] = NO_AI if now_lv == "none" else "This document may not be sent to this AI."
                     break
         for b in batches:
-            if not b["refused"] and getattr(b["be"], "name", "") == "claude_code":
+            if not b["refused"] and getattr(b["be"], "name", "") in providers.AGENT_ROUTES:
                 tasks.mark_queued(cx, b["tids"])
     live = [b for b in batches if not b["refused"]]
     total = sum(len(b["tids"]) for b in live)
@@ -1072,10 +1076,10 @@ def draft_with_ai(ws: Workspace, doc_id: str, backend, model: str, progress: Cal
     title = ws.scalar("SELECT title FROM documents WHERE doc_id=?", (doc_id,))
     if title is None:
         raise KeyError(doc_id)
-    lv = _level(ws, doc_id)
+    readers = readers or access.Readers(backend, model, should_stop=should_stop)
+    lv = _level(ws, doc_id, readers.provider)
     if lv == "none":
         raise ValueError(NO_AI)
-    readers = readers or access.Readers(backend, model, should_stop=should_stop)
     got = readers.for_level(lv)
     if got is None:
         raise ValueError(NO_LOCAL if lv == "local" else NO_AI)

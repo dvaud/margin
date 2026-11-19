@@ -42,7 +42,7 @@ Three things hold everywhere:
 5. **Review**: each claim shows the documents that support or contradict it, with their quotes; agree, or judge
    differently. → [Read and review a result](manual/review.md)
 
-Would you rather be walked through it, with sample documents? [Your first project, start to finish](manual/first-project.md).
+Want a walk-through with sample documents? [Your first project, start to finish](manual/first-project.md).
 
 ## The manual
 
@@ -52,6 +52,7 @@ Would you rather be walked through it, with sample documents? [Your first projec
 | | [First steps](manual/first-steps.md) | The first screen, adding documents, the sidebar, the finder |
 | | [Your first project](manual/first-project.md) | A walk through six invented documents, to the Excel file |
 | **Explore the documents** | [Explore your documents](manual/explore.md) | Search, Codes, Concepts, Themes, theory and working documents, Quick look |
+| | [Concepts and the concept map](manual/concepts.md) | The glossary, links, named groups, the picture |
 | | [Make your own codebook](manual/codebooks.md) | From the themes, theory, a copy or a CSV |
 | | [Skim one document](manual/skim.md) | A one-page report: aims, findings, key sentences, claims |
 | | [Look at how a document was read](manual/reading.md) | The reading view, *Leave out*, a new reader |
@@ -68,6 +69,7 @@ Would you rather be walked through it, with sample documents? [Your first projec
 | | [How the AI is used and limited](manual/how-the-ai-is-used.md) | Where it is used, how it is checked |
 | **AI and privacy** | [Privacy](manual/privacy.md) | What leaves your computer, who may read each document |
 | | [Claude Code](manual/claude-code.md) | Starting it, speed, the queue; Claude in a chat |
+| | [Codex and Antigravity](manual/other-agents.md) | Other plans |
 | | [A model on your own computer](manual/local-models.md) | Getting, tuning and testing one |
 | | [Which model does what](manual/models.md) | The model of each task; what every answer records |
 | **Reference** | [Settings](manual/settings.md) | The five tabs, reporting a problem |

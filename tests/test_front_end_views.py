@@ -315,3 +315,15 @@ def test_the_answers_table_draws_its_first_rows_and_the_rest_as_it_scrolls():
 # ---- F24: CSS nothing uses -----------------------------------------------------------------------------------
 def test_the_two_rules_nothing_could_produce_are_gone():
     assert ".note-head " not in _js("views.css") and ".log-who" not in _js("components.css")
+
+
+# ---- Enter that confirms a dialog does not reach the page behind it ---------------------------------------
+def test_enter_that_confirms_a_dialog_stops_there_and_does_not_reopen_it():
+    # Without preventDefault the key press, once the dialog has closed and focus is back on the button that opened
+    # it (Remove project), presses that button too: the dialog opened again, empty, after the project was removed
+    confirm = _fn(_js("lib.js"), "export function confirmDialog(", "\n}\n")
+    assert 'if (e.key === "Enter") { e.preventDefault(); if (!btn.disabled) btn.click(); }' in confirm
+    for rel in ("lib.js", "views/doc-page.js", "views/log.js"):
+        for line in _js(rel).splitlines():
+            if '"keydown"' in line and 'e.key === "Enter"' in line and ".click()" in line:
+                assert "e.preventDefault()" in line, f"{rel}: {line.strip()}"

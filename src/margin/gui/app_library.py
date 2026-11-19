@@ -4,10 +4,11 @@ Split out of server.py in 0.16: `App` takes this class as a base; the public met
 from __future__ import annotations
 
 import json
+import time
 import traceback
 
 from .api_common import ONE_START, ApiError, Job, _usable_embedder
-from .. import bibliography, embed, frameworks, home
+from .. import bibliography, embed, frameworks, home, taskqueue
 from ..llm import BackendError
 from ..store import now as _now
 
@@ -283,25 +284,26 @@ class LibraryMixin:
                        "resolve": ("resolve",)}  # the task kinds Stop withdraws from the queue; others: none
 
     def start_queued_job(self, kind: str, title: str, name: str, fn, steps=("grade",),
-                         withdraw: tuple[str, ...] | None = None) -> Job:
+                         withdraw: tuple[str, ...] | None = None, local_start: str | None = None) -> Job:
         """A job that uses the chat model: progress as done/total, the model's own progress, Stop. By queue (0.8)
         the progress also says what waits for Claude Code, and the job is "not running" while nothing answers.
 
         `fn(job, backend, model, progress)` does the work; `progress(done, total)` updates the bar. Stop takes the
-        tasks of the kinds in `withdraw` that wait in the queue back out (0.13.6: public; `_model_job` before)."""
-        be, model = self.backend()  # one context length for every kind: Ollama never reloads the model
+        tasks of the kinds in `withdraw` that wait in the queue back out (0.13.6: public; `_model_job` before).
+        `local_start`: begun by the local model's own Start (see `start_job`)."""
+        be, model = self.backend(wake=True)  # one context length for every kind: Ollama never reloads the model
 
         def run(job: Job):
             job.progress = {"done": 0, "total": 0}
             self._wire(job, be)
-            if hasattr(be, "progress"):
-                be.progress = lambda info: job.progress.update(queue=info) if info.get("phase") == "queue" else \
-                    job.progress.update(model=info)
+            if hasattr(be, "progress"):   # 0.19.6: each stamped, so the later of the two is the one at work now
+                be.progress = lambda info: taskqueue.end_report(info, job.progress) or job.progress.update(
+                    **{"queue" if info.get("phase") == "queue" else "model": {**info, "at": time.time()}})
             return fn(job, be, model, lambda d, n: job.progress.update(done=d, total=n))
 
         return self.start_job(kind, title, name, run,
                               withdraw=self.MODEL_JOB_KINDS.get(kind, ()) if withdraw is None else tuple(withdraw),
-                              ws=self._ws_or_none(name))
+                              ws=self._ws_or_none(name), local_start=local_start)
 
     _model_job = start_queued_job  # the name before 0.13.6
 

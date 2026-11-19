@@ -331,8 +331,15 @@ class LabelOut(BaseModel):
     note: Optional[str] = None
 
 
-LINK_RELATIONS = ("same", "broader", "narrower", "related", "different")
-ELEMENT_RELATIONS = ("requires", "shapes", "replaces", "element_of", "clashes_with")  # 0.9 (link-v2)
+LINK_RELATIONS = ("same", "broader", "narrower", "related", "different",
+                  # link-v2 (D1, the last part): the kinds the text patterns and a person could already give. From the
+                  # first term (a) to the second (b); needed_by and shaped_by are the same seen from b (accepted, so an
+                  # answer that turns the pair round in words is not sent back); clashes is the same from both ends
+                  "needs", "needed_by", "shapes", "shaped_by", "clashes")
+# Margin 0.9: how elements of a practice relate, when a task asks for them (`relations` "elements"). "shapes" is in both
+# lists; "requires" and "clashes_with" are this list's words for link-v2's "needs" and "clashes" (tasks._store_link
+# reads an answer in the list its task asked for)
+ELEMENT_RELATIONS = ("requires", "shapes", "replaces", "element_of", "clashes_with")
 
 
 class TermLink(BaseModel):
@@ -349,9 +356,14 @@ class TermLink(BaseModel):
         v = _norm_enum(v)
         return {"synonym": "same", "equivalent": "same", "identical": "same", "parent": "broader",
                 "child": "narrower", "hypernym": "broader", "hyponym": "narrower", "unrelated": "different",
-                "co_occurs": "related", "needs": "requires", "depends_on": "requires", "part_of": "element_of",
-                "clashes": "clashes_with", "conflicts_with": "clashes_with", "none": "different",
-                "no_relation": "different"}.get(v, v)
+                "co_occurs": "related", "none": "different", "no_relation": "different",
+                # link-v2: other words for the three new kinds
+                "depends_on": "needs", "relies_on": "needs", "need": "needs",
+                "required_by": "needed_by", "influences": "shapes", "shape": "shapes", "affects": "shapes",
+                "influenced_by": "shaped_by", "clash": "clashes", "conflicts": "clashes",
+                "conflicts_with": "clashes", "conflict": "clashes", "at_odds": "clashes",
+                # Margin 0.9: elements of a practice ("requires" and "clashes_with" are kept as they are: see above)
+                "part_of": "element_of"}.get(v, v)
 
 
 class LinkOut(BaseModel):
@@ -520,6 +532,26 @@ class CodeDefinitionOut(BaseModel):
         return " ".join(str(v or "").split())
 
 
+class GroupNameOut(BaseModel):
+    """D1 rest (the optional AI part): a short name for a group of concepts on the concept map, drafted from passages
+    where its concepts are mentioned together (group-name-v1), with a quote that shows it."""
+    name: str = Field(min_length=3, max_length=60)
+    name_quote: QuoteRef
+    note: Optional[str] = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _flat(cls, v):
+        return " ".join(str(v or "").split())
+
+    @field_validator("name")
+    @classmethod
+    def _six_words(cls, v):
+        if len(v.split()) > 6:
+            raise ValueError("the name has more than six words: give at most six words")
+        return v
+
+
 class Mention(BaseModel):
     passage: int = Field(ge=1)
     span: str = Field(min_length=3, max_length=300)
@@ -547,14 +579,21 @@ class ResolveOut(BaseModel):
 # JSON schemas for constrained decoding (Ollama's `format`); validation still runs on every answer
 # ---------------------------------------------------------------------------------------------
 def _inline(schema: dict) -> dict:
-    """Resolve $ref/$defs so the schema is one self-contained tree, and drop titles and descriptions."""
+    """Resolve $ref/$defs so the schema is one self-contained tree, and drop titles and descriptions.
+
+    The names under "properties" are the answer's own fields and are always kept: a field called "description" (a
+    theme's) is not a schema's description. Until 0.19.6 it was dropped with them, so a constrained decoder (Ollama's
+    `format`, an OpenAI-compatible server's json_schema) could not write it, and every local answer to a theme was
+    rejected for leaving it out."""
     defs = schema.get("$defs", {})
 
     def walk(node):
         if isinstance(node, dict):
             if "$ref" in node:
                 return walk(defs[node["$ref"].split("/")[-1]])
-            return {k: walk(v) for k, v in node.items() if k not in ("$defs", "title", "description", "default")}
+            return {k: ({name: walk(sub) for name, sub in v.items()} if k == "properties" and isinstance(v, dict)
+                        else walk(v))
+                    for k, v in node.items() if k not in ("$defs", "title", "description", "default")}
         if isinstance(node, list):
             return [walk(x) for x in node]
         return node
@@ -574,10 +613,19 @@ def _require_all(node):
     return node
 
 
-def output_schema(kind: str) -> dict:
-    """The JSON schema a model's answer for this task kind must follow."""
+EXPAND_MAX_TERMS = 20   # I6: the prompt says "at most 20"; the grammar now holds a small model to it
+EXPAND_MAX_CHARS = 60
+
+
+def output_schema(kind: str, payload: dict | None = None) -> dict:
+    """The JSON schema a model's answer for this task kind must follow. I6: `payload` bounds the `point` form's answer
+    by the task (its number of excerpts and sentences; pointing.schema)."""
     from .taxonomy import targets
 
+    if kind == "point":
+        from .pointing import schema
+
+        return schema(payload)
     if kind == "extract":
         claim = _inline(ImpactClaimOut.model_json_schema())
         claim["properties"]["targets"]["items"]["properties"]["target"] = {"type": "string", "enum": sorted(targets())}
@@ -597,6 +645,11 @@ def output_schema(kind: str) -> dict:
         s = _inline(CheckOut.model_json_schema())
     elif kind == "expand":
         s = _inline(ExpandOut.model_json_schema())
+        # I6: bounded, so a small model cannot add search words until the length limit cuts it off (llama.cpp's grammar
+        # honours both; whether Ollama's MLX runner does is not checked yet: roadmap I6, "Left to try")
+        s["properties"]["terms"]["maxItems"] = EXPAND_MAX_TERMS
+        s["properties"]["terms"]["items"] = {**s["properties"]["terms"].get("items", {}), "type": "string",
+                                             "maxLength": EXPAND_MAX_CHARS}
     elif kind == "decompose":
         s = _inline(DecomposeOut.model_json_schema())
     elif kind == "claims":
@@ -613,6 +666,8 @@ def output_schema(kind: str) -> dict:
         s = _inline(TheoryCodesOut.model_json_schema())
     elif kind == "code_definition":
         s = _inline(CodeDefinitionOut.model_json_schema())
+    elif kind == "group_name":
+        s = _inline(GroupNameOut.model_json_schema())
     elif kind == "theory_frame":
         s = _inline(TheoryFrameOut.model_json_schema(by_alias=True))
     else:

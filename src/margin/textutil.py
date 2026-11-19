@@ -13,7 +13,7 @@ _CHAR_MAP = {
     "“": '"', "”": '"', "„": '"', "″": '"',
     "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-", "−": "-",
     " ": " ", " ": " ", " ": " ",
-    "​": "", "­": "", "﻿": "",  # zero-width space, soft hyphen, byte-order mark
+    "\u200b": "", "\u00ad": "", "\ufeff": "",  # zero-width space, soft hyphen, byte-order mark
     "ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl",
 }
 _TRANSLATE = str.maketrans(_CHAR_MAP)

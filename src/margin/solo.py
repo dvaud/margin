@@ -9,6 +9,7 @@ ENLENS's modules import this module in their place (`from . import solo as peopl
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 from typing import Any, Iterable
 
@@ -75,3 +76,57 @@ def state(cx: sqlite3.Connection, kind: str, key: str) -> dict[str, Any]:
 def may_write(cx: sqlite3.Connection, person: str | None = None) -> bool:
     """Whether a person's word decides for the project: yours always does (you are the owner)."""
     return True
+
+
+# -- ENLENS's team settings (teamcodebooks.py, teamproviders.py) and a person's second account (sharing._partner) ----
+# ENLENS's modules import these under the names of the modules Margin leaves out (`solo as teamcodebooks`, ...).
+ID_RE = re.compile(re.escape(ME))  # ENLENS: what a person id looks like; here, yours
+
+
+def _my_id() -> str:
+    """This installation's person id (ENLENS: teamcodebooks._my_id)."""
+    return ME
+
+
+def is_team(cx=None, ws=None) -> bool:
+    """Whether the project is worked on with colleagues: never in Margin."""
+    return False
+
+
+def made(ws, name: str) -> None:
+    """ENLENS shares a codebook made in a project when the team's setting says so; Margin shares nothing."""
+    return None
+
+
+def default_name(ws) -> None:
+    """The project's default codebook set by its owner (ENLENS): none in Margin, which has no default codebook."""
+    return None
+
+
+def default_info(ws) -> None:
+    return None
+
+
+def codebooks_line(ws) -> None:
+    """ENLENS's line about private codebooks while the team shares new ones: none here."""
+    return None
+
+
+def allows(cx, provider: str) -> bool:
+    """Whether the team's limit lets this cloud provider read (ENLENS: teamproviders.allows): no team, no limit."""
+    return True
+
+
+def limit(cx) -> None:
+    return None
+
+
+def note(cx, provider: str | None = None) -> None:
+    """The note of the team's limit of providers: none here."""
+    return None
+
+
+def _partner(cx, me_id: str | None = None) -> None:
+    """Your other account in the team (ENLENS: two computers, two accounts of one person): none here."""
+    return None
+

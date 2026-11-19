@@ -1,5 +1,5 @@
 // Entry point: boots the shell, routes the hash, keeps the sidebar (project, jobs, privacy, theme) current.
-import { App, api, h, icon, setButtonKind, menu, plural, emptyState, Connection, replace, clear, toast, showError, store, navigate, parseQuery, onJobsChanged, fmt, TERMINAL, confirmDialog, P, watchJob, startClaudeNow, claudeStatus, claudeSeenNow, rememberClaude, claudeAccount, brand, appName, Updates, checkUpdate, onUpdateSeen, UPDATE_EVERY, button, iconButton, link, notice , cancelJob, ensureToken, keyWasStale, copyLine, WhatsNew, loadWhatsNew, showWhatsNew, markWhatsNewRead } from "./lib.js";
+import { App, api, h, icon, setButtonKind, menu, plural, emptyState, Connection, replace, clear, toast, showError, store, navigate, parseQuery, onJobsChanged, fmt, TERMINAL, confirmDialog, P, watchJob, startClaudeNow, claudeStatus, claudeSeenNow, rememberClaude, rememberAgent, agentStatus, agentSeenNow, claudeAccount, brand, appName, Updates, checkUpdate, onUpdateSeen, UPDATE_EVERY, button, iconButton, link, notice , cancelJob, ensureToken, keyWasStale, copyLine, WhatsNew, loadWhatsNew, showWhatsNew, markWhatsNewRead, isAgent, agentRoute, agentTitle, agentPlan, agentCompany } from "./lib.js";
 import { FEATURES, SECTIONS, PLACES, aiTag } from "./features.js";
 import { PAGE_ROUTES, applyExtensions, jobRow } from "./registry.js";
 import localExtensions from "./extensions.js";
@@ -31,12 +31,15 @@ import { openFinder } from "./finder.js";
 import { renderDesign } from "./views/design.js";   // 0.17.0: the design guide's live reference, unlisted
 import { initLogDrawer } from "./views/logdrawer.js";
 
-// [pattern, the sidebar place it lights (features.js PLACES, or an add-on's feature key), render]. 0.17.0: seven places;
-// the old addresses stay and open their new home (#/check, #/batch and #/history: Hypotheses; #/profile: Codes).
+// [pattern, the sidebar place it lights (features.js PLACES, or an add-on's feature key), render]. Nine places (the
+// Research log is a place of the Project group); the old addresses stay and open their new home
+// (#/check, #/batch and #/history: Hypotheses; #/profile: Codes).
 const ROUTES = [
   [/^\/?$/, "overview", renderOverview],
   [/^\/overview$/, "overview", renderOverview],
-  [/^\/log$/, "overview", renderLog],                     // Overview › Research log
+  [/^\/log$/, "researchlog", renderLog],                  // the Research log (the drawer hides on it)
+  // I7 stage 3: the AI log, a record reached from the Research log's line under its title (no sidebar entry)
+  [/^\/log\/ai$/, "researchlog", (view) => import("./views/ailog.js").then((m) => m.renderAiLog(view))],
   [/^\/sources$/, "documents", renderSources],
   [/^\/doc\/([^/]+)$/, "documents", renderDocument],
   [/^\/notes$/, "documents", renderNotes],                 // Documents › Notes
@@ -76,6 +79,7 @@ const ROUTES = [
 // The window's title: the view's own name when the address is one of a place's views, else the place's name.
 function pageTitle(nav, pathPart) {
   if (nav === "settings") return "Settings";
+  if (pathPart === "/log/ai") return "AI log · Research log";   // I7 stage 3
   const place = PLACES[nav];
   if (place) {
     const v = place.views.find(([, , href]) => href === `#${pathPart}`);
@@ -186,12 +190,15 @@ export async function switchProject(name) {
   } catch (e) { showError(e); }
 }
 
+
 // 0.13.4: hovering the line (or reaching it with the keyboard) opens a small card with what the tooltip said and, on
-// Claude Code, the account it is signed in to. Escape closes it; it stays open while the pointer is on it.
+// Claude Code, the account it is signed in to. Escape closes it; it stays open while the pointer is on it. Stage 2: so
+// on Codex and Antigravity.
 function renderPrivacy() {
   const box = document.getElementById("privacy-indicator");
   const p = App.privacy();
-  const plan = App.settings().backend === "claude_code";
+  const plan = isAgent();
+  const route = agentRoute();
   const card = h("div", { class: "privacy-card", id: "privacy-card", role: "tooltip" });
   // 0.17.0 (design guide): an AI chosen in Settings that cannot run yet (an Ollama without a model, the Claude API
   // without a key), and Demo mode, take the attention look: the triangle, amber
@@ -201,7 +208,7 @@ function renderPrivacy() {
     h("div", {}, h("strong", {}, unset ? "No AI model set up yet" : p.label), h("span", { class: "privacy-sub" }, unset ? "Exploring works; checking needs one" : p.short || p.plain)));
   const wrap = h("div", { class: "privacy-wrap" }, a, card);
   const fill = () => replace(card,
-    plan ? accountPart(claudeSeenNow()) : null,
+    plan ? accountPart(agentSeenNow(route), route) : null,
     h("p", {}, p.plain),
     plan ? null : h("p", { class: "privacy-card-muted" }, `AI model: ${p.detail}`),
     h("p", { class: "privacy-card-muted" }, "Change it in Settings."));
@@ -209,15 +216,19 @@ function renderPrivacy() {
   if (plan) {
     // 0.17.0: not ready yet (the Overview's AI box said so, with a button): the line itself says what to do
     const sub = a.querySelector(".privacy-sub");
-    const ask = () => claudeStatus().then((st) => {
+    const ask = () => agentStatus(route).then((st) => {
       if (st && st.ready === false && !st.unknown) {
         // set-up not finished: the attention look, the triangle in place of the cloud (docs/DESIGN.md 5.2)
-        sub.textContent = st.found ? "Finish the set-up" : "Set up Claude Code"; a.href = "#/settings/model"; a.classList.add("privacy-setup");
+        sub.textContent = st.found ? "Finish the set-up" : `Set up ${agentTitle()}`; a.href = "#/settings/model"; a.classList.add("privacy-setup");
         a.firstElementChild.replaceWith(icon("alert-triangle", { size: 16 }));
       }
       if (card.isConnected) fill();
     }).catch(() => {
-      if (!claudeSeenNow()) { rememberClaude({ unknown: true }); fill(); }
+      if (!agentSeenNow(route)) {
+        if (route === "claude_code") rememberClaude({ unknown: true });
+        else rememberAgent(route, { unknown: true }, false);
+        fill();
+      }
     });
     ask();  // the card is ready before the first hover; a hover a minute later asks again
     wrap.addEventListener("mouseenter", ask);
@@ -230,8 +241,21 @@ function renderPrivacy() {
   replace(box, wrap);
 }
 
-// Which account Claude Code uses, for the card: what it says, or what is still to set up.
-function accountPart(st) {
+// Which account Claude Code uses, for the card: what it says, or what is still to set up. Stage 2: Codex and
+// Antigravity say it in their own words (status.account), or nothing.
+function accountPart(st, route = "claude_code") {
+  if (route !== "claude_code") {
+    const t = agentTitle();
+    if (st && st.signed_in && st.account) {
+      return h("div", { class: "privacy-account" }, h("span", { class: "privacy-card-muted" }, `Signed in to ${t}`), h("strong", {}, st.account));
+    }
+    const say = !st ? `Asking ${t} which account it uses…`
+      : st.unknown ? `Could not ask ${t} which account it uses.`
+      : !st.found ? `${t} is not on this computer yet: Settings → AI sets it up.`
+      : st.signed_in === false ? `${t} is not signed in yet: Settings → AI signs you in.`
+      : st.signed_in ? `${t} is signed in; it does not say which account.` : `${t} does not say whether it is signed in.`;
+    return h("div", { class: "privacy-account" }, h("span", {}, say));
+  }
   const acc = claudeAccount(st);
   if (acc) {
     return h("div", { class: "privacy-account" },
@@ -289,12 +313,14 @@ async function renderStatus() {
 // where a job's work goes, as the server says (job.where, WHERE_OF_KIND in api_common.py): a chip under the work box's
 // words; a job that uses the AI of Settings (no `where`) gets that AI's name and icon
 const WHERE_CHIP = {
-  here: { icon: "house", label: "This computer", tip: "This runs on this computer; nothing is sent to Anthropic." },
-  crossref: { icon: "network", label: "Crossref", tip: "Only the DOIs are sent, to Crossref; no text of your documents leaves this computer." },
+  here: { icon: "house", label: "This computer", get tip() { return `This runs on this computer; nothing is sent to ${agentCompany()}.`; } },
+  crossref: { icon: "network", label: "Crossref", tip: "Only DOIs are sent to Crossref, and for a work without one its title, first author’s family name and year; no text of your documents leaves this computer." },
 };
-// 0.19: work that sends passages to Claude has a grey rail with the cloud on the box's left edge and says "to Claude"
-// (docs/DESIGN.md 5.2): a different shape, not a colour of its own, so it reads at a glance and in greyscale
-const CLOUD_TIP = "Your documents stay here; only the passages inside the AI's tasks go to Anthropic.";
+// 0.19.13: the AI run panel's row (docs/DESIGN.md 4.21, 5.2): this computer's house at the box's left end, Claude's
+// cloud at its right end, and the split bar along its top (each engine's half), so it reads at a glance and in greyscale
+// stage 2: to the company of the agent that answers (Anthropic, OpenAI, Google); "Claude" or the agent's name
+const cloudTip = () => `Your documents stay here; only the passages inside the AI's tasks go to ${agentCompany()}.`;
+const cloudWho = () => (agentRoute() === "claude_code" ? "Claude" : agentTitle());
 const tasksWord = (n) => `${n.toLocaleString()} ${n === 1 ? "task" : "tasks"}`;
 async function drawStatus() {
   const box = document.getElementById("work-indicator");
@@ -310,7 +336,7 @@ async function drawStatus() {
   const s = App.settings();
   const summary = (App.state && App.state.queue) || {};
   let q = null;
-  if (App.project && (s.backend === "claude_code" || summary.waiting)) {
+  if (App.project && (isAgent(s) || summary.waiting)) {
     try { q = await api("GET", `/api/projects/${P(App.project)}/queue`); } catch (_) { q = null; }
   }
   const active = jobs.filter((j) => !TERMINAL.has(j.state));
@@ -321,21 +347,44 @@ async function drawStatus() {
   const answering = q ? (q.being_answered || 0) : 0;
   // what to show: [kind, main words, the line under them, link, the one action]
   let w = null;
-  if (!runner && (hold.length || (q && waiting && !answering && s.backend === "claude_code"))) {
-    const n = Math.max(waiting, hold.length);
+  // 0.19.13: a job whose part for the local model waits for its Start (job.local.gate "wait")
+  const localWait = active.find((j) => j.local && j.local.gate === "wait" && (j.local.waiting || 0) > 0 && !j.local.problem);
+  // stage 2: only tasks really in the queue count, and only when something can start them: a job on hold whose work
+  // its agent may not read (its company not allowed for the project) is no task waiting, and Start would start nothing
+  const cloudStalled = !runner && !!(q && waiting && !answering && (isAgent(s) || hold.length));
+  const t = agentTitle(s);
+  if (localWait && cloudStalled) {   // both wait: two starts do not fit the row; it opens the job's page, where both are
+    const v = jobRow(localWait), n = waiting;
+    w = { kind: "stalled", icon: "pause", main: "Not running", sub: `${fmt.num(localWait.local.waiting)} here · ${fmt.num(n)} for ${cloudWho()}`, href: v.href || "#/settings/queue",
+      tip: `Two parts wait for you: one for the model on this computer, one for ${t}. Open the work to start them.`, act: "open-job", local: "need", cloudHalf: "need", job: localWait.id };
+  } else if (localWait && !cloudStalled && !going.some((j) => j !== localWait && !j.local)) {
+    const v = jobRow(localWait), L = localWait.local;
+    // the job's work for Claude (being answered, or done): its tile and half, not the empty seat
+    const cloudToo = !!localWait.queue || localWait.where === "cloud";
+    w = { kind: "stalled", icon: "pause", main: "Not running", sub: `${plural(L.waiting, L.noun || "passage")} ${L.waiting === 1 ? "waits" : "wait"}${cloudToo ? " here" : ""}`, href: v.href,
+      tip: `Nothing reads this yet: it waits for you to start ${L.model || "your local model"}.`, act: L.memory && L.memory.short ? "open-job" : "start-local", local: "need", job: localWait.id,
+      cloudHalf: cloudToo ? (runner || answering ? "run" : "done") : undefined };
+  } else if (cloudStalled) {
+    const n = waiting;
     w = { kind: "stalled", icon: "pause", main: q && q.paused ? "Paused" : "Not running", sub: `${tasksWord(n)} waiting`,
-      href: "#/settings/queue", tip: `Nothing answers this work yet: ${tasksWord(n)} ${n === 1 ? "waits" : "wait"} for Claude Code. Start it and the work runs.`,
-      act: q && q.can_start && !q.paused ? "start" : "open" };
+      href: "#/settings/queue", tip: `Nothing answers this work yet: ${tasksWord(n)} ${n === 1 ? "waits" : "wait"} for ${t}. Start it and the work runs.`,
+      act: q && q.can_start && !q.paused ? "start" : "open", cloudHalf: "need" };
   } else if (going.length) {
     const j = going[0], v = jobRow(j);
     const more = going.length - 1;
-    w = { kind: "running", where: j.where || null, main: v.text, time: j.state === "running" ? fmt.secs(j.seconds) : "", href: v.href, tip: v.tooltip,
-      sub: j.waiting_for ? j.waiting_for.message : j.state === "queued" ? "waiting its turn" : more ? `and ${more} more running` : waiting + answering ? `${(waiting + answering).toLocaleString()} for Claude Code` : "running",
+    w = { kind: "running", where: j.where || null, localModel: j.local_model || "", main: v.text, time: j.state === "running" ? fmt.secs(j.seconds) : "", href: v.href, tip: v.tooltip,
+      sub: j.waiting_for ? j.waiting_for.message : j.state === "queued" ? "waiting its turn" : more ? `and ${more} more running` : waiting + answering ? `${(waiting + answering).toLocaleString()} for ${t}` : "running",
       act: j.waiting_for ? "cancel" : undefined, job: j.id };   // 0.18 queued jobs: what it waits for, with Cancel
+    const mainLocal = ["ollama", "openai", "auto"].includes(s.backend);
+    const localRuns = !!(j.local_model !== undefined && j.local_model !== null) || (mainLocal && j.where == null);
+    if (localRuns) w.local = "run";
+    else if (j.local && (j.local.waiting || 0) > 0) w.local = j.local.gate === "wait" ? "need" : "run";
+    if (j.queue || j.where === "cloud" || (j.where == null && App.privacy().where === "cloud")) w.cloudHalf = runner || answering ? "run" : waiting ? "need" : "wait";
+    if (w.cloudHalf === "need" && w.local === "run") w.sub = `Reads here · ${fmt.num(waiting)} for ${cloudWho()}`;
   } else if (runner) {
-    w = { kind: "running", where: "cloud", main: "Claude Code is working", sub: `${(waiting + answering).toLocaleString()} to go`, href: "#/settings/queue", tip: "Claude Code answers the work waiting for it, on your Claude plan." };
+    w = { kind: "running", where: "cloud", main: `${t} is working`, sub: `${(waiting + answering).toLocaleString()} to go`, href: "#/settings/queue", tip: `${t} answers the work waiting for it, ${agentPlan(s)}.`, cloudHalf: "run" };
   } else if (q && waiting) {
-    w = { kind: "stalled", icon: "inbox", main: `${tasksWord(waiting)} waiting`, sub: "for Claude Code", href: "#/settings/queue", tip: "Work prepared for Claude Code: answer it there, or with the AI model of Settings.", act: "open" };
+    w = { kind: "stalled", icon: "inbox", main: `${tasksWord(waiting)} waiting`, sub: `for ${t}`, href: "#/settings/queue", tip: `Work prepared for ${t}: answer it there, or with the AI model of Settings.`, act: "open", cloudHalf: "need" };
   }
   privacy.hidden = !!w;
   box.hidden = !w;
@@ -345,19 +394,26 @@ async function drawStatus() {
     // where text goes stays in view while work runs (it took the AI line's place): the AI's name, with its icon
     const p = App.privacy();
     const cloud = w.kind === "running" && (w.where === "cloud" || (w.where == null && p.where === "cloud"));
-    const cloudTip = w.where === "cloud" ? CLOUD_TIP : p.plain;
-    const key = JSON.stringify([App.project, w.kind, w.where, cloud, w.main, w.sub, w.href, w.act, w.act === "cancel" ? w.job : ""]);
+    const cloudTipNow = w.where === "cloud" ? cloudTip() : p.plain;
+    const key = JSON.stringify([App.project, w.kind, w.where, w.localModel, cloud, w.main, w.sub, w.href, w.act, w.act === "cancel" || w.act === "start-local" ? w.job : "", w.local, w.cloudHalf]);
     if (key === statusKey && box.firstChild) {
       const t = box.querySelector(".work-time"); if (t && w.time) t.textContent = w.time;   // only the seconds changed
     } else {
       statusKey = key;
       // 0.17: work that runs on this computer says so, not "Claude"; 0.19: the server says where each job runs
       const chip = WHERE_CHIP[w.where];
-      const who = w.kind !== "running" || w.where === "none" ? null   // nothing is sent while it waits; an install reads no document
-        : cloud ? h("span", { class: "work-who", title: cloudTip }, "to Claude")   // the rail carries the cloud
+      // 0.19.13: the AI's work has its seats (the house at the left end, the cloud at the right end) in place of the chip
+      const ai = !!(w.local || w.cloudHalf);
+      const who = ai || w.kind !== "running" || w.where === "none" ? null   // nothing is sent while it waits; an install reads no document
         : chip ? h("span", { class: "work-who", title: chip.tip }, icon(chip.icon, { size: 12 }), chip.label)
         : h("span", { class: "work-who", title: p.plain }, icon(p.icon, { size: 12 }), (p.label || "").split(",")[0]);
-      const rail = cloud ? h("span", { class: "work-rail", title: cloudTip, "aria-hidden": "true" }, icon("cloud", { size: 14 })) : null;
+      const half = (where, st) => h("span", { class: `ab-half ab-s-${st || "none"}${st === "run" ? " ab-indet" : ""}` }, h("i"));
+      // 0.20.3: only the engines in this work show (the user found an empty seat for the other one confusing): one
+      // engine's half of the bar takes the whole width
+      const bar = ai ? h("span", { class: "ab-rowbar", "aria-hidden": "true" }, w.local ? half("local", w.local) : null, w.cloudHalf ? half("cloud", w.cloudHalf) : null) : null;
+      const tile = (where) => h("span", { class: `ab-rowtile ar-${where}`, title: where === "cloud" ? cloudTipNow : w.localModel ? `Your local model, ${w.localModel}, reads on this computer; what it reads is not sent to ${agentCompany()}.` : `This runs on this computer; nothing is sent to ${agentCompany()}.` },
+        h("span", { class: "ar-tile", "aria-hidden": "true" }, icon(where === "cloud" ? "cloud" : "house", { size: 13 })),
+        h("span", { class: "visually-hidden" }, where === "cloud" ? `To ${cloudWho()}` : "On this computer"));
       const main = h("a", { class: "work-main", href: w.href, title: w.tip },
         h("span", { class: "work-line" }, w.kind === "running" ? h("span", { class: "running-dot", "aria-hidden": "true" }) : icon(w.icon, { size: 14 }),
           h("strong", { class: "work-text" }, w.main), w.time ? h("span", { class: "work-time" }, w.time) : null),
@@ -366,10 +422,19 @@ async function drawStatus() {
       if (w.act === "start") {
         act = button({ kind: "main", sm: true, class: "work-act", onClick: async () => {
           act.disabled = true;
-          try { await startClaudeNow(App.project); toast("Claude Code started. You can keep working; the results appear as they come in.", "ok"); }
+          try { await startClaudeNow(App.project); toast(`${t} started. You can keep working; the results appear as they come in.`, "ok"); }
           catch (e) { showError(e); }
           act.disabled = false; renderStatus();
         } }, icon("play", { size: 12 }), "Start");
+      } else if (w.act === "start-local") {   // 0.19.13: the local model's part of one job (job.local), started here
+        act = button({ kind: "main", sm: true, class: "work-act", onClick: async () => {
+          act.disabled = true;
+          try { await api("POST", `/api/jobs/${P(w.job)}/local/start`, { force: false }); toast("Started. You can keep working; the results appear as they come in.", "ok"); }
+          catch (e) { showError(e); }
+          act.disabled = false; renderStatus();
+        } }, icon("play", { size: 12 }), "Start");
+      } else if (w.act === "open-job") {   // 0.19.13: both engines wait (two starts do not fit here): the job's page has both
+        act = button({ sm: true, class: "work-act", onClick: () => navigate(w.href) }, "Open");
       } else if (w.act === "cancel") {   // 0.18 queued jobs: a small quiet Cancel after the waiting state (docs/DESIGN.md 4.21, its row Queued; a running job's Stop is stopButton())
         act = button({ kind: "quiet", sm: true, class: "work-act", onClick: async () => {
           act.disabled = true;
@@ -377,11 +442,14 @@ async function drawStatus() {
           act.disabled = false; renderStatus();
         } }, "Cancel");
       }   // 0.17.0 (design guide): no "Open" button: the box's words are the link to where the work shows
-      box.className = `work-box work-${w.kind}${cloud ? " work-cloud" : ""}`;
-      replace(box, rail, main, act);
+      box.className = `work-box work-${w.kind}${ai ? ` ab-row ab-row-${w.local ? "local" : "cloud"}` : ""}`;
+      // between its two tiles the row has no room for its words and a button side by side: the button goes under the
+      // words (the status area grows a line), so no state word is ever cut
+      const mid = ai && act ? h("div", { class: "work-mid" }, main, act) : null;
+      replace(box, bar, w.local ? tile("local") : null, mid || main, mid ? null : act, w.cloudHalf ? tile("cloud") : null);
     }
   }
-  let again = active.length ? 2000 : q && (waiting || answering || runner) ? 5000 : s.backend === "claude_code" ? 15000 : 0;
+  let again = active.length ? 2000 : q && (waiting || answering || runner) ? 5000 : isAgent(s) ? 15000 : 0;
   if (again && document.hidden) again = Math.max(again, HIDDEN_LOOK);
   if (again) statusTimer = setTimeout(renderStatus, again);
 }
@@ -426,7 +494,7 @@ function quitInit() {
   btn.title = `Quit ${appName()} (asks first)`;
   btn.hidden = !!(Updates.info && Updates.info.available);   // 0.17.0: an update takes Quit's place
   btn.addEventListener("click", () => quitApp());
-  Updates.quit = () => quitApp();   // Settings › Technical, while Update is in Quit's place
+  Updates.quit = () => quitApp();   // Settings › General, while Update is in Quit's place
 }
 
 // Margin 0.2.1: "Update Margin": installs the newest version (the latest GitHub release, or the branch a git copy
@@ -452,7 +520,7 @@ function showUpdate(btn, info) {
   if (btn.disabled) return;  // updating now: the button says so
   const quit = document.getElementById("quit-btn");
   if (!info || !info.available) { btn.hidden = true; if (quit && App.state && App.state.can_quit) quit.hidden = false; return; }
-  if (quit) quit.hidden = true;   // 0.17.0: the update takes Quit's place, the same size; Quit is in Settings › Technical
+  if (quit) quit.hidden = true;   // 0.17.0: the update takes Quit's place, the same size; Quit is in Settings › General
   const to = "Update";
   const rc = info.candidate ? "release candidate " : "";
   replace(btn, icon("arrow-up", { size: 13 }), h("span", {}, to));
@@ -461,7 +529,7 @@ function showUpdate(btn, info) {
   btn.title = info.on_disk ? `${appName()} ${info.latest} is installed: restart to use it`
     : info.latest ? `${appName()} ${rc}${info.latest} is ready (you have ${info.version})`
     : `${info.changes} new change${info.changes === 1 ? "" : "s"} for this copy of ${appName()}`;
-  btn.title += `. To quit ${appName()} without updating: Settings › Technical.`;
+  btn.title += `. To quit ${appName()} without updating: Settings › General.`;
   btn.hidden = false;
   if (!info.on_disk) updatePopup(info);  // a version already on disk has the banner above the page
 }
@@ -641,7 +709,8 @@ function drawerInit() {
 }
 
 // 0.17.0: the sidebar's groups say once whether their places use the AI, with the one AI mark (features.js aiTag):
-// Explore "AI optional", Check "Uses the AI". The places themselves carry no marks and no counts; each has a tooltip.
+// Explore "AI on request", Check "Uses the AI"; Project has none. The places themselves carry no marks and no counts;
+// each has a tooltip.
 const GROUP_AI = { explore: "optional", check: "uses" };
 function sectionOf(key) {
   return PLACES[key] ? PLACES[key].section : (FEATURES[key] || {}).section;

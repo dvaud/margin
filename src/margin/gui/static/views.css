@@ -40,12 +40,13 @@
 .ov-finder { margin: 0 0 24px; max-width: 640px; }
 
 /* ==== Research log */
-.log-tools { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 16px; margin: 4px 0 12px; }
-.log-tools-right { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.log-search { width: 240px; max-width: 100%; }
-@media (max-width: 860px) {
-  .log-tools { flex-direction: column; align-items: stretch; }
-  .log-search { width: 100%; max-width: none; }
+/* a readable column: the write box, the tools and the entries never stretch across a wide window */
+.log-new-row, .log-tools, .log-list { max-width: 52em; }
+.log-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 4px; }
+.log-tools > .search-field { flex: 1 1 14em; max-width: 22em; }
+.log-show-label { margin-right: calc(-1 * var(--space-1)); color: var(--text-2); font-size: var(--fs-small); }
+@media (max-width: 520px) {
+  .log-tools > .select, .log-tools > .search-field { flex: 1 1 100%; max-width: none; }
 }
 
 /* ==== Documents */
@@ -167,6 +168,9 @@ html:has(.bulk-stick:not([hidden])) { scroll-padding-bottom: 6rem; }
   border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--text);
 }
 .bulk-bar[hidden] { display: none; }
+/* roadmap N3: the role menu opens upwards: the bar sits at the window's foot */
+.bulk-role:empty { display: none; }
+.bulk-role > .menu > .menu-list:not([data-float="true"]) { top: auto; bottom: calc(100% + 4px); left: 0; right: auto; }
 .sent-list { list-style: none; margin: 6px 0 0; padding: 0; max-height: 260px; overflow: auto; border-top: 1px solid var(--border); }
 .sent-list li { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .sent-preview { color: var(--text-2); margin-top: 2px; }
@@ -180,7 +184,34 @@ html:has(.bulk-stick:not([hidden])) { scroll-padding-bottom: 6rem; }
 .access-options { margin-top: 6px; }
 .access-banner, .access-ask { margin-bottom: 12px; }
 .access-ask h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; }
-.route-cards { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 8px 0 12px; }
+/* whose plan: an inset right under the route picker, so it belongs to the Subscription card and is not a second picker */
+.agent-choice-box { margin: -4px 0 var(--space-3); }   /* an inset (lib inset()): it belongs to the Subscription card above */
+.agent-choice-box > .field-label { margin-bottom: 4px; }
+.agent-choice { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 4px 0 0; }
+.agent-choice .option-card-head .chip { white-space: nowrap; }
+/* Settings › AI (rework) */
+/* the facts of the local model (Technical): the name of each fact beside its value, one under the other on a phone */
+.tech-dl { display: grid; grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr); gap: 4px var(--space-4); margin: 0 0 var(--space-3); }
+.tech-dl > div { display: contents; }
+.tech-dl dt { color: var(--muted); font-size: var(--fs-small); }
+.tech-dl dd { margin: 0; font-size: var(--fs-small); }
+@media (max-width: 640px) { .tech-dl { grid-template-columns: minmax(0, 1fr); gap: 0; } .tech-dl dd { margin-bottom: 6px; } }
+/* which AI: 2 × 2 (the owner's sketch), the cloud above and this computer below, each row with its small caption;
+   one column on a phone. A computer that keeps everything local shows only the second row. */
+.route-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); margin: 8px 0 12px; }
+.route-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.route-row-cap { grid-column: 1 / -1; font-size: var(--fs-small); color: var(--muted); margin-bottom: -2px; }
+@media (max-width: 700px) { .route-row { grid-template-columns: minmax(0, 1fr); } }
+.set-route-detail { gap: var(--space-3); }
+.set-provider-choice > .field-label { margin-bottom: 4px; }
+.option-card-head .chip + .chip { margin-left: 4px; }
+.set-tech-link { margin: var(--space-2) 0 0; }
+.set-test .btn-row { margin: 0; }
+.set-test .test-result:not(:empty) { margin-top: var(--space-2); }
+.set-narrow { max-width: 32rem; width: 100%; }
+.set-num { max-width: 9rem; }
+.terms-bare p { margin: 4px 0; }
+.setting-head, .switch-field > .setting-head { display: flex; align-items: center; gap: 6px; }   /* setting() is the shell's: this keeps the help mark beside the label until its own rule lands */
 /* This page's own pieces, placed here and not in the JavaScript; placement only */
 .docs-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docs-access-note { margin: var(--space-2) 0 0; }
@@ -495,6 +526,7 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .bib-retract { margin-top: 12px; align-items: center; gap: 12px; flex-wrap: wrap; }
 .bib-retract p { margin: 0; }
 .bib-notices { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 2px 0 4px; }
+.bib-match { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
 /* where the bibliography comes from (a grey tile with its icon: a fact, not a place), and the four lists: a choice */
 .bib-source { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
 .bib-source-icon {
@@ -672,14 +704,20 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
 .pf-ai .ev-tech-list { margin-bottom: 4px; }
 .pf-ai-compact { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--border); }
 .pf-ai-compact .pf-ai-title { font-size: var(--fs-body); }
-/* the codes addressed most */
-.pf-top { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+/* the codes addressed most. The rows share their columns (subgrid), so the codes' column is as wide as its widest
+   code asks, up to 14rem, and the bars and counts line up down the list. A short mark ("3.4") stands in the mono; a
+   name (a codebook of your own, up to 40 characters: .pf-top-named, set by the page as the heat grid does, DESIGN
+   4.25) is set in the interface's face and wraps in its column. A code never runs over its description and is never
+   cut short; beside names the description takes two lines. */
+.pf-top { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: fit-content(14rem) minmax(0, 1fr) minmax(80px, 180px) auto; gap: 4px 12px; }
 .pf-top li {
- display: grid; grid-template-columns: 3.6em minmax(0, 1fr) minmax(80px, 180px) auto; gap: 4px 12px; align-items: center;
-  padding: 5px 10px; border-radius: var(--radius-ctl); background: var(--surface); border: 1px solid var(--border); font-size: var(--fs-small); 
+  display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; row-gap: 4px; align-items: center;
+  padding: 5px 10px; border-radius: var(--radius-ctl); background: var(--surface); border: 1px solid var(--border); font-size: var(--fs-small);
 }
-.pf-top-code { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: var(--fw-strong); color: var(--accent-text); }
+.pf-top-code { min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: var(--fw-strong); color: var(--accent-text); overflow-wrap: anywhere; }
+.pf-top-named .pf-top-code { font-family: var(--font-ui); font-size: var(--fs-small); line-height: 1.3; }
 .pf-top-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.pf-top-named .pf-top-desc { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
 .pf-top-bar { height: 8px; background: var(--surface-3); border-radius: var(--radius-pill); overflow: hidden; }
 .pf-top-bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
 .pf-top-n { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -690,7 +728,8 @@ p.dv-selnote { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; 
    cell by an outline. */
 .pf-grid-key { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin: 0 0 8px; }
 @media (max-width: 860px) {
-  .pf-top li { grid-template-columns: 3.4em minmax(0, 1fr); grid-template-areas: "code n" "desc desc"; }
+  .pf-top { grid-template-columns: minmax(0, 1fr) auto; }
+  .pf-top li { grid-template-areas: "code n" "desc desc"; }
   .pf-top-code { grid-area: code; }
   .pf-top-n { grid-area: n; justify-self: end; }
   .pf-top-desc { grid-area: desc; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -932,8 +971,20 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .cm-key { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
 .cm-swatch { flex: none; }
 .cm-how { margin: 0; }
-.cm-svg-wrap { width: 100%; overflow: hidden; }
+.cm-svg-wrap { width: 100%; overflow: hidden; touch-action: pan-x pan-y; }   /* a pinch zooms the map, not the page */
 .cm-svg { display: block; width: 100%; height: auto; }
+/* D1, the last part: the zoom (concept-map.js mapZoom). Zoomed in, the map is dragged to move it; lines keep their
+   width, and words grow by the square root of the zoom: the map's own font size, set while it runs, is --fs-xs over
+   that root, and each word's size is in em of it (the sizes of --fs-xs, --fs-label and --fs-small) */
+.cm-zoom { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin-bottom: var(--space-2); }
+.cm-zoom-status { margin-left: var(--space-1); }
+.cm-svg-wrap[data-zoomed="true"] { cursor: grab; touch-action: none; }
+.cm-svg-wrap[data-panning="true"] { cursor: grabbing; user-select: none; }
+.cm-svg[data-zoom="near"] .cm-label[data-hidden="true"] { display: inline; }
+.cm-svg[data-zoomed="true"] .cm-label { font-size: 1em; }
+.cm-svg[data-zoomed="true"] .cm-rel { font-size: .9em; }
+.cm-svg[data-zoomed="true"] .cm-gname text { font-size: 1.09em; }
+.cm-edge, .cm-link, .cm-hit { vector-effect: non-scaling-stroke; }
 .cm-edge { stroke: var(--border-strong); stroke-linecap: round; }
 .cm-link { stroke: var(--text-2); stroke-width: 2px; stroke-linecap: round; }
 .cm-arrow { fill: var(--text-2); }
@@ -967,7 +1018,40 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .cm-detail .ct-quotes { margin-top: var(--space-2); }
 .cm-detail-part { margin-bottom: var(--space-2); }
 .cm-list-h { font-size: var(--fs-body); margin: var(--space-4) 0 var(--space-2); }
-.cm-group-name { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+/* D1 rest (a): the end of a link's line says its kind, in the link's own grey; a hollow head takes the card's ground,
+   so the line does not show through it */
+.cm-head-open { fill: none; stroke: var(--text-2); stroke-width: 2px; stroke-linecap: round; stroke-linejoin: round; }
+.cm-head-ring { fill: var(--surface); stroke: var(--text-2); stroke-width: 2px; }
+.cm-head-bar { fill: none; stroke: var(--text-2); stroke-width: 2.5px; stroke-linecap: round; }
+.cm-head-diamond { fill: var(--surface); stroke: var(--text-2); stroke-width: 1.75px; stroke-linejoin: round; }
+.cm-head-cross { fill: none; stroke: var(--text-2); stroke-width: 2px; stroke-linecap: round; }
+.cm-keys + .cm-keys { margin-top: var(--space-1); }
+.cm-key-line { flex: none; overflow: visible; }
+/* (b) a group's name on the map, its own small mark before it; never pressed */
+.cm-gname { pointer-events: none; }
+.cm-gname text { font-size: var(--fs-small); font-weight: var(--fw-strong); fill: var(--text-2); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.cm-gname .cm-gdraft { font-weight: var(--fw-regular); fill: var(--muted); }
+.cm-svg[data-focus="true"] .cm-gname { opacity: .35; }
+/* the Groups section under the map */
+.cm-groups-lead { margin: 0 0 var(--space-2); max-width: 46em; }
+.cm-groups-ask { margin-bottom: var(--space-2); }
+.cm-groups-note { margin: var(--space-3) 0; }
+.cm-groups-job { margin: var(--space-2) 0 var(--space-3); }
+.cm-groups-job-help { margin: var(--space-2) 0 0; }
+.cm-group-cell { display: flex; flex-direction: column; gap: var(--space-1); min-width: 13em; }
+.cm-group-title { display: flex; align-items: flex-start; gap: 6px; }
+.cm-group-title .cm-swatch { margin-top: 4px; }
+.cm-group-words { font-size: var(--fs-doc); overflow-wrap: anywhere; }
+.cm-group-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.cm-group-change { margin: 0; }
+.cm-group-acts { justify-content: flex-end; flex-wrap: nowrap; }
+.cm-groups-kept { margin-top: var(--space-3); }
+.cm-kept-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.cm-kept-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px var(--space-3); }
+/* D1, the last part: another name a person gave the group, under it and in the rename dialog */
+.cm-group-also { margin: 0; overflow-wrap: anywhere; }
+.cm-also-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.cm-also-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--space-2); }
 .cm-link-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: var(--space-1); }
 
 /* ==== Themes */
@@ -998,6 +1082,10 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .th-about { margin-bottom: 16px; }
 .th-quote { margin: 8px 0 0; }
 .th-quote q { color: var(--text); font-style: normal; }
+/* 0.19.6: a theme the AI could not name: the failed work state on its card, its problems folded under it */
+.th-not-named { margin: 8px 0 0; }
+.th-not-named ul { margin: 4px 0 0; padding-left: 18px; }
+.th-not-named-notice ul { margin: 4px 0 0; padding-left: 18px; }
 .th-doclist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px 16px; }
 .th-doclist li { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: var(--fs-small); }
 .th-doclist a { min-width: 0; overflow-wrap: anywhere; }
@@ -1421,7 +1509,6 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .result .more-line { margin: 6px 0 0; font-size: var(--fs-small); color: var(--text-2); }
 .result .more-terms:not([hidden]) { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 12px; }
 /* a check waiting for Claude Code: the answer card is the queue notice, without a box of its own */
-.result .answer-waiting .sc-start { flex-direction: column; align-items: flex-start; gap: 4px; }
 /* the other AI models: two columns, no boxes */
 .result .ask-card { margin-top: 32px; }
 .result .ask-state > svg { flex: none; margin-top: 4px; color: var(--accent); }
@@ -1515,9 +1602,44 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .bench-table td:first-child { font-weight: var(--fw-regular); }
 .save-row { display: flex; gap: 12px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .save-state { font-size: var(--fs-small); color: var(--muted); }
+/* the page's one saving state, at the right end of the tab row (under the tabs when the row is narrow): the words at
+   rest hide while the live part says Saving… or Saved */
+.set-tabbar { position: relative; container-type: inline-size; }
+.set-save { position: absolute; right: 0; top: 0; bottom: 20px; display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--fs-small); white-space: nowrap; }
+.set-save-now:not(:empty) { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); }
+.set-save-now:not(:empty) + .set-save-rest { display: none; }
+@container (max-width: 820px) {
+  .set-save { position: static; margin: -12px 0 var(--space-4); }
+}
+/* the version link in the line under the title: one piece, never broken mid-phrase */
+.version-tag > a { white-space: nowrap; }
+/* the grammar's look: rows evenly spaced; fields and selects as wide as a short value needs (a range and a table may
+   be wider); nothing scrolls sideways on a phone */
+.settings-section .field > .input, .settings-section .field > .select, .settings-section .setting > .seg { max-width: 32rem; }
+.settings-section .field, .settings-section .switch-field { margin: 0 0 var(--space-4); }
+.settings-section .field:last-child, .settings-section .switch-field:last-child { margin-bottom: 0; }
+.settings-section .field > .set-lang { max-width: 16em; }
+@media (max-width: 860px) {   /* two columns become one: the first column's last row keeps its space */
+  .settings-section .fields-2 > :first-child > :last-child { margin-bottom: var(--space-4); }
+}
+.settings-section .range-field { max-width: 40rem; }
+.settings-section .range-head > .setting-head { margin-right: auto; }
+.settings-section > .btn-row { margin: 0 0 var(--space-3); }
+.settings-section .set-path { overflow-wrap: anywhere; }
+.set-projects { margin: 0; }
+.set-version-line, .set-embed-state { margin: 0 0 var(--space-3); }
+.settings-section .setting > .btn { align-self: flex-start; }
+.set-step-up { margin: var(--space-3) 0; }
+.set-update-out:not(:empty) { margin: 0 0 var(--space-3); }
+/* Technical: folded cards, one line each; the value at the line's right */
+.set-main.set-main-tech { gap: var(--space-3); }
+.set-tech-sum { margin-left: auto; text-align: right; }
+.set-tech > .settings-body > :last-child { margin-bottom: 0; }
 /* The task queue (Claude Code) */
-.copy-line { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
-.copy-code { font-family: var(--font-mono); font-size: var(--fs-small); padding: 2px 6px; border-radius: var(--radius-xs); background: var(--surface-3); word-break: break-all; }
+/* one row: the line to copy stays on one line and scrolls sideways when it is longer than the room; Copy stays beside it */
+.copy-line { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: nowrap; }
+.copy-line > .icon, .copy-line > .copy-btn { flex: none; }
+.copy-code { font-family: var(--font-mono); font-size: var(--fs-small); padding: 2px 6px; border-radius: var(--radius-xs); background: var(--surface-3); white-space: nowrap; overflow-x: auto; min-width: 0; max-width: 100%; }
 .qp-row { padding: 6px 0; border-top: 1px solid var(--border); }
 .qp-row.qp-held { opacity: .7; }
 .qp-title { display: flex; gap: 6px; align-items: center; }
@@ -1525,13 +1647,15 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .qp-paused { margin: 0; }
 .routing-table td, .routing-table th { vertical-align: top; }
 .routing-table select { min-width: 9em; }
-@container (max-width: 899px) {
+.routing-task { min-width: 12em; }
+@container (max-width: 599px) {
   .routing-table select, .routing-table input { min-width: 0; max-width: 100%; }
+  .routing-task { min-width: 0; }
 }
 /* The speed beside Start Claude Code, and the helpers chosen for one run */
 .sc-speed { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
 .sc-speed-label { color: var(--text-2); }
-.sc-speed.sc-speed-off .sc-speed-line { opacity: .55; }   /* the helpers chosen for one run replace the speed: its line greys out */
+.sc-speed.sc-speed-off .sc-speed-line, .sc-speed-line.sc-speed-off { opacity: .55; }   /* the helpers chosen for one run replace the speed: its line greys out */
 .sc-helpers-body { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 4px 18px; }
 .sc-helpers-body p { margin: 0; }
 .sc-helpers-body > .btn { align-self: flex-start; }
@@ -1560,13 +1684,6 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .cc-step[data-state="done"] .cc-mark { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .cc-step[data-state="todo"] .cc-mark { border-color: transparent; color: var(--attention); }
 .cc-step strong { display: block; }
-/* Start Claude Code (queue notices, the sidebar panel) */
-.start-claude { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-.sc-start, .sc-running { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-/* the button's hint is a line of its own under it, never read as part of the AI mark beside the button */
-.sc-start > .muted { flex: 1 0 100%; }
-.sc-running .btn { margin-left: auto; }
-.sc-type { display: flex; flex-direction: column; gap: 2px; }
 .sc-report { margin: 0; white-space: pre-wrap; max-height: 12em; overflow: auto; }
 /* the technical details, shown to copy by hand: long lines wrap instead of widening the card */
 .tech-details { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -1609,11 +1726,23 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
   /* the text fills the line beside the icon … */
   .update-banner .btn { margin-left: 32px; }
 }
-.sc-start .sc-wake { color: var(--text); }
-/* "Claude Code is working on it": the dot stays beside its words in a narrow place (390 px, a follow-up job's line) */
-.sc-running > span:nth-child(2) { flex: 1 1 12em; min-width: 0; }
 /* Settings → AI: the privacy panel sits inside the Claude box, which sits inside the card: drawn without a third box */
 .cc-card .terms-panel { margin-top: 12px; }
+/* Providers stage 2: set-ups of anything outside Margin (views/outside-setup.js, provider-setup.js, agent-setup.js) and
+   the recommended models of Settings → AI (settings.js modelRows) */
+.outside-setup .guided-step-body > p, .outside-after > p { margin: 0 0 var(--space-2); }
+.outside-setup .btn-row { margin: var(--space-2) 0; }
+.agent-step-now:empty, .agent-found:empty, .outside-after:empty { display: none; }
+.agent-found { margin: var(--space-2) 0; }
+.agent-adds, .provider-models-list { margin: 0 0 var(--space-2); padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.provider-deployments { display: grid; gap: var(--space-2); }
+.provider-deployments > .field-label, .provider-deployments > .field-help { margin: 0; }
+.provider-left { font-weight: var(--fw-strong); }
+.provider-cards { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 4px 0 0; }
+.model-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); margin-top: var(--space-2); }
+.model-rows .field { margin: 0; }
+.model-row-pick { display: grid; gap: 4px; }
+.model-row-pick select, .model-row-pick input { width: 100%; }
 .aia-cap { width: 90px; }
 .set-lang { max-width: 16em; }
 /* This page's own pieces, placed here and not in the JavaScript; placement only */
@@ -1624,8 +1753,6 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .set-count-diff { margin-top: var(--space-2); }
 .set-changes-notice { margin-top: var(--space-3); }
 .set-certainty-note { margin: 0 0 var(--space-3); }
-.set-strict-title { margin-bottom: var(--space-2); }
-.set-start-title { margin: var(--space-5) 0 var(--space-2); }
 .set-calibration-empty { margin: 0; }
 .set-suggest-notice { margin-top: var(--space-3); }
 .set-suggest-btn { margin-top: var(--space-2); }
@@ -1639,7 +1766,6 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .set-context-line { margin-bottom: var(--space-3); }
 .set-context-form { gap: var(--space-3); }
 .set-test-out { margin-top: var(--space-3); }
-.set-model-line { margin-top: var(--space-2); }
 .set-result-actions { margin-top: var(--space-3); }
 .set-problem-help { margin-top: var(--space-3); }
 .set-data-note { margin-top: var(--space-3); }
@@ -1704,16 +1830,17 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .move-settings { margin: 6px 0 0; padding-left: 1.2em; }
 
 /* ==== Working together */
-/* 0.18: the Team tab of the drawer beside every page (views/team.js, the owner's section views/owner.js), and an item's
-   sharing on its own page and in lists (views/share.js). Built of the components (docs/DESIGN.md 5.5): these rules
-   place them, and give the tab's own pieces (its sections, the sync state's second line) their look. */
+/* 0.18: the Team place (#/team: the set-up, or Activity and People and settings; views/team.js, the owner's sections
+   views/owner.js), and an item's sharing on its own page and in lists (views/share.js). Built of the components
+   (docs/DESIGN.md 5.5): these rules place them, and give the page's own pieces (its sections, the sync state's second
+   line) their look. */
 /* an item's sharing: the row under its page's title (shareBar), and the quiet row in a card of a list (shareInline) */
 .share-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--space-2); margin: 0 0 var(--space-4); }
 .page-head + .share-bar, .result-head .share-bar { margin-top: 0; }
 /* an item's sharing choice and the line that says where a shared item goes */
 .share-bar .share-where { flex: 1 1 100%; margin: 0; color: var(--text-2); font-size: var(--fs-small); }
 .share-inline { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-/* the Team tab: sections divided by a line, each under a small heading the panel can focus */
+/* the Team panel: sections, each under a heading the panel can focus (on the page each section is a card) */
 .team-empty { margin: 4px 0 8px; }
 .team-section { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .team-section:first-of-type { padding-top: 0; }
@@ -1754,11 +1881,13 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .team-cloud .list-group { margin: 0; }
 .team-found strong, .team-join-folder { overflow-wrap: anywhere; }
 .team-steps { margin: 0; padding-left: 1.3em; font-size: var(--fs-small); }
-/* 0.18.0rc2 (L6): a storage space: the two services offered, the set-up's steps in a dialog */
-.team-choices { list-style: none; margin: var(--space-2) 0; padding: 0; display: grid; gap: var(--space-2); }
-.team-choices li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); }
-.team-space-setup .team-steps { font-size: inherit; display: grid; gap: var(--space-3); }
-.team-space-setup .field { margin-top: var(--space-2); }
+/* the Team page without a team (team-setup.js): where the team's shared work is kept, two option cards to a row
+   while there is room; then the set-up's steps, the join form and the folder form, each in a dialog */
+.team-where { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); margin: var(--space-2) 0 var(--space-3); }
+.team-section > .ai-where { margin: var(--space-3) 0 0; }
+.team-space-setup, .team-join-form, .team-folder-setup { display: grid; gap: var(--space-3); }
+.team-space-setup > p, .team-join-form > p, .team-folder-setup > p, .team-join-form > .field, .team-folder-setup > .field { margin: 0; }
+.team-folder-setup > .team-offers, .team-folder-setup > .team-error { margin: 0; }
 .team-space-where { overflow-wrap: anywhere; }
 .team-check { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
 #space-invite-message, #space-join-link { width: 100%; resize: vertical; font-size: var(--fs-small); word-break: break-all; }
@@ -1771,11 +1900,12 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 .team-summary { margin: 8px 0 0; overflow-wrap: anywhere; }
 /* a section's one line with its help mark after it */
 .team-lead { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin: 0 0 8px; }
-.team-where { margin-top: var(--space-2); }
-/* the Team page (#/team): each section a card (card()), its heading the card's section title */
+.team-where-fold { margin-top: var(--space-2); }
+/* the Team page (#/team): each section a card (card()), its heading the card's section title; ?at= scrolls a heading
+   to the top, clear of the drawer's button band */
 .team-page { max-width: 52rem; }
 .team-page .team-section { padding: 0; border-bottom: 0; }
-.team-page .team-h { margin: 0 0 12px; font-size: var(--fs-section); }
+.team-page .team-h { margin: 0 0 12px; font-size: var(--fs-section); scroll-margin-top: 64px; }
 /* the owner's section: proposals as small cards, what was declined and answered, the owner's setting */
 .owner-who { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .owner-notice { margin: 0 0 var(--space-3); }
@@ -1841,6 +1971,7 @@ html:has(.cb-savebar:not([hidden])) { scroll-padding-bottom: 6rem; }
 /* a piece that takes the whole row of its sample */
 .dz-show > .notice, .dz-show > .dz-frame { flex-basis: 100%; }
 .dz-show > .log-entries { flex: 1 1 100%; max-width: 34em; }
+.dz-show > .dz-steps { flex: 1 1 100%; max-width: 34em; }
 /* a sample list of boxes in a card */
 .dz-list { margin: 0; padding: 0; list-style: none; gap: var(--space-2); }
 /* a sample list or set of pieces: the row's width, no wider than a drawer's page column */

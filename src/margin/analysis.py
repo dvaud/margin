@@ -8,6 +8,7 @@ from itertools import combinations
 
 from .store import Workspace
 from .taxonomy import SEGMENTS, goal_of, target_sort_key
+from .verdicts import _graded
 
 USABLE_DEFAULT = ("auto", "needs_review", "accepted", "changed")
 USABLE_STRICT = ("auto", "accepted", "changed")
@@ -159,12 +160,6 @@ def interaction_table(ws: Workspace) -> list[dict]:
 # ---------------------------------------------------------------------------------------------
 # comparison with the VCA
 # ---------------------------------------------------------------------------------------------
-def _graded(vs, thr: float) -> tuple[list, list, list]:
-    strong = [v for v in vs if v["confidence"] is not None and v["confidence"] >= thr]
-    return ([v for v in strong if v["verdict"] == "supports"], [v for v in strong if v["verdict"] == "partially_supports"],
-            [v for v in strong if v["verdict"] == "refutes"])
-
-
 def _status(vs, thr: float) -> str:
     """A VCA claim's status from its verification rows: the strongest grade at or above the threshold wins."""
     if not vs:

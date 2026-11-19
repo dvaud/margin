@@ -1,7 +1,7 @@
 // First run. When the AI model is already set up (someone installed the app), the user starts by naming a project
 // and adding documents. The model step appears only when no model works yet.
-import { App, api, h, icon, setButtonKind, replace, clear, toast, showError, field, navigate, store, brand, appName, pageHead, aiWhere, button, card, fold, link, notice, select, input as fieldInput, inset } from "../lib.js";
-import { plainTestResult, claudeSetupCard } from "./settings.js";
+import { App, api, h, icon, setButtonKind, replace, clear, toast, showError, field, navigate, store, brand, appName, pageHead, aiWhere, button, card, fold, link, notice, select, input as fieldInput, inset, isAgent } from "../lib.js";
+import { plainTestResult, claudeSetupCard, agentSetupCard, agentConsent, AGENT_CHOICE } from "./settings.js";
 import { linkProjectDialog, importProjectDialog, enlensCard } from "./projects.js";
 import { WELCOME_CARDS } from "../registry.js";
 import { localModelHelp, lookForServers, hasChatModel } from "./local-model.js";
@@ -11,7 +11,9 @@ function rerender() { window.dispatchEvent(new HashChangeEvent("hashchange")); }
 export async function renderSetup(view) {
   const hasProject = (App.state.projects || []).length > 0;
   const s = App.settings();
-  const cc = s.backend === "claude_code";
+  // stage 2: Codex and Antigravity answer through the queue as Claude Code does: their set-up is this first step too
+  // (an unready Codex was given the local model's step)
+  const cc = isAgent(s);
   // 0.9: subscription first: a new installation answers with Claude Code; the first step sets it up (or skips it)
   let modelOk = cc ? store("setup-ai") === "done" : App.modelConfigured();
   // 0.13.7: "a model on this computer" (the automatic choice) counts as set up only when a model answers; it was taken
@@ -30,7 +32,8 @@ export async function renderSetup(view) {
         WELCOME_CARDS.length ? h("div", { class: "ov-grid ov-grid-small welcome-cards" }, WELCOME_CARDS.map((c) =>
           h("div", { class: "ov-card" }, h("div", { class: "ov-card-head" }, h("span", { class: "ov-card-icon" }, icon(c.icon || "grid", { size: 15 })), h("h3", {}, c.title)),
             c.text ? h("p", {}, c.text) : null))) : null,
-        modelOk && !cc ? aiWhere("The AI model is set up and runs on this computer: your documents never leave it.", "local") : null] }),
+        // stage 2: Codex and Antigravity read in the cloud, as Claude Code does: never "runs on this computer"
+        modelOk && !cc && !isAgent(s) ? aiWhere("The AI model is set up and runs on this computer: your documents never leave it.", "local") : null] }),
     steps);
   view.appendChild(wrap);
   const body = h("div", {});
@@ -41,15 +44,37 @@ export async function renderSetup(view) {
   else sourcesStep(body);
 }
 
+// The first step when an agent on the person's plan answers: its set-up card (the same guided steps as in Settings),
+// and, folded, the other ways: the other agents (Codex on a ChatGPT plan; Antigravity on a free Google account), a
+// model on this computer, or no AI. Choosing another agent asks first, as Settings does, and saves it.
+const AGENT_LEAD = {
+  claude_code: ["The AI: Claude, on your own Claude plan", "Claude Code, signed in with your Claude subscription"],
+  codex: ["The AI: Codex, on your ChatGPT plan", "Codex, OpenAI’s agent, signed in with your ChatGPT plan"],
+  antigravity: ["The AI: Antigravity, on your Google account", "Antigravity, Google’s agent, signed in with your Google account"],
+};
 function claudeStep(body) {
+  const route = AGENT_LEAD[App.settings().backend] ? App.settings().backend : "claude_code";
+  const c = AGENT_CHOICE[route];
   const next = () => { store("setup-ai", "done"); rerender(); };
   const nextBtn = button({ onClick: next }, "Next: your project", icon("arrow-right", { size: 14 }));
-  replace(body, card({ as: "div", title: "The AI: Claude, on your own Claude plan" },
-    h("p", { class: "muted" }, `${appName()} uses Claude Code, signed in with your Claude subscription, for the AI parts (labels, theme names, checks). Search, keyword profiles, the glossary and themes work without any AI. Your documents stay on this computer; only the passages inside the AI's tasks are sent to Anthropic.`),
-    claudeSetupCard({ onReady: () => setButtonKind(nextBtn, "main") }),
+  const onReady = () => setButtonKind(nextBtn, "main");
+  const useAgent = async (key) => {
+    try {
+      if (key !== "claude_code" && !App.settings()[`allow_${key}`] && !(await agentConsent(key, { stay: `Stay with ${c.title}` }))) return;
+      await api("PUT", "/api/settings", { backend: key, [`allow_${key}`]: true });
+      await App.refresh(); rerender();
+    } catch (e) { showError(e); }
+  };
+  const others = ["claude_code", "codex", "antigravity"].filter((k) => k !== route).map((k) => h("p", { class: "small", dataset: { agent: k } },
+    h("strong", {}, AGENT_CHOICE[k].title), ` (${{ claude_code: "a Claude plan", codex: "a ChatGPT plan", antigravity: "a free Google account" }[k]}): the passages go to ${AGENT_CHOICE[k].company}. `,
+    button({ sm: true, id: `setup-use-${k}`, onClick: () => useAgent(k) }, `Use ${AGENT_CHOICE[k].title}`)));
+  replace(body, card({ as: "div", title: AGENT_LEAD[route][0] },
+    h("p", { class: "muted" }, `${appName()} uses ${AGENT_LEAD[route][1]}, for the AI parts (labels, theme names, checks). Search, keyword profiles, the glossary and themes work without any AI. Your documents stay on this computer; only the passages inside the AI's tasks are sent to ${c.company}.`),
+    route === "claude_code" ? claudeSetupCard({ onReady }) : agentSetupCard(route, { kind: "main", onReady }),
     h("div", { class: "btn-row su-next-actions" }, nextBtn),
-    fold({ class: "su-others-fold" }, "No Claude plan? Other options",
+    fold({ class: "su-others-fold" }, route === "claude_code" ? "No Claude plan? Other options" : "Other options",
       h("div", { class: "stack su-others-body" },
+        ...others,
         h("p", { class: "small" }, h("strong", {}, "A model on this computer"), " (Ollama, LM Studio…): free and fully private. ",
           button({ sm: true, onClick: async () => { try { await api("PUT", "/api/settings", { backend: "auto" }); await App.refresh(); rerender(); } catch (e) { showError(e); } } }, "Use a local model")),
         h("p", { class: "small" }, h("strong", {}, "No AI for now"), ": everything that needs no AI works; AI buttons use a simple word-overlap stand-in. ",

@@ -148,7 +148,7 @@ about. *Read what's new* opens the list of what it brings, with a link to every 
 closes the note, and it does not come back. The list is also beside the version on every Settings tab, and Find has it
 (type *changelog* or *what's new*).
 
-**Looking yourself.** *Settings → Technical → Updates → Check for updates* looks now and says why a look failed (the
+**Looking yourself.** *Settings → General → Updates → Check for updates* looks now and says why a look failed (the
 version at the top right of every Settings tab opens it). Looks that fail (offline, files of a git copy edited by
 hand) otherwise stay quiet. A look never waits for a password and gives up after 90 seconds. Margin reads the newest
 version from GitHub's release page, which GitHub's limit of 60 questions an hour does not count, so several
@@ -162,7 +162,7 @@ computers in one office can all look every two minutes.
 | A git copy | Fetches the new version into the same folder, reinstalls into the same Python only when the requirements changed (with the extras you have), refreshes the Claude Code plugin, and says to restart the app if it runs. If installing the requirements fails (offline), the next `margin update` installs them. It changes nothing when files of the copy were edited by hand. |
 
 Either way, the data folder is never touched. The version you have is at the top of every *Settings* tab, and
-*Settings → Technical* says how this copy was installed.
+*Settings → General → Updates* says how this copy was installed.
 
 ## The Margin icon
 
@@ -180,8 +180,9 @@ applications menu (Linux). On Linux desktops that ask for it, right-click the ic
 - **After an update**, the copy still running is the old version. The icon quits it and starts the new one, unless a
   check or documents being added still run in it: then every page says *Margin X is installed, but Y is still
   running*, with *Restart now*.
-- If your AI is Ollama on this computer and Ollama is not running, the icon starts it too.
-- **Quit** at the foot of the sidebar (with an update ready, in *Settings → Technical*) stops it (it asks first when
+- The icon does not start Ollama (0.19.15): no AI loads until you press a Start. Ollama starts when a model is
+  first asked for, after your click, or from *Start Ollama* in *Settings → AI*.
+- **Quit** at the foot of the sidebar (with an update ready, in *Settings → General*) stops it (it asks first when
   a check is still running). What Margin would print goes to `logs/margin.log` in the data folder.
 
 The icon calls the Python Margin was installed in, so another `margin-gui` earlier on the PATH (an old one in

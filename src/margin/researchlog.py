@@ -47,6 +47,8 @@ GROUPS = {
 }
 GROUP_NAMES = {"entries": "Your own entries", "documents": "Documents", "checks": "Checks", "themes": "Themes",
                "codebooks": "Codebooks", "history": "Restored versions", "together": "Work together"}
+# the downloads may go to other people, for whom "Your own" is wrong: an entry is an "Entry" there
+FILE_GROUP_NAMES = {**GROUP_NAMES, "entries": "Entry"}
 MAX_TEXT = 10000
 MAX_WHY = 2000
 _ID = re.compile(r"e[0-9a-f]{16}")
@@ -238,7 +240,7 @@ def table(ws: Workspace) -> list[dict]:
     """Every entry, oldest first, as rows for a spreadsheet."""
     out = []
     for e in entries(ws, limit=None, oldest_first=True)["entries"]:  # every entry: 2,000 was all a download held
-        out.append({"When (UTC)": e["at"], "Who": e["who"], "What": GROUP_NAMES.get(e["group"], e["group"]),
+        out.append({"When (UTC)": e["at"], "Who": e["who"], "What": FILE_GROUP_NAMES.get(e["group"], e["group"]),
                     "Entry": e["text"], "About": e["title"] or "", "Why": e["why"] or "",
                     "Margin version": e.get("app_version") or ""})
     return out

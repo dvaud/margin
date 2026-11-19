@@ -28,10 +28,13 @@ honest: [How the AI is used and limited](how-the-ai-is-used.md).
 For an installation that runs unattended, use the **Claude API** with a key of your own instead: the same queue and
 the same models per task (`margin queue run --backend anthropic`).
 
+Have a ChatGPT plan or a Google account instead? Codex and Antigravity work the same way:
+[Codex and Antigravity](other-agents.md).
+
 ## Set it up once
 
-On the first screen, or in *Settings → AI → Claude Code*, press **Set up Claude**
-([First steps](first-steps.md)). It installs Claude Code if it is missing (after showing you the command),
+On the first screen, or in *Settings → AI → Subscription* with Claude Code chosen, press **Set up Claude**
+([First steps](first-steps.md#1-the-ai)). It installs Claude Code if it is missing (after showing you the command),
 opens a window for the one-time sign-in and waits for it, then writes the plugin into your Margin folder
 (`claude-plugin/`) and adds it to Claude Code by running the same two commands you would type (`claude plugin
 marketplace add …`, `claude plugin install margin-run@margin`). Nothing else in Claude Code's settings changes. The
@@ -94,11 +97,12 @@ has (*· 4 helpers at once*).
 
 ### At your plan's usage limit
 
-When Claude Code stops because your plan's usage limit is reached, the queue keeps the work, and *Settings → AI → At
-your plan's usage limit* decides what happens next: **Wait and continue later** (start Claude Code again when the
-limit resets; the page says when, if Claude Code said it), or **Carry on with the local model**, which answers what
-waits on this computer, where it may (a local model must be chosen). Answers the local model gives count like any
-other and record which model gave them.
+When Claude Code stops because your plan's usage limit is reached, the queue keeps the work, and *At your plan's usage
+limit* (*Settings → AI*, beside the local model for the documents only a local AI may read) decides what happens next: **Wait and continue later** (start Claude Code again when the
+limit resets; the page says when, if Claude Code said it), or **Carry on with the local model**: the page then offers
+the local model's own Start, and once you press it the local model answers what waits on this computer, where it may
+(a local model must be chosen). It never starts by itself. Answers the local model gives count like any other and
+record which model gave them.
 
 **Choose the helpers for this run**, folded under that line beside *Start Claude Code*, lists each helper that has work waiting, with its model,
 what it would answer and how much waits (*Labeller haiku · Codebook labels · 7,868 waiting*). Set how many of each
@@ -217,4 +221,4 @@ terminal shows any start-up problem (it then waits for the app; stop it with <kb
 
 ---
 
-Next: [A model on your own computer →](local-models.md)
+Next: [Codex and Antigravity →](other-agents.md)

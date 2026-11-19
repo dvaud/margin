@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
                          "running is quit first, unless something runs in it), otherwise start it in the background "
                          "(output to logs/margin.log in the data folder) and open it")
     ap.add_argument("--no-start-ollama", action="store_true",
-                    help="with --launcher: do not start the Ollama app when it is not running")
+                    help="kept for older icons: Margin no longer starts Ollama when it opens (0.19.15)")
     a = ap.parse_args(argv)
     if a.local_only:
         os.environ["MARGIN_LOCAL_ONLY"] = "1"
@@ -54,7 +54,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {m}")
         return 0
     if a.launcher:
-        from .. import home
         from . import launcher
 
         replaced = ""
@@ -79,10 +78,8 @@ def main(argv: list[str] | None = None) -> int:
         launcher.log_to_file()
         if replaced:
             print(replaced)
-        if not a.no_start_ollama:
-            started = launcher.start_ollama(home.load_settings())
-            if started:
-                print(f"Started {started} (the model service was not running).")
+        # 0.19.15: Ollama is no longer started here: nothing AI loads until a person presses a Start (the first
+        # request of a model starts Ollama, `ollama_setup.wake`); --no-start-ollama is still accepted, and has no effect
     from .server import serve
 
     return serve(a.host, a.port, open_browser=not a.headless, launcher=a.launcher)

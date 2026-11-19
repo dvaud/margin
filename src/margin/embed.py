@@ -18,7 +18,7 @@ import threading
 from array import array
 from typing import Callable, Protocol, Sequence
 
-from .llm import BackendError
+from .llm import BackendError, local_urlopen
 from .store import Workspace
 
 # Some embedding models are trained with a prefix that says whether a text is a query or a document.
@@ -76,12 +76,26 @@ class OllamaEmbedder:
         self.base_url = url[:-3] if url.endswith("/v1") else url
         self.model, self.timeout = model, timeout
         if opener is None:
-            from urllib.request import urlopen as opener  # noqa: N813
+            opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
+        self._woken = False
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
+        if not self._woken and self.opener is local_urlopen:
+            # 0.19.15: Margin no longer starts Ollama when it opens; search by meaning starts it when it needs it (once
+            # it answers: a start that failed is tried again at the next request)
+            from .llm import _WAKE_LOCK
+            from .ollama_setup import wake
+
+            with _WAKE_LOCK:
+                if not self._woken:
+                    self._woken = wake(self.base_url)
+        if self.opener is local_urlopen:
+            from .llm import note_used
+
+            note_used(self.base_url, self.model)   # 0.19.15: its job's Stop lets go of it
         try:
             out = _post(self.opener, f"{self.base_url}/api/embed", {"model": self.model, "input": list(texts),
                                                                     "truncate": True}, self.timeout)
@@ -106,7 +120,7 @@ class OpenAIEmbedder:
         self.model, self.timeout = model, timeout
         self.api_key = api_key or os.environ.get("MARGIN_LOCAL_KEY", "local")
         if opener is None:
-            from urllib.request import urlopen as opener  # noqa: N813
+            opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -138,10 +152,15 @@ def _unit(v: Sequence[float]) -> array:
     return array("f", (x / n for x in v))
 
 
-def _restricted_docs(ws: Workspace) -> set[str]:
-    from . import access
+def _restricted_docs(ws: Workspace, embedder=None) -> set[str]:
+    """The documents an embedder on another computer may not read: not `cloud`, or `cloud` without its provider (the
+    provider of its address: OpenAI's for an OpenAI address, `other` for a lab's server; providers.py)."""
+    from . import access, providers
 
-    return {d for d, lv in access.levels(ws).items() if lv != "cloud"}
+    url = getattr(embedder, "base_url", "") or "" if embedder is not None else ""
+    # (an embedder without an address, a stand-in of a test, keeps the rule of 0.11: only `cloud` documents)
+    prov = providers.of_url(url) if url else None
+    return {d for d, lv in access.levels(ws, provider=prov).items() if lv != "cloud"}
 
 
 def remote(embedder) -> bool:
@@ -161,7 +180,7 @@ def status(ws: Workspace, model: str | None, embedder=None) -> dict:
     models = [r[0] for r in ws.query("SELECT DISTINCT model FROM embeddings")]
     skipped = 0
     if embedder is not None and remote(embedder):
-        docs = _restricted_docs(ws)
+        docs = _restricted_docs(ws, embedder)
         if docs:
             skipped = int(ws.scalar(f"SELECT COUNT(*) FROM passages WHERE section='body' AND doc_id IN "
                                     f"({','.join('?' * len(docs))}) AND passage_id NOT IN (SELECT passage_id FROM "
@@ -178,7 +197,7 @@ def build(ws: Workspace, embedder: Embedder, batch: int = 32, progress: Callable
                     "WHERE p.section='body' AND p.passage_id NOT IN (SELECT passage_id FROM embeddings WHERE model=?) "
                     "ORDER BY p.passage_id", (embedder.model,))
     if remote(embedder):  # 0.11: restricted passages are embedded only by an embedder on this computer
-        restricted = _restricted_docs(ws)
+        restricted = _restricted_docs(ws, embedder)
         todo = [r for r in todo if r["doc_id"] not in restricted]
     _q, dprefix = prefixes(embedder.model)
     done = 0

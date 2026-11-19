@@ -121,4 +121,4 @@ def test_the_theory_draft_page_can_start_claude_code_itself():
     assert "draftWithAI" not in _js("views/codebooks.js")
     js = _js("views/theory-draft.js")
     tick = js[js.index("function tickRunning("):js.index("function theoryRead(")]
-    assert "queueNotice(q)" in tick and "stopButton({ onClick: stopReading })" in tick
+    assert "runEls.run.update(job)" in tick and 'aiRun({ size: "full", title: "Reading the theory"' in js   # 0.19.13: the AI run panel

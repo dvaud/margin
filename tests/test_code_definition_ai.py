@@ -458,7 +458,8 @@ def test_the_claude_code_queue_hands_it_out_and_takes_it_back(project):
 
 def test_the_editor_keeps_what_is_typed_the_busy_state_and_the_places():
     js = (ROOT / "src/margin/gui/static/views/codebooks.js").read_text(encoding="utf-8")
-    ask = js.split("  async function askDraft(c, btn) {", 1)[1].split("\n  }\n", 1)[0]
+    # askDraft and the job it follows (followDraft: also after a memory refusal's Start)
+    ask = js.split("  async function askDraft(c, btn) {", 1)[1].split("  function takeDraft(", 1)[0]
     # an arriving draft makes only that code's define box again, not the whole editor (typing and caret stay)
     assert "draw()" not in ask and "refreshDefineBox(now)" in ask
     assert "box.replaceWith(defineBox(c))" in js

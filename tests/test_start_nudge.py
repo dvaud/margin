@@ -59,22 +59,22 @@ def test_the_page_nudges_and_follow_ups_carry_the_button():
     lib = (STATIC / "lib.js").read_text()
     # the page's rule is the one above, and the time counts per project (the sidebar and a waiting result redraw)
     rule = re.search(r"const idleQueue = \(q\) => (.+);", lib).group(1)
-    for part in ('q.route === "claude_code"', "q.can_start", "!(q.runner || {}).running", "q.waiting", "!q.being_answered"):
+    for part in ("isAgentRoute(q.route)", "q.can_start", "!(q.runner || {}).running", "q.waiting", "!q.being_answered"):
         assert part in rule
     assert "const WAIT_SINCE = new Map();" in lib and "NUDGE_AFTER = 5000" in lib
     assert "Nothing runs until you press it." in lib and '"Stop Claude Code"' in lib
     # the nudge changes the button in place: a class, never a new button under the pointer
-    nudge = lib[lib.index("function nudge(b, hint)"):lib.index("function watchIdle")]
-    assert 'b.classList.add("sc-nudge")' in nudge and "replace(box" not in nudge
-    # its styles: a pulse, and a still ring with reduced motion
-    # 0.17.0: reads the cascade (tests/_static.py rule()), not the release's sheet
+    nudge = lib[lib.index("  box.nudge = () => {"):lib.index("  if (o.nudge) {")]
+    assert 'b.classList.add("ar-nudge")' in nudge and "replace(" not in nudge
+    # 0.19.13: it takes the AI run panel's slow breath (5 s), in step with the clock (inStep: --ar-sync), and stands
+    # still with a ring under reduced motion. Reads the cascade (tests/_static.py rule()), not the release's sheet
     from _static import all_css, rule
 
-    assert "@keyframes sc-nudge" in all_css()
-    # 0.17.0 (design guide): the nudge is a state of the button component (components.css, 4.1), not of one page
-    assert rule(".btn.sc-nudge", media="(prefers-reduced-motion: reduce)")["animation"] == "none"
-    assert "1.6s" in rule(".btn.sc-nudge")["animation"] and "NUDGE_PULSE = 1600" in lib  # the pulse and the phase the page keeps in step
-    # a follow-up on a result (a stronger model, a second opinion, reading again) that waits for Claude Code
+    assert "@keyframes ar-nudge" in all_css() and "inStep(b)" in nudge
+    # the nudge is a state of the button component (components.css, 4.1), not of one page
+    assert rule(".btn.ar-nudge", media="(prefers-reduced-motion: reduce)")["animation"] == "none"
+    assert "5s" in rule(".btn.ar-nudge")["animation"] and "var(--ar-sync" in rule(".btn.ar-nudge")["animation-delay"]
+    # a follow-up on a result (a stronger model, a second opinion, reading again) that waits for Claude Code: the
+    # panel draws Claude's live side, with Start Claude Code
     progress = (STATIC / "views" / "progress.js").read_text()
-    mini = progress[progress.index("export class MiniJob"):]
-    assert "startClaude(App.project" in mini and "this.startEl.remove()" in mini
+    assert 'aiSide({ where: "cloud", live: true' in progress and "export class MiniJob extends AiRun" in progress

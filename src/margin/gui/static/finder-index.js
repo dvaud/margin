@@ -61,12 +61,12 @@ export const ACTIONS = [
   ["Build the glossary of terms", "in Concepts", "#/concepts", "network", "glossary terms abbreviations acronyms concepts vocabulary synonyms"],
   ["Bring in my Zotero library", "in Documents", "#/bibliography", "library", "zotero references citations literature bibtex import collection"],
   ["See my notes and highlights", "in Documents", "#/notes", "highlighter", "highlight annotate annotation memo notes comments"],
-  ["Write in the research log", "in Overview", "#/log", "notebook", "diary journal decision audit trail entry record"],
+  ["Write in the research log", "in Research log", "#/log", "notebook", "diary journal decision audit trail entry record"],
   ["Choose the AI or set up Claude", "in Settings", "#/settings/model", "cloud", "ai model claude anthropic api key local ollama plan subscription backend"],
   ["Start a new project", "in Projects", "#/projects", "folder-open", "create project new open switch"],
   ["Open the settings", "in Settings", "#/settings", "sliders", "settings preferences options appearance dark light"],
   ["Copy my link", "in Settings › Technical", "#/settings/link", "link", "bookmark link address url open browser"],
-  ["Read what's new in this version", "in Settings › Technical", "#/settings/updates", "sparkles", "changelog change log release notes news new version changes update updated whats"],
+  ["Read what's new in this version", "in Settings › General", "#/settings/updates", "sparkles", "changelog change log release notes news new version changes update updated whats"],
   // 0.18.1 part A: its actions below this line
   ["Mark a document as theory", "in Documents, a row’s menu", "#/sources", "book-marked", "theory theoretical framework lens leave out evidence role nicolini meadows"],
   ["Keep your own draft as a working document", "in Documents, a row’s menu", "#/sources", "notebook", "working document draft notes my own writing never a source check against the corpus role"],
@@ -206,7 +206,7 @@ function scoreWord(q, e) {
 
 export function findFeatures(query, index, { limit = 8 } = {}) {
   const norm = normalise(query);
-  if (!norm) return index.filter((e) => e.kind === "place").slice(0, limit);
+  if (!norm) return index.filter((e) => e.kind === "place");   // nothing typed: every place (nine), whatever the limit
   let qw = norm.split(" ");
   const kept = qw.filter((w) => !STOP.has(w));
   if (kept.length) qw = kept;

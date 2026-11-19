@@ -503,6 +503,7 @@ def save(ws, name: str, csv_text: str, title: str | None = None, label: str | No
     parse_csv(csv_text)  # validate before writing
     folder = Path(ws.root) / "frameworks"
     folder.mkdir(exist_ok=True)
+    new = not (folder / f"{n}.csv").exists()
     (folder / f"{n}.csv").write_text(csv_text.lstrip("﻿"), encoding="utf-8")
     meta = {k: v for k, v in (("title", title), ("label", label), ("directional", bool(directional) or None)) if v}
     side = folder / f"{n}.json"
@@ -512,6 +513,10 @@ def save(ws, name: str, csv_text: str, title: str | None = None, label: str | No
         side.unlink()
     fw = _load_file(folder / f"{n}.csv", "project")
     assert fw is not None
+    if new:  # a codebook made in this project: shared at once when the team's setting says so (teamcodebooks.py)
+        from .solo import made
+
+        made(ws, n)
     return fw
 
 

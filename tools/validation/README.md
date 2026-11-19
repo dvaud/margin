@@ -51,4 +51,6 @@ AI is `margin measure`.
 ## Changing it
 
 Change it only on purpose, and record a new run afterwards (`docs/DEVELOPING.md`, *The validation report*). Do not add
-files to `tools/demo_corpus/`: interface tests and the first-run copy use it. Recorded runs are in `runs/`.
+files to `tools/demo_corpus/`: interface tests and the first-run copy use it. Recorded runs are in `runs/`, one file per
+run named by its date and route (a local model's run by its model's name); `runs/person/` holds a real project's
+judgements made by a person (`margin validate person`), which are not part of this gold set and hold no document text.

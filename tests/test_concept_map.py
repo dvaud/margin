@@ -303,9 +303,13 @@ def test_no_query_binds_more_variables_than_sqlite_allows(ws, monkeypatch):
     assert not ws.query("SELECT name FROM sqlite_temp_master WHERE name LIKE 'd1_%'")
 
 
+def m_name(ws) -> str:
+    return conceptmap.concept_map(ws, n=30)["groups"][0]["name"]
+
+
 def test_the_command_line_says_it_in_words(ws):
     text = conceptmap.as_text(conceptmap.concept_map(ws, n=30))
-    assert "concepts, from" in text and "Group 1" in text
+    assert "concepts, from" in text and m_name(ws) in text
 
 
 def test_the_routes(api, tmp_path):  # noqa: F811
@@ -373,8 +377,9 @@ def test_counts_and_pmi_of_a_hand_made_corpus_are_exact(tmp_path):
             ("alpha", 4, 1), ("beta", 4, 1), ("gamma", 4, 2), ("delta", 2, 2)]
         assert [(e["a"], e["b"], e["together"], e["pmi"]) for e in m["edges"]] == [
             ("t-gamma", "t-delta", 2, 1.0), ("t-alpha", "t-beta", 3, 0.58)]
-        assert m["groups"] == [{"group": 1, "size": 2, "names": ["alpha", "beta"]},
-                               {"group": 2, "size": 2, "names": ["gamma", "delta"]}]
+        assert [{k: g[k] for k in ("group", "size", "names", "name", "name_source")} for g in m["groups"]] == [
+            {"group": 1, "size": 2, "names": ["alpha", "beta"], "name": "Alpha and beta", "name_source": "concepts"},
+            {"group": 2, "size": 2, "names": ["gamma", "delta"], "name": "Gamma and delta", "name_source": "concepts"}]
         assert m["links"] == [] and m["links_off_map"] == 1
         e = conceptmap.edge(w, "t-beta", "t-gamma")
         assert (e["together"], e["pmi"]) == (1, round(math.log2(1 * 8 / (4 * 4)), 2)) == (1, -1.0)
@@ -407,7 +412,7 @@ def test_twelve_groups_are_numbered_and_named(tmp_path):
         assert [g["group"] for g in m["groups"]] == list(range(1, 13))
         assert all(g["size"] == 2 for g in m["groups"]) and all(n["group"] for n in m["nodes"])
         text = conceptmap.as_text(m)
-        assert "Group 6 (2)" in text and "Group 12 (2)" in text
+        assert "A05 and b05 (2)" in text and "A11 and b11 (2)" in text
     finally:
         w.close_all()
 

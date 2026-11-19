@@ -65,5 +65,5 @@ def test_the_search_page_draws_each_state():
 
 def test_the_settings_note_names_the_documents_page():
     js = (STATIC / "views" / "settings.js").read_text(encoding="utf-8")
-    assert "set up search by meaning on the project’s Documents page" in js
+    assert "It is set up per project, on the project’s Documents page." in js
     assert "Set up search by meaning under Documents if needed" not in js

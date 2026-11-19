@@ -6,22 +6,26 @@ mentions in `term_mentions` in one sentence), by the words between them:
     X such as Y (, Z and W)          X broader than Y (and Z, W)
     Y (, Z) and other X / or other X X broader than Y (and Z)
     X, also called Y / X (also known as Y) / X, i.e. Y          the same
-    X leads to / causes / reduces / increases / results in Y      X has an effect on Y
+    X leads to / causes / reduces / increases / undermines / results in Y      X has an effect on Y
+    X requires / needs / depends on / relies on Y                 X needs Y (seen from Y: needed by)
+    X shapes / influences / affects / determines Y                X shapes Y (seen from Y: shaped by)
+    X conflicts with / clashes with / is at odds with Y           X clashes with Y (the same from both ends)
     X instead of Y                   X replaces Y
 
 **English only**, in this release (the manual says so). A pattern inside quotation marks (someone's words being
 quoted, a title) is passed by, and so is a sentence where the two terms are not joined by the connecting words alone
-(anything else between them, beyond an article). Each proposal is a row of `concept_links` with source `pattern`,
-never confirmed until a person accepts it, as links from search by meaning are; its sentences (each with its document
-and page) are kept in `concept_link_sentences`, so the Concepts page shows why it was proposed. Theory documents
-(docrole.py) are not read: the glossary leaves them out, so their terms have no mentions here.
+(anything else between them, beyond an article). A relation of one term upon another (effect, needs, shapes,
+clashes, replaces) is passed by when a question or a negation opens it (*whether*, *if*, *nothing in*, *no*, …) and
+when its verb is inside a longer known term (*training needs assessment*). Each proposal is a row of `concept_links`
+with source `pattern`, never confirmed until a person accepts it, as links from search by meaning are; its sentences
+(each with its document and page) are kept in `concept_link_sentences`, so the Concepts page shows why it was
+proposed. Theory documents (docrole.py) are not read: the glossary leaves them out, so their terms have no mentions here.
 
 Rebuilt with the glossary (terms.build calls `find`), like the abbreviation links: a person's decisions on the pairs
 (`reviews`, item kind `concept_link`) are kept, by the pair.
 """
 from __future__ import annotations
 
-import json
 import re
 import sqlite3
 from collections import defaultdict
@@ -36,16 +40,29 @@ _MODAL = r"(?:(?:can|could|may|might|will|would|often|usually|also|in\s+turn)\s+
 # the words between X and Y (both terms), and the relation from X to Y
 _BETWEEN = [
     (re.compile(rf"^\s*,?\s*such\s+as\s+{_ART}$", re.I), "broader"),
-    (re.compile(rf"^\s*,?\s+(?:and|or)\s+other\s+$", re.I), "narrower"),   # "Y and other X": Y narrower than X
+    (re.compile(r"^\s*,?\s+(?:and|or)\s+other\s+$", re.I), "narrower"),   # "Y and other X": Y narrower than X
     (re.compile(rf"^\s*,\s*(?:also\s+(?:called|known\s+as)|i\.\s?e\.,?|that\s+is,?|or\s+simply)\s+{_ART}$", re.I), "same"),
     (re.compile(rf"^\s*\(\s*(?:also\s+(?:called|known\s+as)|a\.k\.a\.?|i\.\s?e\.,?)\s+{_ART}$", re.I), "same"),
     (re.compile(rf"^\s+{_MODAL}(?:leads?|led|leading)\s+to\s+{_ART}$", re.I), "effect"),
     (re.compile(rf"^\s+{_MODAL}(?:causes?|caused|causing|reduces?|reduced|reducing|increases?|increased|increasing|"
-                rf"raises?|raised|lowers?|lowered|improves?|improved|worsens?|worsened|results?\s+in|resulted\s+in)\s+"
-                rf"{_ART}$", re.I), "effect"),
+                rf"raises?|raised|lowers?|lowered|improves?|improved|worsens?|worsened|undermines?|undermined|undermining|"
+                rf"results?\s+in|resulted\s+in)\s+{_ART}$", re.I), "effect"),
+    # D1 rest: "X needs Y" (a verb after "needs", as in "needs to cut", leaves the gap unmatched: the gap must end at Y)
+    (re.compile(rf"^\s+{_MODAL}(?:require[sd]?|requiring|need(?:s|ed)?|"
+                rf"(?:depends?|depended|depending|relies|relied|rely|relying)\s+(?:up)?on|"
+                rf"(?:is|are|was|were)\s+(?:dependent|reliant)\s+(?:up)?on)\s+{_ART}$", re.I), "needs"),
+    (re.compile(rf"^\s+{_MODAL}(?:shapes?|shaped|shaping|influences?|influenced|influencing|affects?|affected|"
+                rf"affecting|determines?|determined|determining)\s+{_ART}$", re.I), "shapes"),
+    (re.compile(rf"^\s+{_MODAL}(?:conflicts?|conflicted|clash(?:es|ed)?|(?:is|are|was|were)\s+at\s+odds)\s+with\s+"
+                rf"{_ART}$", re.I), "clashes"),
     (re.compile(rf"^\s+instead\s+of\s+{_ART}$", re.I), "replaces"),
 ]
 _LIST = re.compile(r"^\s*(?:,|,?\s+(?:and|or))\s+(?:(?:the|a|an)\s+)?$", re.I)   # between the items of a list
+# a question or a negation just before the first term: "whether X affects Y", "nothing in X conflicts with Y". Only the
+# relations of one term upon another are held back (a negated "such as" or "also called" is still a naming)
+_NEGATED = re.compile(r"\b(?:whether|if|nothing|no|not|never|none|neither|nor|without|unless|cannot|hardly)\b", re.I)
+_CLAUSE_END = re.compile(r"[.;:!?,\u2014\u2013()]")
+_NEGATABLE = {"effect", "needs", "shapes", "clashes", "replaces"}
 _QUOTES = "\"“”«»„"
 LANGUAGES = ("en",)
 
@@ -53,6 +70,12 @@ LANGUAGES = ("en",)
 def _inside_quotes(sentence: str, at: int) -> bool:
     """Whether position `at` of a sentence is inside quotation marks (an odd number of quote marks before it)."""
     return sum(sentence[:at].count(q) for q in _QUOTES) % 2 == 1
+
+
+def _opened_by_doubt(text: str, start: int) -> bool:
+    """Whether the last few words before `start`, in the same clause, hold a question or negation opener."""
+    clause = _CLAUSE_END.split(text[:start])[-1]
+    return bool(_NEGATED.search(" ".join(clause.split()[-4:])))
 
 
 def _pairs(text: str, ms: list[tuple[int, int, str]]) -> list[tuple[str, str, str]]:
@@ -84,6 +107,13 @@ def _pairs(text: str, ms: list[tuple[int, int, str]]) -> list[tuple[str, str, st
             for rx, rel in _BETWEEN:
                 if not rx.match(gap) or _inside_quotes(text, e1) or _inside_quotes(text, s2):
                     continue
+                if rel in _NEGATABLE and _opened_by_doubt(text, s1):
+                    continue
+                # the verb sits inside a longer known term that runs on to the second ("training needs assessment"); a
+                # glossary term that runs on only to the verb ("heat pumps instead") is no such term
+                verb_at = e1 + len(gap) - len(gap.lstrip(" ,"))
+                if rel in _NEGATABLE and any(m[0] <= s1 and m[1] > verb_at and m[1] >= e2 for m in ms):
+                    continue
                 if rel == "same" and "(" in gap and ")" not in text[e2:e2 + 3]:
                     continue
                 out.append((t1, t2, rel))
@@ -108,7 +138,25 @@ def _pairs(text: str, ms: list[tuple[int, int, str]]) -> list[tuple[str, str, st
 
 
 _INV = {"broader": "narrower", "narrower": "broader", "effect": "effect_of", "effect_of": "effect",
-        "replaces": "replaced_by", "replaced_by": "replaces"}
+        "replaces": "replaced_by", "replaced_by": "replaces", "needs": "needed_by", "needed_by": "needs",
+        "shapes": "shaped_by", "shaped_by": "shapes"}
+
+
+def stated(text: str, x: str, y: str, kinds: tuple[str, ...] = ("needs", "shapes", "clashes")) -> str | None:
+    """The relation of these kinds the text states from the words `x` to the words `y` (the words between them alone,
+    as `find` reads them; any case), or None. For the offline demo's link answers (llm.BaselineBackend)."""
+    low, x, y = text.lower(), x.lower().strip(), y.lower().strip()
+    if not x or not y:
+        return None
+    for mx in re.finditer(re.escape(x), low):
+        for my in re.finditer(re.escape(y), low):
+            if my.start() < mx.end():
+                continue
+            gap = text[mx.end():my.start()]
+            for rx, rel in _BETWEEN:
+                if rel in kinds and rx.match(gap):
+                    return rel
+    return None
 
 
 def find(cx: sqlite3.Connection) -> int:
@@ -171,7 +219,3 @@ def sentences(cx: sqlite3.Connection, a: str, b: str) -> list[dict]:
     except sqlite3.OperationalError:
         return []
     return [{"doc_id": r[0], "title": r[1] or "", "page": r[2], "start": r[3], "end": r[4], "quote": r[5]} for r in rows]
-
-
-def as_json(cx: sqlite3.Connection, a: str, b: str) -> str:
-    return json.dumps(sentences(cx, a, b))

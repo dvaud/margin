@@ -14,9 +14,27 @@ codebook made for it (the kind `label`).
                                                                   # tools/validation/runs/<date>-<route>.json
     margin validate report --latest tools/validation/runs --out validation-report-ai.md   # no AI
 
-A local model answers the same queue with `margin --ws <project folder> queue run --backend ollama` instead of
-/margin-run. The run file keeps every answer with its model, prompt version, Margin version and date, and the gold
-answer beside it, so the report is made from the run file alone, with no AI (the release workflow does that).
+A local model answers the same queue with `margin --ws <project folder> queue run --backend ollama --model <name>`
+instead of /margin-run. The run file keeps every answer with its model, prompt version, Margin version and date, and
+the gold answer beside it, so the report is made from the run file alone, with no AI (the release workflow does that).
+A run answered on this computer is named after its model (`<date>-qwen3-5-4b.json`), not "local model server", so
+two local models never share a name; `margin validate report --latest runs/` sets the newest run of every route side
+by side (Claude Code beside each local model), then gives each in full.
+
+**Right answers from a real project, labelled by a person** (the second half of J4.3, Level 0: no AI):
+
+    margin validate person --project "Repair cafés" [--label "Repair cafés study"]
+                                                                  # tools/validation/runs/person/<date>-<label>.json
+
+takes what a person decided in a real project as the right answers and scores the AI's answers in that project against
+them: each excerpt of a check that an AI judged and a person then judged themselves (*Judge it myself*, a review that
+agrees or disagrees: `verifications.user_verdict`), and each code of a codebook an AI gave that a person accepted,
+changed or rejected (`reviews`, kind `label`), with the codes a person added to a passage the AI had labelled (codes it
+missed). Only what a person decided counts: an AI answer a person merely left alone is not a right answer, a comment
+without a judgement is not one, and an excerpt only a person judged (no AI read it) has no AI answer to score. The
+file holds grades, codes, models and prompt versions only, never a document's text, a quote or a hypothesis; it names
+the project by `--label` (the project's own name when none is given). The report shows it beside the invented gold
+set, labelled as what it is.
 """
 from __future__ import annotations
 
@@ -162,7 +180,9 @@ def prepare(ws: Workspace, folder: str | Path | None = None, decompose: str = "c
     read = ingest.ingest(ws, [str(p) for p in g["documents"]], ai_access="cloud")
     frameworks.save(ws, FRAMEWORK, g["codebook"], title="Validation codebook (invented, remote work)", label="code")
     pids = match_passages(ws, g["labels"])
-    r = routing.from_settings(home.load_settings(), route="claude_code")
+    from .taskqueue import queue_route
+
+    r = routing.from_settings(home.load_settings(), route=queue_route())
     hyps: dict[str, str] = {}
     with tk.queueing():
         batch = claimcheck._new_id("b")
@@ -268,11 +288,31 @@ def collect(ws: Workspace, folder: str | Path | None = None) -> dict:
             "checks": checks, "labels": labels}
 
 
+LOCAL_ROUTES = ("local model server",)   # routing.ROUTE_NAMES of a model on this computer (Ollama, a local server)
+
+
+def _slug(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(s or "").lower()).strip("-") or "unknown"
+
+
 def _route_of(passes: list[dict]) -> str:
-    routes = Counter(a.get("route") or "" for p in passes for it in p["checks"] + p["labels"] for a in it["answers"]
-                     if a.get("route"))
+    """The run's route, for its file name and its report: the route most answers came by; for a model on this
+    computer, that model's name (most answers), since "local model server" would name every local model alike."""
+    answers = [a for p in passes for it in p["checks"] + p["labels"] for a in it["answers"] if a.get("route")]
+    routes = Counter(a["route"] for a in answers)
     r = routes.most_common(1)[0][0] if routes else "unanswered"
-    return re.sub(r"[^a-z0-9]+", "-", r.lower()).strip("-") or "unknown"
+    if r in LOCAL_ROUTES:
+        models = Counter(a.get("model") for a in answers if a["route"] == r and a.get("model"))
+        if models:
+            return _slug(models.most_common(1)[0][0])
+    return _slug(r)
+
+
+def _is_local(run: dict) -> bool:
+    """Whether a run was answered on this computer (its answers' route), for the report's words."""
+    routes = Counter(a.get("route") for p in run["passes"] for it in p["checks"] + p["labels"] for a in it["answers"]
+                     if a.get("route"))
+    return bool(routes) and routes.most_common(1)[0][0] in LOCAL_ROUTES
 
 
 def make_run(passes: list[dict], gold: dict, route: str | None = None, date: str | None = None) -> dict:
@@ -287,7 +327,9 @@ def make_run(passes: list[dict], gold: dict, route: str | None = None, date: str
                     models.setdefault(a["kind"], Counter())[a["model"]] += 1
                     prompts.setdefault(a["kind"], Counter())[a.get("prompt_version") or "?"] += 1
                     versions[a.get("app_version") or "?"] += 1
-    return {"format": FORMAT, "date": date or _dt.date.today().isoformat(), "route": route,
+    local = any(a.get("route") in LOCAL_ROUTES for p in passes for it in p["checks"] + p["labels"]
+                for a in it["answers"])
+    return {"format": FORMAT, "date": date or _dt.date.today().isoformat(), "route": route, "local": local,
             "scored_by": version(), "gold": {"fingerprint": gold["fingerprint"], "hypotheses": len(gold["hypotheses"]),
                                                "passages": len(gold["labels"]), "codes": gold["codes"]},
             "models": {k: dict(v) for k, v in sorted(models.items())},
@@ -325,6 +367,24 @@ def latest_run(folder: str | Path) -> Path | None:
     return files[-1] if files else None
 
 
+def latest_runs(folder: str | Path) -> list[Path]:
+    """The newest run file of each route in `folder` (the route as the run file names it), newest first; [] when
+    there is none. A person's judgements (`person/`) are not runs of the gold set and are not among them."""
+    found: dict[str, tuple[tuple, Path]] = {}
+    folder = Path(folder)
+    for p in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+        try:
+            run = read_run(p)
+        except (ValueError, OSError):
+            continue
+        m = re.search(r"-(\d{1,3})$", p.stem)
+        order = (run.get("date") or p.name[:10], int(m.group(1)) if m else 1, p.name)
+        r = run.get("route") or "unknown"
+        if r not in found or order > found[r][0]:
+            found[r] = (order, p)
+    return [p for _o, p in sorted(found.values(), key=lambda x: x[0], reverse=True)]
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Scoring
 # ---------------------------------------------------------------------------------------------------------------
@@ -358,8 +418,10 @@ def score_checks(items: list[dict]) -> dict:
         conf.setdefault(g, Counter())[x] += 1
     out = {"n": len(items), "answered": sum(1 for it in items if it["got"] in STATUSES),
            "accuracy": _share([g == x for g, x in pairs]), "kappa": kappa(pairs),
-           "grounded_accuracy": _share([(g in GROUNDED) == (x in GROUNDED) for g, x in pairs]),
-           "grounded_kappa": kappa([(g in GROUNDED, x in GROUNDED) for g, x in pairs]),
+           # found evidence or not: over the finished checks only (an unfinished one found nothing, and would
+           # count as right wherever the gold says nothing is there)
+           "grounded_accuracy": _share([(g in GROUNDED) == (x in GROUNDED) for g, x in pairs if x in STATUSES]),
+           "grounded_kappa": kappa([(g in GROUNDED, x in GROUNDED) for g, x in pairs if x in STATUSES]),
            "confusion": {g: dict(c) for g, c in conf.items()},
            "per_verdict": {s: _share([x == s for g, x in pairs if g == s]) for s in STATUSES
                            if any(g == s for g, _ in pairs)}}
@@ -418,6 +480,196 @@ def score(run: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Right answers from a real project, labelled by a person (no AI)
+# ---------------------------------------------------------------------------------------------------------------
+PERSON_DIR = "person"   # the person's judgements beside the runs: runs/person/<date>-<label>.json
+PERSON_GRADES = ("supports", "partially_supports", "refutes", "not_relevant")
+GRADE_WORDS = {"supports": "Supports", "partially_supports": "Partly supports", "refutes": "Contradicts",
+               "not_relevant": "Not about it"}
+
+
+def _ai_grade(v: str | None) -> str:
+    """An AI's grade of an excerpt in a person's words: anything but the three grades is "not about it" (as
+    verdicts.changed_by_person reads it)."""
+    return v if v in ("supports", "partially_supports", "refutes") else "not_relevant"
+
+
+def collect_person(ws: Workspace, label: str | None = None) -> dict:
+    """What a person decided in a real project, set beside what the AI had answered, with no text: {"format", "kind":
+    "person", "project" (`label`, else the project's folder name), "date", "scored_by", "checks": [{"ai", "person",
+    "model", "prompt_version"[, "shown_first"]}], "checks_person_only" (excerpts a person judged that no AI read: not
+    scored), "checks_pointed" (I6: excerpts the small local model only pointed at: not scored; `shown_first`: a local
+    model's suggestion the person saw before judging),
+    "labels": [{"ai": true, "kept": bool, "changed": bool, "model", "prompt_version", "framework"}] (each AI code a
+    person decided on), "labels_added": [{"framework"}] (codes a person added to a passage the AI had labelled),
+    "people" (how many people decided)}. Only what a person decided counts (see the module's docstring)."""
+    from .profile import _decisions
+    from .verdicts import PERSON
+
+    checks, person_only, pointed, people = [], 0, 0, set()
+    for r in ws.query("SELECT verdict, user_verdict, model, prompt_version, suggestion_json FROM verifications "
+                      "WHERE subject_kind='user_claim' AND user_verdict IS NOT NULL"):
+        if r["user_verdict"] not in PERSON_GRADES:
+            continue
+        if not r["model"] or r["model"] == PERSON:   # no AI read it: nothing to score
+            person_only += 1
+            continue
+        try:
+            sug = json.loads(r["suggestion_json"]) if r["suggestion_json"] else None
+        except ValueError:
+            sug = None
+        if sug and sug.get("form") == "point":   # I6: the small local model pointed at a sentence and judged nothing
+            pointed += 1
+            continue
+        people.add("")  # Margin: one person decides
+        item = {"ai": _ai_grade(r["verdict"]), "person": r["user_verdict"], "model": r["model"],
+                "prompt_version": r["prompt_version"] or "?"}
+        if sug:   # I6: a local model's suggestion, shown to the person before they judged: agreement is not independent
+            item["shown_first"] = True
+        checks.append(item)
+    dec = _decisions(ws)
+    who: dict[str, str] = {}  # Margin: one person (ENLENS names each label's reviewer, reviews.person_id)
+    # the passages the AI labelled: their label task (`label:<framework>:<passage>`) was answered by a model. Matched
+    # on the whole task id, never split: a passage id has a colon of its own (`<doc>:0001`)
+    read = {r["task_id"] for r in ws.query(
+        "SELECT task_id FROM tasks WHERE kind='label' AND status='done' AND COALESCE(model, '')<>?", (PERSON,))}
+    labels, added = [], []
+    for r in ws.query("SELECT label_id, framework, passage_id, code, source, model, prompt_version FROM labels "
+                      "WHERE source IN ('model', 'person') ORDER BY label_id"):
+        if r["source"] == "model":
+            d = dec.get(r["label_id"])
+            if not d or d["decision"] not in ("accept", "change", "reject"):
+                continue   # an AI code no person decided on: not a right answer
+            people.add(who.get(r["label_id"], ""))
+            labels.append({"kept": d["decision"] != "reject", "changed": d["decision"] == "change",
+                           "model": r["model"] or "?", "prompt_version": r["prompt_version"] or "?",
+                           "framework": r["framework"]})
+        elif f"label:{r['framework']}:{r['passage_id']}" in read:
+            added.append({"framework": r["framework"]})
+    return {"format": FORMAT, "kind": "person", "project": (label or ws.root.name).strip()[:120],
+            "date": _dt.date.today().isoformat(), "scored_by": version(), "checks": checks,
+            "checks_person_only": person_only, "checks_pointed": pointed, "labels": labels, "labels_added": added,
+            "people": len(people - {""}) or (1 if checks or labels else 0)}
+
+
+def write_person(rec: dict, runs_dir: str | Path) -> Path:
+    """`runs/person/<date>-<label>.json` (-2, -3 for a second one of the same day)."""
+    out = Path(runs_dir) / PERSON_DIR
+    out.mkdir(parents=True, exist_ok=True)
+    base = f"{rec['date']}-{_slug(rec['project'])}"
+    path, n = out / f"{base}.json", 2
+    while path.exists():
+        path, n = out / f"{base}-{n}.json", n + 1
+    path.write_text(json.dumps(rec, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    return path
+
+
+def latest_person(runs_dir: str | Path) -> list[dict]:
+    """The newest person's judgements of each project in `runs/person/`, newest first."""
+    folder = Path(runs_dir) / PERSON_DIR
+    found: dict[str, tuple[tuple, dict]] = {}
+    for p in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+        try:
+            rec = json.loads(p.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        if rec.get("format") != FORMAT or rec.get("kind") != "person":
+            continue
+        m = re.search(r"-(\d{1,3})$", p.stem)
+        order = (rec.get("date") or "", int(m.group(1)) if m else 1)
+        if rec["project"] not in found or order > found[rec["project"]][0]:
+            found[rec["project"]] = (order, rec)
+    return [r for _o, r in sorted(found.values(), key=lambda x: x[0], reverse=True)]
+
+
+def score_person(rec: dict) -> dict:
+    """The AI's answers against the person's: per model, and in all."""
+    def checks(items):
+        pairs = [(it["person"], it["ai"]) for it in items]
+        conf: dict[str, Counter] = {}
+        for g, x in pairs:
+            conf.setdefault(g, Counter())[x] += 1
+        return {"n": len(pairs), "accuracy": _share([g == x for g, x in pairs]), "kappa": kappa(pairs),
+                "grounded_accuracy": _share([(g in ("supports", "partially_supports")) ==
+                                             (x in ("supports", "partially_supports")) for g, x in pairs]),
+                "confusion": {g: dict(c) for g, c in conf.items()}}
+
+    def labels(items, added):
+        return {"n": len(items), "kept": _share([it["kept"] for it in items]),
+                "changed": sum(1 for it in items if it["changed"]), "added": added}
+
+    by_model: dict[str, list] = {}
+    for it in rec["checks"]:
+        by_model.setdefault(it["model"], []).append(it)
+    lab_model: dict[str, list] = {}
+    for it in rec["labels"]:
+        lab_model.setdefault(it["model"], []).append(it)
+    return {"checks": checks(rec["checks"]), "checks_by_model": {m: checks(v) for m, v in sorted(by_model.items())},
+            "labels": labels(rec["labels"], len(rec["labels_added"])),
+            "labels_by_model": {m: labels(v, 0) for m, v in sorted(lab_model.items())}}
+
+
+def person_markdown(recs: list[dict]) -> str:
+    """The report's section for a person's judgements on real projects (no AI: from the files alone)."""
+    L = ["## Right answers from a real project, labelled by a person", "",
+         "Unlike the gold set above, these right answers are what a researcher decided in a real project of their own: "
+         "each excerpt of a check that an AI judged and the researcher then judged themselves, and each code an AI "
+         "gave that the researcher accepted, changed or rejected. Only what a person decided counts; what they left "
+         "alone does not. No document text is kept here.", ""]
+    if not recs:
+        return "\n".join(L + ["No project's judgements are recorded yet (`margin validate person --project <name>`).",
+                               ""])
+    for rec in recs:
+        sc = score_person(rec)
+        c, lb = sc["checks"], sc["labels"]
+        L += [f"### {rec['project']} ({rec['date']})", "",
+              f"A person's judgements on a real project, recorded on {rec['date']} by Margin {rec['scored_by']} "
+              f"({rec['people']} {'person' if rec['people'] == 1 else 'people'} decided).", ""]
+        if c["n"]:
+            L += [f"- **Excerpts:** the AI's grade was the person's for {_pct(c['accuracy'])} of {c['n']} excerpts "
+                  f"(Cohen's kappa {_k(c['kappa'])} over the four grades); found evidence or not, the same for "
+                  f"{_pct(c['grounded_accuracy'])}."
+                  + (f" {rec['checks_person_only']} more excerpts were judged by the person with no AI answer, so are "
+                     "not scored." if rec.get("checks_person_only") else "")
+                  + (f" {rec['checks_pointed']} more were only pointed at by the small local model (it judges nothing), "
+                     "so are not scored." if rec.get("checks_pointed") else "")
+                  + (lambda n: f" {n} of the scored excerpts were the local model's suggestions, shown to the person "
+                     "before they judged: agreement on those is not independent." if n else "")(
+                      sum(1 for it in rec["checks"] if it.get("shown_first")))]
+            if len(sc["checks_by_model"]) > 1:
+                L += [f"  - {m}: {_pct(v['accuracy'])} of {v['n']} (kappa {_k(v['kappa'])})"
+                      for m, v in sc["checks_by_model"].items()]
+            L += ["", "Which grade the AI gave (columns) for each grade the person gave (rows):", "",
+                  "| Person's grade | " + " | ".join(GRADE_WORDS[g] for g in PERSON_GRADES) + " | Share the same |",
+                  "|---|" + "---|" * (len(PERSON_GRADES) + 1)]
+            for g in PERSON_GRADES:
+                row = c["confusion"].get(g)
+                if row:
+                    n = sum(row.values())
+                    L.append(f"| {GRADE_WORDS[g]} | " + " | ".join(str(row.get(x, 0)) for x in PERSON_GRADES) +
+                             f" | {_pct(row.get(g, 0) / n if n else None)} |")
+            L.append("")
+        else:
+            L += ["- **Excerpts:** none that both an AI and a person judged.", ""]
+        if lb["n"] or lb["added"]:
+            L += [f"- **Codes:** the person kept {_pct(lb['kept'])} of the {lb['n']} codes an AI gave that they decided "
+                  f"on ({lb['changed']} kept with another relevance or direction), and added {lb['added']} codes the "
+                  "AI had not given to passages it had labelled.", ""]
+            if len(sc["labels_by_model"]) > 1:
+                L += [f"  - {m}: kept {_pct(v['kept'])} of {v['n']}" for m, v in sc["labels_by_model"].items()] + [""]
+        models = Counter(it["model"] for it in rec["checks"] + rec["labels"])
+        if models:
+            L += [f"Models judged: {_listing(dict(models))}.", ""]
+    L += ["Limits of these figures:", "",
+          "- **The person saw the AI's answer** before deciding, so agreement is likely higher than if they had judged "
+          "first; and they chose which answers to look at, so these are not a random sample.",
+          "- **One project, one person's reading**: another researcher may decide otherwise; no second person "
+          "checked these decisions.",
+          "- A code the person added counts as missed only on a passage the AI had labelled.", ""]
+    return "\n".join(L)
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # The report (no AI: from the run file alone)
 # ---------------------------------------------------------------------------------------------------------------
 def _pct(x: float | None) -> str:
@@ -437,7 +689,9 @@ def to_markdown(run: dict, gold_fingerprint: str | None = None) -> str:
     first = s["passes"][0]
     c, lb = first["checks"], first["labels"]
     L = ["# Validation report: the AI's answers against known right answers", "",
-         f"Recorded on {run['date']} through the route **{run['route']}**, scored by Margin {run['scored_by']} (the "
+         f"Recorded on {run['date']} through the route **{run['route']}**"
+         f"{' (a model on this computer)' if run.get('local') or _is_local(run) else ''}, scored by Margin "
+         f"{run['scored_by']} (the "
          f"tasks prepared by {_listing(Counter(p.get('prepared_by') or '?' for p in run['passes']))}). This "
          "report was made from the recorded run file with no AI; the figures change only when a new run is recorded. "
          "It is the half of the validation report that needs AI; `validation-report.md` is the half that does not.", "",
@@ -457,7 +711,7 @@ def to_markdown(run: dict, gold_fingerprint: str | None = None) -> str:
           f"- **Right verdict:** {_pct(c['accuracy'])} of {c['n']} hypotheses (Cohen's kappa {_k(c['kappa'])} over "
           f"the five verdicts); {c['answered']} of {c['n']} were finished.",
           f"- **Found evidence or not** (supported or partly, against the rest): right for {_pct(c['grounded_accuracy'])} "
-          f"(kappa {_k(c['grounded_kappa'])}).",
+          f"of the {c['answered']} finished (kappa {_k(c['grounded_kappa'])}).",
           *([f"- Single hypotheses: {_pct(c['simple_accuracy'])} of {c['simple_n']}; compound ones (two claims that "
              f"must both hold): {_pct(c['compound_accuracy'])} of {c['compound_n']}."]
             if "simple_n" in c and "compound_n" in c else []),
@@ -522,19 +776,74 @@ def to_markdown(run: dict, gold_fingerprint: str | None = None) -> str:
     return "\n".join(L)
 
 
+def _route_words(run: dict) -> str:
+    return f"{run['route']}{' (on this computer)' if run.get('local') or _is_local(run) else ''}"
+
+
+def side_by_side(runs: list[dict]) -> list[str]:
+    """The newest run of each route in one table (a local model beside Claude), scored on the same gold set."""
+    L = ["## The routes side by side", "",
+         "The newest recorded run of each route, each scored against the gold set it was recorded on. Each is given in "
+         "full below.", "",
+         "| Route | Recorded | Models | Right verdict | Kappa, verdicts | Code decisions right | Kappa, codes | "
+         "Exactly the right codes |", "|---|---|---|---|---|---|---|---|"]
+    for run in runs:
+        first = score(run)["passes"][0]
+        c, lb = first["checks"], first["labels"]
+        models = sorted({m for kind in run["models"].values() for m in kind})
+        unfinished = f" ({c['answered']} finished)" if c["answered"] < c["n"] else ""
+        L.append(f"| {_route_words(run)} | {run['date']} | {', '.join(models) or 'none'} | {_pct(c['accuracy'])} of "
+                 f"{c['n']}{unfinished} | {_k(c['kappa'])} | {_pct(lb['code_accuracy'])} | {_k(lb['kappa'])} | "
+                 f"{_pct(lb['same_codes'])} |")
+    if len({r["gold"]["fingerprint"] for r in runs}) > 1:
+        L += ["", "**Note:** these runs were scored on different versions of the gold set, so they are not exactly "
+                  "comparable."]
+    return L + [""]
+
+
+def to_markdown_many(runs: list[dict], gold_fingerprint: str | None = None) -> str:
+    """Several routes: the table side by side, then each run in full (its headings one level down; the limits,
+    the same for all, once at the end)."""
+    L = ["# Validation report: the AI's answers against known right answers", "",
+         f"{len(runs)} routes were recorded on the gold set: {', '.join(_route_words(r) for r in runs)}. This report "
+         "was made from the recorded run files with no AI; the figures change only when a new run is recorded. It is "
+         "the half of the validation report that needs AI; `validation-report.md` is the half that does not.", ""]
+    L += side_by_side(runs)
+    for i, run in enumerate(runs):
+        body = to_markdown(run, gold_fingerprint).split("\n", 1)[1]
+        body = re.sub(r"(?m)^## ", "### ", body)
+        if i < len(runs) - 1:
+            body = body.split("\n### Limits", 1)[0]
+        else:
+            body = body.replace("\n### Limits", "\n## Limits", 1)
+        L += [f"## {_route_words(run)}, {run['date']}", body.strip("\n"), ""]
+    return "\n".join(L)
+
+
 def report(run_path: str | Path | None = None, latest: str | Path | None = None, out: str | Path | None = None,
            folder: str | Path | None = None) -> tuple[str | None, Path | None]:
-    """(markdown, the run file used); (None, None) when `latest` names a folder without any run file."""
-    path = Path(run_path) if run_path else latest_run(latest) if latest else None
-    if path is None:
+    """(markdown, the run file used: the newest); (None, None) when `latest` names a folder without any run file.
+    With `latest`, the newest run of every route in the folder is reported, side by side (`latest_runs`). A person's
+    judgements on real projects (`<runs>/person/`, the newest of each project) follow, when there are any."""
+    if run_path:
+        paths, runs_dir = [Path(run_path)], Path(run_path).parent
+    elif latest:
+        paths, runs_dir = latest_runs(latest), Path(latest)
+    else:
+        paths, runs_dir = [], None
+    if not paths:
         return None, None
-    run = read_run(path)
+    runs = [read_run(p) for p in paths]
     fp = None
     try:
         fp = load_gold(folder)["fingerprint"]
     except (FileNotFoundError, ValueError):
         pass
-    md = to_markdown(run, fp)
+    md = to_markdown(runs[0], fp) if len(runs) == 1 else to_markdown_many(runs, fp)
+    persons = latest_person(runs_dir) if runs_dir else []
+    if persons:
+        md = md.rstrip("\n") + "\n\n" + person_markdown(persons)
+    path = paths[0]
     if out:
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         Path(out).write_text(md, encoding="utf-8")

@@ -65,7 +65,7 @@ def test_the_router_covers_the_sdg_pack():
     # every kind a task can have, and every kind the queue hands out, has a model and a helper on Claude Code
     from margin import prompts, taskqueue, tasks
 
-    for k in set(tasks.KINDS) | set(taskqueue.KINDS) | set(prompts.VERSIONS):
+    for k in (set(tasks.KINDS) | set(taskqueue.KINDS) | set(prompts.VERSIONS)) - {"point"}:   # I6: point is local-only
         assert r.first(k) and r.helper(k) in routing.HELPER_MODEL, k
         assert k in taskqueue.BATCH and k in taskqueue.NOUN, k
 

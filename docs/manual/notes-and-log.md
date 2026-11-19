@@ -35,9 +35,10 @@ it is set instead.
 
 ## The research log
 
-The *Research log* is a dated record of what was decided in the project. It is a view of *Overview*, and a
-*Research log* button at the top right of every page opens it as a panel on the right. It always opens the
-*Research log*. Margin writes an entry by itself when you:
+The *Research log* is a dated record of what was decided in the project. It is a place of its own in the sidebar, under
+*Project*. The *Write in the log* button at the top right of every other page opens the log as a panel beside the page; the
+panel holds the log only, and its foot link, *The whole research log*, opens the page. Margin writes an entry by itself
+when you:
 
 | Group | What is written down |
 | --- | --- |
@@ -47,17 +48,20 @@ The *Research log* is a dated record of what was decided in the project. It is a
 | *Codebooks* | A codebook made, changed, moved, copied or removed |
 | *Restored versions* | An earlier version put back |
 
-*New entry* with *Add to the log* writes an entry of your own (a decision, a reason, a field note). In the panel you
-write the entry in the box at the top: it is kept with the page you are on, and the panel lists that page's entries
-(*This page*) or all of them (*All*). *Edit* and *Remove*
-are for your own entries only: the entries Margin wrote are the record of what happened and cannot be removed or
-reworded. Beside an entry that Margin wrote for something you did, *Say why* (later *Change why*) adds your reason.
-Removing a document, a check, a set of themes or a theme, and saving a codebook, ask *Why? (optional, kept in the
-research log)*, so the reason is written when it is fresh.
+At the top of the page is a one-line box for an entry of your own (a decision, a reason, a field note): write it and
+press *Add to the log*. In the panel the entry is kept with the page you are on, and the panel lists that page's entries
+(*This page*) or all of them (*All*). An entry has no buttons under it: at the end of its row, the *More* menu (the ⋯
+icon) holds *Say why* (later *Change why*), *Edit*, *Compare with before* and *Remove…*. *Edit*
+and *Remove…* are for your own entries only: the entries Margin wrote are the record of what happened and cannot be
+removed or reworded. *Say why* adds your reason to an entry that Margin wrote for something you did. Removing a
+document, a check, a set of themes or a theme, and saving a codebook, ask *Why? (optional, kept in the research log)*,
+so the reason is written when it is fresh.
 
-Filter the log by group, search it, and download it as Markdown (.md), oldest first with a heading per day, or as
-Excel (.xlsx): for an appendix or an audit. An entry about a change has *Compare with before*, which opens the version
-from before the change ([below](#earlier-versions)).
+*Show* lists the entries by group, each with its number of entries: *Everything*, *Your own entries*, *Documents*,
+*Checks* and the rest. *Search the log* looks in the words. The downloads, *Markdown (.md)* (oldest first with a heading per
+day) and *Excel (.xlsx)*, are at the top right: for an appendix or an audit. In the Excel file the *What* column says
+*Entry* for yours. An entry about a change has *Compare with
+before*, which opens the version from before the change ([below](#earlier-versions)).
 
 The log is part of the project: it goes with it to another computer
 ([Moving to another computer](projects.md#moving-to-another-computer)). An entry you removed does not come back.

@@ -20,7 +20,7 @@ def test_the_page_files():
     assert "./ai-access.js" in (STATIC / "views" / "sources.js").read_text()
     assert "./ai-access.js" in (STATIC / "views" / "settings.js").read_text()
     result = (STATIC / "views" / "result.js").read_text()
-    assert "read-local" in result and "Waiting for your judgement" in result
+    assert "read-local" in result and "Awaiting manual review" in result   # 0.19.8: the tag of an excerpt that waits for you
 
 
 def test_served(api):  # noqa: F811

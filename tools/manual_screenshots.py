@@ -272,7 +272,7 @@ def shot_map(page, server):
 def shot_settings_ai(page, server):
     go(page, server, "#/settings/model")
     settled(page, 1000)
-    return ("area", 0, 548)   # title, version, tabs and the four tiles; the set-up checklist below is left out
+    return ("area", 0, 556)   # title, version, tabs and the four tiles in their two rows; the set-up below is left out
 
 
 def shot_reading_view(page, server):

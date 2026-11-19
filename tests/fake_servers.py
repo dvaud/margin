@@ -1,4 +1,5 @@
-"""Small stand-ins for an Ollama server and the Claude API, for tests and for trying the GUI offline.
+"""Small stand-ins for an Ollama server, the Claude API and a cloud provider's OpenAI-compatible API, for tests and for
+trying the GUI offline.
 
 They speak the same HTTP as the real services for the calls margin makes, and answer from simple rules:
 search terms are the claim's words, and a check grades the first passage as supporting with a short quote from it.
@@ -524,11 +525,106 @@ class _Anthropic(BaseHTTPRequestHandler):
         return self._send(404, {"type": "error", "error": {"type": "not_found_error", "message": "not found"}})
 
 
+class _OpenAI(BaseHTTPRequestHandler):
+    """A cloud provider's OpenAI-compatible API (stage 1 of other cloud providers): /models and /chat/completions under
+    any prefix, a key ("good-key", as a Bearer token or Azure's api-key header), and the misbehaviours the backend
+    must cope with: fields refused as Mistral refuses unknown ones (`server.forbidden`), a model that takes no
+    temperature 0 (`server.no_temperature`), a forced status (`server.status`)."""
+
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code: int, obj: dict) -> None:
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _key(self) -> str:
+        auth = self.headers.get("Authorization") or ""
+        return auth[7:] if auth.startswith("Bearer ") else (self.headers.get("api-key") or "")
+
+    def _authorised(self) -> bool:
+        got = self._key()
+        if got == self.server.key:
+            return True
+        # as OpenAI does, the refused key comes back in the message (the backend must not pass it on)
+        self._send(401, {"error": {"message": f"Incorrect API key provided: {got}.", "type": "invalid_request_error",
+                                   "code": "invalid_api_key"}})
+        return False
+
+    def do_GET(self):
+        self.server.requests.append((self.path, None, dict(self.headers)))
+        if not self._authorised():
+            return
+        if self.path.endswith("/models"):
+            return self._send(200, {"object": "list", "data": [{"id": m, "object": "model"} for m in self.server.models]})
+        return self._send(404, {"error": {"message": "not found"}})
+
+    def do_POST(self):
+        req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        self.server.requests.append((self.path, req, dict(self.headers)))
+        if self.server.redirect:   # a redirect elsewhere: a client that follows it would send the key there
+            self.send_response(307)
+            self.send_header("Location", self.server.redirect)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.server.error_body is not None:   # e.g. Gemini's: a JSON list, 400 API_KEY_INVALID for a bad key
+            body = json.dumps(self.server.error_body).encode()
+            self.send_response(self.server.status or 400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if not self._authorised():
+            return
+        if self.server.status:
+            return self._send(self.server.status, {"error": {"message": "Rate limit reached for requests"}})
+        if not self.path.endswith("/chat/completions"):
+            return self._send(404, {"error": {"message": "not found"}})
+        bad = [k for k in req if k in self.server.forbidden]
+        if bad:  # Mistral: {"detail": [{"type": "extra_forbidden", "loc": ["body", "seed"], ...}]}
+            return self._send(422, {"object": "error", "type": "invalid_request_message_error", "message": {"detail": [
+                {"type": "extra_forbidden", "loc": ["body", b], "msg": "Extra inputs are not permitted"} for b in bad]}})
+        if self.server.no_temperature and req.get("temperature") == 0:
+            return self._send(400, {"error": {"message": "Unsupported value: 'temperature' does not support 0 with this "
+                                                         "model. Only the default (1) value is supported.",
+                                              "param": "temperature", "code": "unsupported_value"}})
+        msgs = req.get("messages") or []
+        system = next((m["content"] for m in msgs if m["role"] == "system"), "")
+        user = next((m["content"] for m in msgs if m["role"] == "user"), "")
+        answer = json.dumps(_answer(system, user, False, req.get("model", "")))
+        if not req.get("stream"):
+            return self._send(200, {"choices": [{"message": {"role": "assistant", "content": answer},
+                                                 "finish_reason": "stop"}]})
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for i in range(0, len(answer), 16):
+            chunk = {"choices": [{"delta": {"content": answer[i:i + 16]}, "finish_reason": None}]}
+            self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+        self.wfile.write(b'data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}\n\ndata: [DONE]\n\n')
+        self.wfile.flush()
+
+
 def start(kind: str = "ollama", port: int = 0, trained_context: int = 32768):
-    """Start a fake server in a background thread; returns (server, base_url). Call server.shutdown() to stop."""
+    """Start a fake server in a background thread; returns (server, base_url). Call server.shutdown() to stop.
+    `kind`: "ollama", "anthropic" or "openai" (a cloud provider's OpenAI-compatible API)."""
     from margin.gui.server import QuickServer  # starts without a 35 s name lookup on Mac runners
 
-    srv = QuickServer(("127.0.0.1", port), _Ollama if kind == "ollama" else _Anthropic)
+    handler = {"ollama": _Ollama, "openai": _OpenAI}.get(kind, _Anthropic)
+    srv = QuickServer(("127.0.0.1", port), handler)
+    srv.key = "good-key"     # openai: the key it takes
+    srv.models = [FAKE_MODEL, SECOND]
+    srv.forbidden = set()    # openai: fields refused with 422 (Mistral refuses fields it does not know)
+    srv.no_temperature = False
+    srv.status = 0           # openai: answer every chat request with this status (429: a limit reached)
+    srv.redirect = ""        # openai: answer every chat request with a redirect to this address
+    srv.error_body = None    # openai: answer every chat request with this body (and `status`, or 400)
     srv.requests = []
     srv.trained_context = trained_context
     srv.thinking = False

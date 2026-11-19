@@ -20,6 +20,39 @@ STATUS_TEXT = {
     "failed": "The check did not work",
     "waiting": "Waiting for Claude Code",
 }
+
+
+def _agent_title() -> str:
+    """The agent that answers the queue now (stage 2: Codex, Antigravity), for the status "waiting"."""
+    try:
+        from .taskqueue import queue_route, route_title
+
+        return route_title(queue_route())
+    except Exception:  # noqa: BLE001 - before the settings can be read: Claude Code's words, as before
+        return "Claude Code"
+
+
+class _StatusTexts(dict):
+    """STATUS_TEXT with "waiting" named after the agent that answers the queue (stage 2: "Waiting for Codex");
+    every other status, and Claude Code's own words, as they were."""
+
+    def _now(self, key, value):
+        return f"Waiting for {_agent_title()}" if key == "waiting" else value
+
+    def __getitem__(self, key):
+        return self._now(key, dict.__getitem__(self, key))
+
+    def get(self, key, default=None):
+        return self._now(key, dict.get(self, key, default)) if key in self else default
+
+    def items(self):
+        return [(k, self._now(k, v)) for k, v in dict.items(self)]
+
+    def values(self):
+        return [v for _k, v in self.items()]
+
+
+STATUS_TEXT = _StatusTexts(STATUS_TEXT)
 WAITING_LOCAL = "Waiting for your local model"  # 0.13.11: only the excerpts of documents marked Only a local AI wait
 # 0.14.3: no excerpt is judged yet, and the ones read wait for the person (documents no AI may read): the status is
 # "not_checked", shown in these words where the app shows a status text
@@ -86,13 +119,25 @@ def nonsci_text(status: str | None, status_all: str | None) -> str | None:
 
 
 
+def is_suggestion(v) -> bool:
+    """I6: a local model's reading of an excerpt (`suggestion_json` set): a suggestion only, never a judgement that
+    counts. Rows of before I6 (NULL) count as they did."""
+    try:
+        return bool(v["suggestion_json"])
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
 def effective(v) -> dict:
-    """A verification row with a person's judgement applied: theirs replaces the AI's and always counts."""
+    """A verification row with a person's judgement applied: theirs replaces the AI's and always counts. I6: a local
+    model's suggestion the person has not judged counts as nothing yet (it waits for them, `_waits_for_person`)."""
     d = dict(v)
     uv = d.get("user_verdict")
     if uv in ("supports", "partially_supports", "refutes"):
         d.update(verdict=uv, confidence=1.0)
     elif uv == "not_relevant":
+        d.update(verdict="not_enough_info", confidence=None)
+    elif is_suggestion(d):
         d.update(verdict="not_enough_info", confidence=None)
     return d
 
@@ -118,7 +163,9 @@ def first_reading(v) -> dict | None:
         return None
     ok = before.get("verdict") in ("supports", "partially_supports", "refutes")
     d.update(verdict=before.get("verdict") if ok else "not_enough_info",
-             confidence=before.get("confidence") if ok else None, model=before.get("model") or d.get("model"))
+             confidence=before.get("confidence") if ok else None, model=before.get("model") or d.get("model"),
+             # I6: a first reading that was a local model's suggestion counted for nothing then, so not now either
+             suggestion_json=before.get("suggestion"))
     return d
 
 
@@ -151,9 +198,10 @@ def _graded(vs, thr: float) -> tuple[list, list, list]:
 
 
 def _waits_for_person(v) -> bool:
-    """An excerpt no model read (its document may not be read by any AI) that the person has not judged yet."""
+    """An excerpt no model read (its document may not be read by any AI) that the person has not judged yet; I6: or one
+    a local model read and only suggested something for."""
     try:
-        return v["model"] == PERSON and not v["user_verdict"]
+        return (v["model"] == PERSON or is_suggestion(v)) and not v["user_verdict"]
     except (KeyError, IndexError):
         return False
 

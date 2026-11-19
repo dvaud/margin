@@ -35,6 +35,7 @@ import hashlib
 import json
 import math
 import random
+import threading
 import time
 import uuid
 from collections import Counter, defaultdict
@@ -858,6 +859,11 @@ def view(ws: Workspace, run_id: str, framework: str | None = None, only: int | N
                          if t.get("replaces") in themes else None),
             "replaced_by": [{"theme_id": x, "name": name_of(x)} for x, o in themes.items() if o.get("replaces") == tid],
             "drawn_from": [{"theme_id": x, "name": name_of(x), "passages": n} for x, n in drawn.most_common()]})
+    # 0.19.6: a theme the AI could not name (its answers were rejected) says so, with why; one named since (by you,
+    # or by the AI on a later try) does not
+    failed = naming_problems(ws, run_id)
+    for t in out_themes + removed_themes:
+        t["naming_failed"] = failed.get(t["theme_id"]) if t["name_source"] == "terms" else None
     out_themes.sort(key=lambda t: (-t["size"], t["theme_id"]))
     removed_themes.sort(key=lambda t: (-t["size"], t["theme_id"]))
     # 0.8: numbered 1 to n in the order shown (no gaps after a merge); theme_id stays the stable id for links. A
@@ -1186,8 +1192,44 @@ def _allowed_reps(ws: Workspace, run_id: str, theme: dict, allowed: set[str], lv
     return reps
 
 
+def readers(ws: Workspace, run_id: str, settings: dict, themes: list[dict] | None = None) -> dict | None:
+    """0.20.1: who would name each theme with the AI chosen in Settings, for the page's AI line, without starting any
+    model: {"main": themes the main AI may read, "local": themes only the local model for restricted documents may
+    read, "none": themes no AI may read, "local_model": that model's name or None, and "local_problem" when that model
+    cannot be used now: its themes count as "none"}. None when the main AI is a model on
+    this computer (it reads every theme an AI may read). Worked out as `name_with_model` makes its tasks."""
+    from . import access
+    from .home import main_reads_local, restricted_choice
+
+    if main_reads_local(settings):
+        return None
+    choice = restricted_choice(settings)
+    local_model = (choice.get("model") or None) if choice and not choice.get("same_as_main") else None
+    lv = access.levels(ws, provider=access.route_provider(settings))
+    out = {"main": 0, "local": 0, "none": 0, "local_model": local_model}
+    for t in themes if themes is not None else view(ws, run_id)["themes"]:
+        if _allowed_reps(ws, run_id, t, {"cloud"}, lv):
+            out["main"] += 1
+        elif local_model and _allowed_reps(ws, run_id, t, {"cloud", "local"}, lv):
+            out["local"] += 1
+        else:
+            out["none"] += 1
+    if out["local"]:   # a local model chosen but not usable now (not installed, server elsewhere) names nothing
+        from .home import make_restricted_backend
+        from .llm import BackendError
+
+        try:
+            usable = make_restricted_backend(settings) is not None
+            problem = None if usable else "The local model chosen in Settings → AI is not on this computer."
+        except BackendError as e:
+            problem = str(e)
+        if problem:
+            out.update(none=out["none"] + out["local"], local=0, local_problem=problem)
+    return out
+
+
 def make_name_tasks(ws: Workspace, run_id: str, model: str, allowed: set[str] | None = None,
-                    theme_ids: set[int] | None = None) -> int:
+                    theme_ids: set[int] | None = None, provider: str | None = None) -> int:
     """A naming task per theme, with representatives from documents of the `allowed` settings only (0.11: the
     ones the reader may read; default: every document an AI may read). A theme without such passages gets none."""
     from . import access
@@ -1195,7 +1237,7 @@ def make_name_tasks(ws: Workspace, run_id: str, model: str, allowed: set[str] | 
 
     allowed = allowed or {"cloud", "local"}
     v = view(ws, run_id)
-    lv = access.levels(ws)
+    lv = access.levels(ws, provider=provider)   # for the reader's provider (providers.py)
     n = 0
     with ws.connect() as cx:
         for t in v["themes"]:
@@ -1240,6 +1282,52 @@ def store_theme(cx, t, payload: dict, obj: dict, model: str) -> tuple[bool, list
     return True, []
 
 
+_FIELD_WORDS = {"name": "the name", "description": "the description", "name_quote": "the quote for the name",
+                "description_quote": "the quote for the description"}
+
+
+def naming_reason(errors: list[str]) -> str:
+    """Why the AI's last answer to a theme was not used, in plain words (0.19.6), from the problems the checks found."""
+    text = " ".join(errors)
+    if "quote not found" in text:
+        return "its quotes were not found word for word in the passages"
+    if "there is no passage" in text:
+        return "it quoted a passage it was not given"
+    if "Field required" in text:
+        fields = [e.split(":", 1)[0].split(".")[0].strip() for e in errors if "Field required" in e]
+        missing = [_FIELD_WORDS.get(f, f) for f in dict.fromkeys(fields)]
+        return f"its answer left out {' and '.join(missing)}" if missing else "its answer was incomplete"
+    if "at most six words" in text:
+        return "the name it gave was longer than six words"
+    if "cut off" in text:
+        return "its answer was cut off before it was finished"
+    if "stuck" in text:
+        return "it got stuck writing blank space instead of an answer"
+    if "JSON" in text:
+        return "its answer was not in the form asked for"
+    return "its answer did not pass the checks"
+
+
+def naming_problems(ws: Workspace, run_id: str) -> dict[int, dict]:
+    """The themes of a run the AI could not name (0.19.6): its answers were rejected three times. Per theme id: the
+    reason in plain words, the problems as the checks wrote them, the model and when. Shown on the theme's card with
+    a way to try again, so the failure is seen where the naming was asked for."""
+    head = f"theme:{run_id}:"
+    out: dict[int, dict] = {}
+    for r in ws.query("SELECT t.task_id, (SELECT errors_json FROM results x WHERE x.task_id=t.task_id ORDER BY "
+                      "x.attempt DESC LIMIT 1) AS errors, (SELECT model FROM results x WHERE x.task_id=t.task_id ORDER "
+                      "BY x.attempt DESC LIMIT 1) AS model, (SELECT received_at FROM results x WHERE x.task_id="
+                      "t.task_id ORDER BY x.attempt DESC LIMIT 1) AS at FROM tasks t WHERE t.kind='theme' AND "
+                      "substr(t.task_id, 1, ?) = ? AND t.status='failed'", (len(head), head)):
+        try:
+            errors = [str(e) for e in json.loads(r["errors"] or "[]")]
+        except ValueError:
+            errors = []
+        out[int(r["task_id"][len(head):])] = {"reason": naming_reason(errors), "problems": errors[:5],
+                                              "model": r["model"], "at": r["at"]}
+    return out
+
+
 def name_with_model(ws: Workspace, run_id: str, backend, model: str, progress: Callable | None = None,
                     should_stop: Callable[[], bool] | None = None) -> dict:
     from . import access
@@ -1249,35 +1337,69 @@ def name_with_model(ws: Workspace, run_id: str, backend, model: str, progress: C
     # 0.11: representatives from documents the main model may read; a theme with none of those is named by the
     # local model (from its restricted passages) or keeps its key terms
     readers = access.Readers(backend, model)
-    make_name_tasks(ws, run_id, model, readers.main_levels)
+    make_name_tasks(ws, run_id, model, readers.main_levels, provider=readers.provider)
     head = f"theme:{run_id}:"
     made = {r[0] for r in ws.query("SELECT task_id FROM tasks WHERE kind='theme' AND substr(task_id, 1, ?) = ?",
                                    (len(head), head))}
     rest = {t["theme_id"] for t in view(ws, run_id)["themes"] if f"{head}{t['theme_id']}" not in made}
-    if rest and "local" not in readers.main_levels and readers.local_configured():
-        make_name_tasks(ws, run_id, model, {"cloud", "local"}, rest)
+    # 0.19.6: asking again is a new request. A theme whose naming failed (three answers rejected) and that the main
+    # model may not read (only a local AI may) was left failed by the first call, and a failed task is never asked
+    # again: the run ended at once and named nothing. Its task is made again, for the local model, like a new one.
+    stuck = {int(r[0][len(head):]) for r in ws.query(
+        "SELECT task_id FROM tasks WHERE kind='theme' AND substr(task_id, 1, ?) = ? AND status='failed'",
+        (len(head), head))}
+    if (rest or stuck) and "local" not in readers.main_levels and readers.local_configured():
+        make_name_tasks(ws, run_id, model, {"cloud", "local"}, rest | stuck)
     todo = [r["task_id"] for r in ws.query("SELECT task_id FROM tasks WHERE kind='theme' AND substr(task_id, 1, ?) = ? "
                                            "AND status != 'done' ORDER BY task_id", (len(head), head))]
     rid = runs_mod.start(ws, "theme", run_id, backend, model, len(todo))
     done = failed = kept = 0
     dflt = access.default(ws)
-    for i, tid in enumerate(todo, 1):
+    # 0.19.13: in a job of the app the themes only the local model may name wait for its own Start (when Claude names
+    # others), and are named beside Claude's once it is pressed (the job's local gate)
+    level = {tid: readers.level_of(ws, tid) for tid in todo}   # for the main model's provider
+    local_ids = {t for t in todo if level.get(t) not in readers.main_levels and level.get(t) == "local"}
+    gated = bool(local_ids) and readers.defers()
+    seen = [0]
+    tally = threading.Lock()   # the counts, kept by the job's thread and the local gate's worker
+
+    def one(tid: str) -> None:
+        nonlocal done, failed, kept
         if should_stop and should_stop():
-            break
+            return
+        with tally:
+            seen[0] += 1
         if progress:
-            progress(i, len(todo))
+            progress(min(seen[0], len(todo)), len(todo))
         # the setting worked out again as the text is about to leave (not the one stored when the tasks were made):
         # a document's cap counts what the themes named before this one sent
         with ws.connect() as cx:
             if access.recheck(cx, tid, dflt) is None:
-                continue
+                return
         got = readers.for_task(ws, tid)
         if got is None:
-            kept += 1  # keeps its key terms as its name
-            continue
+            with tally:
+                kept += 1  # keeps its key terms as its name
+            return
         ok, _e = tasks.run_one(ws, tid, got[0], got[1])
-        done += ok
-        failed += not ok
+        with tally:
+            done += ok
+            failed += not ok
+
+    # every local theme goes to the gate first, so the local side counts them (and its Start works) from the start,
+    # not only once the loop below has waited for Claude's answers before it
+    if gated:
+        for tid in todo:
+            if tid in local_ids:
+                readers.later(lambda tid=tid: one(tid), noun="theme", mixed=len(local_ids) < len(todo), ws=ws)
+    for tid in todo:
+        if should_stop and should_stop():
+            break
+        if gated and tid in local_ids:
+            continue
+        one(tid)
+    if gated:
+        readers.drain()
     runs_mod.finish(ws, rid, done + failed)
     with ws.connect() as cx:
         cx.execute("UPDATE theme_runs SET chat_model=? WHERE run_id=?", (model, run_id))

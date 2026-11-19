@@ -7,7 +7,7 @@
 // Ollama (after a dialog that says how big the download is on this computer and how much room it needs), with its
 // progress and Stop, or starts the Ollama that is installed but not running. On Linux, Ollama's installer asks for the
 // password, so the button opens a terminal window running Ollama's own line.
-import { api, h, icon, replace, showError, watchJob, TERMINAL, appName, confirmDialog, dialog, copyLine, button, link, notice, stopButton } from "../lib.js";
+import { api, h, icon, replace, showError, watchJob, TERMINAL, appName, confirmDialog, dialog, copyLine, button, link, notice, stopButton, fold } from "../lib.js";
 
 const OLLAMA_SITE = "https://ollama.com/download";
 const LOOK_EVERY = 3000;
@@ -61,6 +61,8 @@ function getOllama(app) {
       try {
         const r = await api("POST", "/api/ollama/start", {});
         if (r.job) { followInstall(r.job, area, btn); return; }   // an install is still running: its progress instead
+        if (r.running) { answersAlready(area, btn); return; }
+        lastStart = Date.now();   // 0.19.15: the card drawn again while it starts goes on saying so
         startedWait(area, btn);
       } catch (e) { showError(e); btn.disabled = false; }
     });
@@ -82,27 +84,32 @@ function getOllama(app) {
   api("GET", "/api/jobs").then((r) => {
     const j = ((r && r.jobs) || []).find((x) => x.kind === "ollama-install" && !TERMINAL.has(x.state));
     if (j && app.how !== "terminal") { followInstall(j, area, btn0); return; }
-    // 0.18.0rc2 (M8): Ollama is on this computer but does not answer: Margin starts it itself, once a minute at most
-    // (the card is drawn again whenever the page looks again); the button stays for when that did not work
-    if (app.installed && box.isConnected) {
-      if (Date.now() - lastAutoStart > 50000) { lastAutoStart = Date.now(); startByItself(area, btn0); }
-      else startedWait(area, btn0, STARTING, 60000 - (Date.now() - lastAutoStart));   // the card was drawn again meanwhile
-    }
+    // 0.19.15: Ollama on this computer but not running is no longer started by the card itself (0.18.0rc2 did, once a
+    // minute): nothing AI starts until the person presses. Start Ollama does it, and so does the first Start of a model.
+    // Only the press just made (Start Ollama, or Install Ollama's last step) is followed while it starts
+    if (app.installed && box.isConnected && Date.now() - lastStart < 60000) startedWait(area, btn0, STARTING, 60000 - (Date.now() - lastStart));
   }).catch(() => {});
   return box;
 }
 
-let lastAutoStart = 0;
-const STARTING = "Ollama was not running, so Margin is starting it. A moment…";
+let lastStart = 0;
+const STARTING = "Starting Ollama. A moment…";
 
 async function startByItself(area, btn) {
   btn.disabled = true;
   try {
     const r = await api("POST", "/api/ollama/start", {});
     if (r.job) { followInstall(r.job, area, btn); return; }   // an install is still running: its progress instead
-    if (r.running) { btn.disabled = false; return; }           // it answers already: the page notices it by itself
+    if (r.running) { answersAlready(area, btn); return; }
     startedWait(area, btn, STARTING);
   } catch (e) { btn.disabled = false; replace(area, h("p", { class: "muted small" }, `${e.message} Press Start Ollama to try again.`)); }
+}
+
+// Ollama answers already: the page notices it by itself within a few seconds. 0.19.10: the install's progress ("Starting
+// Ollama…") is replaced, not left running beside it, and a minute later the card says so if it was not noticed.
+function answersAlready(area, btn) {
+  btn.disabled = false;
+  startedWait(area, btn, "Ollama is running. A moment…");
 }
 
 // After Start Ollama: the page notices Ollama within a few seconds (and moves on); after a minute without it, say so.
@@ -114,8 +121,8 @@ function startedWait(area, btn, text = "Ollama is starting…", ms = 60000) {
     if (!area.isConnected) return;
     if (look) look.hidden = false;
     btn.disabled = false;
-    replace(area, h("p", { class: "muted small" }, btn.hidden ? "Ollama did not answer within a minute. Open the Ollama app yourself, or open this page again and Margin tries again."
-      : "Ollama did not answer within a minute. Open the Ollama app yourself, or press Start Ollama again."));
+    btn.hidden = false;   // 0.19.15: drawing the page again no longer starts it: the button is the way to try again
+    replace(area, h("p", { class: "muted small" }, "Ollama did not answer within a minute. Open the Ollama app yourself, or press Start Ollama again."));
   }, Math.max(1000, ms));
 }
 
@@ -207,7 +214,7 @@ function followInstall(job, area, btn) {
       // 0.18.0rc2 (M8): installed but not answering: Margin starts it, as the install's last step did, and waits; nothing
       // is left for the person to open
       if (btn) btn.hidden = true;
-      lastAutoStart = Date.now();
+      lastStart = Date.now();
       startByItself(area, btn || h("button"));
       return;
     }
@@ -279,21 +286,26 @@ function pullBox(ollama, chat, emb, opts, advice) {
   const pickChat = () => { const o = chatChoice.value(); return o ? { name: o.name, size: o.size } : chat; };
   const pickEmb = () => { const o = embChoice.value(); return o ? { name: o.name, size: o.size } : emb; };
   const first = () => pickChat() || pickEmb();
-  const btn = button({ kind: chat ? "main" : "standard" }, icon("download", { size: 14 }), `Download ${first().name}`);
+  // I6: the reading model is chosen for this computer and named only under Technical; the button says what it sets up
+  const tier = advice && advice.tier;
+  const picked = () => { const o = chatChoice.value(); return !!(o && adviceChat && adviceChat.pick && o.name === adviceChat.pick.name); };
+  const btnText = () => (chat && tier && picked() ? `Set up the local model (${first().size})` : `Download ${first().name}`);
+  const btn = button({ kind: chat ? "main" : "standard" }, icon("download", { size: 14 }), btnText());
   const area = h("div", { class: "local-pull", "aria-live": "polite" });
   const detail = h("p", { class: "muted small" });
   const refresh = () => {
-    btn.lastChild.textContent = `Download ${first().name}`;
-    detail.textContent = `${first().name}: ${first().size}. Ollama downloads it from ollama.com; none of your documents are sent. It can take a while, and ${appName()} keeps working meanwhile.`;
+    btn.lastChild.textContent = btnText();
+    detail.textContent = `${chat && tier && picked() ? `${tier.words}: ${first().size}` : `${first().name}: ${first().size}`}. Ollama downloads it from ollama.com; none of your documents are sent. Nothing starts until you press it. It can take a while, and ${appName()} keeps working meanwhile.`;
   };
   const computerLine = advice && advice.computer && advice.computer.words ? h("p", { class: "muted small" }, advice.computer.words) : null;
   const box = h("div", { class: "local-help" },
     chat ? h("p", {}, h("strong", {}, `Ollama ${ollama.version || ""} is running`.replace("  ", " ")), ", but it has no model yet. ",
-      adviceChat ? "These fit this computer; the first is the one Margin recommends:" : "Download one:")
+      tier ? `${tier.words} is chosen for this computer. ${tier.what}` : adviceChat ? "These fit this computer; the first is the one Margin recommends:" : "Download one:")
       : h("p", {}, h("strong", {}, "Ollama has no model for search by meaning yet."), " Download one, and it is chosen here:"),
     chat && adviceChat ? h("p", { class: "muted small model-what" }, advice.what_is_a_model) : null,
     computerLine,
-    chatChoice.el,
+    // I6: the choice of another model (with the names) is technical: folded
+    chatChoice.el && tier ? fold({ class: "model-tech-fold" }, "Technical: choose another model", chatChoice.el) : chatChoice.el,
     chat ? null : embChoice.el,
     alsoEmb ? h("label", { class: "it small", for: "pull-embed" }, alsoEmb) : null,
     alsoEmb ? embChoice.el : null,
@@ -328,7 +340,8 @@ function pullBox(ollama, chat, emb, opts, advice) {
       const p = j.progress || {};
       const of = p.count > 1 ? ` (${p.index + 1} of ${p.count})` : "";
       const checking = /verifying|writing|success/.test(p.status || "");
-      label.textContent = !p.model ? "Starting the download…" : checking ? `Checking ${p.model}${of}…` : `Downloading ${p.model}${of}`;
+      const what = tier && p.model === (adviceChat && adviceChat.pick && adviceChat.pick.name) ? "the local model" : p.model;   // I6: no name outside Technical
+      label.textContent = !p.model ? "Starting the download…" : checking ? `Checking ${what}${of}…` : `Downloading ${what}${of}`;
       const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
       meter.classList.toggle("indeterminate", !p.total);
       meter.setAttribute("aria-valuenow", p.total ? String(pct) : "");
@@ -339,7 +352,7 @@ function pullBox(ollama, chat, emb, opts, advice) {
       if (j.state === "done") {
         const r = j.result || {};
         const got = r.models || [];
-        replace(area, notice({ kind: "done" }, h("p", {}, `Downloaded: ${got.join(" and ")}.`)));
+        replace(area, notice({ kind: "done" }, h("p", {}, tier && adviceChat && adviceChat.pick && got.includes(adviceChat.pick.name) ? "The local model is set up on this computer. It starts only when you start a check." : `Downloaded: ${got.join(" and ")}.`)));
         const listed = (m) => (m && got.includes(m.name) ? (r.listed || {})[m.name] || m.name : "");
         if (opts.onReady) opts.onReady({ url: r.url || ollama.url, chat: listed(pickChat()), embed: listed(pickEmb()), chosen: r.chosen || null });
         return;
@@ -347,7 +360,7 @@ function pullBox(ollama, chat, emb, opts, advice) {
       btn.hidden = false;
       if (alsoEmb) alsoEmb.disabled = false;
       box.querySelectorAll(".model-choices input").forEach((i) => { i.disabled = false; });
-      btn.lastChild.textContent = `Download ${first().name} again`;
+      btn.lastChild.textContent = `${btnText()} again`;
       replace(area, j.state === "cancelled"
         ? h("p", { class: "muted small" }, "Stopped. Ollama keeps what it has; the download goes on from there.")
         : notice({ kind: "error", live: false }, h("p", {}, j.error || "The download did not finish.")));

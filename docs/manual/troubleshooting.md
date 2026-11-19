@@ -3,7 +3,7 @@
 # Troubleshooting and limits
 
 Find your problem by topic: [Install and update](#install-and-update) · [The icon and the app](#the-icon-and-the-app) ·
-[Claude](#claude) · [Local models](#local-models) · [Documents](#documents) · [Projects](#projects) ·
+[Claude](#claude) · [Codex and Antigravity](#codex-and-antigravity) · [Local models](#local-models) · [Documents](#documents) · [Projects](#projects) ·
 [Claude Code and the queue](#claude-code-and-the-queue) · [Limits](#limits). Still stuck? [Report a problem](settings.md#reporting-a-problem).
 
 Two files in the data folder (`~/margin` unless you chose another) often say why: `logs/margin.log` (the app) and
@@ -20,8 +20,8 @@ Two files in the data folder (`~/margin` unless you chose another) often say why
 | The install on Windows says "Margin was installed, but C:\Users\…\margin.exe is missing", with odd letters in the name | Your user folder has a letter with an accent (C:\Users\Dávid), which the installers of Margin 0.14 and earlier misread. Run the install line or *Install-Margin-Windows.cmd* of a later Margin: it installs over the half-done copy and makes the icons. |
 | macOS says *Install Margin.command* was "Not Opened" | The file is not signed by an Apple developer. Click *Done*, then allow it once in *System Settings → Privacy & Security → Open Anyway* ([Install](install.md#or-download-a-file-and-double-click-it)), or paste the install line in Terminal instead. |
 | Windows says it protected your PC, or the browser calls *Install-Margin-Windows.cmd* uncommon | The file is not signed. Keep it, then *More info → Run anyway*, or paste the install line in PowerShell instead. |
-| There is no *Update* button in the sidebar | It shows only when there is an update, in the place of *Quit*. To look now, or to see why a look failed: *Settings → Technical → Updates → Check for updates*. |
-| *Update* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows, Margin 0.14 and earlier: choose *Quit* and run the install line again in PowerShell. |
+| There is no *Update* button in the sidebar | It shows only when there is an update, in the place of *Quit*. To look now, or to see why a look failed: *Settings → General → Check for updates*. |
+| *Update* says it cannot update | It says why. Offline: try again later. Files of a git copy edited by hand: keep them with `git stash` (or undo them), then update. One-line install on Windows before 0.15.4: choose *Quit* and run the install line again in PowerShell. |
 | On Windows, a note says *The update to … did not finish* | Margin closed to install the new version but could not. Most often Claude Code still had Margin connected: close Claude Code, then press *Update* again. The details are in `logs/update.log`. |
 | Settings shows an older version after updating | That copy was still running. Choose *Restart now* on the notice at the top of the page, or *Quit* and open Margin from its icon. |
 | The page keeps saying *Starting Margin …* | After 90 seconds it says Margin did not come back: open it again from its icon (or with `margin-gui`), and look in `logs/margin.log` for the reason. |
@@ -44,10 +44,28 @@ Two files in the data folder (`~/margin` unless you chose another) often say why
 | *Set up Claude* cannot install Claude Code | No network, or the installer was blocked. Install it with Anthropic's set-up page (linked under *Technical details*), then press *Set up Claude* again. |
 | *Set up Claude* keeps waiting for the sign-in | Finish signing in in the window it opened (and in the browser page that window opened), then press *I have signed in*. No window? Open Terminal or PowerShell, type the line the page shows (it goes to an empty folder of Margin, then starts `claude`), and sign in. |
 | Claude Code answers with the wrong Claude account | The sidebar card (hover *Claude, on your plan*) and *Settings → AI* name the account it uses. To switch, type `claude auth logout` in Terminal or PowerShell, then press *Check again* and *Set up Claude* in *Settings → AI*: the sign-in window opens, and you sign in with the other account. |
-| Nothing happens after pressing an AI button | Work waits for Claude Code: press *Start Claude Code* ([Claude Code](claude-code.md#start-claude-code)). |
+| Nothing happens after pressing an AI button | Work waits for the agent: press *Start Claude Code* ([Claude Code](claude-code.md#start-claude-code)), or *Start Codex* or *Start Antigravity* when you chose one of those. |
 | "No Claude API key" | Export `ANTHROPIC_API_KEY` or enter it in Settings, or use a local model or the file queue. |
-| "Cloud models are switched off" / "Allow cloud models first" | The Claude API sends the passages read to Anthropic, so the app asks you to allow it first (*Settings → AI*). |
-| "The Claude API rejected the key" | Copy the key again from console.anthropic.com, and check it has credit. |
+| "Cloud models are switched off" / "Allow cloud models first" | A key billed per use (the Claude API or another provider) sends the passages read off the computer, so the app asks you first: pick *API key* in *Settings → AI* and say yes. |
+| "The Claude API rejected the key" | Copy the key again from platform.claude.com (Settings › API keys), and check it has credit. |
+
+## Codex and Antigravity
+
+Both are built against stand-ins and not yet tried with real accounts, so tell us what you meet
+([Report a problem](settings.md#reporting-a-problem)).
+
+| Problem | Fix |
+| --- | --- |
+| *Set up Codex* (or *Antigravity*) cannot install it | No network, or the installer was blocked. Install it from the maker's page ([Codex](https://github.com/openai/codex), [Antigravity](https://antigravity.google/docs/getting-started)), then press *Check again* in the step. |
+| *Start Codex* says Codex was not found | Set it up in *Settings → AI* (*Set up Codex*). If you installed it yourself, press *Check again* there; `MARGIN_CODEX=/path/to/codex` names the program (`MARGIN_AGY` for Antigravity). |
+| The sign-in step keeps waiting | Codex opens your browser by itself: finish signing in there ([Codex sign-in](https://learn.chatgpt.com/docs/auth)), then press *I have signed in*. Antigravity opens one terminal window: sign in there and in the page it opens. No window? Open Terminal or PowerShell, type the line the step shows, and sign in. |
+| *Start* says it is not signed in | Sign in once from *Settings → AI*, then press *Start* again. Antigravity does not say whether it is signed in until it runs, so the step may only confirm after the first try. |
+| The run stopped, saying the plan's usage limit was reached | The queue keeps the work. Start again when the limit resets (the page says when, if the agent did), or choose what happens next under *At your plan's usage limit* ([Claude Code](claude-code.md#at-your-plans-usage-limit)). |
+| *Start Antigravity* refuses: it does not offer its sandbox | Margin starts Antigravity only with its `--sandbox` switch (and `-p`), which it looks for in `agy --help`. Update Antigravity, then press *Start Antigravity* again. |
+| The report says a helper *tried to use* a tool and Antigravity refused it | A helper only needs Margin's own tools, so text in one of the passages it read probably told it to (prompt injection). Nothing ran. Look at that batch's passages; the run went on. |
+| Antigravity asks you to sign in again, though your own Antigravity is signed in | Margin runs Antigravity with a home folder of its own, so your settings never reach it. Where Antigravity keeps its sign-in in the home folder, Margin's copy needs its own: sign in once from *Settings → AI*. |
+| Excerpts of a document never reach Codex or Antigravity | The document must allow that company: OpenAI for Codex, Google for Antigravity ([Privacy](privacy.md#other-cloud-providers)). |
+| Every task on Antigravity uses Gemini 3.8 Flash | A free Google account offers that model only. Google AI Pro adds Gemini 4 Argon and Hydrogen, Ultra also Gemini 4 Carbon ([the line-ups](models.md#the-recommended-models-of-each-provider)). |
 
 ## Local models
 
@@ -64,7 +82,7 @@ Two files in the data folder (`~/margin` unless you chose another) often say why
 | "… sent nothing for 600 seconds" | The model did not start or stopped answering: usually too little memory. Close other apps or choose a smaller model. |
 | "… used its whole allowance … on reasoning" | The model kept reasoning without answering. Give reasoning a budget (*Settings → AI*, the default 1,500 tokens), choose *Only when judging excerpts*, or set it off. |
 | "… got stuck writing blank space" | A known failure of some models with fixed-format answers. It counts as one failed try of that task (and so does an answer cut off at the length limit): it is asked again, and the check goes on with its other parts. If it keeps happening, set *Reasoning* to off or choose another model. |
-| Excerpts wait with *Waiting for your local model* | Too little memory was free to start it ([Privacy](privacy.md#the-local-model-and-your-computers-memory)). Close programs and press *Read them now on this computer*, or choose a smaller model. |
+| Excerpts wait with *Waiting for your local model* | Too little memory was free to start it ([A model on your own computer](local-models.md#the-local-models-own-start-and-your-computers-memory)). Close programs and press *Read them now on this computer*, or choose a smaller model. |
 
 ## Documents
 

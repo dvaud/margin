@@ -172,6 +172,23 @@ while `local_only` is true). `project` sets the current project.
 `POST /api/settings/key` `{"key": "sk-ant-…", "remember": false}` → `{"key": {...}}`. Without `remember` the key is
 kept in memory for this run only. `DELETE /api/settings/key` forgets both. 403 when `local_only` is true (0.11.1).
 
+Other cloud providers. `backend` may be `"cloud_api"`, with settings `cloud_provider` (`openai`, `gemini`,
+`mistral`, `azure` or `openrouter`), `cloud_model` (judging excerpts), `cloud_small_model` (labels and links),
+`cloud_strong_model` (second opinions and hard cases; providers stage 2: each empty means the provider's
+recommendation, see `provider-models` below) and `azure_url` (the resource address, HTTPS; for Azure the three models
+are the person's own deployment names). Refused like `anthropic` while `allow_cloud` is false or `local_only` is
+true. `GET /api/state` gains `providers`: `{"list": [...], "keys": {"openai": true, …}, "route", "set_up",
+"other_set_up"}` (`keys` says only whether a key is stored; `route` is the provider of the main route; `set_up` and
+`other_set_up` say whether any provider, or any other than Anthropic, is set up). Provider ids: `anthropic`, `openai`,
+`gemini`, `mistral`, `azure`, `openrouter` and `other` (a model server on another computer).
+
+- `POST /api/settings/provider-key` `{"provider": "openai", "key": "…"}` → `{"providers": {…}}`. The key goes to the
+  keychain and is never returned, logged or put in settings. 403 when `local_only` is true.
+- `DELETE /api/settings/provider-key` `{"provider": "openai"}` → `{"providers": {…}}`.
+- `GET /api/settings/provider-models?provider=openai` → `{"models": [...], "lists": true, "problem": "…", "recommended": {"small": "…", "middle": "…", "strong": "…"}}`. `recommended` (providers stage 2) is the provider's line-up resolved against the key's list: what an empty model choice in Settings uses (Azure: the models to deploy). `lists`
+  is false for Azure, which has no list (type the deployment name); `problem` is a plain sentence when the list could
+  not be fetched (for example that the key was refused).
+
 `POST /api/quit` → `{"stopping": true, "jobs_stopped": n}`: stops the app ("Quit Margin" in the sidebar) once the
 running jobs have stopped (at most 20 s); 409 when this copy was not started in a way that can be stopped from here.
 0.14.3: every Claude Code run started from the app (`queue/claude-code`) is stopped first, and its batches go back to
@@ -231,6 +248,11 @@ and since ENLENS 0.13.6 only when there is an update).
 - `GET /api/technical-details` (0.15) → `{"text": "Margin version: …\nInstalled: …\nSystem: …\nPython: …\nAI route: …\nLocal
   only: yes|no\nUpdate channel: …"}`: a short block for a problem report (*Copy technical details* in Settings →
   Technical). It holds no path, project or document name, user name or key.
+- `POST /api/notify/test` (after 0.19.7) → `{"sent": bool, "how": "app"|"osascript"|"toast"|"balloon"|"notify-send"|"gdbus",
+  "problem": "...", "note": "..."}`: one notification now (*Send a test notification*); `note` says where this system
+  lets the person allow or stop them. A job the person started that ends after 20 s or more sends one as Settings'
+  `notify` says (`away`, the default: only when no request with `X-Margin-Seen: 1`, which a tab in front of the person
+  sends, came in the last 20 s; `always`; `off`). `MARGIN_NO_NOTIFY=1` switches them off for the process.
 - `POST /api/restart` `{}` → `{"restarting": true, "jobs_stopped": n}`: restarts into the version on disk (*Restart
   now* on the banner *Margin X is installed, but Y is still running*); 409 when this copy cannot restart itself.
 
@@ -254,7 +276,27 @@ as the icon starts it (`--launcher`, output to `logs/margin.log`), without openi
 `suggested` (0.13.7): the models the page offers to download into Ollama with one button. `ollama_app` (0.15.6):
 whether Ollama is on this computer, running or not: `{"installed", "path", "system": "windows" | "mac" | "linux",
 "how": "app" | "terminal", "line", "manual"}` (`how`: the app installs it itself, or on Linux opens a terminal window
-running Ollama's own `line`; `manual`: Ollama's installer file, for doing it by hand).
+running Ollama's own `line`; `manual`: Ollama's installer file, for doing it by hand). `advice` (0.18.0rc2) gives the
+models that fit this computer; I6 adds `advice.tier` (`{"tier": "small" | "medium" | "large", "answers": "explorer" |
+"suggestions", "words", "size", "what"}`, the chosen tier in plain words, no model name), each chat option's `tier`,
+`answers`, `need` (bytes), `num_ctx` and `runner` (`mlx` | `llamacpp`), and `older_model`: `{"chosen", "offer", "size"}`
+when the model set up is not the tier's (null otherwise). Since I6 a check's result (`GET …/hypotheses/<id>`) carries
+per excerpt `suggestion` (`{"form": "check" | "point", "lean", "marked", "rank", "order"}`, a local model's reading,
+which counts for nothing until judged) and `local_counted`, and per part and hypothesis the counts `suggestions` and
+`local_counted`.
+
+`POST /api/jobs/<id>/again` (0.19.5) → runs again a job the local model was refused in for memory (its view says
+`error_kind: "memory"`, `memory: {"need", "free", "short", "model"}` and `can_run_again`): the same work, from where it
+stood. `{"force": true}`: *Start it anyway*, the local model starts whatever memory is free, for that run only. Gives
+`{"job"}`; 409 for any other job.
+
+`GET /api/local-status` (0.19.4) → the local model that reads documents marked Only a local AI, for the local panel,
+without starting it: `{"model", "server", "memory"}` where `memory` is `{"loaded": true}` when the model server holds it
+already, else `{"need", "free", "short"}` in bytes (left out when the server or the computer does not say enough);
+`{"model", "problem"}` when it cannot be used; `{"same_as_main": true}` when the main model reads those documents itself.
+`GET …/profile/plan` gives the same as `local_model` when passages of such documents wait, and `POST …/profile/label`
+takes `{"force": true}` to start the local model with too little memory free (*Start it anyway*); its job's result
+says `local_waiting`, `local_read`, `local_model`, `memory_short`, `memory` and `local_problem`.
 
 `GET /api/ollama` (0.15.6) → what the page shows before Ollama is installed from the app: `ollama_app`'s fields plus
 `"size": {"bytes", "exact"}` (the download for this kind of computer, as ollama.com says it now, kept an hour; when
@@ -549,6 +591,14 @@ project's default. The setting is enforced where tasks are made and run (see `ac
   the cap) → `{"documents": n, "tasks_changed": n, …the documents answer}`. Tasks not answered yet take the new
   setting at once; a queued one that is no longer `cloud` leaves the queue. 400 for an unknown setting, 404 for an
   unknown document; `cloud` is refused on a `--local-only` installation.
+- Cloud providers: `PUT documents/ai-access` also takes `providers` (a list of provider ids that may read the
+  documents, or null for the project's choice), and `PUT /api/projects/<p>/ai-access` takes `providers_default` (a
+  list; the default is `["anthropic"]`). In `GET /api/projects/<p>/documents` each document has `providers` (in
+  force), `providers_own` (its own list, or null) and, when a provider other than Anthropic has read some of it,
+  `sent_by` (`{provider: share}`).
+  A document that does not allow
+  the provider of the main route is treated as `local` for that route; Claude Code's queue and the connector always
+  count as `anthropic`. A model server on another computer is a provider (`other`, or a known one by its address).
 - `PUT /api/projects/<p>/ai-access` `{"default": "cloud"|"local"|"none"}` and/or `{"dismiss_banner": true}` →
   `{"ai_access": {…}}`.
 - `POST /api/projects/<p>/ingest` takes `ai_access` (who may read the new documents; the first answer in a project
@@ -557,13 +607,22 @@ project's default. The setting is enforced where tasks are made and run (see `ac
 - `GET /api/projects/<p>/documents/<doc_id>/ai-sent` → what Claude has read of a document: `{"doc_id", "share",
   "since", "passages": [{"passage_id", "seq", "page", "preview", "times", "first", "last", "features", "routes"}]}`.
 - `GET /api/projects/<p>/ai-sent.csv` (also `?token=`) → the ledger: one row per passage sent (Sent at, Route,
-  Feature, Document, Document id, Passage id, Page, Task).
+  Feature, Document, Document id, Passage id, Page, Task). It also has a Provider column (who received it).
 - `POST /api/projects/<p>/hypotheses/<hyp_id>/read-local` → job (kind `read-local`): the excerpts of the check that
   wait for the local model (made in a Claude chat, or while the app was closed) are read by it; without one they wait
   for a person. `result`: `{"hyp_id", "parts", "status"}`. 0.13.11: the job has a check's `progress` (the local
   model's line carries `"who": "local"` and `name`); when this computer has too little memory free for the model it
   ends in `error_kind: "memory"` and the excerpts keep waiting. Body `{"force": true}` starts the model anyway (the
   page's *Start it anyway*).
+- `POST /api/projects/<p>/hypotheses/<hyp_id>/judge-local` (0.19.8) → `{"hyp_id", "excerpts"}`: the excerpts of the
+  check that wait for the local model wait for the person instead, and no model reads them (the page's *Judge it
+  myself*). Each then has `read_by: "you"`, `waiting_for_you` until judged, and `by_choice: true` (the result says
+  *Awaiting manual review*, as for excerpts no model may read). 409 while the local model reads this check's excerpts.
+- `POST /api/projects/<p>/hypotheses/<hyp_id>/local-again` (0.19.12) → `{"hyp_id", "excerpts"}`: the way back from
+  `judge-local` (the page's *Let the local model read them*): those excerpts wait for the local model again; the ones
+  the person judged or commented on keep the judgement, which still counts over the model's. Excerpts no model may
+  read are not handed back. It does not start the model: `read-local` does (the page calls it next). 400 when no local
+  model is chosen.
 - `/api/state` adds `restricted` (as `restricted_model` above). Settings: `restricted_server` (`""`, `ollama`,
   `openai`), `restricted_model`, `account_type` (`""`, `personal`, `commercial`).
 - The result of a check: each excerpt has `read_by` (`claude`, `local`, `ai`, `you`, `waiting`), `access` (its
@@ -663,7 +722,8 @@ Check job `progress` (poll it to draw the live panel):
 `parts` grows as the check moves on (one entry per claim checked so far; `part` 0 = the hypothesis as written).
 The `terms` step is absent when `expand` is false. `model` is filled by local servers while they stream.
 
-`POST /api/jobs/<id>/cancel` → stops the job (a stopped check leaves nothing in the history).
+`POST /api/jobs/<id>/cancel` → stops the job (a stopped check leaves nothing in the history; 0.19.13: except a check by
+queue whose Claude Code part is done, kept with its excerpts waiting for the local model).
 
 The check prompt is `check-v3`: for each excerpt the AI may add a `scope_note`, a short phrase such as "about
 fully remote workers, not hybrid", when the excerpt is about another group, setting, place or period than the
@@ -1162,7 +1222,13 @@ that no session has taken yet out of the queue; a check by queue is removed whol
 - `POST /api/projects/<p>/queue/order` `{"kind", "action": "first" | "hold" | "go" | "reset"}` → `{"order", "held"}`.
 - `POST /api/projects/<p>/queue/withdraw` `{"kind"}` → `{"withdrawn", "checks_removed"}`.
 - `POST /api/projects/<p>/queue/run` `{"kinds"?: [...]}` → job (kind `queue-run`): the AI model of Settings answers
-  the queue here, kind by kind (400 when Settings name Claude Code).
+  the queue here, kind by kind. With Claude Code in Settings (0.18.1) the local model answers here instead:
+  `{"local": "mix"}` (default; job kind `queue-local-mix`) the AI mix's share, `{"local": "all"}` or (0.19.13)
+  `{"local": "limit"}` (job kind `queue-local-limit`) every waiting task it may.
+- `GET …/queue` `at_limit` (0.18.1, I4): null, or `{"said", "choice": "wait" | "local", "local_possible", "started",
+  "offer_local"}` once Claude Code stopped at the plan's usage limit. 0.19.13: with `"local"` the local model no longer
+  starts by itself: `offer_local` is true (until the person presses the Start, `{"local": "limit"}` above), and
+  `started` says whether that job runs.
 - `POST /api/projects/<p>/tasks/<task_id>/stronger` → job (kind `stronger`): "Ask a stronger model": the task (a
   round of a check: `rounds_info[].task_id`) is read once more by the model it steps up to; 400 when it already was,
   or when this route has no stronger model.
@@ -1345,6 +1411,80 @@ in the set `batch_id` of the draft), so the result page, reviews, exports and th
 - `POST /api/import-enlens` `{"names"?: [...]}` → `{"from", "copied", "linked", "codebooks", "settings": bool}`: copies
   those projects (all by default), ENLENS's codebooks, and its settings when Margin has no project yet. ENLENS's own
   folder is not changed.
+
+### Codex and Antigravity on the queue (providers stage 2)
+
+Two more agents answer the queue on the person's own plan, as Claude Code does: **Codex** (OpenAI, program `codex`, a
+ChatGPT plan) and **Antigravity** (Google, program `agy`, a personal Google account). Both are built against stand-in
+programs that follow their documentation and not yet tried with a real account.
+
+- **Settings.** `backend` may be `"codex"` or `"antigravity"`, refused (400) until the person has said yes:
+  `allow_codex` and `allow_antigravity` (both false by default; the Settings dialog names the company first), and
+  refused with `--local-only` like every cloud route. `cli_models` is `{"codex": {"small", "middle", "strong"},
+  "antigravity": {...}}`: the model of a tier the person chose, empty or absent meaning the recommendation. `claude_speed`
+  (helpers at once) and `claude_thought` (how much thought) apply to both, as to every route that answers by the ladder
+  (`claude_code`, `codex`, `antigravity`, `cloud_api`).
+- `GET /api/agent-setup?route=codex|antigravity|claude_code[&refresh=1]` → `{"route", "title", "company", "program",
+  "plan", "docs", "installer": {"line", "docs"}, "status": {"found", "path", "version", "signed_in": true | false |
+  null, "account", "connector", "ready", "models_available", "problem"}, "recommended": {"small", "middle",
+  "strong"}, "lineup_in_use", "manual": [lines to type], "local_only", "adds": [what *Add Margin* adds], "sign_in_docs",
+  "measured"}`. `connector` is whether Margin is added to the agent; `models_available` is what the plan offers
+  (Antigravity's `agy models`; empty for Codex); `recommended` is the line-up resolved against it (`providers.LINEUP`
+  and `AGENT_CLIS`); `lineup_in_use` the same after `cli_models`; `measured` is false: neither agent is measured with
+  Margin yet. For `claude_code` it wraps `GET /api/claude-setup` (its `recommended` and `lineup_in_use` are the aliases
+  *haiku*, *sonnet*, *opus*). Cached for 30 s; `refresh=1` reads again. Only probes that start no model are run. 400
+  for another route.
+- `POST /api/agent-setup/install` `{"route"}` → `{"job": {...}}` (kind `agent-install`): runs the maker's own installer
+  after the person confirmed the line shown (`MARGIN_CODEX_INSTALLER` and `MARGIN_AGY_INSTALLER` replace it in tests).
+  409 when the program is found; 403 with `--local-only`; the job ends in `error` when it could not be installed.
+- `POST /api/agent-setup/sign-in` `{"route"}` → `{"opened", "window", "command"}`. Codex: `codex login` starts in the
+  background and opens the browser itself (`window` is `""`). Antigravity: a terminal window running `agy` in an empty
+  folder of Margin, for its first sign-in, as Claude Code's. `opened: false` gives the `command` to type. The page then
+  reads `GET /api/agent-setup?refresh=1` until `status.signed_in` is true.
+- `POST /api/agent-setup` `{"route"}` → `{"steps": [{"step", "ok", "text"}], "status"}`: adds Margin to the agent.
+  Codex gets the Margin connector (`codex mcp add margin …`), the skill `$margin-run` and the helpers as Codex
+  subagents; Antigravity gets the plugin `margin-run` (`agy plugin install`, so the person can type `/margin-run`), and
+  Margin's own Antigravity home is prepared (`<data folder>/agy-home`, below). Nothing else of the person's is changed.
+  Margin writes them again when its version, Python or data folder changed. For Antigravity the answer of
+  `GET /api/agent-setup` adds `own_leftovers` (what Margin 0.20.0–0.20.1 wrote into the person's own
+  `~/.gemini/antigravity-cli/settings.json`: the line `mcp(margin/*)` and its work folders as trusted workspaces) and
+  `own_settings` (that file).
+- `POST /api/agent-setup/tidy` `{"route": "antigravity"}` → `{"removed": [...], "own_leftovers": []}`: takes those lines
+  out of the person's own settings, keeping every other key, after a copy of the file is kept as `settings.json.margin-tidy.bak` (its permissions kept).
+  400 for another route, or when the file is not JSON (left as it is).
+- `POST /api/projects/<p>/queue/agent` and `POST /api/projects/<p>/queue/agent/stop`: the same handler and answer as
+  `queue/claude-code` (above, which stays), for the main route, whichever agent it is. Neither agent's headless mode is
+  documented to run skills or helpers, so Margin does what `/margin-run` does: it starts one process of the agent per
+  helper, each on its group's model in the maker's own name and with the effort of the chosen thought, and asks the
+  queue again until nothing is left to start or Stop is pressed. 409 (400 on the old path) when the main route is
+  none of the three agents; 400 when the agent is not found, not signed in, or when its help does not list a switch
+  that closes it in (Antigravity: `-p` and `--sandbox`; the answer names it). A reached plan limit
+  ends the run with the same `limit` report as Claude Code's. A tool Antigravity refused a helper (`denied_actions`)
+  is written in the run's report and listed in its state as `refused`: `[{"helper", "tools", "at"}]`. Run records are
+  `<data folder>/claude-runs/<route>-<project>-<hash>.run.json`, so Stop, *Quit* and a restart find a run that kept
+  working.
+- **Closed in.** Codex starts in an empty folder with the person's own Codex settings left out, read-only, without its
+  command, web search and image tools, and with only the connector's three queue tools (`next_tasks`,
+  `submit_answers`, `release`). Antigravity's own tools cannot be switched off from outside: it starts in Margin's
+  empty work folder, in its sandbox, without slash commands, asking before every tool except `mcp(margin/*)`, and with
+  a home folder of its own (`HOME` and `USERPROFILE` set to `<data folder>/agy-home`, the `XDG_*` folders left out).
+  Margin writes the settings there before every run: the allow rule `mcp(margin/*)` alone, its work folder as the only
+  trusted one, no key that approves tools, adds a connector or hook, or spends AI credits (`toolPermission`,
+  `useG1Credits`, `useAiCredits` and the like); an "off" of the person's own telemetry and usage-statistics keys is
+  carried over, never an "on". The person's `GEMINI_*`, `GOOGLE_*` and `CLOUDSDK_*` variables are left out, so no key
+  of theirs is billed. On macOS `Library/Keychains` there links to the person's,
+  where the sign-in is kept.
+- `GET /api/state` (and the answer of `PUT /api/settings`) gains `"agent"`: `{"route", "title", "start": "Start Codex",
+  "company", "provider", "card"}` when the main route is Claude Code, Codex or Antigravity (else null), and
+  `"clis"`: `[{"id", "title", "provider", "company", "program", "plan", "docs", "measured", "recommended"}]` for
+  Codex and Antigravity. `GET /api/projects/<p>/queue` adds `"agent"` (true when an agent answers the queue) and
+  `"agent_title"`; its `"route"` stays the backend's name.
+- **The queue's reader.** The queue hands a task out only when every document it names allows the company of the agent
+  that takes it (`access.record_sent` records that provider and the agent's name): a document that allows OpenAI but
+  not Anthropic reaches Codex and never Claude Code, and the reverse. The connector (`mcp_server.py`) answers for the
+  agent that started it: the environment variable `MARGIN_ROUTE` (`codex` or `antigravity`, set by the set-up) names
+  it, and without it the connector is Claude Code's, as before. `MARGIN_CODEX` and `MARGIN_AGY` name the programs, as
+  `MARGIN_CLAUDE` names `claude`.
 
 ### How fast Claude Code works, and which helpers it starts (0.13.10)
 
@@ -1590,13 +1730,20 @@ An entry: `{"entry_id", "at", "person_id", "who", "mine", "kind", "group", "text
 "subject_id", "why", "edited_at", "version_id", "has_version", "can_edit", "can_why", "data", "app_version"}`.
 `kind` `entry` is a person's own; every other kind is written by the app (documents added or removed, `ai-access`,
 `reread`, checks added or removed, `evidence-added`, themes found, removed, renamed, merged or restored, codebooks
-made, changed, moved, copied or removed, `restored`). `group` is one of `entries`, `documents`, `checks`,
-`themes`, `codebooks`, `history`. `has_version` says an earlier version from before the change exists
-(`version_id`, see *Earlier versions*).
+made, changed, moved, copied or removed, `restored`). `group` is one of `entries` (an entry of your own, `kind`
+`entry`, that you wrote), `documents`, `checks`, `themes`, `codebooks`, `history`. `has_version` says an earlier version
+from before the change exists (`version_id`, see *Earlier versions*).
 
 - `GET /api/projects/<p>/log?group=&q=&subject_kind=&subject_id=&offset=&limit=` → `{"entries": [entry], "total",
   "groups": {group: count}, "group_names"}`, newest first (`limit` up to 2000, default 200). `q` matches the text,
-  the title and the reason.
+  the title and the reason. `groups` counts only the groups that have entries; `group_names` names every group for
+  the page's filter (`entries`: *Your own entries*, …).
+- `GET /api/projects/<p>/ai-log?person=&provider=&offset=&limit=` → the AI log (I7 stage 3, `ailog.entries`): one
+  row per sending to a cloud provider, newest first: `{"rows": [{"at",
+  "provider", "provider_title", "route", "model", "kind", "kind_words", "excerpts", "documents", "subject": {"kind"
+  (check | codebook | themes | document), "word", "id", "title", "href" (only when the item is in this copy)} | null,
+  "task_id", "answered"}], "total", "providers": [{"id", "title",
+  "n"}]}`. Read from the ledger (`ai_sent`, with `model` since I7 stage 3).
 - `POST /api/projects/<p>/log {"text", "subject_kind"?, "subject_id"?, "title"?}` → `{"entry"}`: an entry of your own
   (at most 10,000 characters; empty is a 400).
 - `PUT /api/projects/<p>/log/<entry_id> {"text"?, "why"?}` → `{"entry"}`. `why` (at most 2,000 characters; `""`
@@ -1605,7 +1752,7 @@ made, changed, moved, copied or removed, `restored`). `group` is one of `entries
   back.
 - `GET /api/projects/<p>/log.md` and `…/log.xlsx`: the whole log, oldest first. Markdown has a heading per day; the
   sheet *Research log* has *When (UTC)*, *Who*, *What*, *Entry*, *About*, *Why* and *Margin version*, with the usual
-  *How these results were made* sheet.
+  *How these results were made* sheet. *What* names the group, except that your own entry is *Entry* there.
 
 #### Notes and highlights
 
@@ -1714,6 +1861,12 @@ terms.
 - `GET /api/projects/<p>/codebooks/<name>.qdc` → 0.18.7 (G5): the codebook as a REFI-QDA codebook (`urn:QDA-XML:codebook:1.0`) for NVivo, ATLAS.ti and MAXQDA: its groups as parent codes, each code's definition, when to use it and when not, keywords and examples as its description (`qdpx.codebook_xml`). 404 for an unknown codebook.
 - `GET /api/projects/{p}/document-roles` → `{"roles": {doc id: "theory"}, "nonscientific": [doc ids]}` (only the
   documents with a role; 0.18.6: and those marked Non-scientific).
+- Roadmap N3: `PUT /api/projects/{p}/document-roles` `{"doc_ids": [...], "role": "theory" | "working" | null, "why"?}`
+  → `{"role", "changed": [ids], "unchanged": [ids], "was": {id: role before}, "marked_nonscientific": [ids], "roles",
+  "nonscientific"}` (the last two as the GET above): one role for many documents by the rules of one
+  (`docrole.set_roles`), with ONE research-log entry for the batch (`subject_kind` "documents" when more than one
+  changed; `data`: `{"role", "was", "documents"}`). 400 for another role or no documents, 404 (nothing changed) when
+  one is not in the project. The bulk bar's *Undo* sends the documents back by the role each had.
 - `GET /api/projects/{p}/documents/{d}/role` → `{"doc_id", "role": "theory" | "working" | null, "impact":
   {"themes": [{"run_id", "created_at", "passages"}], "labels": [{"framework", "name", "passages"}], "checks":
   [{"hyp_id", "text", "excerpts"}]}}`: what was made with the document in.
@@ -1874,8 +2027,15 @@ in the project folder (`drafts/codebook-from-theory.json`). A draft is
   "concepts_in_scope", "nodes": [{"id" (a term id), "label", "passages", "group" (1… or null), "x", "y" (0 to 1, for a
   map 1.6 times as wide as high)}], "edges": [{"a", "b", "together", "pmi"}], "links": [{"a", "b", "relation",
   "source", "types": [{"relation" (seen from a), "source"}]}] (one per pair; "relation" and "source" are its first
-  type), "groups": [{"group", "size", "names"}], "links_off_map" (links with exactly one end on the map)}`. `n` is 10
-  to 150. 400 for a malformed filter or an unknown codebook, 404 for a set of themes that is gone.
+  type), "groups": [{"group", "size", "names", "concepts" (term ids, the most central first), "name", "name_source"
+  ("concepts" | "person" | "ai_draft" | "ai"), "name_id" (null for a name made from its concepts), "model" (an AI
+  name's), "quote" ({"quote", "doc_id", "title", "page", "start", "end"} for an AI name), "changed" (null or {"left",
+  "joined"}: labels), "naming_failed" (null or {"reason", "model"})}], "names_elsewhere" ([{"id", "name",
+  "name_source", "concepts" (the first six labels), "more"}]: kept names no group on this map takes), "can_name"
+  ({"offered", "why", "reader": "claude" | "local" | "main" | null}: whether the AI may be asked to name the groups;
+  nothing asks a model), "links_off_map" (links with exactly one end on the map)}`. `n` is 10 to 150. 400 for a
+  malformed filter or an unknown codebook, 404 for a set of themes that is gone. Relations of links may also be
+  `needs`, `needed_by`, `shapes`, `shaped_by` and `clashes` (D1, the rest).
 - `GET /api/projects/{p}/concept-map/options` → `{"documents": [{"doc_id", "title"}], "themes": {"run_id", "themes":
   [{"theme_id", "name"}]}, "codebooks": [{"name", "title", "codes": [{"code", "description"}]}], "years": [yyyy]}`:
   what the filters can choose from (evidence documents only).
@@ -1884,10 +2044,25 @@ in the project folder (`drafts/codebook-from-theory.json`). A draft is
   null, "passages": [{"passage_id",
   "doc_id", "title", "page", "location", "text", "start"}]}` (the first 5, by document). 400 without both, 404 for a
   term the glossary does not know.
+- `POST /api/projects/{p}/concept-map/names` `{"action", …}` → `{"record"}` (D1, the rest, `groupnames.py`): a change to
+  a group's name. Actions: `rename` `{"name_id"?, "name", "concepts", "labels", "filters", "n"}` (the researcher's
+  name for the group as it is now; 400 for an empty name), `use_concepts` `{"name_id", "concepts"}` (named by its
+  concepts again), `accept` `{"name_id" | "items": [{"name_id", "concepts", "labels"}], …}` (the AI's draft used),
+  `unaccept` `{"name_id" | "items"}` (Undo), `keep` `{"name_id", "concepts", "labels", "filters", "n"}` (a changed
+  group's name goes with it as it is), `forget` `{"name_id"}` (returns the removed record) and `restore`
+  `{"record"}` (Undo). 404 for a name that is not there. The names stay on this computer.
+- `POST /api/projects/{p}/concept-map/name-groups[?n=60&…filters]` `{"which": "unnamed" | "again"}` → `{"job"}` (kind
+  `group-names`): the AI drafts a name for the groups still named by their concepts (`again`: every group but those
+  the researcher named), one task of kind `group_name` per group, from a few passages where its concepts are mentioned
+  together, only from documents the reader may read. The request only queues the work; the job waits for its own
+  Start, as every AI job does. Its result: `{"named", "failed", "groups", "skipped" (groups with no passage the AI may
+  read), "stopped", "model", "failures"}`. 400 when the map has no group or no AI may read its documents.
 
 Links found from the text (roadmap D2, `textrelations.py`) need no route of their own: they are rows of the concept
 page's `related.links` with `"source": "pattern"` and their `"sentences"` (`[{"doc_id", "title", "page", "start",
-"end", "quote"}]`); relations gain `effect`, `effect_of`, `replaces` and `replaced_by`.
+"end", "quote"}]`); relations gain `effect`, `effect_of`, `replaces` and `replaced_by`, and with D1 (the rest)
+`needs`, `needed_by`, `shapes`, `shaped_by` and `clashes` (`clashes` is the same from both ends; the others turn into
+their pair when seen from the other concept).
 
 **Reader 5: figures and tables from their rules** (roadmap A6, `reader5.py`).
 
@@ -1919,13 +2094,19 @@ answer, also written into the research log as kind `verdict-moved`, else null).
 
 Looks the DOIs of the bibliography's works and of the documents up in Crossref, which carries Retraction Watch's
 retractions and the publishers' corrections and expressions of concern. Only when asked. Off under local-only (400,
-nothing sent). Only DOIs are sent, with a plain `User-Agent: Margin/<version>`. A work whose document is marked
-No AI is not looked up. The Crossref address can be set with `MARGIN_CROSSREF_URL` (tests use a stand-in).
+nothing sent). DOIs are sent, and for a work of the bibliography without a usable DOI (a published kind of item, with
+a title of three words or more, a first author's family name and a year) its title, first author's family name and
+year, one request per work (at most 300 a lookup), with a plain `User-Agent: Margin/<version>` and nothing else. A work
+whose document is marked No AI is not looked up; by title, a work linked (even probably) to a No AI or a working
+document is not looked up either. A match by title is strict (the
+same title, a year within one, the same first author, and one candidate only); the matched DOI's notices are found as
+any DOI's. A document with no DOI and no work of the bibliography is never looked up by title. The Crossref address can be set with `MARGIN_CROSSREF_URL` (tests use a stand-in).
 
 | Route | Answer |
 | --- | --- |
-| `GET /api/projects/<name>/retractions` | What the last lookups found: `{"local_only", "checked_at" (the latest lookup or null), "checked", "affected", "by_doi": {doi: {"checked_at", "notices"}}, "by_item": {item_key: [notice]}, "by_doc": {doc_id: [notice]}, "plan": {"ask", "no_ai"}}`. A notice is `{"type": "retraction", "correction", "expression_of_concern", …, "doi": the notice's DOI, "date", "source", "work_doi", "checked_at"}`. Only works with a notice are listed. |
-| `POST /api/projects/<name>/retractions/check` | Starts the lookup as a job (`{"job"}`; `progress` has `done` and `total` DOIs; one at a time per project). Its result: `{"looked_up", "no_ai", "notices", "capped", "checked_at"}`. 400 under local-only or when there is no DOI to ask about. |
+| `GET /api/projects/<name>/retractions` | What the last lookups found: `{"local_only", "checked_at" (the latest lookup or null), "checked", "affected", "by_doi": {doi: {"checked_at", "notices"}}, "by_item": {item_key: [notice]}, "by_doc": {doc_id: [notice]}, "plan": {"ask", "no_ai"}, "title_plan": {"ask", "no_ai", "working", "capped"}, "title_matches": [{"item_key", "doi", "title", "year", "author", "checked_at", "notices"}]}`. A notice is `{"type": "retraction", "correction", "expression_of_concern", …, "doi": the notice's DOI, "date", "source", "work_doi", "checked_at"}`; one found by title also has `"found_by": "title"` and `"match": {"doi", "title", "year", "author"}`. Only works with a notice are listed; a match the researcher rejected is not. |
+| `POST /api/projects/<name>/retractions/check` | Starts the lookup as a job (`{"job"}`; `progress` has `done` and `total` works and DOIs asked; one at a time per project). Its result: `{"looked_up", "no_ai", "notices", "capped", "checked_at", "by_title", "title_matched", "title_ambiguous", "title_capped"}`. 400 under local-only or when there is nothing to ask about. |
+| `POST /api/projects/<name>/retractions/matches/<item_key>` | Body `{"reject": true}` (the default): *Not this work*, the match by title of this work is hidden and not proposed again; `{"reject": false}` takes it back. Kept with who and when (`rejected_by` is the person) and written in the research log (kind `retraction-match`, subject `bib_item`). Answer: `{"item_key", "doi", "title", "rejected", "changed"}`. 404 for a work with no match. |
 
 `GET …/bibliography` gives each work a `notices` list, and `retractions: {checked_at, affected, local_only}` beside `counts`.
 
@@ -1934,14 +2115,18 @@ No AI is not looked up. The Crossref address can be set with `MARGIN_CROSSREF_UR
 The local model and Claude answer the same sample of an answered kind of task, and
 Cohen's kappa compares their decisions (the grade of each excerpt for `check`, `reread` and `second`; whether each
 candidate code applies for `label`; the relation of each pair of terms for `link`). Only tasks whose documents Claude
-may read are used. An answer a task already has from a route is reused; only what is missing is asked. Nothing is stored
-in the project (the passages sent to Claude are noted in the ledger). Kappa from 0.8 is good, from 0.6 fair, below
-that poor.
+may read are used. An answer a task already has from a route is reused; only what is missing is asked. The passages sent to
+Claude are noted in the ledger. Kappa from 0.8 is good, from 0.6 fair, below that poor.
+
+**Kept comparisons.** A comparison that ran to its end (tasks that failed inside it count, with `failed`) is kept in
+the project's `agreement_runs` table: `{"run_id", "at" (UTC, ISO), "kind", "n", "compared", "failed", "decisions",
+"kappa", "agree", "local_model", "claude_model", "app_version"}`. One stopped with Stop is not kept. The comparisons
+describe this computer's local model, so they stay in this copy of the project: a zip of your whole project, for moving it, keeps them.
 
 | Route | Answer |
 | --- | --- |
-| `GET /api/projects/<name>/agreement/plan` | `{"kinds": [{"kind", "answered", "name", "noun"}], "problem": a sentence when it cannot start (Claude not the main AI, no local model, local-only) or null, "claude": the main backend, "plan": null}`. With `?kind=label&n=30` (n 10 to 100), `plan` is `{"kind", "n" (tasks compared), "ask_local", "ask_claude" (tasks each route would be asked), "left_out" (answered tasks Claude may not read)}`. 400 for a kind without a decision. |
-| `POST /api/projects/<name>/agreement` | Body `{"kind", "n"}`. Starts a job (`{"job"}`, kind `agreement`; `progress` has `done` and `total` tasks). Its result: `{"kind", "n", "compared", "failed", "kappa" (null when undefined), "agree" (share of identical decisions), "decisions", "verdict" (a plain sentence), "left_out", "asked": {"local", "claude"}, "items": [{"task_id", "decisions", "same", "local", "claude" ("stored" or "asked")} or {"task_id", "error"}], "thresholds": {"good": 0.8, "fair": 0.6}}`. 400 when it cannot start. |
+| `GET /api/projects/<name>/agreement/plan` | `{"kinds": [{"kind", "answered", "name", "noun"}], "problem": a sentence when it cannot start (Claude not the main AI, no local model, local-only) or null, "claude": the main backend, "plan": null, "kept": the kept comparisons, newest first, at most 20}`. With `?kind=label&n=30` (n 10 to 100), `plan` is `{"kind", "n" (tasks compared), "ask_local", "ask_claude" (tasks each route would be asked), "left_out" (answered tasks Claude may not read)}`. 400 for a kind without a decision. |
+| `POST /api/projects/<name>/agreement` | Body `{"kind", "n"}`. Starts a job (`{"job"}`, kind `agreement`; `progress` has `done` and `total` tasks). Its result: `{"kind", "n", "compared", "failed", "kappa" (null when undefined), "agree" (share of identical decisions), "decisions", "verdict" (a plain sentence), "left_out", "asked": {"local", "claude"}, "items": [{"task_id", "decisions", "same", "local", "claude" ("stored" or "asked")} or {"task_id", "error"}], "thresholds": {"good": 0.8, "fair": 0.6}, "local_model", "claude_model" (the names the two routes answered under), and for a finished run "kept" (its stored row) and "previous" (the last kept run of the same kind before it, or null)}`. A stopped run has neither. 400 when it cannot start. |
 
 **The answers a page at a time (H5).** `GET …/hypotheses?offset=<n>&limit=<n>` (with the same `q`, `status`, `batch`
 and `threshold`) answers one page of the list: `hypotheses` holds at most `limit` rows (100 when not given, at most
@@ -1961,10 +2146,30 @@ and `threshold`) answers one page of the list: `hypotheses` holds at most `limit
  "error": null | "message", "error_kind": null | "backend" | "memory" | "request" | "internal",
  "waiting_for": null | {"id", "kind", "title", "message": "Queued: starts when “…” has finished"},
  "background": false,
+ "local": null | {"gate": "wait" | "go" | "force", "waiting": 12, "noun": "excerpt" | "passage" | "theme" | "pair" |
+                  "task" | "document", "model": "qwen3.5:9b" | null,
+                  "memory": null | {"need": 8700000000, "free": 2900000000, "short": true}, "problem": null | "…"},
  "progress": {…kind-specific…}, "result": {…} | null}
 ```
 Summaries (in lists) omit `progress` and `result`. Jobs live until the app is closed. `background`: started by the app
 itself, not by the person.
+
+**The local part of a job (0.19.13, `localgate.py`).** Starting Claude and starting the local model (Settings' model for
+documents marked Only a local AI, and the AI mix's share) are two separate clicks. `local` is null for a job with no
+work for the local model; otherwise its gate says whether the local model may read: `wait` (it waits for its own Start:
+the default of a job that also has work for Claude, and the state after a memory refusal, with `memory.short`), `go`
+(Start was pressed, or the job is all local and was started by its own button, such as `read-local` or *Answer the N for
+your local model now*), `force` (*Start it anyway*: whatever memory is free). `waiting` counts what waits for the local
+model, in `noun`s; `model`, `memory` and `problem` (why no local model can be used: then there is no Start) come from
+the model server without starting it. While the gate waits and something waits, `progress.model` is `{"who": "local",
+"phase": "ready", "model"}` unless Claude's report is newer, and nothing loads the model.
+- `POST /api/jobs/<id>/local/start` `{"force"?: bool}` → `{"job": Job}`: opens the gate; one Start covers the whole
+  job. The local items are then read beside Claude's. A memory refusal puts the gate back to `wait` with the numbers.
+- `POST /api/jobs/<id>/local/stop` → `{"job": Job}`: back to `wait` after the item in hand; the job's own
+  `POST /api/jobs/<id>/cancel` still stops everything, and what waits for the local model keeps waiting (a check by
+  queue whose Claude Code part is done is kept, its excerpts waiting for *Read them now*).
+- Both: 409 when the job has no local part, or has ended.
+Outside the app (the command line, the connector) there is no gate: the local model reads at once, as before.
 
 **Jobs wait their turn (0.17.0, roadmap M6: `api_common.Jobs`, `LANES`).** Jobs of one project that change the same
 things never run at the same time: the later one stays `queued`, with `waiting_for` naming the job it waits for (the

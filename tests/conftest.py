@@ -88,6 +88,22 @@ def _no_real_claude_code(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_agent_clis(tmp_path, monkeypatch):
+    """Stage 2 of other cloud providers: as for Claude Code, tests never touch a real Codex or Antigravity (`codex`,
+    `agy` are "not found" unless a test points MARGIN_CODEX / MARGIN_AGY at the stand-ins), never write into the
+    person's own ~/.codex, ~/.agents or ~/.gemini (MARGIN_AGENT_HOME), and leave no runner of agentcli.py behind."""
+    monkeypatch.setenv("MARGIN_CODEX", str(tmp_path / "no-codex-here"))
+    monkeypatch.setenv("MARGIN_AGY", str(tmp_path / "no-agy-here"))
+    monkeypatch.setenv("MARGIN_AGENT_HOME", str(tmp_path / "agent-home"))
+    monkeypatch.delenv("MARGIN_ROUTE", raising=False)
+    from margin import agentcli
+
+    agentcli.reset_for_tests()
+    yield
+    agentcli.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _no_real_margin_home(tmp_path, monkeypatch):
     """0.13.11: tests never read the researcher's own Margin folder (~/margin). Without this, a test that did not set
     MARGIN_HOME read the real settings, so the models recommended for the plan Claude Code found there (Max: Opus)
@@ -95,6 +111,26 @@ def _no_real_margin_home(tmp_path, monkeypatch):
     monkeypatch.setenv("MARGIN_HOME", str(tmp_path / "margin-home"))
     # 0.18.0rc2: secrets (a storage space's keys) go to files in that folder, never the computer's own keychain
     monkeypatch.setenv("MARGIN_KEYCHAIN", "file")
+    # after 0.19.7: no test shows a notification on the screen (tests/test_notify.py switches it on with stand-ins)
+    monkeypatch.setenv("MARGIN_NO_NOTIFY", "1")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_ollama_start(monkeypatch):
+    """0.19.15: Ollama starts at the first request of a model a person started (`ollama_setup.wake`). No test ever
+    starts the real Ollama of the computer it runs on: `start` refuses, as when Ollama is not installed, and `let_go`
+    unloads nothing, unless a test puts a stand-in of its own in their place."""
+    from margin import ollama_setup
+
+    def refuse(sys_name=None):
+        raise ValueError("A test never starts the real Ollama.")
+
+    monkeypatch.setattr(ollama_setup, "start", refuse)
+    monkeypatch.setitem(ollama_setup._STARTED, "at", 0.0)
+    # nor lets go of a model the real Ollama holds (a test that stops a job asks its own stand-in, if any)
+    from margin import llm
+
+    monkeypatch.setattr(llm, "let_go", lambda models, runner=None: [])
 
 
 @pytest.fixture(autouse=True)

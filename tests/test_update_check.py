@@ -223,7 +223,7 @@ def test_page_files():
     assert "checkUpdate()" in app[app.index("async function updateApp("):]  # the kept answer: no second look
     settings = (STATIC / "views" / "settings.js").read_text(encoding="utf-8")
     assert '"Check for updates"' in settings and "checkUpdate(true)" in settings and "updatesSection()" in settings
-    assert 'href: "#/settings/updates"' in settings and 'updates: "advanced"' in settings
+    assert 'href: "#/settings/updates"' in settings and 'updates: "general"' in settings
     from _static import all_css  # 0.17.0: reads the cascade, so it holds when the rules move
 
     css = all_css()

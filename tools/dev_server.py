@@ -245,6 +245,12 @@ def main() -> int:
     ap.add_argument("--claude-code-paused", action="store_true", help="0.8: Claude Code chosen, but nothing answers")
     ap.add_argument("--claude-cli", action="store_true",
                     help="0.9: Claude Code chosen, with a stand-in claude program the app sets up and starts")
+    ap.add_argument("--codex-cli", action="store_true",
+                    help="stage 2: Codex chosen and not installed yet: its set-up installs a stand-in codex, signs in "
+                         "after a few seconds and adds Margin; Start Codex then answers the queue (stand-ins only)")
+    ap.add_argument("--agy-cli", action="store_true",
+                    help="stage 2: Antigravity chosen and not installed yet, as --codex-cli (FAKE_AGY_PLAN: free, pro "
+                         "or ultra; default pro)")
     ap.add_argument("--no-tesseract", action="store_true", help="0.10: act as if Tesseract were not installed")
     ap.add_argument("--claude-install", action="store_true",
                     help="0.10: Claude Code not installed yet and signed out: Set up Claude installs it (stand-ins)")
@@ -290,6 +296,13 @@ def main() -> int:
     # and plan into the dev settings, and *Start Claude Code* would start a real run on their plan. By default nothing
     # answers as `claude`; the Claude Code modes below put the stand-in in its place.
     os.environ["MARGIN_CLAUDE"] = str(home_dir / "no-claude-here")
+    # stage 2: nor the real Codex or Antigravity (the developer's own accounts and plans)
+    os.environ["MARGIN_CODEX"] = str(home_dir / "no-codex-here")
+    os.environ["MARGIN_AGY"] = str(home_dir / "no-agy-here")
+    # a cloud provider's key goes to a file in the dev data folder, never the developer's own keychain (keychain.py)
+    os.environ["MARGIN_KEYCHAIN"] = "file"
+    # after 0.19.7: work in a dev copy never shows notifications on the developer's screen (gui/notify.py)
+    os.environ["MARGIN_NO_NOTIFY"] = "1"
 
     import fake_servers
     from helpers import PAPER_A_PAGES, REPORT_B_TEXT, UNRELATED_HTML, make_pdf
@@ -447,6 +460,30 @@ def main() -> int:
         os.environ["MARGIN_CLAUDE"] = str(ROOT / "tests" / "fake_claude_cli.py")
         os.environ.setdefault("FAKE_CLAUDE_DELAY", "2")
         home.update_settings({"allow_claude_code": True, "backend": "claude_code"})
+    for flag, route, env in (("codex_cli", "codex", "CODEX"), ("agy_cli", "antigravity", "AGY")):
+        if not getattr(a, flag):
+            continue
+        import subprocess
+
+        from margin import agentcli
+
+        os.environ[f"MARGIN_{env}"] = str(home_dir / "agent-clis" / f"{route}.py")
+        os.environ[f"MARGIN_{env}_INSTALLER"] = str(ROOT / "tests" / "fake_agent_installer.py")
+        os.environ.setdefault("FAKE_INSTALLER_DELAY", "3")
+        os.environ[f"FAKE_{env}_LOGGED_OUT"] = "1"
+        os.environ.setdefault("FAKE_CODEX_LOGIN_DELAY", "5")
+        os.environ.setdefault("FAKE_AGY_PLAN", "pro")
+        os.environ.setdefault(f"FAKE_{env}_DELAY", "2")
+        home.update_settings({f"allow_{route}": True, "backend": route})
+
+        def agy_sign_in_later(script):  # the "window": the stand-in signs in after a few seconds
+            def run():
+                time.sleep(6)
+                subprocess.run([sys.executable, os.environ["MARGIN_AGY"]], capture_output=True,
+                               env=agentcli._environ(agentcli.agy_env()))   # in Margin's own Antigravity home
+            threading.Thread(target=run, daemon=True).start()
+            return "Terminal (stand-in)"
+        agentcli._open_window = agy_sign_in_later
     if a.claude_install:
         import subprocess
 

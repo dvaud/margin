@@ -77,12 +77,12 @@ export async function renderBibliography(view) {
       retractionBar());
   }
 
-  // 0.18.1 (B5): retractions and corrections, looked up in Crossref when the person asks (sends DOIs only)
+  // 0.18.1 (B5): retractions and corrections, looked up in Crossref when the person asks (sends DOIs; for a work without one, its title, first author’s family name and year)
   const RETRACT_TEXT = { retraction: "Retracted", correction: "Corrected", expression_of_concern: "Expression of concern", erratum: "Corrected", corrigendum: "Corrected", withdrawal: "Withdrawn", removal: "Removed" };
   const SERIOUS = new Set(["retraction", "withdrawal", "removal"]);
   function retractionBar() {
     const r = (data && data.retractions) || {};
-    const btn = button({ sm: true, disabled: !!r.local_only, title: r.local_only ? "Online lookups are off on this computer (local-only)" : "Sends the works’ DOIs, and nothing else, to Crossref. Works whose document is marked No AI are left out.",
+    const btn = button({ sm: true, disabled: !!r.local_only, title: r.local_only ? "Online lookups are off on this computer (local-only)" : "Sends the works’ DOIs to Crossref. A work without a DOI is looked up by its title, first author’s family name and year. Nothing else is sent. Works whose document is marked No AI, and your own drafts, are left out.",
       onClick: async () => {
         btn.disabled = true;
         try {
@@ -101,7 +101,7 @@ export async function renderBibliography(view) {
     const stop = stopButton({ onClick: () => api("POST", `/api/jobs/${P(jobId)}/cancel`).catch(showError) });
     replace(jobBox, card({ as: "div", title: "Checking for retractions", action: stop }, pb));
     const w = watchJob(jobId, (job) => {
-      replace(pb, simpleProgress(job, (p) => p.total ? `${fmt.num(p.done || 0)} of ${fmt.num(p.total)} DOIs asked` : "Starting…"));
+      replace(pb, simpleProgress(job, (p) => p.total ? `${fmt.num(p.done || 0)} of ${fmt.num(p.total)} asked` : "Starting…"));
       if (TERMINAL.has(job.state)) stop.hidden = true;
     });
     watchers.push(w);
@@ -109,7 +109,8 @@ export async function renderBibliography(view) {
       if (job.state === "done") {
         jobBox.hidden = true;
         const c = job.result || {};
-        toast(`${plural(c.looked_up || 0, "DOI", "DOIs")} checked: ${c.notices ? plural(c.notices, "work has a notice", "works have notices") : "no retractions or corrections"}${c.no_ai ? `. ${plural(c.no_ai, "work was", "works were")} left out (No AI)` : ""}.`, "ok", { ttl: 7000 });
+        const byTitle = c.by_title ? `, and ${plural(c.by_title, "work", "works")} without a DOI by title (${c.title_matched ? plural(c.title_matched, "match", "matches") : "no match"})` : "";
+        toast(`${plural(c.looked_up || 0, "DOI", "DOIs")} checked${byTitle}: ${c.notices ? plural(c.notices, "work has a notice", "works have notices") : "no retractions or corrections"}${c.no_ai ? `. ${plural(c.no_ai, "work was", "works were")} left out (No AI)` : ""}.`, "ok", { ttl: 8000 });
         await load();
       } else { if (job.state === "error") replace(pb, jobError(job)); else jobBox.hidden = true; draw(); }
     }).catch(showError);
@@ -117,7 +118,23 @@ export async function renderBibliography(view) {
   // the warning on a work: a retraction is serious, a correction or an expression of concern milder
   const noticeTags = (w) => (w.notices || []).length ? h("div", { class: "bib-notices" }, w.notices.map((n) => tag({ kind: "attention",
     title: `Crossref lists a ${(n.type || "notice").replace(/_/g, " ")} for this work${n.date ? ` dated ${n.date}` : ""}${n.doi ? ` (notice DOI ${n.doi})` : ""}${n.source ? `, source: ${n.source}` : ""}. Checked ${fmt.dateShort(n.checked_at)}.` },
-    SERIOUS.has(n.type) ? h("strong", {}, RETRACT_TEXT[n.type] || n.type) : (RETRACT_TEXT[n.type] || (n.type || "Notice").replace(/_/g, " ")), n.date ? ` ${n.date}` : ""))) : null;
+    SERIOUS.has(n.type) ? h("strong", {}, RETRACT_TEXT[n.type] || n.type) : (RETRACT_TEXT[n.type] || (n.type || "Notice").replace(/_/g, " ")), n.date ? ` ${n.date}` : "")), matchLine(w)) : null;
+  // a work without a DOI is found by its title: say which work Crossref matched, so the match can be checked
+  const matchLine = (w) => {
+    const n = (w.notices || []).find((x) => x.found_by === "title");
+    if (!n || !n.match) return null;
+    const m = n.match;
+    return h("p", { class: "muted small bib-match" }, h("em", {}, "Found by title: "), `${m.title || "a work"}${m.year ? ` (${m.year})` : ""} · `,
+      h("a", { href: `https://doi.org/${m.doi}`, target: "_blank", rel: "noopener" }, m.doi), " ",
+      button({ kind: "quiet", sm: true, title: "The lookup matched your work to another one. The notice is hidden, and this work is not matched to it again.", onClick: () => rejectMatch(w.key, true) }, "Not this work"));
+  };
+  async function rejectMatch(key, reject) {
+    try {
+      await api("POST", `${base}/retractions/matches/${P(key)}`, { reject });
+      toast(reject ? "Noted: not the same work. The notice is hidden." : "The match is shown again.", "ok", { ttl: 6000, group: "bib", button: reject ? { text: "Undo", onClick: () => rejectMatch(key, false) } : undefined });
+      await load();
+    } catch (e) { showError(e); }
+  }
 
   const changeText = (bib) => bib.kind !== "zotero" ? "Use a newer file or Zotero" : bib.items ? "Choose other works or a file" : "Use another collection or file";
 

@@ -1,0 +1,165 @@
+{
+ "about": "I6: two checks of the local bench (16 November 2026) with the sentence K2 Horizon 0.9B pointed at in each excerpt (tools/localbench/handhold.py), replayed by tests/test_local_tiers.py without a model.",
+ "checks": [
+  {
+   "id": "i37",
+   "claim": "Most countries have already included green hydrogen in their climate mitigation actions to 2030.",
+   "passages": [
+    {
+     "passage_id": "d0773dc52d1:0046",
+     "doc_id": "d0773dc52d1",
+     "title": "IRENA. Decarbonising end-use sectors: Practical insights on green hydrogen. 2021",
+     "page": 17,
+     "text": "In parallel, governments must work on removing existing market and regulatory barriers surrounding green hydrogen including, but not limited to, clarifying rules around green hydrogen’s access to different types of energy markets. Prioritise use of green hydrogen in hard-toabate sectors where no cheaper decarbonisation options exist and avoid applications leading to carbon lock-in. Governments should place initial focus on replacing fossil fuel-based hydrogen with green hydrogen feedstocks for industry, as demand in this area – currently met by hydrogen produced from fossil gas and coal – already exists and is difficult to substitute. Moreover, national strategies and action plans should avoid carbon lock-in and stranded assets. In this respect, the blending of green hydrogen into existing natural gas networks should not be prioritised as it prolongs the use of high-carbon assets and displaces more efficient decarbonisation options for some applications."
+    },
+    {
+     "passage_id": "d0773dc52d1:0031",
+     "doc_id": "d0773dc52d1",
+     "title": "IRENA. Decarbonising end-use sectors: Practical insights on green hydrogen. 2021",
+     "page": 13,
+     "text": "While green hydrogen can already be produced more cheaply than other forms of hydrogen in some regions, on a global scale green hydrogen is projected to be costcompetitive with hydrogen produced from fossil fuels with carbon capture and storage (CCS) by 2030 (IRENA, 2020c; BNEF, 2021). 3.1 Government buy-in and support Governments can put in place various policies to accelerate green hydrogen production and implement national hydrogen strategies (see Figure 3). Policies enabling green hydrogen must be tailored to the context of a given jurisdiction. They must also factor in priorities beyond the energy system such as sustainable economic development. Only by adopting a mix of policies can a country most effectively drive green hydrogen growth (IRENA, 2021a)."
+    },
+    {
+     "passage_id": "de6073ecf74:0334",
+     "doc_id": "de6073ecf74",
+     "title": "IRENA. Renewable Energy Market Analysis - Africa and its Regions. 2022",
+     "page": 132,
+     "text": "To encourage further growth of this promising investment instrument, policy makers and regulators can work together with DFIs and green bond organisations such as the Climate Bonds Initiative to develop and adopt green taxonomies and bond issuance and rating rules; to raise awareness; to develop pertinent skills in local capital markets, as well as to support issuances and to provide seed capital and targeted grants to lower transaction costs (IRENA, 2020g). Nigeria has been taking the necessary steps and has already achieved positive results (Box 3.4)."
+    },
+    {
+     "passage_id": "de6073ecf74:0587",
+     "doc_id": "de6073ecf74",
+     "title": "IRENA. Renewable Energy Market Analysis - Africa and its Regions. 2022",
+     "page": 211,
+     "text": "Aid volumes aside, the implementation of the USD  100  billion/year pledge poses substantial challenges – including transparency and accountability, the shares to be devoted to mitigation and adaptation, and the amount to be allocated to the most vulnerable developing countries. But the needs of developing countries to successfully address the climate challenge are very great indeed. A recent report from the UNCC Standing Committee on Finance states that developing countries will need more than USD 650 billion/year through 2030 just to cover 40% of their Nationally Determined Contributions (SCF, 2021). For Africa alone, the African Group of Negotiators on Climate Change has tabled a figure of USD 1.3 trillion/year from 2025 (Ainger, 2021). Moreover, climate finance is just one of the components needed for a socio-economic transition. Existing economic and social systemic challenges, such as structural dependencies, inequality and institutional constraints, are fundamental barriers to trigger the collaborative framework needed to address the climate challenge."
+    },
+    {
+     "passage_id": "d0773dc52d1:0036",
+     "doc_id": "d0773dc52d1",
+     "title": "IRENA. Decarbonising end-use sectors: Practical insights on green hydrogen. 2021",
+     "page": 14,
+     "text": "Morocco has signed declarations of co operation with Germany and Portugal for the development of green hydrogen in Morocco (Takouleu, 2021). Of those countries with national hydrogen strategies, Australia proposes to leverage the country’s expertise in renewable energy deployment to build a substantial clean hydrogen export industry (Commonwealth of Australia, 2019), and Chile plans to develop an export industry for green hydrogen and its derivatives, including 5 GW by 2025 and 25 GW by 2030 electrolysis targets (Ministry of Energy, Government of Chile, 2020). The emergence of national hydrogen strategies targeting multiple end-use sectors for green hydrogen, apart from electrolyser capacity targets, is an encouraging development, reflecting the growing recognition of green hydrogen’s economic potential. For example, Spain’s hydrogen strategy includes a 25% green hydrogen target for hydrogen used in industry by 2030."
+    },
+    {
+     "passage_id": "d0773dc52d1:0044",
+     "doc_id": "d0773dc52d1",
+     "title": "IRENA. Decarbonising end-use sectors: Practical insights on green hydrogen. 2021",
+     "page": 17,
+     "text": "PRACTICAL INSIGHTS ON GREEN HYDROGEN 17 KEY TAKEAWAYS AND RECOMMENDATIONS 04 The following key findings may serve as guidance and inspiration for governments on how to ensure green hydrogen is produced from renewables, scale up its production and facilitate its uptake in new end-use applications in support of global climate objectives. Act now to develop national strategies and plans for green hydrogen. To date, fewer than one-fifth of countries have put forward national hydrogen strategies. Furthermore, some of these strategies do not prioritise green hydrogen over other forms of hydrogen. Now is the time for governments to develop comprehensive action plans and detailed roadmaps for green hydrogen based on concrete targets, leveraging post-COVID stimulus and recovery packages to kick-start production and energy transition-related infrastructure development. Action plans and road maps should take into consideration projected future demand and promote the long-term development of a sustainable green hydrogen sector, drawing on lessons learned from renewables."
+    }
+   ],
+   "k2": [
+    {
+     "p": 1,
+     "k2_sentence": "Governments should place initial focus on replacing fossil fuel-based hydrogen with green hydrogen feedstocks for industry, as demand in this area – currently m",
+     "k2_says": "claim"
+    },
+    {
+     "p": 2,
+     "k2_sentence": "While green hydrogen can already be produced more cheaply than other forms of hydrogen in some regions, on a global scale green hydrogen is projected to be cost",
+     "k2_says": "opposite"
+    },
+    {
+     "p": 3,
+     "k2_sentence": "Nigeria has been taking the necessary steps and has already achieved positive results (Box 3.4).",
+     "k2_says": "opposite"
+    },
+    {
+     "p": 4,
+     "k2_sentence": "A recent report from the UNCC Standing Committee on Finance states that developing countries will need more than USD 650 billion/year through 2030 just to cover",
+     "k2_says": "opposite"
+    },
+    {
+     "p": 5,
+     "k2_sentence": "For example, Spain’s hydrogen strategy includes a 25% green hydrogen target for hydrogen used in industry by 2030.",
+     "k2_says": "opposite"
+    },
+    {
+     "p": 6,
+     "k2_sentence": "To date, fewer than one-fifth of countries have put forward national hydrogen strategies.",
+     "k2_says": "opposite"
+    }
+   ]
+  },
+  {
+   "id": "i02",
+   "claim": "The green hydrogen value chain is unlikely to create new jobs.",
+   "passages": [
+    {
+     "passage_id": "de6073ecf74:0841",
+     "doc_id": "de6073ecf74",
+     "title": "IRENA. Renewable Energy Market Analysis - Africa and its Regions. 2022",
+     "page": 293,
+     "text": "THE WAY FORWARD 293 economically sustainable market opportunities all along the value chain. An African Green Deal with renewable energy at the heart of economic transformation should include a far-reaching set of complementary interventions on the demand and supply sides. It should be driven by a comprehensive policy package (see Chapter 4), strong institutions, and international co-operation (including South-South). A Green Deal on this scale holds the potential to produce positive effects across a wide array of social, economic and sustainability imperatives, as Figure 7.2 indicates. They include economic diversification and value creation; inclusive and decent jobs; environmental stewardship and climate resilience; and universal access to affordable, reliable, sustainable and modern energy. Coordination around an African Green Deal can capitalise on existing institutions and initiatives at both the continental and regional levels."
+    },
+    {
+     "passage_id": "de6073ecf74:0752",
+     "doc_id": "de6073ecf74",
+     "title": "IRENA. Renewable Energy Market Analysis - Africa and its Regions. 2022",
+     "page": 266,
+     "text": "Across three value chains – horticulture, wheat and milk – technologies to stimulate productive end uses could create about 190 000  jobs by mechanizing tasks and expanding production capacity. In the horticulture value chain, solar water pumps could meet irrigation needs, helping create approximately 130 000 n ew jobs across the value chain from sales to processing as production increases. In wheat, renewables-based technologies could solve the problems of unreliable electricity faced by micro, small and medium enterprises, creating an estimated 50 000  jobs at various stages of the value chain. Dairy farmers produce about 4  billion litres of milk a year in Ethiopia, however 20-35% of that production is lost, primarily for lack of cooling. Milk chilling from source to retail could reduce spoilage and wastage, creating an estimated 11 000 jobs. Source: Ethiopia Jobs Creation Commission, 2021. © JohnRobert / Shutterstock.com"
+    },
+    {
+     "passage_id": "d0c598d42fd:0004",
+     "doc_id": "d0c598d42fd",
+     "title": "Clifford Chance. Focus on hydrogen: A new energy frontier for Africa 2021:1–10",
+     "page": 2,
+     "text": "Green hydrogen offers governments a sustainable route to achieve national energy and decarbonisation goals. • Existing technology: Unlike Europe and other parts of the world, many African nations are not trapped in existing technology industries and so large-scale devaluations and exit risks pose less of an issue. • Energy security: A clean hydrogen economy would help reduce exposure to geopolitical and oil price instability and would generally reduce the cost of energy for countries relying on diesel. • Development and investment opportunities: With its long value chain, a hydrogen economy offers significant potential of job creation and would help attract international investment into the region. Why now? With rapidly improving technology and decreasing costs for electrolysers and fuel cells, green hydrogen is becoming a more appealing alternative to fossilfuel based hydrogen. Coupled with the ever-increasing pressure to find environmentally sustainable alternatives and to decarbonise our industries, green hydrogen is drawing more attention day by day."
+    },
+    {
+     "passage_id": "d0c598d42fd:0009",
+     "doc_id": "d0c598d42fd",
+     "title": "Clifford Chance. Focus on hydrogen: A new energy frontier for Africa 2021:1–10",
+     "page": 4,
+     "text": "FOCUS ON HYDROGEN: A NEW ENERGY FRONTIER FOR AFRICA 4 | January 2021 Clifford Chance TURNING OUTWARDS The appeal of hydrogen is not limited to the domestic benefits it offers. Several initiatives have been launched with the intention of expanding hydrogen production in Africa for export internationally. Europe's hydrogen ambitions for Africa As European nations struggle to procure the territorial capacity for the production of all of their renewable energy domestically, many European governments and institutions are turning to African nations as potential partners to help them achieve the green future they have committed to under the Paris Agreement on Climate Change. EU Hydrogen Strategy The EU's Hydrogen Strategy, published in 2020, sets out an ambitious roadmap for a significant shift towards green hydrogen by the year 2050. The Strategy highlights Africa's abundant renewables potential noting that in particular North Africa, due to its geographic proximity, is a potential supplier of cost-competitive renewable hydrogen to the EU."
+    },
+    {
+     "passage_id": "de6073ecf74:0843",
+     "doc_id": "de6073ecf74",
+     "title": "IRENA. Renewable Energy Market Analysis - Africa and its Regions. 2022",
+     "page": 293,
+     "text": "This blueprint and master plan for transforming the continent into a global powerhouse (IRENA, KFW Figure 7.2 Pillars and desired outcomes of an African Green Deal AN AFRICAN GREEN DEAL FOR ECONOMIC AND SOCIAL DEVELOPMENT Universal access to sustainable energy Economic diversi- ﬁcation and value creation Inclusive and decent jobs Environmental sustainability and resilience INTERNATIONAL AND SOUTH-SOUTH COOPERATION STRONG INSTITUTIONS COMPREHENSIVE POLICY FRAMEWORKS FOR DEVELOPMENT (driven by energy transitions) Universal access to sustainable energy Economic diversi- ﬁcation and value creation Inclusive and decent jobs Environmental sustainability and resilience INTERNATIONAL AND SOUTH-SOUTH COOPERATION STRONG INSTITUTIONSCOMPREHENSIVE POLICY FRAMEWORKS FOR DEVELOPMENT (driven by energy transitions) AN AFRICAN GREEN DEAL FOR ECONOMIC AND SOCIAL DEVELOPMENT AN AFRICAN GREEN DEAL FOR ECONOMIC AND SOCIAL DEVELOPMENT Universal access to sustainable energy Economic diversi- ﬁcation and value creation Inclusive and decent jobs Environmental sustainability and resilience INTERNATIONAL AND"
+    },
+    {
+     "passage_id": "de6073ecf74:0820",
+     "doc_id": "de6073ecf74",
+     "title": "IRENA. Renewable Energy Market Analysis - Africa and its Regions. 2022",
+     "page": 287,
+     "text": "THE WAY FORWARD 287 Labour markets are another important area. 1 The energy transition will create many new jobs, surpassing the number lost in the conventional energy sector. This may open opportunities for women, youth and members of marginalised communities to gain employment. But labour market policies will have to address the misalignments that may emerge during the energy transition as old fossil fuel industries and jobs fall by the wayside and new ones appear in renewables and related industries. The misalignments can occur in time (if new jobs are not created as quickly as old ones disappear); in space (new jobs may be created in locations different from old ones); in education (the energy transition may require different skill sets); and in economic structures (the transition may feature different sectors and supply chains than those prominent under the old energy economy). In Africa, one challenge is that much of the workforce is not in the formal sector of the economy."
+    }
+   ],
+   "k2": [
+    {
+     "p": 1,
+     "k2_sentence": "They include economic diversification and value creation; inclusive and decent jobs; environmental stewardship and climate resilience; and universal access to a",
+     "k2_says": "opposite"
+    },
+    {
+     "p": 2,
+     "k2_sentence": "In the horticulture value chain, solar water pumps could meet irrigation needs, helping create approximately 130 000 n ew jobs across the value chain from sales",
+     "k2_says": "opposite"
+    },
+    {
+     "p": 3,
+     "k2_sentence": "Why now?",
+     "k2_says": "opposite"
+    },
+    {
+     "p": 4,
+     "k2_sentence": "The Strategy highlights Africa's abundant renewables potential noting that in particular North Africa, due to its geographic proximity, is a potential supplier ",
+     "k2_says": "opposite"
+    },
+    {
+     "p": 5,
+     "k2_sentence": "",
+     "k2_says": "neither"
+    },
+    {
+     "p": 6,
+     "k2_sentence": "1 The energy transition will create many new jobs, surpassing the number lost in the conventional energy sector.",
+     "k2_says": "opposite"
+    }
+   ]
+  }
+ ]
+}

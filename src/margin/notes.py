@@ -164,7 +164,6 @@ def remove(ws: Workspace, note_id: str) -> None:
 def _placed(cx: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[dict]:
     """Notes as views, each checked against its document's text as it reads now: words that moved (the document was
     read again) are found again and their place written down; words that cannot be found are marked `lost`."""
-    me = _me()
     texts: dict[str, tuple] = {}
     out = []
     for r in rows:

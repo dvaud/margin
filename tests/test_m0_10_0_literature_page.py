@@ -26,7 +26,7 @@ def test_the_feature_is_in_the_app_without_ai():
     assert 'import { renderLiterature } from "./views/literature.js"' in app
     assert '[/^\\/literature$/, "literature", renderLiterature]' in app
     settings = (STATIC / "views" / "settings.js").read_text(encoding="utf-8")
-    assert "literatureSettings(s, save, sectionCard)" in settings and 'literature: "explore"' in settings
+    assert "literatureSettings(s, save, sectionCard)" in settings and 'literature: "documents"' in settings
 
 
 def test_a_draft_claim_nobody_supports_links_to_the_page():

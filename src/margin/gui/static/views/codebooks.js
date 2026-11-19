@@ -8,8 +8,9 @@
 // words are marked *AI draft* until you rewrite them.
 import { featureEyebrow, viewTabs, withAI } from "../features.js";
 import { App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, P, plural, confirmDialog, download,
-  dialog, field, switchControl, watchJob, emptyState, shortTitle, session, button, iconButton, downloadButton, link, menu, notice, card, tag, input, select, textarea, choice, optionCards, readsLine, aiWhere, inset, workState, readTextFile, setBusy } from "../lib.js";
+  dialog, field, switchControl, watchJob, emptyState, shortTitle, session, button, iconButton, downloadButton, link, menu, notice, card, tag, input, select, textarea, choice, optionCards, readsLine, aiWhere, ownStartNote, inset, workState, readTextFile, setBusy, aiButton, jobFailed } from "../lib.js";
 import { forgetFrameworks } from "./options.js";
+import { MiniJob, isStopped } from "./progress.js";
 import { showHistory, askWhy } from "./versions.js";
 
 const WHERE = { project: ["This project", "folder"], home: ["All projects", "layers"], bundled: ["Ships with Margin", "library"] };
@@ -83,7 +84,7 @@ export async function renderCodebooks(view) {
       h("div", { class: "btn-row" }, button({ kind: "main", onClick: () => newCodebook("themes") }, icon("shapes", { size: 14 }), "Start from the themes"),
         button({ onClick: () => newCodebook("fresh") }, icon("plus", { size: 14 }), "Start fresh"))));
   } else {
-    box.append(h("h2", { class: "cb-h2" }, "Your codebooks"), h("ul", { class: "cb-cards" }, own.map(cardItem)));
+    box.append(...[h("h2", { class: "cb-h2" }, "Your codebooks"), h("ul", { class: "cb-cards" }, own.map(cardItem))].filter(Boolean));
   }
   box.append(h("h2", { class: "cb-h2" }, "Ship with Margin"), h("ul", { class: "cb-cards" }, ships.map(cardItem)),
     h("p", { class: "muted small" }, "To change one of these, open it and make a copy."));
@@ -356,6 +357,7 @@ export async function renderCodebook(view, [name]) {
   }
   let trying = false, tryWatch = null;   // the job of Try it, while it runs
   const defineOffers = new Map();   // K1: whether the AI may draft from these examples, by the examples' quotes
+  const relabelRuns = new Map();    // 0.19.13: a code labelled again: its run, shown under its line while it lasts
   const pendingDraft = new Map();   // K1: a draft not taken or put aside yet, by code (its uid; the code itself while unsaved)
   const definingNow = new Set();    // K1: the codes whose draft is being made (same keys)
   const savedAs = new WeakMap();    // K1: an unsaved code's key → its uid once saved (a draft asked before the save)
@@ -429,7 +431,7 @@ export async function renderCodebook(view, [name]) {
       notices.appendChild(notice({ kind: "attention", class: "cb-stale" }, h("div", {},
         h("p", {}, h("strong", {}, "The AI labelled with an earlier wording. "), "These codes changed after the AI used them. Their labels stay as they are until you ask for these passages to be labelled again (only those passages)."),
         h("ul", {}, stale.map(([code, s]) => h("li", {}, h("strong", {}, code), ` · ${plural(s.passages, "passage")} labelled before ${fmt.date(s.since)} `,
-          withAI(button({ sm: true, onClick: () => relabel(code) }, icon("refresh", { size: 13 }), "Label them again"))))),
+          withAI(aiButton({ sm: true, disabled: relabelRuns.has(code), onClick: (e) => relabel(code, e.currentTarget) }, "Label them again")), relabelRuns.has(code) ? relabelRuns.get(code).el : null))),
         readsLine("the passages of these codes again"))));
     }
     if ((cb.removed || []).length) {
@@ -672,11 +674,11 @@ export async function renderCodebook(view, [name]) {
     const fill = (offer) => {
       if (!offer) { clear(box); return; }
       if (!offer.offered) { replace(box, h("p", { class: "muted small" }, offer.why)); return; }
-      const btn = button({ onClick: () => askDraft(c, btn) }, icon("sparkles", { size: 14 }), "Draft from the examples");
+      const btn = aiButton({ sm: true, onClick: () => askDraft(c, btn) }, "Draft from the examples");
       if (definingNow.has(keyNow(k))) setBusy(btn, true);
       const what = `the ${offer.passages} passages that hold this code’s examples, and its name`;
       replace(box, h("div", { class: "btn-row" }, withAI(btn)),
-        offer.reader === "local" ? aiWhere(`The AI on this computer reads ${what}: the text never leaves it.`, "local") : readsLine(what),
+        offer.reader === "local" ? aiWhere(`The AI on this computer reads ${what}: the text never leaves it.${ownStartNote()}`, "local") : readsLine(what),
         offer.left_line ? h("p", { class: "muted small" }, offer.left_line) : null,
         h("p", { class: "muted small" }, "A draft to rewrite: it is shown here first, and nothing changes until you take it."));
     };
@@ -693,13 +695,27 @@ export async function renderCodebook(view, [name]) {
   async function askDraft(c, btn) {
     const k = defineKey(c);
     if (definingNow.has(keyNow(k))) return;
-    definingNow.add(k);
     setBusy(btn, true);
+    let res;
     try {
       const group = (groupsInOrder().find((g) => g.group === c.group) || {}).group_name || "";
-      const res = await api("POST", `${base}/define`, { code: c.code, group, examples: exampleRefs(c) });
-      const job = await watchJob(res.job.id).promise;
-      if (job.state !== "done") { if (job.error) toast(job.error, "error"); return; }
+      res = await api("POST", `${base}/define`, { code: c.code, group, examples: exampleRefs(c) });
+    } catch (e) { showError(e); if (btn.isConnected) setBusy(btn, false); return; }
+    await followDraft(k, res.job.id, btn);
+  }
+  // the drafting job, followed until its draft is in; a local model refused for memory gets its side (jobFailed: its
+  // Start runs the job again, followed here the same way)
+  async function followDraft(k, jobId, btn) {
+    definingNow.add(k);
+    try {
+      // 0.19.13: the AI run panel under the field while it drafts (not the button's spinner alone)
+      const m = new MiniJob({ title: "The AI drafts a definition from the examples", noun: "passage" });
+      const box = defineBoxes.get(keyNow(k));
+      if (box) box.appendChild(m.el);
+      const job = await watchJob(jobId, (j) => m.update(j)).promise;
+      if (job.state === "error") { jobFailed(job, (j) => followDraft(k, j.id, null)); return; }
+      if (isStopped(job)) { toast("Stopped.", "info", { small: true, ttl: 2500 }); return; }
+      if (job.state !== "done") return;
       const got = job.result || {};
       if (got.stopped) return;
       if (got.withdrawn) { toast(got.why || "The request was taken back before the AI answered. Try again.", "warn"); return; }
@@ -711,7 +727,7 @@ export async function renderCodebook(view, [name]) {
       const now = keyNow(k);
       definingNow.delete(k);
       definingNow.delete(now);
-      if (btn.isConnected) setBusy(btn, false);
+      if (btn && btn.isConnected) setBusy(btn, false);
       // only this code's define box is made again (the draft, or a button no longer busy): the person may be typing
       if (body.isConnected) refreshDefineBox(now);
     }
@@ -869,11 +885,23 @@ export async function renderCodebook(view, [name]) {
     } catch (e) { showError(e); }
     finally { trying = false; tryWatch = null; if (btn) setBusy(btn, false); }
   }
-  async function relabel(code) {
+  // 0.19.13: the run shows under the code's line (the AI run panel), not in a toast that goes away
+  async function relabel(code, btn) {
+    setBusy(btn, true);
     try {
       const r = await api("POST", `${base}/relabel`, { code });
-      toast(`The AI labels ${plural(r.passages, "passage")} of “${code}” again, with its new wording.`, "ok", { action: { text: "Follow it on Profile", href: `#/profile?framework=${encodeURIComponent(name)}` } });
-    } catch (e) { showError(e); }
+      const m = new MiniJob({ title: `The AI labels ${plural(r.passages, "passage")} of “${code}” again`, noun: "passage" });
+      relabelRuns.set(code, m);
+      btn.closest("li").append(m.el);
+      const w = watchJob(r.job.id, (job) => m.update(job));
+      w.promise.then((job) => {
+        relabelRuns.delete(code);
+        if (isStopped(job)) toast("Stopped. The passages labelled so far keep their new labels.", "info", { small: true, ttl: 2500 });
+        else if (job.state === "done") toast(`The passages of “${code}” are labelled again, with its new wording.`, "ok", { small: true, action: { text: "See them on Profile", href: `#/profile?framework=${encodeURIComponent(name)}` } });
+        else if (job.state === "error") jobFailed(job);
+        if (body.isConnected) drawNotices();
+      }).catch(showError);
+    } catch (e) { showError(e); setBusy(btn, false); }
   }
   async function move(to) {
     if (dirty) { toast("Save or discard your changes first.", "info"); return; }

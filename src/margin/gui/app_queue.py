@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .api_common import ONE_START, ApiError, Cancelled, Job, _body_int, _bool, _codebook, _list, _str, benchmark_table
 from .progress import Tracker
-from .. import addons, citations, claimcheck, frameworks, home, literature, runs as runs_mod, taskqueue, tasks as tasks_mod
+from .. import access, addons, citations, claimcheck, frameworks, home, literature, runs as runs_mod, taskqueue, tasks as tasks_mod
 from ..claude_setup import setup_info as claude_setup_info
 from ..llm import BackendError
 
@@ -23,6 +23,11 @@ class QueueMixin:
         speed = self.settings().get("claude_speed") or "normal"
         out = taskqueue.status(ws, name, parallel=taskqueue.speed_parallel(speed))
         out["route"] = self.settings().get("backend")
+        # stage 2: whether an agent answers the queue (Claude Code, Codex, Antigravity), and which
+        from .. import agentcli, providers
+
+        out["agent"] = out["route"] in providers.AGENT_ROUTES
+        out["agent_title"] = taskqueue.route_title(out["route"]) if out["agent"] else ""
         out["setup"] = claude_setup_info()
         # 0.13.10: how many helpers a start runs at once (the speed beside Start Claude Code), and the limits of
         # "For this run"
@@ -33,12 +38,20 @@ class QueueMixin:
         # 0.18.1 (N2): how much thought Claude gives the tasks, chosen beside Start Claude Code and kept
         out["thought"] = {"chosen": self.settings().get("claude_thought") or "balanced",
                           "options": dict(taskqueue.routing.THOUGHT_TITLES)}
-        out["runner"] = claude_setup.run_state(name)
+        out["runner"] = self.agent_runner(name)
         out["at_limit"] = self._at_limit(name, ws, out["runner"])  # 0.18.1 (I4)
         if out["route"] == "claude_code" and not home.local_only():
             st = claude_setup.status()
             out["can_start"] = bool(st["found"])
             out["claude"] = {k: st[k] for k in ("found", "signed_in", "installed", "ready")}
+            out["cli"] = dict(out["claude"])
+        elif out["route"] in providers.AGENT_CLIS and not home.local_only():
+            st = agentcli.status(out["route"])
+            if not st["found"]:   # looked at again (cheap when it is not there): it may have been installed just now
+                st = agentcli.status(out["route"], refresh=True)
+            out["can_start"] = bool(st["found"])
+            out["cli"] = {"found": st["found"], "signed_in": st["signed_in"], "installed": st["connector"],
+                          "ready": st["ready"]}
         return out
 
     def overview(self, name: str) -> dict:
@@ -149,8 +162,6 @@ class QueueMixin:
         """A job in which the local model (Settings' local model for restricted documents) answers the queue's tasks
         here: `what` "mix" (the kinds the AI mix gives it first, unsure ones going up to Claude) or "limit" (every
         waiting task, after Claude Code reached the plan's usage limit)."""
-        from .. import access
-
         ws = self.ws(name)
 
         def run(job: Job):
@@ -172,38 +183,53 @@ class QueueMixin:
 
         title = ("Your local model answers its share of the queue" if what == "mix" else
                  "Your local model answers the queue while Claude Code waits for the plan's limit")
+        # 0.19.13: started by its own button, all the local model's work: it needs no second Start
         return self.jobs.start(f"queue-local-{what}", title, name, run, uses_model=True, unique=True,
-                               background=background)
+                               background=background, local_start="go")
 
     def _at_limit(self, name: str, ws, runner: dict) -> dict | None:
         """0.18.1 (I4): whether Claude Code, started from the app, stopped at the plan's usage limit, and what happens
         now, as the person chose (Settings' at_limit): the queue waits for the next start, or the local model answers
-        what waits (started once per stop)."""
+        what waits. 0.19.13: the local model no longer starts by itself: with "local" the page offers its Start
+        (`offer_local`, until it is pressed: POST …/queue/run {"local": "limit"}); `started` says whether that job
+        runs."""
         said = taskqueue.limit_reached(runner)
         if not said:
             return None
         s = self.settings()
         choice = s.get("at_limit") or "wait"
         local = bool(s.get("restricted_server") and s.get("restricted_model")) and not home.local_only()
-        out = {"said": said, "choice": choice, "local_possible": local, "started": False}
-        key = f"{runner.get('started_at')}"
-        if choice == "local" and local and ws.meta("limit_handled") != key and taskqueue.status(ws, name)["waiting"]:
-            ws.set_meta("limit_handled", key)  # once per stop of Claude Code, even if the job is stopped
-            self._local_queue_job(name, "limit", background=True)
-            out["started"] = True
+        with self.jobs.lock:
+            running = any(j.kind == "queue-local-limit" and j.project == name and j.state in ("queued", "running")
+                          for j in self.jobs.jobs.values())
+        out = {"said": said, "choice": choice, "local_possible": local, "started": running, "offer_local": False}
+        if (choice == "local" and local and not running and ws.meta("limit_handled") != self._limit_key(runner)
+                and taskqueue.status(ws, name)["waiting"]):
+            out["offer_local"] = True
         return out
+
+    @staticmethod
+    def _limit_key(runner: dict | None) -> str:
+        """Which stop of Claude Code at the plan's limit (one offer of the local model each)."""
+        return f"{(runner or {}).get('started_at')}"
 
     def start_queue_run(self, name: str, body: dict) -> Job:
         """Answer what waits in the queue here, with the AI model of Settings (a local server or the Claude API),
         kind by kind. 0.18.1: with Claude Code in Settings, the local model answers here what the AI mix gives it
         first (`{"local": "mix"}`, the default), or every waiting task it may (`{"local": "all"}`, as at the plan's
-        limit)."""
+        limit; 0.19.13: also `{"local": "limit"}`, the Start the page offers there, `at_limit.offer_local`)."""
         ws = self.ws(name)
         if self.queue_mode():
-            what = "limit" if body.get("local") == "all" else "mix"
+            what = "limit" if body.get("local") in ("all", "limit") else "mix"
+            if what == "limit":  # 0.19.13: the offer at the plan's limit is handled (pressed) for this stop
+                runner = self.agent_runner(name)
+                if taskqueue.limit_reached(runner):
+                    ws.set_meta("limit_handled", self._limit_key(runner))
             if what == "mix" and not taskqueue.mix_kinds():
-                raise ApiError(400, "Settings name Claude Code: it answers the queue itself. Choose a mix of local "
-                                    "and Claude in Settings → AI, or another AI model, to answer it here.")
+                title = taskqueue.route_title(self.settings().get("backend"))
+                raise ApiError(400, f"Settings name {title}: it answers the queue itself. Choose a mix of local "
+                                    f"and {'Claude' if title == 'Claude Code' else title} in Settings → AI, or another "
+                                    "AI model, to answer it here.")
             kinds = [k for k in (body.get("kinds") or []) if k in taskqueue.KINDS] or None
             return self._local_queue_job(name, what, kinds)
         kinds = [k for k in (body.get("kinds") or []) if k in taskqueue.KINDS] or None
@@ -242,7 +268,10 @@ class QueueMixin:
         except (BackendError, ValueError) as e:
             rp = {"error": str(e), "changed": [], "seconds_per_task": None, "now": {}}
         sec = rp.get("seconds_per_task")
-        return {**plan, "run": rp, "estimate_seconds": round(sec * plan["to_read"]) if sec else None}
+        out = {**plan, "run": rp, "estimate_seconds": round(sec * plan["to_read"]) if sec else None}
+        if plan.get("local") and not rp.get("error"):
+            out["local_model"] = access.local_status(self.settings())  # 0.19.4: the local panel's model and memory
+        return out
 
     def start_labels(self, name: str, body: dict) -> Job:
         from .. import profile
@@ -263,7 +292,10 @@ class QueueMixin:
                                profile.run_labels(ws, fw, be, model, docs,
                                                   None if body.get("all_passages") is None else bool(body["all_passages"]),
                                                   limit,
-                                                  progress=prog, should_stop=job.cancel.is_set, passage_ids=pids))
+                                                  progress=prog, should_stop=job.cancel.is_set, passage_ids=pids,
+                                                  force=bool(body.get("force"))),
+                               # 0.20.1: the local model's own panel started it (its Start is the one start)
+                               local_start=body.get("local") if body.get("local") in ("go", "force") else None)
         job.scope = ",".join(docs) if docs else fw
         return job
 
@@ -453,7 +485,7 @@ class QueueMixin:
         kinds = tuple(k for k in (body.get("kinds") or ["verify_set"]) if k in ("verify_set", "extract", "split", "label")) \
             or ("verify_set",)
         n = _body_int(body, "n", 10, 1, 100)
-        be, model = self.backend(kinds)
+        be, model = self.backend(kinds, wake=True)
         q = self.queue_mode()
         if q:  # 0.8.1: by queue, on a scratch copy of the reference; each kind on its routed model unless one is chosen
             from ..routing import ALIASES
@@ -467,7 +499,8 @@ class QueueMixin:
             self._wire(job, be)
             if hasattr(be, "progress"):
                 be.progress = (lambda info: job.progress.update(queue=info) if info.get("phase") == "queue" else
-                               tracker.model_report(info)) if q else tracker.model_report
+                               taskqueue.end_report(info, job.progress) or tracker.model_report(info)) \
+                    if q else tracker.model_report
 
             def started(i, total, tid):
                 if job.cancel.is_set():

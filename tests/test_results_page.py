@@ -100,7 +100,7 @@ def test_the_sidebar_says_not_running_in_its_own_colour():
     assert 'kind: "stalled"' in draw and '"Not running"' in draw and 'icon: "pause"' in draw
     # 0.17.0 (design guide): "2 tasks waiting" fits the status area beside Start ("2 tasks wait for Clau…" was cut);
     # the tooltip says for whom
-    assert "sub: `${tasksWord(n)} waiting`," in draw and "wait\"} for Claude Code. Start it" in draw
+    assert "sub: `${tasksWord(n)} waiting`," in draw and "wait\"} for ${t}. Start it" in draw   # stage 2: t = the agent of the main route
     # the pulsing dot is only for work that runs
     assert 'w.kind === "running" ? h("span", { class: "running-dot"' in draw
     # it offers to start Claude Code for the current project's work on hold, in one button
@@ -147,7 +147,8 @@ def test_the_result_page_reads_in_one_order():
     assert "queueNotice(" in waiting and "modelsCard" not in waiting and "downloadsCard" not in waiting
     assert "{ foldType: true }" in waiting and "deleteHyp(r)" in waiting and "techCard(r, parts)" in waiting
     lib = (STATIC / "lib.js").read_text()
-    assert "opts.foldType && q.can_start ?" in lib and "foldType: opts.foldType" in lib
+    # 0.19.13: Claude's side in a card: its choices and the cloud line in one fold (Options and what is sent)
+    assert 'o.compact ? "Options and what is sent" : summary' in lib and "compact: true, privacy: opts.privacy" in lib
 
 
 def test_an_excerpt_card_is_compact_and_can_be_dismissed():

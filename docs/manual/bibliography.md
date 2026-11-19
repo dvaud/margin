@@ -97,17 +97,27 @@ has been retracted, corrected or flagged with an expression of concern. Crossref
 list and the notices publishers file.
 
 - **It runs only when you press the button.** The page says when you last checked.
-- **Only DOIs are sent.** No name, no email address, no project name. The request says only that it comes from Margin
-  and its version.
+- **Only DOIs are sent, and for a work without one, its title.** A work with no DOI is looked up by its title, its
+  first author's family name and its year, and only if it is a published kind of work (an article, book, chapter,
+  conference paper, report, thesis or preprint) with a title of at least three words. No name, no email address, no
+  project name. The request says only that it comes from Margin and its version.
 - **It follows each document's AI setting.** A work whose document is marked *No AI* is not looked up. A work with no
-  document is.
+  document is. A work linked to one of your own drafts (a *working* document) is left out too. A document that has
+  no DOI and no work in the bibliography is never looked up by its title: the title may be a file name or a private
+  draft.
 - **It is off under local-only.** The page says so and nothing is sent.
 - **A warning stands under the title of each work with a notice**: *Retracted* is the serious one. *Corrected* and
   *Expression of concern* are milder. Hover over it for the notice's date and DOI.
 - **Excerpts say it too.** In a check's results, an excerpt from a document whose work has a notice shows a small
   warning beside the document's title, so you read the notice before relying on it.
 
-A work without a DOI cannot be looked up. A lookup changes no result and no judgement. `margin retractions <project>`
+- **A match by title is shown, so you can check it.** Under the warning, *Found by title* names the work Crossref
+  matched (its title, year and DOI as a link). Margin accepts a match only when the title is (all but) the same, the
+  year is within one and the first author is the same, and only one work fits. If it is another work, press *Not this
+  work*: the notice is hidden, and the lookup does not propose that DOI for this work again. *Undo* in the message
+  brings it back.
+
+A lookup changes no result and no judgement. `margin retractions <project>`
 shows what the last check found; add `--check` to look up now.
 
 Margin talks to Zotero only through the Zotero app's own connection on this computer (`127.0.0.1`, port 23119), never

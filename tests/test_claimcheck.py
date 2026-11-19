@@ -89,7 +89,9 @@ def test_ollama_backend_over_http(loaded):
         assert info["model_available"] and info["model"]["parameters"] == "8B" and "warning" in info
         cid = claimcheck.check_claim(loaded, CLAIM, be, fake_servers.FAKE_MODEL, k=3)
         r = claimcheck.result(loaded, cid)
-        assert r["status"] == "supported" and r["model"] == fake_servers.FAKE_MODEL
+        # I6: a local model's readings are suggestions: the check waits for the person's judgements
+        assert r["status"] == "not_checked" and r["suggestions"] and r["model"] == fake_servers.FAKE_MODEL
+        assert r["status_text"] == claimcheck.WAITING_YOU
         chat = [b for p, b in srv.requests if p == "/api/chat"]
         assert len(chat) == 2
         for body in chat:  # context length and answer schema go with every request; no streaming

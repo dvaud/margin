@@ -335,7 +335,10 @@ def import_project(zip_path: str | Path, dest: str | Path) -> Workspace:
 # ---------------------------------------------------------------------------------------------
 MOVE_MANIFEST = "enlens-move.json"
 # settings that belong to this computer rather than to the person: not carried over
-MACHINE_SETTINGS = {"project", "benchmark_reference", "claude_plan_detected"}  # 0.13.10: found per computer
+MACHINE_SETTINGS = {"project", "benchmark_reference", "claude_plan_detected",  # 0.13.10: found per computer
+                    # stage 1 of other cloud providers: like the Claude API key (never in a move zip), the chosen
+                    # provider and what goes with it stay here; its key is in this computer's keychain only
+                    "cloud_provider", "cloud_model", "cloud_small_model", "azure_url"}
 # ENLENS roles: who the person is (ENLENS's settings; a move zip made by ENLENS may hold them). Margin has one person,
 # so they are never taken
 PERSON_SETTINGS = ("person_id", "your_name")
@@ -381,7 +384,7 @@ def export_all(out: str | Path, progress=None) -> dict:
                 one.unlink()
                 listed.append({"name": name, "file": arc, "documents": stats["documents"],
                                "linked": home.is_linked(name), "missing": stats["missing"]})
-            settings = {k: v for k, v in home.load_settings().items() if k not in MACHINE_SETTINGS}
+            settings = _movable(home.load_settings())
             current = home.load_settings().get("project") or ""
             zf.writestr(MOVE_MANIFEST, json.dumps({"format": "enlens-move", "version": __version__,
                                                    "made": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -391,6 +394,15 @@ def export_all(out: str | Path, progress=None) -> dict:
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
     return {"projects": listed, "skipped": skipped, "size": out.stat().st_size}
+
+
+def _movable(settings: dict) -> dict:
+    """The settings a move zip carries: not this computer's own, and not another cloud provider as the main route
+    (its key and choice stay on this computer, as the Claude API key does: the other computer keeps its own route)."""
+    out = {k: v for k, v in settings.items() if k not in MACHINE_SETTINGS}
+    if out.get("backend") == "cloud_api":
+        out.pop("backend", None)
+    return out
 
 
 def _move_meta(zf: zipfile.ZipFile) -> dict:
@@ -444,8 +456,7 @@ def _settings_to_take(sent: dict, servers: Iterable[str]) -> dict:
     from .access import on_this_computer
 
     allowed = set(servers or ())
-    wanted = {k: v for k, v in sent.items() if k in home.DEFAULTS and k not in MACHINE_SETTINGS
-              and k not in PERSON_SETTINGS}
+    wanted = {k: v for k, v in _movable(sent).items() if k in home.DEFAULTS and k not in PERSON_SETTINGS}
     dropped = {k for k in SERVER_SETTINGS if isinstance(wanted.get(k), str) and wanted[k].strip()
                and not on_this_computer(wanted[k]) and k not in allowed}
     for k in dropped:

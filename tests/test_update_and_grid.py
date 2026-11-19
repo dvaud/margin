@@ -77,6 +77,27 @@ def test_code_columns_are_headed_by_one_helper_and_names_are_never_one_long_line
     assert "table-cell" in rules[".heat-slant tr::after"]
 
 
+def test_ranked_codes_give_a_name_the_room_it_asks():
+    """0.19.4: "The codes addressed most" kept a 3.6em column for the code, made for a mark ("3.4"). A codebook of your
+    own has names ("Practice-arrangement bundle"), which ran over the description beside them."""
+    from _static import all_css
+
+    css = re.sub(r"@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}", "", re.sub(r"/\*.*?\*/", "", all_css(), flags=re.S))
+    rules = dict((sel.strip(), body) for s, body in _rules(css) for sel in s.split(","))
+    # the rows share their columns, and the codes' column is as wide as its widest code asks (never a fixed few em)
+    assert "fit-content(" in rules[".pf-top"] and "subgrid" in rules[".pf-top li"]
+    assert not re.search(r"grid-template-columns:\s*[\d.]+em", rules[".pf-top"] + rules[".pf-top li"])
+    # a code wraps in its column and is never cut short; a name is set in the interface's face, as in the heat grid
+    code = rules[".pf-top-code"]
+    assert "overflow-wrap: anywhere" in code and "nowrap" not in code and "ellipsis" not in code
+    assert "var(--font-mono)" in code and "var(--font-ui)" in rules[".pf-top-named .pf-top-code"]
+    lib = (STATIC / "lib.js").read_text("utf-8")
+    assert "export const codesAreNames" in lib
+    assert "codesAreNames(" in lib[lib.index("export function heatGrid("):], "the grid and the list ask one question"
+    js = (STATIC / "views" / "profile.js").read_text("utf-8")
+    assert re.search(r'"pf-top" \+ \(codesAreNames\(', js)
+
+
 def test_darkest_cell_has_its_own_token_in_every_theme():
     app = (STATIC / "tokens.css").read_text("utf-8")  # 0.13.5: the tokens moved out of app.css
     assert app.count("--heat-4:") == 3  # light, dark by system setting, dark by choice

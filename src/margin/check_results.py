@@ -12,6 +12,7 @@ from . import access, docrole, frameworks, tasks
 from .reread import is_tombstone
 from .store import Workspace
 from .textutil import find_quote
+from .verdicts import is_suggestion
 from .verdicts import (
     GRADES, PERSON, STATUS_TEXT, UNSUPPORTED_NONSCI, WAITING_LOCAL, WAITING_YOU, _before_stronger, _queued_open,
     _status_of_rounds, aggregate, balance, changed_by_person, effective, nonsci_text, set_aside, stronger_eligible,
@@ -199,7 +200,7 @@ def _readers_of(ws: Workspace, parts: list) -> dict[str, str]:
             out[t["task_id"]] = "waiting" if t["status"] in ("pending", "retry") else ("local" if local_part else "ai")
             continue
         route, model = r[0]["route"] or "", r[0]["model"] or ""
-        if local_part or route in (_cc.ROUTE_NAMES["local"], _cc.ROUTE_NAMES["baseline"]):
+        if local_part or tasks.is_local_route(route) or route == _cc.ROUTE_NAMES["baseline"]:   # I6: kept answers too
             out[t["task_id"]] = "local"
         elif route in (_cc.ROUTE_NAMES["claude_code"], _cc.ROUTE_NAMES["anthropic"]) or model == _cc.CHAT_MODEL or model.startswith("claude"):
             out[t["task_id"]] = "claude"
@@ -269,6 +270,33 @@ def _place_kept(item: dict, p: dict, v: dict) -> None:
         item.update(in_corpus=False, not_placed=True)
 
 
+def _suggestion(item: dict, p: dict, v: dict, base: int | None, earlier: bool) -> None:
+    """I6: an excerpt a local model on this computer read: its suggestion, shown on the card before the person's own
+    judgement (the owner's decision: the tool speeds research up, it is not an exam) and deciding nothing. No
+    confidence is shown. The `point` form marks a sentence (Margin cut it from the excerpt) and judges nothing; the
+    `check` form suggests a judgement. `order`: the model's reading order (the excerpts it marked first)."""
+    try:
+        sug = json.loads(v.get("suggestion_json") or "{}")
+    except ValueError:
+        sug = {}
+    form = sug.get("form") or "check"
+    lean = item["ai_verdict"] if form == "check" else sug.get("lean")
+    item["suggestion"] = {"form": form, "lean": lean, "marked": bool(v.get("quote")), "rank": sug.get("rank"),
+                          "order": sug.get("order") or (1 if item["ai_verdict"] else 2)}
+    item.update(confidence=None, certainty="")
+    if form == "point":
+        item["changed"] = False   # it judged nothing, so a judgement of the person's changes nothing of it
+    if form == "point" and v.get("quote") and not (v.get("user_quote") and v.get("user_verdict")):
+        item.update(quote=v["quote"], ai_quote=v["quote"], quote_by="the local model")
+        if earlier:
+            return
+        if base is not None and v.get("start") is not None:
+            item.update(quote_start=v["start"] - base, quote_end=v["end"] - base)
+        elif v["quote"] in (p.get("text") or ""):
+            s0 = p["text"].index(v["quote"])
+            item.update(quote_start=s0, quote_end=s0 + len(v["quote"]))
+
+
 def result(ws: Workspace, claim_id: str, threshold: float | None = None) -> dict:
     """One claim's check: status, grades with the quote's position in each passage, search terms, rounds.
 
@@ -323,6 +351,16 @@ def _result(ws: Workspace, claim_id: str, threshold: float | None = None) -> tup
         out["status_all_sources"] = out["status_without_nonscientific"] = out["status"]
         return out, extra
     readers_of = _readers_of(ws, rounds)
+    # I6: the parts a local model on this computer answered (its readings of before I6 count as they did: said below)
+    # (the model of a part's latest valid answer, when a model on this computer gave it, asked or kept: a row counts as
+    # that local reading only when it is still that model's, not one Claude read again since)
+    local_parts: dict[str, str] = {}
+    for t in rounds:
+        last = ws.query("SELECT route, model FROM results WHERE task_id=? AND valid=1 ORDER BY attempt DESC LIMIT 1",
+                        (t["task_id"],))
+        if last and tasks.is_local_route(last[0]["route"]):
+            local_parts[t["task_id"]] = last[0]["model"] or ""
+    out["suggestions"] = out["local_counted"] = 0
     shown = []
     for r_i, g in enumerate(groups, 1):
         main = _cc._main_part(g) or g[0]
@@ -367,7 +405,7 @@ def _result(ws: Workspace, claim_id: str, threshold: float | None = None) -> tup
                 "in_corpus": p["passage_id"] in locs, "reviewed": False, "changed": False, "quote_by": None,
                 "ai_quote": None, "breaks": (p.get("breaks") or []) if earlier else breaks.get(p["passage_id"], []),
                 "scope_note": None, "ai_history": [],
-                "reread": False, "reread_info": None,
+                "reread": False, "reread_info": None, "ai_model": None,  # 0.20.3: the model of the AI's judgement
                 # 0.7: the words that found it (F6), and what its quote refers to (F5)
                 "matched": p.get("matched") or [], "refers_to": None, "refers_where": None, "refers_location": None,
                 "refers_start": None, "reference_missing": False,
@@ -380,10 +418,14 @@ def _result(ws: Workspace, claim_id: str, threshold: float | None = None) -> tup
                 "ai_read": False, "round_failed": p["passage_id"] in failed, "my_verdict": None,
                 # 0.15: the excerpt is the text of an earlier reading of its document (`earlier_reader` read it), and
                 # whether its quote has no place in the document as it reads now (it points nowhere)
-                "earlier_reading": earlier, "earlier_reader": p.get("reader"), "not_placed": False}
+                "earlier_reading": earlier, "earlier_reader": p.get("reader"), "not_placed": False,
+                # I6: what the local model suggested (it decides nothing: the person judges the excerpt), and whether
+                # a local model's judgement of before I6 counts here unreviewed
+                "suggestion": None, "local_counted": False}
         if v:
             ai = v["verdict"] if v["verdict"] != "not_enough_info" else None
             item["ai_read"] = v.get("model") != PERSON
+            item["ai_model"] = v.get("model") if item["ai_read"] else None
             eff = effective(v)
             item.update(ai_verdict=ai, user_verdict=v.get("user_verdict"), user_note=v.get("user_note"),
                         verdict=eff["verdict"] if eff["verdict"] != "not_enough_info" else None,
@@ -427,17 +469,28 @@ def _result(ws: Workspace, claim_id: str, threshold: float | None = None) -> tup
                 elif v["user_quote"] in p["text"]:
                     s0 = p["text"].index(v["user_quote"])
                     item.update(quote_start=s0, quote_end=s0 + len(v["user_quote"]))
+            if is_suggestion(v):
+                _suggestion(item, p, v, base, earlier)
             if earlier:
                 _place_kept(item, p, v)
             item["counted"] = (bool(item["verdict"]) and (eff["confidence"] or 0) >= thr and counts(v)
                                and p["doc_id"] not in nonsci)
+            # I6: a local model's judgement of before I6, made when its readings still counted: it keeps counting
+            # (an old status is not changed in silence), and the result says so until the person reviews it
+            item["local_counted"] = (part["task_id"] in local_parts and v.get("model") == local_parts[part["task_id"]]
+                                     and not item["suggestion"] and not item["reviewed"] and item["counted"])
         item["nonscientific"] = p["doc_id"] in nonsci  # 0.18.6: its judgement is shown, never counted
         item["nonscientific_counted"] = counted_here and p["doc_id"] in marked  # 0.19.0 (K3): counted by exception
         if earlier and is_tombstone(p["passage_id"]):
             item["not_placed"] = True  # its quote has no place in the document as it reads now
         so = seconds.get(p["passage_id"])
-        item["second"] = ({**so, "agrees": so["verdict"] == item["ai_verdict"]} if so else None)
-        item["waiting_for_you"] = item["read_by"] == "you" and not item["user_verdict"]
+        # 0.19.17: only beside a model's first reading (an excerpt still waiting for its model has none to differ from)
+        item["second"] = ({**so, "agrees": so["verdict"] == item["ai_verdict"]} if so and item["ai_read"] else None)
+        item["waiting_for_you"] = (item["read_by"] == "you" or bool(item["suggestion"])) and not item["user_verdict"]
+        out["suggestions"] += bool(item["suggestion"]) and not item["user_verdict"]
+        out["local_counted"] += item["local_counted"]
+        # 0.19.8: the person chose to judge it rather than start the local model ("Awaiting manual review")
+        item["by_choice"] = item["read_by"] == "you" and bool(v) and v.get("prompt_version") == _cc.BY_CHOICE
         out["waiting_for_you"] += item["waiting_for_you"]
         out["waiting_local"] += item["waiting_local"]
         out["passages"].append(item)
@@ -488,7 +541,9 @@ def _result(ws: Workspace, claim_id: str, threshold: float | None = None) -> tup
     out["disagreements"] = sum(1 for x in out["passages"] if x["second"] and not x["second"]["agrees"])
     out["references_missing"] = sum(1 for x in out["passages"] if x["reference_missing"] and not x["reviewed"])
     order = {"supports": 0, "partially_supports": 1, "refutes": 2, None: 3}
-    out["passages"].sort(key=lambda x: (order[x["verdict"]], not x["counted"], -(x["confidence"] or 0), x["n"]))
+    # I6: the local model's suggestions in its reading order (those it marked first)
+    out["passages"].sort(key=lambda x: (order[x["verdict"]], not x["counted"], -(x["confidence"] or 0),
+                                        (x["suggestion"] or {}).get("order") or 0, x["n"]))
     return out, extra
 
 
@@ -576,6 +631,8 @@ def hypothesis_result(ws: Workspace, hyp_id: str, threshold: float | None = None
     items = [x for p in parts for x in p["passages"]]
     out["waiting_for_you"] = sum(p["waiting_for_you"] for p in parts)  # 0.11: excerpts no model may read
     out["waiting_local"] = sum(p["waiting_local"] for p in parts)      # 0.11: excerpts waiting for the local model
+    out["suggestions"] = sum(p.get("suggestions", 0) for p in parts)  # I6: the local model's, not judged yet
+    out["local_counted"] = sum(p.get("local_counted", 0) for p in parts)  # I6: its readings of before I6 that count
     # 0.14.3: your own judgements (the Excel columns say "you")
     yours = lambda x: x["reviewed"] and x["judged_by"] == "you"  # noqa: E731
     mine = [x for x in items if yours(x)]

@@ -905,6 +905,10 @@ def create(ws: Workspace, name: str, title: str = "", where: str = "project", st
                                                  f"{how}, kept {'with all projects' if where == 'home' else 'in this project'}"
                                                  f" ({len(clean['codes'])} code{'s' if len(clean['codes']) != 1 else ''}).",
                            "codebook", n, clean["title"], data={"where": where, "start": start})
+    if where == "project":  # shared at once when the team's setting says so (teamcodebooks.py)
+        from .solo import made
+
+        made(ws, n)
     out = load(ws, n)
     if imported is not None:
         out["imported"] = imported
@@ -980,6 +984,9 @@ def copy_here(ws: Workspace, name: str) -> dict:
         researchlog.record(cx, "codebook-copied", f"Took this project's own copy of the codebook "
                                                   f"{researchlog.quoted(title, 80)}, to change it here only.",
                            "codebook", name, title)
+    from .solo import made  # shared at once when the team's setting says so
+
+    made(ws, name)
     return load(ws, name)
 
 

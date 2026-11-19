@@ -1,12 +1,36 @@
 // 0.11: who may read each document with AI. The three settings, the question asked when documents are added (and
 // once for a project that has none), the setting of each document on the Documents page, what Claude has read of a
 // document, and the panel "What happens to the text Claude reads" (Set up Claude, Settings → AI).
-import { App, api, h, icon, replace, toast, showError, fmt, P, dialog, button, iconButton, link, notice, card, choice, input, select, fold, tag, optionCards } from "../lib.js";
+import { App, api, h, icon, replace, toast, showError, fmt, P, dialog, button, iconButton, link, notice, card, choice, input, select, fold, tag, optionCards, isAgent, agentTitle } from "../lib.js";  // eslint-disable-line no-unused-vars
 import { localModelHelp } from "./local-model.js";
 
+// Stage 1 of other cloud providers: while no provider but Anthropic is set up, "cloud" keeps its words ("Claude may
+// read it"); once one is (a key stored, or the main route), it says "Cloud AI may read it", and which providers may
+// read each document is ticked under it (project default and per document).
+const providersState = () => (App.state && App.state.providers) || {};
+export const othersSetUp = () => !!providersState().other_set_up && !(App.state && App.state.local_only);
+const CLOUD_CLAUDE = { title: "Claude may read it", many: "Claude may read them", short: "Claude",
+  sub: "Read by the AI you chose: Claude Code, the Claude API, or a local model." };
+const CLOUD_ANY = { title: "Cloud AI may read it", many: "Cloud AI may read them", short: "Cloud AI",
+  sub: "Read by the AI you chose, when its provider is ticked for the document: Claude, another cloud provider, or a local model." };
+const cloudWords = () => (othersSetUp() ? CLOUD_ANY : CLOUD_CLAUDE);
+// where the text read goes, in the words of the page: "Claude", or "cloud AI" once another provider is set up
+export const sentToWords = () => (othersSetUp() ? "cloud AI" : "Claude");
+const isDefault = (list) => !list || (list.length === 1 && list[0] === "anthropic");
+// the provider tick boxes show once another provider is set up, or while any allowance differs from the default
+export const providersInPlay = (info = {}, docs = []) => othersSetUp() || !isDefault(info.providers_default) || !!info.providers_reset || docs.some((d) => d.providers_own != null);
+// I7 stage 3: provider ticks that came with colleagues' documents were cleared once in a shared project; said in place
+// (the Documents page's providers line, the line about the route) until the person ticks providers again
+export function providersResetWords(info = {}) {
+  const r = info.providers_reset;
+  if (!r) return "";
+  const n = r.documents || 0;
+  return `Your provider ticks for ${n} ${n === 1 ? "document" : "documents"} of this shared project were cleared: they had come with a colleague’s copy, and each person now chooses their own. Tick again the ones you want.`;
+}
+
 export const LEVEL = {
-  cloud: { title: "Claude may read it", many: "Claude may read them", short: "Claude", icon: "cloud",
-    sub: "Read by the AI you chose: Claude Code, the Claude API, or a local model." },
+  cloud: { get title() { return cloudWords().title; }, get many() { return cloudWords().many; },
+    get short() { return cloudWords().short; }, icon: "cloud", get sub() { return cloudWords().sub; } },
   local: { title: "Only a local AI", many: "Only a local AI", short: "Local AI", icon: "house",
     sub: "Read only by a model on this computer, or by you. Never sent to Claude." },
   none: { title: "No AI", many: "No AI", short: "No AI", icon: "eye-off",
@@ -65,45 +89,201 @@ export function accessBanner(project, onDismiss) {
       ". Everything else stays as it was.")), close);
 }
 
+// The cloud providers' names (Settings' table), the ones a person can tick (Anthropic, those set up, those allowed
+// already) and a line of how much each has read.
+export const providerTitle = (id) => (id === "other" ? "A server on another computer"
+  : ((providersState().list || []).find((p) => p.id === id) || {}).title || id);
+const tickable = (allowed = []) => {
+  const st = providersState();
+  const ids = new Set(["anthropic", ...(st.set_up || []), ...allowed]);
+  const order = [...(st.list || []).map((p) => p.id), "other"];
+  return order.filter((id) => ids.has(id));
+};
+
+// Checkboxes of the cloud providers that may read (a document, or the project's documents without their own choice).
+// I7 stage 3: in a shared project too they are this person's own choice. When the team's owner limited the providers
+// the team may use (`limit`, a list), the others are off and one line says which limit holds and who set it; a tick
+// given before stays given (it counts again if the owner lifts the limit).
+let checksMade = 0;
+export const teamLimit = (info = {}) => (info.team_limit && info.team_limit.providers) || null;
+export function providerChecks({ value = ["anthropic"], limit = null, note = "", legend = "Which cloud providers may read it", onChange } = {}) {
+  const wrap = h("fieldset", { class: "provider-checks" }, h("legend", { class: "field-label" }, legend));
+  const boxes = [];
+  const n = ++checksMade;
+  for (const id of tickable(value)) {
+    const off = !!limit && !limit.includes(id);
+    const box = h("input", { type: "checkbox", id: `prov-${n}-${id}`, value: id, checked: value.includes(id), disabled: off });
+    box.addEventListener("change", () => { if (onChange) onChange(wrap.picked()); });
+    boxes.push(box);
+    wrap.append(h("label", { class: "it small provider-check", for: box.id }, box, " ", providerTitle(id)));
+  }
+  if (limit && note) wrap.append(h("p", { class: "muted small" }, icon("info", { size: 13 }), " ", note));
+  wrap.picked = () => boxes.filter((b) => b.checked).map((b) => b.value);
+  return wrap;
+}
+
+// How much each cloud provider has read of a document ("" when only Claude has): "Claude 12% · OpenAI 3%".
+export function sentByLine(doc) {
+  const by = doc.sent_by || {};
+  const ids = Object.keys(by).filter((id) => by[id] > 0);
+  if (!ids.some((id) => id !== "anthropic")) return "";
+  const pct = (x) => { const v = Math.round(x * 1000) / 10; return v < 1 ? "less than 1%" : `${Math.round(v)}%`; };
+  return ids.map((id) => `${id === "anthropic" ? "Claude" : providerTitle(id)} ${pct(by[id])}`).join(" · ");
+}
+
+// The project's choice of cloud providers, on the Documents page, once another provider is set up: who may read the
+// documents marked Cloud AI may read it that have no choice of their own.
+export function providersDefaultCard(project, info, onSaved, docs = []) {
+  if (!providersInPlay(info, docs)) return null;
+  let picked = info.providers_default || ["anthropic"];
+  const st = h("span", { class: "save-state", "aria-live": "polite" });
+  const btn = button({ sm: true, disabled: true }, icon("check", { size: 13 }), "Save");
+  const checks = providerChecks({ value: picked, limit: teamLimit(info), note: info.providers_note || "", legend: info.shared ? "Cloud providers that may read this project's documents on your computer" : "Cloud providers that may read this project's documents",
+    onChange: (v) => { picked = v; btn.disabled = !v.length; st.textContent = v.length ? "Not saved yet." : "Tick at least one, or mark the documents Only a local AI."; } });
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try { const r = await api("PUT", `/api/projects/${P(project)}/ai-access`, { providers_default: picked }); st.textContent = "Saved."; if (onSaved) onSaved(r); }
+    catch (e) { showError(e); btn.disabled = false; }
+  });
+  const now = (info.providers_default || ["anthropic"]).map(providerTitle).join(", ");
+  const reset = providersResetWords(info);
+  const box = fold({ class: "providers-default" }, `${CLOUD_ANY.title}: ${now}`,
+    h("div", { class: "stack" }, h("p", { class: "muted small" }, "For the documents marked Cloud AI may read it without a choice of their own. A document not ticked for the AI you chose is read as Only a local AI. Change one document in its AI setting.",
+      info.shared ? " This is your own choice: each person in the team chooses theirs, and your colleagues see it in the research log." : ""),
+      checks, h("div", { class: "row" }, btn, st)));
+  return reset ? h("div", { class: "stack providers-default-wrap" }, h("p", { class: "muted small providers-reset" }, icon("info", { size: 13 }), " ", reset), box) : box;
+}
+
+// A model server on another computer as the main route (stage 1 of other cloud providers): it reads only the documents
+// allowed to it ("other", or the provider of its address). One line, and a button that allows it for the project; no
+// pop-up. `onAllowed(res)` after the project's choice was saved.
+// Fetch the project's AI access, then draw `make(info)` into a slot that stays hidden when there is nothing to say
+// (the lines below take `info` null for "fetch it yourself").
+function infoSlot(project, make, cls) {
+  const box = h("div", { class: cls, hidden: true });
+  api("GET", `/api/projects/${P(project)}/ai-access`).then((r) => {
+    const el = make((r && r.ai_access) || {});
+    if (el) { replace(box, el); box.hidden = false; }
+  }).catch(() => {});
+  return box;
+}
+
+// Stage 2: the main route's agent (Codex, Antigravity) or another cloud provider's API reads only the documents that
+// allow its company. A project allows Anthropic only until the person says more, so its work would wait for an agent
+// that is never handed it: this line says so, with the counts, and allows the company for the project in one press
+// (I7 stage 3: in a shared project too; when the team's owner limited the providers and this one is outside, the note
+// says so and there is no button: only the owner can widen it). null when every document marked for cloud AI allows it, or the route is
+// Claude's, on this computer, or a server on another computer (remoteServerLine). `info`: the project's AI access
+// (GET /api/projects/<p>/ai-access, or the documents' `ai_access`); null: fetched here (an element is returned at once,
+// hidden until it has something to say). `onAllowed(r)`: after the company was allowed (r: the PUT's answer).
+export function providerAllowLine(project, info, onAllowed) {
+  const s = App.settings(), st = providersState();
+  const prov = st.route;
+  const agentCli = s.backend === "codex" || s.backend === "antigravity";
+  if (!project || !prov || prov === "anthropic" || prov === "other" || !(agentCli || s.backend === "cloud_api")) return null;
+  if (info == null) return infoSlot(project, (got) => providerAllowLine(project, got, onAllowed), "provider-allow-slot");
+  const company = ((st.list || []).find((p) => p.id === prov) || {}).company || providerTitle(prov);
+  const name = agentCli ? agentTitle(s) : `${providerTitle(prov)}, through your API key,`;
+  const same = info.route_provider === prov;
+  const total = same ? (info.route_cloud || 0) : ((info.counts || {}).cloud || 0);
+  const ok = same ? (info.route_allowed || 0) : ((info.providers_default || ["anthropic"]).includes(prov) ? total : 0);
+  if (!total || ok >= total) return null;
+  const words = `${name} reads only documents that allow ${company}: ${ok} of ${total} ${total === 1 ? "does" : "do"}.`;
+  const lim = teamLimit(info);
+  if (lim && !lim.includes(prov)) {
+    return notice({ kind: "attention", class: "provider-allow-line" }, h("p", {}, words, " ", info.providers_note || ""));
+  }
+  let box = null;
+  const btn = button({ sm: true, kind: "main", onClick: async () => {
+    btn.disabled = true;
+    try {
+      const r = await api("PUT", `/api/projects/${P(project)}/ai-access`, { providers_default: [...new Set([...(info.providers_default || ["anthropic"]), prov])] });
+      toast(`${company} may read this project's documents marked ${CLOUD_ANY.title}. What waited for ${agentCli ? agentTitle(s) : company} goes on.`, "ok");
+      if (onAllowed) onAllowed(r); else if (box) box.remove();
+    } catch (e) { showError(e); btn.disabled = false; }
+  } }, `Allow ${company} for this project`);
+  box = notice({ kind: "attention", class: "provider-allow-line" },
+    h("p", {}, words, " Until you allow it, their work waits; documents with a choice of their own keep it (Documents page).",
+      providersResetWords(info) ? ` ${providersResetWords(info)}` : ""),
+    h("div", { class: "row" }, btn));
+  return box;
+}
+
+export function remoteServerLine(project, info = {}, onAllowed) {
+  const st = providersState();
+  const route = st.route, address = st.route_address;
+  if (!address || !route || route === "anthropic") return null;
+  if (project && info == null) return infoSlot(project, (got) => remoteServerLine(project, got, onAllowed), "remote-server-slot");
+  info = info || {};
+  const allowed = (info.providers_default || ["anthropic"]).includes(route);
+  const words = `A server on another computer (${address}) reads only documents you allow it to.`;
+  if (!project) return notice({ kind: "info", class: "remote-server-line" }, h("p", {}, words, " Allow it for a project on its Documents page."));
+  if (allowed) return notice({ kind: "info", class: "remote-server-line" }, h("p", {}, words, " This project allows it."));
+  const lim = teamLimit(info);
+  if (lim && !lim.includes(route)) return notice({ kind: "info", class: "remote-server-line" }, h("p", {}, words, " ", info.providers_note || ""));
+  const btn = button({ sm: true, onClick: async () => {
+    btn.disabled = true;
+    try { const r = await api("PUT", `/api/projects/${P(project)}/ai-access`, { providers_default: [...(info.providers_default || ["anthropic"]), route] }); toast(`${providerTitle(route)} may read this project's documents marked ${CLOUD_ANY.title}.`, "ok"); if (onAllowed) onAllowed(r); }
+    catch (e) { showError(e); btn.disabled = false; }
+  } }, "Allow it for this project");
+  return notice({ kind: "info", class: "remote-server-line" }, h("p", {}, words, " Until you do, its documents are read by your local model or wait for you."), h("div", { class: "row" }, btn));
+}
+
 // What Claude has read of a document, its note and its cap.
-export async function docAccessDialog(project, doc, projectDefault, onSaved) {
+export async function docAccessDialog(project, doc, projectDefault, onSaved, info = {}) {
   let sent = { passages: [], share: doc.sent || 0 };
   try { sent = await api("GET", `/api/projects/${P(project)}/documents/${P(doc.doc_id)}/ai-sent`); } catch (e) { showError(e); }
   let level = doc.ai_access;
-  const pick = accessChoice({ value: level, many: false, name: "doc-access", onChange: (v) => { level = v; capBox.hidden = v !== "cloud"; } });
+  const showProviders = providersInPlay(info, [doc]);
+  const pick = accessChoice({ value: level, many: false, name: "doc-access", onChange: (v) => { level = v; capBox.hidden = v !== "cloud"; if (provBox) provBox.hidden = v !== "cloud"; } });
+  // stage 1 of other cloud providers: which ones may read this document (its own choice, or the project's)
+  const projectProviders = info.providers_default || ["anthropic"];
+  let provs = doc.providers || projectProviders;
+  const provBox = showProviders ? providerChecks({ value: provs, limit: teamLimit(info), note: info.providers_note || "", onChange: (v) => { provs = v; } }) : null;
+  if (provBox) provBox.hidden = level !== "cloud";
   const note = input({ maxlength: 300, value: doc.note || "", placeholder: "e.g. publisher licence, contains interview data", id: "acc-note" });
   const cap = input({ sm: true, type: "number", min: 1, max: 100, step: 1, value: doc.budget ?? "", placeholder: "none", id: "acc-cap", class: "aia-cap" });
   const capBox = h("div", { class: "field", hidden: level !== "cloud" },
-    h("label", { class: "field-label", for: "acc-cap" }, "Claude may read at most"),
+    h("label", { class: "field-label", for: "acc-cap" }, `${othersSetUp() ? "Cloud AI" : "Claude"} may read at most`),
     h("div", { class: "row aia-cap-row" }, cap, h("span", {}, "% of this document")),
-    h("div", { class: "field-help" }, "Optional. Once Claude has read that much, the rest is treated as Only a local AI. A check that is running may go over by one round."));
+    h("div", { class: "field-help" }, `Optional. Once ${sentToWords()} has read that much (every cloud provider counts), the rest is treated as Only a local AI. A check that is running may go over by one round.`));
+  const byLine = sentByLine(doc);
   const share = Math.round((sent.share || 0) * 1000) / 10;
   const list = sent.passages.length ? h("ul", { class: "sent-list" }, sent.passages.slice(0, 200).map((x) =>
     h("li", {}, h("a", { href: `#/doc/${encodeURIComponent(doc.doc_id)}` }, x.page ? `Page ${x.page}` : `Passage ${x.seq != null ? x.seq + 1 : ""}`),
       h("span", { class: "muted small" }, ` · ${x.features.join(", ")} · ${x.routes.join(", ")} · ${fmt.dateShort(x.last)}${x.times > 1 ? ` · ${x.times} times` : ""}`),
       x.preview ? h("div", { class: "small sent-preview" }, x.preview, "…") : null)))
-    : h("p", { class: "muted small" }, "Claude has read nothing of this document" + (sent.since ? " since Margin began keeping this list." : "."));
+    : h("p", { class: "muted small" }, `${othersSetUp() ? "No cloud AI" : "Claude"} has read nothing of this document` + (sent.since ? " since Margin began keeping this list." : "."));
   const body = h("div", { class: "stack aia-body" },
-    pick,
+    pick, provBox,
     h("div", { class: "field" }, h("label", { class: "field-label", for: "acc-note" }, "Why (optional)"), note,
       h("div", { class: "field-help" }, "A note for your records, exported with the project. It changes nothing.")),
     capBox,
-    h("div", {}, h("h3", { class: "h-small" }, `What Claude has read: ${share}%`), list,
+    h("div", {}, h("h3", { class: "h-small" }, `What ${sentToWords()} has read: ${share}%`), byLine ? h("p", { class: "small sent-by" }, `Read by each cloud provider: ${byLine}`) : null, list,
       sent.since ? h("p", { class: "muted small" }, `Since 0.11 (${fmt.dateShort(sent.since)}), plus the earlier results Margin recorded.`) : null));
   await dialog({ title: doc.title || doc.file, body, wide: true, actions: [{ text: "Cancel", value: null }, { text: "Save", primary: true, onClick: async () => {
     const changes = { doc_ids: [doc.doc_id], note: note.value.trim() };
     if (level !== doc.ai_access || (doc.own == null && level !== projectDefault)) changes.ai_access = level === projectDefault && doc.own == null ? null : level;
     if (level === "cloud") changes.budget = cap.value === "" ? "" : Number(cap.value);
+    if (provBox && level === "cloud") {
+      if (!provs.length) { showError(new Error("Tick at least one cloud provider, or mark the document Only a local AI.")); return false; }
+      const same = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+      const was = doc.providers_own || null;
+      const now = doc.providers_own == null && same(provs, projectProviders) ? null : provs;
+      if (JSON.stringify(now) !== JSON.stringify(was)) changes.providers = now;
+    }
     try { const r = await api("PUT", `/api/projects/${P(project)}/documents/ai-access`, changes); onSaved(r); return true; }
     catch (e) { showError(e); return false; }
   } }] });
 }
 
 // "What happens to the text Claude reads": in plain words, with the source and the date it was checked.
+// `bare`: without its own card and heading (Settings › AI gives it a card of its own, "Your Claude account and your
+// documents"); the first-run page keeps the card.
 export function termsPanel(opts = {}) {
   const st = App.state || {};
   const said = opts.account || (st.settings || {}).account_type || "";
-  const box = card({ as: "div", class: "terms-panel" });
+  const box = opts.bare ? h("div", { class: "terms-panel terms-bare" }) : card({ as: "div", class: "terms-panel" });
   const draw = (kind) => {
     const choose = choice({ label: "Your kind of Claude account", class: "terms-pick", value: kind,
       options: [["personal", "Pro or Max (personal)"], ["commercial", "Team, Enterprise or the Claude API"]],
@@ -117,7 +297,7 @@ export function termsPanel(opts = {}) {
       commercial: [h("p", {}, h("strong", {}, "Commercial terms apply. "), "Anthropic does not train its models on what Claude Code is sent, unless your organisation chose to share it, and keeps it for 30 days. Ask your organisation about a data processing agreement for personal data.")],
     }[kind];
     replace(box,
-      h("h3", { class: "h-small" }, icon("cloud", { size: 14 }), "What happens to the text Claude reads"),
+      opts.bare ? null : h("h3", { class: "h-small" }, icon("cloud", { size: 14 }), "What happens to the text Claude reads"),
       h("p", { class: "small" }, "Only the excerpts inside the AI's tasks leave this computer, and only from documents Claude may read: documents marked Only a local AI or No AI are never sent."),
       opts.detected && kind ? h("p", { class: "small muted" }, `Claude Code says your plan is ${opts.detected}.`) : h("p", { class: "small muted" }, "Which kind of account do you use?"),
       opts.detected && kind ? null : choose,
@@ -129,29 +309,37 @@ export function termsPanel(opts = {}) {
   return box;
 }
 
-// Settings → AI: the local model that reads documents marked Only a local AI while Claude reads the rest.
-export function restrictedModelCard(s, servers, save, info = { servers }) {
+// Settings → AI: the local model that reads documents marked Only a local AI while a cloud AI reads the rest. Saved
+// when chosen. opts: extra (rows that only make sense once a local model is chosen: the mix, the usage limit), onSaved()
+// after a choice is saved (Settings draws the page again, so those rows follow).
+export function restrictedModelCard(s, servers, save, info = { servers }, opts = {}) {
   const chosen = (App.state && App.state.restricted) || {};
   const sect = card({ class: "settings-section", id: "s-restricted", "aria-labelledby": "s-restricted-h" },
-    h("h2", { id: "s-restricted-h", tabindex: "-1" }, "Local model for restricted documents"));
+    h("h2", { id: "s-restricted-h", tabindex: "-1" }, "Documents only a local AI may read"));
   if (chosen.same_as_main) {
     sect.append(h("p", { class: "lead" }, "The AI you chose runs on this computer, so it also reads the documents marked Only a local AI. Documents marked No AI wait for your own judgement."));
     return sect;
   }
-  const state = h("span", { class: "save-state", "aria-live": "polite" });
   const options = [h("option", { value: "" }, "None: I judge those excerpts myself")];
   for (const srv of servers || []) {
     for (const m of srv.chat_models || []) options.push(h("option", { value: `${srv.kind}|${m}`, selected: s.restricted_server === srv.kind && s.restricted_model === m }, `${m} (${srv.kind === "ollama" ? "Ollama" : "local server"})`));
   }
   if (s.restricted_model && !options.some((o) => o.selected)) options.push(h("option", { value: `${s.restricted_server}|${s.restricted_model}`, selected: true }, `${s.restricted_model} (not running now)`));
-  const sel = select({ id: "restricted-model" }, ...options);
+  const sel = select({ id: "restricted-model", class: "set-narrow" }, ...options);
   sel.addEventListener("change", async () => {
     const [server, model] = sel.value ? sel.value.split("|") : ["", ""];
-    try { await save({ restricted_server: server, restricted_model: model }, state); const st = await api("GET", "/api/state"); App.state.restricted = st.restricted; toast(model ? `Documents marked Only a local AI are read by ${model}.` : "Excerpts from documents marked Only a local AI wait for your judgement.", "ok"); }
-    catch (_) { /* shown */ }
+    try {
+      await save({ restricted_server: server, restricted_model: model });
+      const st = await api("GET", "/api/state"); App.state.restricted = st.restricted;
+      toast(model ? `Documents marked Only a local AI are read by ${model}.` : "Excerpts from documents marked Only a local AI wait for your judgement.", "ok");
+      if (opts.onSaved) opts.onSaved();
+    } catch (_) { /* shown */ }
   });
-  sect.append(h("p", { class: "lead" }, "Claude never reads documents marked Only a local AI. Choose a model on this computer to read their excerpts in a check, the Profile and the other features; without one, they wait for your own judgement."),
-    h("div", { class: "save-row" }, field2("Local model", sel, servers && servers.length ? "Chat models of the model servers running on this computer." : "No model server is running on this computer just now (Ollama, LM Studio…)."), state));
+  const who = s.backend === "cloud_api" ? "The cloud provider" : isAgent(s) ? agentTitle(s) : s.backend === "anthropic" ? "Claude" : "";
+  sect.append(h("p", { class: "lead" }, who ? `${who} never reads documents marked Only a local AI: a model on this computer can, or they wait for your own judgement.`
+    : "A model on this computer can read the documents marked Only a local AI; without one, they wait for your own judgement."),
+    h("div", { class: "field setting" }, h("label", { class: "field-label", for: "restricted-model" }, "Local model"), sel,
+      servers && servers.length ? null : h("div", { class: "field-help" }, "No model server is running on this computer just now (Ollama, LM Studio…).")));
   // 0.13.7: no model on this computer yet: get Ollama, or download a model into it with one button
   const rerender = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
   const help = localModelHelp(info, { embed: false, use: "restricted", onFound: rerender, onReady: async (r) => {
@@ -161,9 +349,6 @@ export function restrictedModelCard(s, servers, save, info = { servers }) {
   } });
   // with no model server at all, the steps to get one stay folded: most people who use Claude never need them
   if (help) sect.append((servers || []).length ? help : fold({}, "Get a model on this computer (free, no terminal)", help));
+  for (const x of opts.extra || []) if (x) sect.append(x);
   return sect;
-}
-
-function field2(label, control, help) {
-  return h("div", { class: "field grow" }, h("label", { class: "field-label", for: control.id }, label), control, h("div", { class: "field-help" }, help));
 }

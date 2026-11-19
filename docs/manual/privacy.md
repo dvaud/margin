@@ -4,7 +4,8 @@
 
 > **In short**
 > - Your documents, results and reviews stay on your computer. With Claude Code (the default), only the passages
->   inside the AI's tasks are sent to Anthropic, on your own Claude plan.
+>   inside the AI's tasks are sent to Anthropic, on your own Claude plan; with Codex, to OpenAI, and with Antigravity,
+>   to Google, each on your own plan.
 > - Every document has a setting: *Claude may read it*, *Only a local AI*, or *No AI*. Margin enforces it in code.
 > - Margin records every passage it sends to Claude, and you can download that list.
 > - Nothing is sent to anyone else: a project leaves your computer only as a zip you make yourself.
@@ -19,13 +20,15 @@ promise: [PRIVACY.md](../PRIVACY.md).
 | --- | --- |
 | **Stays on your computer** | Projects (plain folders with one SQLite database each) and settings, in `~/margin` or `MARGIN_HOME`. The documents themselves, your judgements, notes, highlights, the research log and reviews. Never to the AI, except the passages of the tasks you start. |
 | **To Anthropic, on your Claude plan** | With Claude Code: only the passages inside the tasks it takes, from documents Claude may read. *See what is sent*, under the line that says so, shows the next batch word for word. Margin never sees your Claude login. |
-| **To Anthropic, on your own API key** | With the Claude API, only after *Allow cloud models* is switched on (or `--backend anthropic` on the command line): the hypothesis and the passages read. |
+| **To OpenAI or Google, on your plan** | With Codex or Antigravity: only the passages inside the tasks it takes, from documents that allow that company (OpenAI for Codex, Google for Antigravity). Choosing one asks you first, naming the company. Margin never sees your login ([How each agent is closed in](#how-each-agent-is-closed-in)). |
+| **To Anthropic, on your own API key** | With the Claude API, only after you say yes to it in *Settings → AI › API key* (or `--backend anthropic` on the command line) and a key is stored: the hypothesis and the passages read. |
+| **To another cloud provider** | Only if you set one up (OpenAI, Google Gemini, Mistral, Azure, OpenRouter) and allow a document to it: the hypothesis and the passages read, nothing else. Its own terms decide what it keeps ([Other cloud providers](#other-cloud-providers)). |
 | **To OpenAlex, and the other services you choose** | *Find literature* only: search words and, to follow citations, the DOIs of your documents. See below. |
 | **Into your chat** | With the [connector](claude-code.md#claude-in-a-chat-the-connector): the passages shown to Claude are part of your chat. |
 | **Nowhere** | With a model on this computer, every word stays on it. |
 
 Apart from the AI you chose, Margin itself goes online only to look for a new version on GitHub, and, when you ask for
-them, to get Claude Code or a local model, to ask Crossref about retractions (DOIs only, never under local-only) and
+them, to get Claude Code or a local model, to ask Crossref about retractions (DOIs, and the title, first author's family name and year of a work without one; never under local-only) and
 for *Find literature*. There is no telemetry. The app is a small server on `127.0.0.1` with a key
 (an access token) per run, and the page loads nothing from the internet (no CDN, fonts or analytics). Zotero is
 only read (never changed), through the Zotero app on this computer (`127.0.0.1`, port 23119) and never through Zotero's
@@ -59,7 +62,7 @@ interview transcript. A draft you check has the same three settings ([Check a dr
 
 | Setting | Who may read its text |
 | --- | --- |
-| *Claude may read it* | The AI you chose: Claude Code, the Claude API, or a local model. |
+| *Claude may read it* | The AI you chose: Claude Code, Codex, Antigravity, the Claude API, another cloud provider, or a local model, as far as the document allows its company ([below](#other-cloud-providers)). |
 | *Only a local AI* | A model server on this computer, or you. |
 | *No AI* | You only. Search, the keyword codes, Concepts and Themes without AI still work. |
 
@@ -84,6 +87,28 @@ interview transcript. A draft you check has the same three settings ([Check a dr
 - **For large corpora**, a `manifest.csv` may have `ai_access` (`cloud`, `local` or `none`) and `ai_note` columns.
 
 On an installation without cloud models (`--local-only`) the default is *Only a local AI*, and Claude is not offered.
+
+### Other cloud providers
+
+*Claude may read it* means Anthropic, unless you allow more. A document marked that way also says **which cloud
+providers may read it**, and by default that is only Anthropic: a project you already have means exactly what it did,
+and nothing reaches OpenAI, Google, Mistral, Azure or OpenRouter, nor Codex or Antigravity, until you allow it ([Settings](settings.md#an-api-key-claude-or-another-provider)).
+
+- **Where.** On the Documents page, the line *Cloud AI may read it: …* above the list opens the project's choice, as
+  tick boxes of providers; a document's own AI-setting dialog (*Add a note on why*, in its details) has its own.
+- **The words change.** While no provider other than Anthropic is set up, the page says *Claude may read it*. Once
+  one is (a key stored, or chosen as the main route), it says *Cloud AI may read it* and shows the tick boxes. The
+  page also shows how much each provider has read.
+- **A document that does not allow the provider of the main route** is treated as *Only a local AI* for that route:
+  its excerpts go to the local model for restricted documents, or wait for your judgement. The Claude connector counts
+  as Anthropic, and so does Claude Code.
+- **The queue hands passages only to the company of the agent that takes it.** Codex counts as OpenAI, Antigravity as
+  Google. A document that allows OpenAI but not Anthropic reaches Codex and never Claude Code, and the reverse. *What
+  was sent* records the company and the agent.
+- **A model server on another computer** (not `localhost`, `127.0.0.1` or `::1`) counts as a cloud provider too: an
+  OpenAI address as OpenAI, any other as *a server on another computer*, which no document allows until you do.
+- **Your key** is kept in the system's keychain, never in a project, a log or a moving file. Each provider's terms
+  decide what it keeps and whether it trains on it: check them first.
 
 ### What happens in each feature
 
@@ -119,30 +144,16 @@ flowchart LR
 - **Search by meaning**: an embedding server on another computer receives neither the restricted passages (they are
   found by their words) nor glossary terms found only in them.
 
-### The local model and your computer's memory
-
-While Claude reads its excerpts, the progress says when your local model reads the ones marked *Only a local AI*:
-*Your local model (…) is reading 3 excerpts…*, with what it is doing and *Stop*.
-
-A local model needs about as much memory as its size (a 9-billion-parameter model about 8 GB). On Ollama, Margin does
-not start it when this computer clearly has too little free: starting it anyway pushes every other program into swap
-and can all but freeze the computer. The check then finishes with the rest, the progress says why, and those excerpts
-wait on the result (*Waiting for your local model*). Close programs you do not need and press *Read them now on this
-computer*, or choose a smaller local model in *Settings → AI*. If it still says too little is free, *Start it anyway*
-starts it regardless.
-
-A model that takes more than a third of this computer's memory is let go as soon as it has read, instead of being
-kept for 15 minutes. A local model you chose as the **main** AI is not checked this way: you start it yourself and see
-it load.
+The local model's own *Start*, and what happens when memory is short: [A model on your own computer](local-models.md#the-local-models-own-start-and-your-computers-memory).
 
 ## What Claude has read
 
 Margin writes down every passage at the moment it leaves for Claude (Claude Code, the Claude API, a Claude chat through
-the connector).
+the connector) or for another cloud provider, with the provider that received it (a *Provider* column in the list).
 
 - A document's details on the Documents page (the arrow at the end of its line) show the share of its text under
   *Sent to Claude*; *See what it read* lists the passages, when, and for which feature.
-- *Settings → Technical → What was sent to Claude* downloads the whole list (CSV), for example for a data management
+- *Settings → General → Your data → What was sent to Claude* downloads the whole list (CSV), for example for a data management
   plan. Every part of a draft that Claude reads is recorded as well, and shown with the draft.
 - Changing a document to *Only a local AI* applies to everything not yet answered; what Claude already read stays in
   the results and the list. Removing a document takes its passages out of everything still waiting for Claude Code.
@@ -168,7 +179,8 @@ In code, where every AI task is made and run, never by an instruction in a promp
 
 - each task is labelled with the most restricted setting of the documents it names;
 - a task is refused before any model is asked when its setting does not allow that model;
-- the queue for Claude Code only ever hands out tasks Claude may read;
+- the queue only ever hands out tasks the agent that takes them may read: Claude Code's tasks, Anthropic's; Codex's,
+  OpenAI's; Antigravity's, Google's;
 - the connector's tools (search, concepts, document profiles, checks) give Claude counts instead of restricted text,
   leave out what a model wrote in its own words when it read restricted text, and show a document marked *No AI* as
   *Restricted document 3*, because a title can name a person;
@@ -189,9 +201,14 @@ them; an older Claude Code is only denied the file, shell and web tools by name.
 
 </details>
 
+### How each agent is closed in
+
+Codex and Antigravity are closed in as far as each allows, like Claude Code: [Codex and
+Antigravity](other-agents.md#how-each-agent-is-closed-in).
+
 ## Your Claude account and licences
 
-*Set up Claude* and *Settings → AI* show **What happens to the text Claude reads**:
+*Set up Claude* and *Settings → AI › Your Claude account and your documents* show **What happens to the text Claude reads**:
 
 | Plan | Terms |
 | --- | --- |

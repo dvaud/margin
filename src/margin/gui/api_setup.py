@@ -11,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-from .api_common import ApiError, Job, XLSX, _csv, _disposition, _filename, _int, _str
+from .api_common import ApiError, Job, XLSX, _csv, _disposition, _filename, _int, _str  # noqa: F401
 from .. import access, bibliography, claimcheck, home, ollama_setup, taskqueue
 from ..claude_setup import setup_info as claude_setup_info
 
@@ -25,7 +25,11 @@ class SetupApi:
         s = home.update_settings(body)
         if "update_channel" in body:
             self.app.update_seen = None  # 0.15: another channel, another answer: the next look asks again
-        return {"settings": s, "backend_label": home.backend_label(s)}
+        from .api_agents import agent_info
+        from .. import providers
+
+        return {"settings": s, "backend_label": home.backend_label(s), "providers": self.app.providers_state(s),
+                "agent": agent_info(s.get("backend")), "clis": providers.clis_summary()}
 
     def post_key(self, q):
         if home.local_only():  # 0.11.1: the one cloud setting that did not honour it
@@ -44,6 +48,58 @@ class SetupApi:
         self.app.session_key = ""
         home.forget_key()
         return {"key": {"session": False, "env": bool(home.env_key()), "stored": False}}
+
+    # -- stage 1 of other cloud providers --------------------------------------------------------------------------
+    def _provider(self, value) -> str:
+        from .. import providers
+
+        p = str(value or "").strip().lower()
+        if p not in providers.CLOUD_IDS:
+            raise ApiError(400, f"Choose a cloud provider: {', '.join(providers.CLOUD_IDS)}.")
+        return p
+
+    def post_provider_key(self, q):
+        """Keep a cloud provider's key in the system's keychain → {"providers": ...} (only whether one is stored)."""
+        if home.local_only():
+            raise ApiError(403, "Cloud models are switched off on this computer by whoever installed Margin: an API "
+                                "key cannot be used here.")
+        body = self._body()
+        try:
+            home.set_cloud_key(self._provider(body.get("provider")), str(body.get("key") or ""))
+        except ValueError as e:
+            raise ApiError(400, str(e)) from None
+        return {"providers": self.app.providers_state()}
+
+    def delete_provider_key(self, q):
+        body = self._body()
+        home.forget_cloud_key(self._provider(body.get("provider") or _str(q, "provider")))
+        return {"providers": self.app.providers_state()}
+
+    def get_provider_models(self, q):
+        """The models a provider offers to the stored key → {"models": [...], "lists": bool, "recommended": {tier: id}}.
+        `recommended` is the provider's line-up resolved against that list (providers.recommended): what an empty
+        choice in Settings uses, shown as "Applied automatically" by the key's set-up. `problem` says why the list is
+        missing; `refused: true` when the provider answered 401 or 403 (the key is wrong). Azure lists none (its
+        deployments' names are typed): its `recommended` says which models to deploy. Nothing is sent but the key."""
+        from .. import providers
+        from ..llm import BackendError, CloudBackend
+
+        if home.local_only():
+            raise ApiError(403, "Cloud models are switched off on this computer by whoever installed Margin.")
+        pid = self._provider(_str(q, "provider"))
+        if not providers.TABLE[pid].lists_models:
+            return {"models": [], "lists": False, "recommended": providers.recommended(pid)}
+        key = home.cloud_key(pid)
+        if not key:
+            return {"models": [], "lists": True, "problem": f"No key for {providers.title(pid)} is stored yet.",
+                    "recommended": providers.recommended(pid)}
+        try:
+            models = CloudBackend(pid, key).models(timeout=15)
+        except BackendError as e:
+            # `refused`: the provider answered 401 or 403, so the key is wrong; without it the provider was out of reach
+            return {"models": [], "lists": True, "problem": str(e), "refused": bool(getattr(e, "refused", False)),
+                    "recommended": providers.recommended(pid)}
+        return {"models": models, "lists": True, "recommended": providers.recommended(pid, models)}
 
     def post_quit(self, q):
         """Stop the app ("Quit Margin"). Running jobs stop with it; a stopped check leaves nothing behind."""
@@ -74,13 +130,17 @@ class SetupApi:
         """0.14.3: Claude Code runs started from the app live in their own session, so they outlive it: stop them
         before the app quits or restarts (a run left behind keeps using the researcher's Claude plan, and the next app
         could not stop it). The batches they had taken go back to the queue, as Stop does."""
-        from .. import claude_setup
+        from .. import agentcli, claude_setup
 
         try:
             stopped = claude_setup.stop_all_runs()
         except Exception as e:  # noqa: BLE001 - never in the way of quitting
             print(f"Could not stop Claude Code: {e}", file=sys.stderr)
-            return
+            stopped = []
+        try:  # stage 2: and the helpers of Codex and Antigravity started from the app
+            stopped += agentcli.stop_all_runs()
+        except Exception as e:  # noqa: BLE001
+            print(f"Could not stop the agent CLIs: {e}", file=sys.stderr)
         for r in stopped:
             self._release_run_claims(r["project"], r["started_at"])
 
@@ -106,11 +166,31 @@ class SetupApi:
 
         return {"text": installation.technical_details()}
 
+    def post_notify_test(self, q):
+        """After 0.19.7: one notification now, as finished work would send it → `{"sent", "how", "problem", "note"}`
+        (`note`: where this system lets the person allow or stop them)."""
+        from . import notify
+
+        if notify.disabled():
+            return {"sent": False, "how": "", "problem": "Notifications are switched off here (MARGIN_NO_NOTIFY).",
+                    "note": notify.where_to_allow()}
+        out = notify.send_note("Notifications work",
+                               "This is how Margin tells you that work you started has finished.",
+                               url=notify._app_link(self.app))
+        return {**out, "note": notify.where_to_allow()}
+
     def get_servers(self, q):
         return self.app.servers()
 
     def post_test(self, q):
         return self.app.test_backend()
+
+    def get_local_status(self, q):
+        """0.19.4: the local model for documents marked Only a local AI, for the local panel: its name and its memory
+        against what this computer has free now (access.local_status). Nothing is started."""
+        from .. import access
+
+        return access.local_status(self.app.settings())
 
     def get_ollama(self, q):
         """0.15.6: before Ollama is installed from the app: how big the download is on this kind of computer, the free

@@ -140,7 +140,23 @@ def test_the_log_filters_searches_and_goes_out_as_markdown_and_excel(demo):
     assert md.index("Added 6 documents") < md.index("Field note") < md.index("Removed the check")
     assert "  *Why:* too broad" in md
     rows = researchlog.table(demo)
-    assert [r["What"] for r in rows] == ["Documents", "Your own entries", "Checks", "Checks"] and rows[3]["Why"] == "too broad"
+    # a file goes to other people: a person's entry is an "Entry" there, never "Your own entries" (Who says whose)
+    assert [r["What"] for r in rows] == ["Documents", "Entry", "Checks", "Checks"] and rows[3]["Why"] == "too broad"
+
+
+def test_the_log_page_has_one_menu_per_row_and_no_button_under_an_entry():
+    """0.19.7: the page was mostly buttons (Say why on a line of its own under every entry, Edit, Remove, Compare).
+    Each row's actions are one More menu at its end; the chips are a Show list; the downloads are in the head."""
+    js = (Path(__file__).resolve().parents[1] / "src" / "margin" / "gui" / "static" / "views" / "log.js").read_text(encoding="utf-8")
+    row = js[js.index("  function entryRow(e) {"):js.index("  async function editWhy(e) {")]
+    assert "menu({" in row and "button(" not in row and "log-actions" not in js
+    for words in ('"Say why"', '"Change why"', '"Edit"', '"Compare with before"', '"Remove…"'):
+        assert words in row
+    assert row.index('"sep"') < row.index('"Remove…"') and "danger: true" in row
+    assert 'pageHead("Research log"' in js and "actions: downloadLinks(" in js and "viewTabs" not in js
+    assert "choice(" not in js and 'select({ sm: true, id: "log-show" })' in js
+    assert 'h("label", { class: "log-show-label", for: "log-show" }, "Show")' in js      # its word is in view
+    assert 'title: "Ctrl/⌘ + Enter adds it"' in js and "card(" not in js
 
 
 def test_the_log_through_the_app(api, tmp_path):  # noqa: F811

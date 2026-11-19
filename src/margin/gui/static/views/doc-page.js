@@ -484,7 +484,7 @@ export async function renderDocument(view, [docId], query) {
     const body = h("div", {}, h("blockquote", { class: "note-quote" }, x.text),
       h("label", { class: "field" }, h("span", { class: "field-label" }, "Your note"), ta),
       h("div", { class: "field" }, h("span", { class: "field-label" }, "Colour"), colourPicker(colour, (c) => { colour = c; })));
-    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { const b = ta.closest("dialog").querySelector(".btn-primary"); if (b) b.click(); } });
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); const b = ta.closest("dialog").querySelector(".btn-primary"); if (b) b.click(); } });
     const r = await dialog({ title: "Add a note", body, actions: [{ text: "Cancel", value: null }, { text: "Keep the note", value: true, primary: true }], onOpen: () => ta.focus() });
     if (r) await addNote(x, ta.value.trim(), colour);
   }

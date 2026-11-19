@@ -2,7 +2,7 @@
 // Themes, one document), checking hypotheses second. Each feature says in one line what it does, whether it uses the
 // AI, and what is already made in this project.
 import { App, api, h, icon, P, pageHead, plural, link, notice } from "../lib.js";
-import { FEATURES, SECTIONS, aiTag, viewTabs } from "../features.js";
+import { FEATURES, SECTIONS, aiTag } from "../features.js";
 import { finderBox } from "../finder.js";
 import { overviewSections } from "../registry.js";
 import { quickLookButton } from "./quicklook.js";
@@ -22,7 +22,6 @@ export async function renderOverview(view) {
       : "Add documents first: everything below works on them.",
     actions: quickLookButton({ sm: true }),
   }));
-  view.appendChild(viewTabs("overview", "overview"));   // 0.17.0: Overview | Research log
   // 0.17.0: "What do you want to do?": the feature finder (finder.js, no AI), so a newcomer finds a feature by its words
   view.appendChild(h("div", { class: "ov-finder" }, finderBox()));
 

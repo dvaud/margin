@@ -3,12 +3,21 @@
 import { featureEyebrow, viewTabs } from "../features.js";
 import { tesseractHelp, App, api, h, icon, replace, clear, toast, showError, failedLoad, fmt, pageHead, watchJob, P,
   navigate, batchId, confirmDialog, field, emptyState, TERMINAL, KIND_TEXT, dialog, plural, lazyList, button,
-  iconButton, fileButton, link, notice, card, tag, input, fold, choice, stopButton, store, searchField } from "../lib.js";
+  iconButton, fileButton, link, notice, card, tag, input, fold, choice, stopButton, store, searchField, menu, agentTitle, agentCompany } from "../lib.js";
 import { simpleProgress, jobCard } from "./progress.js";
 import { forgetOriginals } from "./result.js";
-import { LEVEL, accessChoice, accessAskCard, accessBanner, docAccessDialog, levels as accessLevels } from "./ai-access.js";
+import { LEVEL, accessChoice, accessAskCard, accessBanner, docAccessDialog, levels as accessLevels, providersDefaultCard, remoteServerLine, providerAllowLine, othersSetUp, sentByLine, sentToWords } from "./ai-access.js";
 import { askWhy } from "./versions.js";
-import { documentMarks, roleMenuItems, roleLine, nonsciMenuItem, NONSCI_MEANS, suggestLine } from "./doc-role.js";   // 0.18.1 K2: theory documents; 0.18.6: non-scientific ones; 0.19.0 N3: working documents
+// Who reads the documents marked for cloud AI, in the words of the AI chosen (stage 2: Codex, Antigravity, or another
+// provider); Claude's words as before when Claude is the AI.
+function cloudSub() {
+  const s = App.settings();
+  const local = "when you use a local model, it reads them instead.";
+  if (s.backend === "codex" || s.backend === "antigravity") return `${agentTitle(s)} may read the ones that allow ${agentCompany(s)}; ${local}`;
+  if (s.backend === "cloud_api") return `The cloud provider you chose may read the ones that allow it; ${local}`;
+  return othersSetUp() ? `Cloud AI may read them when it is the AI you use and their provider is ticked; ${local}` : `Claude may read them when Claude is the AI you use; ${local}`;
+}
+import { documentMarks, roleMenuItems, bulkRoleItems, roleLine, nonsciMenuItem, NONSCI_MEANS, suggestLine } from "./doc-role.js";   // 0.18.1 K2: theory documents; 0.18.6: non-scientific ones; 0.19.0 N3: working documents
 import { reader, newReaderFor, readingNote, READER_4_NEWS, READER_5_NEWS, READER_6_NEWS, renameDocument } from "./doc-shared.js";
 
 const ACCEPT = ".pdf,.docx,.html,.htm,.txt,.md,.zip";
@@ -296,7 +305,7 @@ export async function renderSources(view) {
   };
   const GROUPINGS = {
     ai: { label: "AI setting", always: true, of: (d) => d.ai_access, groups: [
-      { key: "cloud", name: LEVEL.cloud.many, short: LEVEL.cloud.short, icon: LEVEL.cloud.icon, sub: "Claude may read them when Claude is the AI you use; when you use a local model, it reads them instead." },
+      { key: "cloud", name: LEVEL.cloud.many, short: LEVEL.cloud.short, icon: LEVEL.cloud.icon, get sub() { return cloudSub(); } },
       { key: "local", name: LEVEL.local.many, short: LEVEL.local.short, icon: LEVEL.local.icon, sub: "Read only by a model on this computer, or by you. Never sent to Claude." },
       { key: "none", name: LEVEL.none.many, short: LEVEL.none.short, icon: LEVEL.none.icon, sub: "Only you judge their excerpts. Search, the keyword codes, concepts and themes still work." }] },
     role: { label: "Role", always: true, of: (d) => roles[d.doc_id] || "evidence", groups: [
@@ -340,6 +349,14 @@ export async function renderSources(view) {
     for (const id of [...picked]) if (!docs.some((d) => d.doc_id === id)) picked.delete(id);
     if (pa.ask) docsBox.appendChild(accessAskCard(project, pa, reloadDocs));
     else if (pa.banner && docs.length) { const b = accessBanner(project, () => b.remove()); docsBox.appendChild(b); }
+    // other cloud providers (stage 1): which may read the documents without a choice of their own, once one is set up
+    const farLine = docs.length ? remoteServerLine(project, pa, () => reloadDocs()) : null;
+    if (farLine) docsBox.appendChild(farLine);
+    // stage 2: Codex, Antigravity or another provider's API reads only the documents that allow its company
+    const allowLine = docs.length ? providerAllowLine(project, pa, () => { App.refresh().catch(() => {}); reloadDocs(); }) : null;
+    if (allowLine) docsBox.appendChild(allowLine);
+    const provCard = docs.length ? providersDefaultCard(project, pa, () => reloadDocs(), docs) : null;
+    if (provCard) docsBox.appendChild(provCard);
     const countHead = h("h2", {}, `${docs.length} ${docs.length === 1 ? "document" : "documents"} in this project`);
     docsBox.appendChild(h("div", { class: "section-title" }, countHead));
     if (!docs.length) { addFold.open = true; docsBox.appendChild(emptyState("book-open", "No documents yet", "Add the reports, papers and web pages you want to check hypotheses against. PDFs keep their page numbers.")); return; }
@@ -380,7 +397,20 @@ export async function renderSources(view) {
     const toBar = link({ kind: "jump", class: "docs-to-bar", hidden: true, onClick: () => { const b = bulk.querySelector("button"); if (b) { b.scrollIntoView({ block: "nearest" }); b.focus(); } } });
     const bulk = h("div", { class: "bulk-bar bulk-stick", hidden: true, role: "region", "aria-label": "Change the selected documents" }, bulkCount,
       h("span", { class: "bulk-move" }, accessLevels().map((lv) => button({ sm: true, "data-level": lv, onClick: () => setAccess([...picked], lv, undefined, { fromBar: true }) }, icon(LEVEL[lv].icon, { size: 13 }), h("span", { class: "bulk-word" }, LEVEL[lv].many)))),
+      // roadmap N3: the role of the ticked documents, from a menu (evidence, theory, working document)
+      h("span", { class: "bulk-role" }),
       button({ kind: "quiet", sm: true, onClick: () => clearPicked() }, "Clear"));
+    // after a change of role from the bar (or its Undo): the marks read again, the moved rows redrawn, the ticks cleared
+    const afterRoles = async (ids) => {
+      try { await loadMarks(); } catch (_) { /* as it was */ }
+      picked.clear(); for (const c of docsBox.querySelectorAll(".doc-tick")) c.checked = false;
+      drawGroups(ids); drawBulk();
+    };
+    const drawBulkRole = () => {
+      const ticked = docs.filter((d) => picked.has(d.doc_id)).map((d) => ({ doc_id: d.doc_id, title: d.title || d.file }));
+      bulk.querySelector(".bulk-role").replaceChildren(ticked.length ? menu({ class: "bulk-role-menu", text: "Role", label: `Set the role of the ${plural(ticked.length, "document")} selected`, title: "Mark them as evidence, theory or your working documents",
+        items: bulkRoleItems(project, ticked, roles, (r) => afterRoles(Array.isArray(r && r.changed) ? r.changed : ticked.map((d) => d.doc_id))) }) : "");
+    };
     const drawBulk = () => {
       bulk.hidden = !picked.size;
       // ticks the filter or a folded group hides still count: the bar says how many, so a change never surprises
@@ -394,6 +424,7 @@ export async function renderSources(view) {
         b.disabled = levels.size === 1 && levels.has(b.dataset.level);
         b.querySelector(".bulk-word").textContent = picked.size === 1 ? LEVEL[b.dataset.level].title : LEVEL[b.dataset.level].many;   // "it" or "them", as the question
       }
+      drawBulkRole();
       for (const f of groupsBox ? groupsBox.querySelectorAll(".doc-group") : []) if (f.paintPick) f.paintPick();
       drawNr();
     };
@@ -401,8 +432,9 @@ export async function renderSources(view) {
     // how much of it Claude has read, in words that say what the share counts (DESIGN 4.1: a number is never a button)
     const sentWords = (d) => {
       const pct = Math.round((d.sent || 0) * 1000) / 10;
-      if (!pct) return d.ai_access === "cloud" ? "nothing yet" : "nothing: it is not for Claude";
-      return `${pct < 1 ? "less than 1" : Math.round(pct)}% of its text${d.budget_reached ? " (its cap is reached)" : ""}`;
+      if (!pct) return d.ai_access === "cloud" ? "nothing yet" : `nothing: it is not for ${sentToWords()}`;
+      const by = sentByLine(d);   // other cloud providers: how much each one has read
+      return `${pct < 1 ? "less than 1" : Math.round(pct)}% of its text${d.budget_reached ? " (its cap is reached)" : ""}${by ? ` (${by})` : ""}`;
     };
     // what needs a look in how it was read: a tag says what, with its way on after it (DESIGN 4.10)
     const readingMarks = (d) => [
@@ -436,7 +468,7 @@ export async function renderSources(view) {
     // 0.18.2: everything about one document, each fact under its name, in a panel under its row (DESIGN 4.20)
     const detailFor = (d) => {
       const name = d.title || d.file;
-      const about = () => docAccessDialog(project, d, pa.default, (res) => patchDocs(res, [d.doc_id]));
+      const about = () => docAccessDialog(project, d, pa.default, (res) => patchDocs(res, [d.doc_id]), pa);
       const access = choice({ sm: true, class: "doc-access", label: `Who may read ${name} with AI`, value: d.ai_access,
         options: accessLevels().map((lv) => [lv, [icon(LEVEL[lv].icon, { size: 13 }), LEVEL[lv].title]]), onPick: (lv) => setAccess([d.doc_id], lv) });
       const marks = readingMarks(d);
@@ -447,7 +479,7 @@ export async function renderSources(view) {
         h("dl", { class: "doc-detail-grid" },
           h("dt", {}, "File"), h("dd", {}, h("span", { class: "doc-file" }, ...String(d.file || "").split(/(?<=[_-])/).flatMap((seg) => [seg, h("wbr")])), h("span", { class: "muted small" }, facts)),   // a file name may break after _ or -, never before its extension
           h("dt", {}, "Who may read it with AI"), h("dd", {}, access, button({ kind: "quiet", sm: true, class: "doc-why", title: d.note ? `Why: ${d.note}` : null, onClick: about }, d.note ? `Why: ${d.note}` : "Add a note on why")),
-          h("dt", {}, "Sent to Claude"), h("dd", {}, h("span", {}, sentWords(d)), d.sent ? button({ kind: "quiet", sm: true, title: "What Claude has read of this document, and who may read it", onClick: about }, "See what it read") : null),
+          h("dt", {}, `Sent to ${sentToWords()}`), h("dd", {}, h("span", {}, sentWords(d)), d.sent ? button({ kind: "quiet", sm: true, title: "What Claude has read of this document, and who may read it", onClick: about }, "See what it read") : null),
           h("dt", {}, "Reading"), h("dd", {}, marks.length ? marks : h("span", { class: "it" }, icon("check", { size: 13 }), "readable"),
             readingNote(d) ? null : link({ href: `${docHref(d)}?tab=reading`, class: "small" }, "How it was read")),
           // roadmap N5: the answers it is behind, said plainly (a theory document is behind none, by design)

@@ -19,7 +19,7 @@ Arguments as typed: `$ARGUMENTS`
 - **Project**: `$project` (the first argument; in quotes when it has spaces). If it is empty, call `queue_status`
   without a project to list the projects with work waiting, and ask which one.
 - **Kind** (optional): `$kind`. When it is one of label, link, theme, theory_codes, theory_frame, code_definition,
-  expand, decompose, resolve, claims, check, reread or second, work only on that kind. When it starts with `--`, it is an option, not a kind.
+  group_name, expand, decompose, resolve, claims, check, reread or second, work only on that kind. When it starts with `--`, it is an option, not a kind.
 - `--parallel N`: how many helpers work at the same time (1 to 8). Without it, Margin uses the speed chosen in the
   app (normally 2). More is faster but uses the plan's limit faster.
 - `--helpers checker=2,labeller=1`: which helpers work in this run and how many of each at once. Helpers not named

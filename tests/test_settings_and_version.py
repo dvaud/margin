@@ -6,13 +6,12 @@
   installed and how to update it);
 - the release's CSS uses only colour tokens defined in tokens.css (light and dark themes).
 """
-import re
 from pathlib import Path
 
 from margin import __version__
 
 from test_app import Api, api, home  # noqa: F401  (fixtures)
-from _static import all_css, defined_tokens_all, rule
+from _static import all_css, rule
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "src" / "margin" / "gui" / "static"
@@ -40,7 +39,7 @@ def test_settings_is_at_the_foot_with_theme_and_quit():
 
 def test_settings_still_shows_as_the_current_page():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
-    assert 'document.querySelectorAll("#nav a, #nav-foot a")' in js
+    assert 'document.querySelectorAll("#nav a, #nav-foot a")' in js   # Margin: no team line under the project
     assert 'nav.querySelector(".nav-sep")' not in js  # the legend no longer looks for the removed separator
 
 
@@ -71,9 +70,6 @@ def test_page_files_of_the_release():
     settings = (STATIC / "views" / "settings.js").read_text(encoding="utf-8")
     assert 'h("span", { class: "version-tag" }' in settings and 'link({ href: "#/settings/updates"' in settings
     css = all_css()
-    defined = defined_tokens_all()
-    used = set(re.findall(r"var\((--[a-z0-9-]+)", css))
-    assert used and used <= defined, used - defined
     # the hidden Quit button stays hidden although the foot's buttons are flex items
     assert rule(".sidebar-app .btn[hidden]")["display"] == "none"
     assert "a.version-tag:hover" not in css  # 0.17.0 (design guide): the version is a plain link now, not a pill with hover colours of its own

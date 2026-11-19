@@ -157,7 +157,6 @@ def test_the_report_explains_each_figure_in_words(tmp_path):
     assert "ofthe" in md   # the explanations give an example in words
 
 
-@pytest.mark.skipif(ingest.READER < 2, reason="reader 2 is not the current reader yet")
 def test_reader_2_reads_at_least_as_well_and_leaves_more_page_furniture_out(known):
     better = 0
     for name in ("b_two_columns", "c_line_numbers", "d_front_and_back_matter", "e_table", "f_footnotes"):

@@ -156,7 +156,6 @@ def set_role(ws: Workspace, doc_id: str, role: str | None, why: str | None = Non
     owner the next look at the copy makes it the project's (an Owner or a Co-owner) or a proposal (a Member), as
     *Leave out* is. Returns {"doc_id", "role", "changed", "impact"}."""
     from . import researchlog, solo as people  # Margin: one person
-    from . import reader as reader2
 
     if role is not None and role not in ROLES:
         raise ValueError(f"A document's role is one of {', '.join(ROLES)}, or none (evidence).")
@@ -167,17 +166,91 @@ def set_role(ws: Workspace, doc_id: str, role: str | None, why: str | None = Non
         title, was = row[0], row[1]
         if was == role:
             return {"doc_id": doc_id, "role": role, "changed": False, "impact": impact(ws, doc_id)}
-        cx.execute("DELETE FROM block_choices WHERE doc_id=? AND fp LIKE ?", (doc_id, KEY + "%"))
-        if role is not None:
-            cx.execute("INSERT INTO block_choices(doc_id, fp, included, kind, person_id, at) VALUES (?,?,1,'role',?,?)",
-                       (doc_id, key(role), people.me(), now()))
-        reader2.apply_choices(cx, doc_id)
-        sync_role(cx, doc_id)
+        _write_role(cx, doc_id, role, people.me())
         ws.bump_corpus(cx)
         text = ROLE_LOG[role]
         researchlog.record(cx, "document-role", text, "document", doc_id, title, data={"role": role, "was": was},
                            why=why)
     return {"doc_id": doc_id, "role": role, "changed": True, "impact": impact(ws, doc_id)}
+
+
+def _write_role(cx: sqlite3.Connection, doc_id: str, role: str | None, person: str | None) -> None:
+    """The role as the document's one `role:` block choice (none for evidence), applied: the change itself, the same
+    for one document and for many. The Non-scientific mark (`mark:`) is a choice of its own and stays as it is."""
+    from . import reader as reader2
+
+    cx.execute("DELETE FROM block_choices WHERE doc_id=? AND fp LIKE ?", (doc_id, KEY + "%"))
+    if role is not None:
+        cx.execute("INSERT INTO block_choices(doc_id, fp, included, kind, person_id, at) VALUES (?,?,1,'role',?,?)",
+                   (doc_id, key(role), person, now()))
+    reader2.apply_choices(cx, doc_id)
+    sync_role(cx, doc_id)
+
+
+def set_roles(ws: Workspace, doc_ids: list[str], role: str | None, why: str | None = None) -> dict:
+    """Roadmap N3 (the Documents list's bulk bar): give many documents one role at once, by the rules of `set_role`
+    (each document's one `role:` block choice, so it travels, merges and is proposed under an owner exactly as one
+    document's mark does). The research log keeps ONE entry for the batch, naming the documents changed and the role
+    each had before (`data`: {"role", "documents": [ids], "was": {id: role or null}}), so Undo can give each its own
+    role back (one changed document: the single mark's entry). A document that already has the role is no change.
+    Returns {"role", "changed": [ids], "unchanged": [ids], "was": {id: role}, "marked_nonscientific": [the changed
+    documents marked Non-scientific: the mark stays]}; KeyError names the first document that is not in the project
+    (nothing is changed then)."""
+    from . import researchlog, solo as people  # Margin: one person
+
+    if role is not None and role not in ROLES:
+        raise ValueError(f"A document's role is one of {', '.join(ROLES)}, or none (evidence).")
+    ids = list(dict.fromkeys(str(d) for d in doc_ids))
+    if not ids:
+        raise ValueError("Choose at least one document.")
+    with ws.connect() as cx:
+        rows = {}
+        for i in range(0, len(ids), 500):
+            part = ids[i:i + 500]
+            rows.update({r[0]: (r[1], r[2]) for r in cx.execute(
+                f"SELECT doc_id, title, role FROM documents WHERE doc_id IN ({','.join('?' * len(part))})", part)})
+        missing = [d for d in ids if d not in rows]
+        if missing:
+            raise KeyError(missing[0])
+        changed = [d for d in ids if rows[d][1] != role]
+        was = {d: rows[d][1] for d in changed}
+        me = people.me()
+        for d in changed:
+            _write_role(cx, d, role, me)
+        if changed:
+            ws.bump_corpus(cx)
+            one = len(changed) == 1
+            text = ROLE_LOG[role] if one else ROLE_LOG_MANY[role].format(n=len(changed)) + _titles(
+                [rows[d][0] for d in changed])
+            researchlog.record(cx, "document-role", text, "document" if one else "documents",
+                               changed[0] if one else None, rows[changed[0]][0] if one else None,
+                               data={"role": role, "was": was[changed[0]] if one else was,
+                                     "documents": changed}, why=why)
+        ns = [d for d in changed if cx.execute("SELECT nonscientific FROM documents WHERE doc_id=?", (d,)).fetchone()[0]]
+    return {"role": role, "changed": changed, "unchanged": [d for d in ids if d not in was], "was": was,
+            "marked_nonscientific": ns}
+
+
+def _titles(titles: list[str], shown: int = 5) -> str:
+    """The documents of a batch in its log entry's words: " The documents: “A”, “B” and 3 more." """
+    from .researchlog import quoted
+
+    names = [quoted(t, 60) for t in titles[:shown]]
+    more = len(titles) - len(names)
+    if more:
+        return f" The documents: {', '.join(names)} and {more} more."
+    return f" The documents: {', '.join(names[:-1])} and {names[-1]}." if len(names) > 1 else f" The document: {names[0]}."
+
+
+ROLE_LOG_MANY = {
+    THEORY: "{n} documents marked as theory: the framework the research is read through. They are still read, searched "
+            "and noted, and left out of themes, codebook labels, check excerpts and key terms from now on.",
+    WORKING: "{n} documents marked as working documents: your own drafts or notes. They are still read, searched, noted "
+             "and labelled with codebooks, and checked against the corpus, but never a source: left out of themes, "
+             "check excerpts, key terms and the corpus's code counts from now on.",
+    None: "{n} documents marked as evidence again: they count as sources in themes, codebook labels and their counts, "
+          "check excerpts and key terms from now on.",
+}
 
 
 ROLE_LOG = {
@@ -270,7 +343,7 @@ def kept_here(ws: Workspace) -> set[str]:
     rows = ws.query("SELECT hyp_id, origin_id FROM hypotheses WHERE origin=?", (ORIGIN,))
     if not rows:
         return set()
-    lv = access.levels(ws, [r[1] for r in rows if r[1]])
+    lv = access.levels(ws, [r[1] for r in rows if r[1]], provider=access.ANTHROPIC)   # the connector's reader: Claude
     return {hid for hid, d in rows if not d or lv.get(d, "none") != "cloud"}
 
 

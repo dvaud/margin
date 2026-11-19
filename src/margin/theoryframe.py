@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import secrets
 import threading
@@ -51,6 +50,7 @@ from collections import Counter
 from typing import Any, Callable
 
 from .store import Workspace, now
+from . import providers
 
 KIND = "theory_frame"
 DRAFT_FILE = ("drafts", "codebook-from-theory.json")
@@ -108,9 +108,11 @@ def _write(ws: Workspace, draft: dict) -> dict:
     p = _path(ws)
     p.parent.mkdir(parents=True, exist_ok=True)
     draft["rev"] = int(draft.get("rev") or 0) + 1   # every write: the page sends the one it loaded (`save`)
-    part = p.with_name(p.name + f".{os.getpid()}.part")
-    part.write_text(json.dumps(draft, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(part, p)
+    from .home import _write_whole
+
+    # 0.20.1 (CI on Windows): written as settings.json is, a reader at that very moment (the reading's job, the page)
+    # made os.replace fail on Windows, and the PermissionError reached the page as a 403
+    _write_whole(p, json.dumps(draft, ensure_ascii=False, indent=1))
     return draft
 
 
@@ -638,7 +640,7 @@ def _passage_at(ws: Workspace, doc_id: str, at: int | None) -> str | None:
                      (doc_id, at, at))
 
 
-def _evidence_titles(ws: Workspace, skip: set[str], levels_ok: set[str]) -> list[str]:
+def _evidence_titles(ws: Workspace, skip: set[str], levels_ok: set[str], provider: str | None = None) -> list[str]:
     """The titles of the evidence documents the frame's reader may read (their titles only: no id, so they never make
     the payload's setting stricter), at most MAX_EVIDENCE_TITLES."""
     from . import access
@@ -646,7 +648,7 @@ def _evidence_titles(ws: Workspace, skip: set[str], levels_ok: set[str]) -> list
 
     skip = skip | not_evidence_docs(ws._conn())
     rows = [r for r in ws.query("SELECT doc_id, title FROM documents ORDER BY title") if r["doc_id"] not in skip]
-    lv = access.levels(ws, [r["doc_id"] for r in rows]) if rows else {}
+    lv = access.levels(ws, [r["doc_id"] for r in rows], provider=provider) if rows else {}
     dflt = access.default(ws)
     out = [_clean(r["title"], 140) or "untitled" for r in rows if (lv.get(r["doc_id"]) or dflt) in levels_ok]
     return out[:MAX_EVIDENCE_TITLES]
@@ -825,6 +827,39 @@ def apply_frame(draft: dict, frame, model: str | None, sent: list[dict], drafts:
     draft["left_out"] = left
 
 
+def _read_all(ws: Workspace, batches: list[dict], readers, prog: Callable, total: int,
+              should_stop: Callable[[], bool] | None) -> str | None:
+    """`theorycodes.read_parts` for every document. 0.19.13: in a job of the app, the documents only the local model
+    may read wait for its own Start (when Claude reads others), and are read beside Claude's once it is pressed (the
+    job's local gate); stopped before, they are not read (the reading counts as stopped)."""
+    from . import theorycodes
+
+    local = [b for b in batches if b["be"] is not readers.backend]
+    if not local or not readers.defers():
+        return theorycodes.read_parts(ws, batches, prog, should_stop)
+    cloud = [b for b in batches if b["be"] is readers.backend]
+    seen = {"cloud": 0, "local": 0}
+    out: dict = {}
+
+    def part(key: str) -> Callable:
+        def report(done: int, _n: int) -> None:
+            seen[key] = done
+            prog(seen["cloud"] + seen["local"], total)
+        return report
+
+    def read_local() -> None:
+        out["local"] = theorycodes.read_parts(ws, local, part("local"), should_stop)
+
+    readers.later(read_local, n=len(local), noun="document", mixed=bool(cloud), ws=ws)
+    halted = theorycodes.read_parts(ws, cloud, part("cloud"), should_stop) if cloud else None
+    readers.drain()
+    if "local" not in out:
+        for b in local:  # never read: the job was stopped while the local part waited for its Start
+            b.update(refused=None, read=[], problems=[], used=b["call"], reused=False)
+        return halted or "stopped"
+    return halted or out["local"]
+
+
 def read(ws: Workspace, backend, model: str, progress: Callable | None = None,
          should_stop: Callable[[], bool] | None = None, readers=None, job: str | None = None) -> dict:
     """The reading of a draft's theory documents (a job): every part of every document the AI may read is drafted
@@ -852,7 +887,7 @@ def read(ws: Workspace, backend, model: str, progress: Callable | None = None,
         if d not in titles:
             problems.append("A document of this draft is no longer in the project.")
             continue
-        lv = theorycodes._level(ws, d)
+        lv = theorycodes._level(ws, d, readers.provider)
         levels[d] = lv
         if lv == "none":
             problems.append(f"{titles[d]}: marked No AI, so only the terms it defines itself are used.")
@@ -876,7 +911,7 @@ def read(ws: Workspace, backend, model: str, progress: Callable | None = None,
         if progress:
             progress(done, total)
 
-    halted = theorycodes.read_parts(ws, batches, prog, should_stop) if batches else None
+    halted = _read_all(ws, batches, readers, prog, total, should_stop) if batches else None
     parts_read = sum(len(b.get("read") or []) for b in batches)
     reading = {**_empty_reading(), "job": job, "parts": n_parts, "parts_read": parts_read,
                "input": _input_hash(ids, focus), "at": now()}
@@ -921,16 +956,16 @@ def read(ws: Workspace, backend, model: str, progress: Callable | None = None,
             kept = [x for x in by_doc if x[0]["doc_id"] not in left]
             documents = [{"doc_id": x[0]["doc_id"], "title": titles[x[0]["doc_id"]]} for x in kept]
             try:
-                payload, sent = fit_payload(documents, _evidence_titles(ws, set(ids), ok_levels), focus, kept,
+                payload, sent = fit_payload(documents, _evidence_titles(ws, set(ids), ok_levels, access.provider_of(be)), focus, kept,
                                             _room(be, settings)) if kept else (None, [])
             except ValueError as e:
                 payload, frame_problem = None, str(e)
             if payload:
                 frame_task = make_task(ws, payload, call)
                 with ws.connect() as cx:
-                    now_lv = access.recheck(cx, frame_task)
+                    now_lv = access.recheck(cx, frame_task, provider=access.provider_of(be))
                     if now_lv is not None and now_lv in access.backend_levels(be) \
-                            and getattr(be, "name", "") == "claude_code":
+                            and getattr(be, "name", "") in providers.AGENT_ROUTES:
                         tasks.mark_queued(cx, [frame_task])
                 if now_lv is None or now_lv not in access.backend_levels(be):
                     frame_problem = "a document's AI setting changed"

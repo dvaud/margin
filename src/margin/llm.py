@@ -4,18 +4,22 @@
 - LocalBackend calls any other OpenAI-compatible server (LM Studio, llama.cpp, Jan, vLLM), also local.
 - detect_local() finds which of these servers are running and which models they offer.
 - AnthropicBackend calls the Claude API (cloud: needs a key and the `anthropic` package; opt-in in the app).
+- CloudBackend calls another cloud provider's OpenAI-compatible API (OpenAI, Gemini, Mistral, Azure OpenAI,
+  OpenRouter; providers.py) with the person's key: LocalBackend's request, sent to the provider over HTTPS.
+- Every backend says which cloud provider it is (`provider`; None: it reads on this computer), for access.py.
 - BaselineBackend is a keyword heuristic with the same output format. It runs offline, drives the tests,
   and gives a floor that any model has to beat on the gold set.
 - The file queue (tasks export / tasks import) lets any outside worker answer tasks, including Claude in a chat.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
 from typing import Protocol
 
-from . import taskkinds
+from . import providers, taskkinds
 from .textutil import content_words, overlap, split_sentences
 
 
@@ -61,6 +65,18 @@ def _gb(n: int) -> str:
 # tokens. Some models need more (qwen3:8b about 2.4 GB at 16,384), so a model's need is a lower bound: the check
 # stops only a model that clearly cannot fit, such as a 7.6 GB model with 2.7 GB free.
 KV_BYTES_PER_TOKEN = 64 * 1024
+# I6: the memory guard of long local runs (OllamaBackend._guard): free the model's memory once it has grown this much
+# past its first reading, or when free memory falls below this share; every GUARD_EVERY requests on MLX when Ollama
+# does not say what it holds
+GUARD_GROW_MIN = int(1.5 * (1 << 30))
+GUARD_GROW_SHARE = 0.10
+GUARD_FREE_SHARE = 0.20
+GUARD_EVERY = 20
+# "short of free memory" frees only an MLX model that has grown at least this much past its first reading (unloading a
+# llama.cpp build, or a model on a graphics card, frees nothing that grows); and nothing is freed again within
+# GUARD_COOLDOWN requests of the last free (each free costs a reload of about 3 s and the prompt cache)
+GUARD_SHORT_GROWN = int(0.5 * (1 << 30))
+GUARD_COOLDOWN = 5
 
 
 def _windows_memory():
@@ -125,6 +141,35 @@ class _BudgetReached(Exception):
     def __init__(self, thinking: str):
         super().__init__("reasoning budget reached")
         self.thinking = thinking
+
+
+
+def local_urlopen(req, *args, **kwargs):
+    """0.19.10: urlopen for model servers on this computer. Windows looks "localhost" up as ::1 (IPv6) first, while
+    Ollama, like most model servers, listens on 127.0.0.1 only, and Windows reports a refused connection only after
+    about two seconds of trying again. So every request to http://localhost:… waited two seconds there, and the quick
+    looks for a running server (0.6 s) never saw Ollama: the card kept saying "Starting Ollama…" or "not running"
+    while Ollama ran. A request for localhost goes to 127.0.0.1 first, and to localhost as given only when nothing
+    listens there (a server on ::1 alone). Any other address is opened as it is."""
+    from urllib.error import URLError
+    from urllib.parse import urlsplit, urlunsplit
+    from urllib.request import Request, urlopen
+
+    if not isinstance(req, Request):
+        req = Request(req)
+    parts = urlsplit(req.full_url)
+    if (parts.hostname or "").lower() != "localhost":
+        return urlopen(req, *args, **kwargs)
+    user, at, _ = parts.netloc.rpartition("@")
+    netloc = f"{user}{at}127.0.0.1" + (f":{parts.port}" if parts.port else "")
+    v4 = Request(urlunsplit(parts._replace(netloc=netloc)), data=req.data, headers=dict(req.header_items()),
+                 method=req.get_method())
+    try:
+        return urlopen(v4, *args, **kwargs)
+    except URLError as e:
+        if not isinstance(e.reason, ConnectionRefusedError):
+            raise
+    return urlopen(req, *args, **kwargs)
 
 
 def _read_lines(opener, req, *, stall_timeout: float, timeout: float, t0: float, should_stop, report, on_line,
@@ -248,6 +293,7 @@ class AnthropicBackend:
     """The Claude API. The system prompt is cached, so repeated tasks of one kind pay for it once."""
 
     name = "anthropic"
+    provider = providers.ANTHROPIC
 
     def __init__(self, api_key: str | None = None, max_tokens: int = 8000, client=None, base_url: str | None = None,
                  timeout: float = 600):
@@ -319,6 +365,11 @@ class OllamaBackend:
 
     name = "ollama"
 
+    @property
+    def provider(self) -> str | None:
+        """None on this computer; on another computer the provider of its address (`other` for a lab's server)."""
+        return providers.of_url(self.base_url)
+
     def __init__(self, base_url: str | None = None, num_ctx: int = 16384, think: bool | None = None,
                  keep_alive: str = "15m", timeout: int = 1800, opener=None,
                  stall_timeout: int = 600, think_kinds: frozenset | set | None = None, think_budget: int = 0,
@@ -343,9 +394,33 @@ class OllamaBackend:
         self._caps: dict[str, list[str] | None] = {}
         self.seed = seed
         self._digests: dict[str, str] = {}
+        self._woken = False                  # 0.19.15: Ollama was started (or found running) for a request already
+        # I6: the memory guard of long runs (`_guard`): on for the app's backends (home._ollama); the model's memory
+        # after its first answer, the requests answered, and what /api/tags says of each model (runner, quantisation)
+        self.memory_watch = False
+        self._base_vram: dict[str, int] = {}
+        self._requests = 0
+        self._details: dict[str, dict] = {}
+        self._version: str | None = None
+        self.freed = 0                       # how often the guard freed the memory in this run
+        self._freed_at: int | None = None    # the request count at the last free (the cooldown)
+        self.on_freed = None                 # optional callable(str) told when it did (the job's log line)
         if opener is None:
-            from urllib.request import urlopen as opener  # noqa: N813
+            opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
+
+    def wake(self) -> None:
+        """0.19.15: start Ollama on this computer when it is not running, at the first request of a model only: Margin
+        no longer starts it when it opens, and a chat model is asked only after a person's click (in the app, the job's
+        local gate). Once per backend; not with an opener of the caller's own (a test's stand-in)."""
+        if self._woken or self.opener is not local_urlopen:
+            return
+        from .ollama_setup import wake
+
+        with _WAKE_LOCK:   # two requests at once: the second waits for the first's start, not beside it
+            if not self._woken:
+                # only once it answers: a start stopped or timed out is tried again at the next request
+                self._woken = wake(self.base_url, should_stop=lambda: bool(self.should_stop and self.should_stop()))
 
     def digest(self, model: str) -> str | None:
         """The digest Ollama reports for the model (/api/tags): the exact weights, whatever the tag points to."""
@@ -419,12 +494,19 @@ class OllamaBackend:
 
         from .schema import output_schema
 
+        self.wake()   # 0.19.15: Ollama starts here, for this request, not before
+        if self.opener is local_urlopen:
+            note_used(self.base_url, model)   # 0.19.15: its job's Stop lets go of it
         can_think = self._can_think(model)
         want = self._think_for(kind)
         thinks = want is True or (want is None and can_think is True)
         budget = int(self.think_budget or 0) if thinks else 0
         allowance = (budget + 64 if budget else THINK_ALLOWANCE) if thinks else 0
         answer_cap = OUTPUT_CAP.get(kind, 2000)
+        if kind == "point":   # I6: the pointer's limit follows its number of excerpts (pointing.cap)
+            from .pointing import cap as point_cap
+
+            answer_cap = point_cap(len(payload.get("passages") or []))
         cap = answer_cap + allowance
         prompt_tokens = estimate_tokens(system) + estimate_tokens(user)
         need = prompt_tokens + cap + budget  # a forced answer carries the reasoning so far as notes
@@ -432,7 +514,7 @@ class OllamaBackend:
             hint = " or switch reasoning off" if thinks else ""
             raise BackendError(f"This task needs about {need:,} tokens of context, but the context length is "
                                f"{self.num_ctx:,}. Raise it in Settings{hint}.")
-        body = {"model": model, "stream": True, "format": output_schema(kind), "keep_alive": self.keep_alive,
+        body = {"model": model, "stream": True, "format": output_schema(kind, payload), "keep_alive": self.keep_alive,
                 "options": {"temperature": 0, "num_ctx": self.num_ctx, "num_predict": cap,
                             **({"seed": int(self.seed)} if self.seed is not None else {})},
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
@@ -440,9 +522,10 @@ class OllamaBackend:
             body["think"] = want  # sent only to models that can think; others may reject the field
         info = {"task": kind, "model": model, "phase": "waiting", "prompt_tokens": prompt_tokens, "thinking_tokens": 0,
                 "answer_tokens": 0, "seconds": 0.0, "first_token_after": None, "rate": None, "tail": "", "cap": cap,
-                "thinks": thinks, "budget": budget or None, "budget_reached": False}
+                "thinks": thinks, "budget": budget or None, "budget_reached": False, "memory_freed": self.freed}
         t0 = time.time()
         self._report(info, t0, force=True)  # 0.13.11: said before loading starts, not after the first second
+        self._guard(model)   # I6: frees the model's memory when its runner's cache has grown (it reloads for this request)
         self.check_memory(model)
         try:
             content, final = self._stream(body, model, info, t0, budget)
@@ -468,6 +551,7 @@ class OllamaBackend:
                  "total_seconds": time.time() - t0, "thinking_tokens": info["thinking_tokens"],
                  "budget_reached": info["budget_reached"]}
         self.last_stats = stats
+        self._requests += 1
         info.update(phase="done", stats=stats)
         self._report(info, t0, force=True)
         evaluated = int(final.get("prompt_eval_count") or 0)
@@ -626,24 +710,148 @@ class OllamaBackend:
                      if self._same(m.get("name") or m.get("model") or "", model)), 0)
         return size + self.num_ctx * KV_BYTES_PER_TOKEN if size > 0 else None
 
-    def check_memory(self, model: str) -> None:
-        """0.13.11: raise MemoryShort when the model is not in memory yet and this computer has clearly too little
-        free for it. The memory of the other models Ollama holds counts as free (Ollama lets go of them to make
-        room). Nothing is checked without `memory_guard`, or when Ollama or the computer do not say enough."""
-        if not self.memory_guard:
-            return
+    def memory_status(self, model: str) -> dict | None:
+        """0.19.4: the model's memory against what this computer has free now, for the page that would start it:
+        {"loaded": True} when Ollama holds it already, else {"need", "free", "short"} in bytes (the memory of the other
+        models Ollama holds counts as free: Ollama lets go of them to make room). None when Ollama or the computer
+        do not say enough."""
         try:
             held = self._call("/api/ps", timeout=5).get("models", []) or []
         except BackendError:
-            return
+            return None
         if any(self._same(m.get("name") or m.get("model") or "", model) for m in held):
-            return
+            return {"loaded": True, "short": False}
         need = self.memory_need(model)
         free = free_memory() if need else None
-        if need and free is not None:
-            free += sum(int(m.get("size") or 0) for m in held)
-            if free < need:
-                raise MemoryShort(model, need, free)
+        if not need or free is None:
+            return None
+        free += sum(int(m.get("size") or 0) for m in held)
+        return {"loaded": False, "need": int(need), "free": int(free), "short": free < need}
+
+    # -- I6: the engine, and the memory guard of long runs -----------------------------------------
+    def details(self, model: str) -> dict:
+        """What Ollama's list says of a model (`/api/tags` `details`): {"runner": "mlx" | "llamacpp" | …,
+        "quantization", "format"}; {} when it does not say. Loads nothing."""
+        if model not in self._details:
+            try:
+                rows = self._call("/api/tags", timeout=10).get("models", []) or []
+            except BackendError:
+                return {}
+            for m in rows:
+                name = m.get("name") or m.get("model") or ""
+                det = m.get("details") or {}
+                self._details[name] = {"runner": det.get("runner") or "", "quantization": det.get("quantization_level")
+                                       or "", "format": det.get("format") or ""}
+                if m.get("digest"):
+                    self._digests.setdefault(name, m["digest"])
+        return self._details.get(model) or self._details.get(f"{model}:latest") or {}
+
+    def engine_version(self) -> str | None:
+        """Ollama's version (`/api/version`), asked once per backend; None when it does not answer."""
+        if self._version is None:
+            try:
+                self._version = self.version() or ""
+            except BackendError:
+                return None
+        return self._version or None
+
+    def _vram(self, model: str) -> int | None:
+        """The memory Ollama says the model holds now (`/api/ps` size_vram, else size); None when it is not loaded or
+        Ollama does not answer. Loads nothing."""
+        try:
+            held = self._call("/api/ps", timeout=5).get("models", []) or []
+        except BackendError:
+            return None
+        row = next((m for m in held if self._same(m.get("name") or m.get("model") or "", model)), None)
+        if row is None:
+            return None
+        return int(row.get("size_vram") or row.get("size") or 0) or None
+
+    def _guard(self, model: str) -> bool:
+        """I6 (research section 2): Ollama's MLX runner keeps a prompt cache that grows by about 0.17 GB a check up to
+        8 GiB, which a 16 GB computer cannot spare. Before each request of a long run, the model's memory is freed
+        (`let_go`: only a model Ollama holds; nothing is loaded to unload it) when it has grown past its first reading
+        by GROW (`max(1.5 GB, 10 % of the memory)`), or, for an MLX model that has grown at least GUARD_SHORT_GROWN, when
+        free memory is below a fifth; when /api/ps does not answer, every GUARD_EVERY-th request of an MLX model. Never
+        within GUARD_COOLDOWN requests of the last free. The next request, part of the same job the person started,
+        loads it again (about 3 s). Returns whether it freed it."""
+        if not self.memory_watch:
+            return False
+        # within the cooldown the model's first reading after the reload is still noted (below), nothing is freed
+        cooling = self._freed_at is not None and self._requests - self._freed_at < GUARD_COOLDOWN
+        total = total_memory() or 0
+        grow = max(GUARD_GROW_MIN, int(GUARD_GROW_SHARE * total))
+        why = None
+        try:
+            held = self._call("/api/ps", timeout=5).get("models", []) or []
+            row = next((m for m in held if self._same(m.get("name") or m.get("model") or "", model)), None)
+        except BackendError:
+            row, held = None, None
+        if held is None:   # Ollama did not say: the fallback, by count, on MLX only
+            if self._requests and self._requests % GUARD_EVERY == 0 and self.details(model).get("runner") == "mlx":
+                why = "every"
+        elif row is not None:
+            now = int(row.get("size_vram") or row.get("size") or 0)
+            base = self._base_vram.get(model)
+            if base is None or now < base:
+                self._base_vram[model] = now
+            elif now > base + grow:
+                why = "grown"
+            elif now >= base + GUARD_SHORT_GROWN and self.details(model).get("runner") == "mlx":
+                free = free_memory()
+                if total and free is not None and free < GUARD_FREE_SHARE * total:
+                    why = "short"
+        if why is None or cooling:
+            return False
+        # only a model Ollama lists as held (or, when it does not answer, the one this run's last request used): the
+        # unload never loads it (let_go's rule)
+        if held is not None and row is None:
+            return False
+        if not self.unload(model):
+            return False
+        self._base_vram.pop(model, None)
+        self.freed += 1
+        self._freed_at = self._requests
+        if self.on_freed:
+            try:
+                self.on_freed("Freed the local model's memory; it loads again for the next excerpts (about 3 s).")
+            except Exception:  # noqa: BLE001 - a log line never stops the model
+                pass
+        return True
+
+    def p_yes(self, model: str, question: str) -> float | None:
+        """I6 (off until measured: pointing.LEAN): the model's probability of answering "yes" to a yes/no question, from
+        the log-probabilities of its first token (one token, no format, no reasoning). None when Ollama gives none."""
+        import math
+
+        body = {"model": model, "stream": False, "keep_alive": self.keep_alive, "think": False,
+                "logprobs": True, "top_logprobs": 10,
+                "options": {"temperature": 0, "num_ctx": self.num_ctx, "num_predict": 1,
+                            **({"seed": int(self.seed)} if self.seed is not None else {})},
+                "messages": [{"role": "user", "content": question + "\nAnswer yes or no."}]}
+        out = self._call("/api/chat", body, timeout=120)
+        lps = out.get("logprobs") or []
+        if not lps:
+            return None
+        yes = no = 0.0
+        for alt in lps[0].get("top_logprobs") or []:
+            tok = str(alt.get("token") or "").strip().lower()
+            p = math.exp(float(alt.get("logprob") or -1e9))
+            if tok == "yes":
+                yes += p
+            elif tok == "no":
+                no += p
+        return yes / (yes + no) if yes + no > 0 else None
+
+    def check_memory(self, model: str) -> None:
+        """0.13.11: raise MemoryShort when the model is not in memory yet and this computer has clearly too little
+        free for it (see memory_status). Nothing is checked without `memory_guard`, or when Ollama or the computer
+        do not say enough."""
+        if not self.memory_guard:
+            return
+        st = self.memory_status(model)
+        if st and st.get("short"):
+            raise MemoryShort(model, st["need"], st["free"])
 
     def unload(self, model: str) -> bool:
         """Free the memory a model holds (Ollama unloads it at once with keep_alive 0). False if Ollama refused."""
@@ -752,6 +960,13 @@ class LocalBackend:
     name = "local"
     FORMATS = ("json_schema", "json_object", "none")
 
+    @property
+    def provider(self) -> str | None:
+        """None on this computer; on another computer the provider of its address: an OpenAI address typed into the
+        local server field is OpenAI, any other server `other` (access.py: neither reads a document that allows
+        Anthropic only)."""
+        return providers.of_url(self.base_url)
+
     def __init__(self, base_url: str | None = None, api_key: str | None = None, timeout: int = 1800, opener=None,
                  stall_timeout: int = 600, stream: bool = True, seed: int | None = DEFAULT_SEED):
         url = (base_url or os.environ.get("MARGIN_LOCAL_URL") or "http://localhost:8080/v1").rstrip("/")
@@ -767,7 +982,7 @@ class LocalBackend:
         self._format = "json_schema"
         self.seed = seed
         if opener is None:
-            from urllib.request import urlopen as opener  # noqa: N813
+            opener = local_urlopen   # 0.19.10: 127.0.0.1 before ::1 (Windows)
         self.opener = opener
 
     def _request(self, path: str, body: dict | None = None):
@@ -810,17 +1025,15 @@ class LocalBackend:
         from .schema import output_schema
 
         cap = OUTPUT_CAP.get(kind, 2000) + THINK_ALLOWANCE
-        base = {"model": model, "temperature": 0, "max_tokens": cap, "stream": self.stream,
-                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
-        if self.seed is not None:  # llama.cpp, vLLM and LM Studio take a seed; a server that does not ignores it
-            base["seed"] = int(self.seed)
-        order = list(self.FORMATS[self.FORMATS.index(self._format):])
+        base = self._body(model, system, user, cap)
+        formats = tuple(getattr(self, "formats", self.FORMATS))
+        order = list(formats[formats.index(self._format):]) if self._format in formats else list(formats)
         last: Exception | None = None
         for fmt in order:
             body = dict(base)
             if fmt == "json_schema":
                 body["response_format"] = {"type": "json_schema",
-                                           "json_schema": {"name": kind, "schema": output_schema(kind), "strict": False}}
+                                           "json_schema": {"name": kind, "schema": output_schema(kind, payload), "strict": False}}
             elif fmt == "json_object":
                 body["response_format"] = {"type": "json_object"}
             try:
@@ -834,6 +1047,8 @@ class LocalBackend:
                 except Exception:
                     detail = ""
                 e.read = lambda d=detail.encode(): d  # keep the body readable for _error
+                if self._drop_refused(e.code, detail, base):
+                    return self.complete(kind, system, user, model, payload)  # asked again without the field
                 if e.code in (400, 422, 500) and ("response_format" in detail or "json" in detail.lower()
                                                   or "schema" in detail.lower() or "grammar" in detail.lower()):
                     continue  # this server does not take this answer format: try the next one
@@ -841,6 +1056,18 @@ class LocalBackend:
             except Exception as e:
                 raise self._error(e, model) from e
         raise self._error(last or RuntimeError("no answer"), model)
+
+    def _body(self, model: str, system: str, user: str, cap: int) -> dict:
+        """The request's fields besides the answer format."""
+        base = {"model": model, "temperature": 0, "max_tokens": cap, "stream": self.stream,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+        if self.seed is not None:  # llama.cpp, vLLM and LM Studio take a seed; a server that does not ignores it
+            base["seed"] = int(self.seed)
+        return base
+
+    def _drop_refused(self, code: int, detail: str, body: dict) -> bool:
+        """A field the server refused, left out from now on (CloudBackend: a model that takes no temperature of 0)."""
+        return False
 
     def _run(self, kind: str, model: str, body: dict, prompt_tokens: int, cap: int) -> str:
         import time
@@ -988,6 +1215,218 @@ class LocalBackend:
         return out
 
 
+def _no_redirect_opener():
+    """urlopen that follows no redirect: a 3xx answer is an error, so the key is never sent on to another address and
+    HTTPS cannot be left on the way (CloudBackend)."""
+    import urllib.request
+
+    class _Refuse(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None   # urllib then raises HTTPError with the 3xx code
+
+    opener = urllib.request.build_opener(_Refuse)
+
+    def open_(req, *a, **k):
+        return opener.open(req, *a, **k)
+    return open_
+
+
+_KEY_SHAPES = re.compile(r"\b(sk-[A-Za-z0-9_*.\-]{6,}|AIza[A-Za-z0-9_\-]{10,})")
+
+
+class CloudBackend(LocalBackend):
+    """Another cloud provider's chat API (stage 1 of other cloud providers): OpenAI, Google Gemini, Mistral, Azure
+    OpenAI or OpenRouter, all in the OpenAI chat-completions format (providers.py). LocalBackend's request, with:
+
+    - the person's key (kept in the system's keychain, home.cloud_key), sent as the provider wants it (a Bearer token,
+      or Azure's api-key header), and nowhere else: never in settings.json, a log, an error message, the provenance of
+      an answer or a move zip (errors are cleaned of anything shaped like a key);
+    - HTTPS only (an address on this computer, such as a test's stand-in or a local gateway, may use http);
+    - only the fields each provider documents (providers.TABLE's quirks: Mistral's random_seed in place of seed,
+      OpenAI's max_completion_tokens, no seed for Gemini); a field a model refuses (temperature 0 on OpenAI's
+      reasoning models) is left out and the task asked again;
+    - none of LM Studio's own calls; the models from GET {base}/models where the provider lists them (Azure: the
+      deployment's name is typed);
+    - errors in plain words, with the provider's name: the key refused (401, 403, Gemini's 400 API_KEY_INVALID), a
+      limit reached (429), a redirect refused (3xx: the key is never sent on);
+    - timeouts for a server far away: an answer that sends nothing for 5 minutes (a reasoning model may think that
+      long before its first word), or takes over 10, is given up.
+    """
+
+    name = providers.CLOUD_ROUTE
+
+    def __init__(self, provider: str, key: str, base_url: str | None = None, timeout: int = 600, opener=None,
+                 stall_timeout: int = 300, stream: bool = True, seed: int | None = DEFAULT_SEED):
+        spec = providers.get(provider)
+        if spec is None or provider == providers.ANTHROPIC:
+            raise BackendError(f"Unknown cloud provider {provider!r}: choose one in Settings → AI.")
+        if not key:
+            raise BackendError(f"No API key for {spec.title} is stored on this computer. Enter one in Settings → AI.")
+        url = (base_url or spec.base_url or "").strip().rstrip("/")
+        if not url or "{" in url:
+            raise BackendError(f"Give the address of your {spec.title} resource in Settings → AI.")
+        if not url.lower().startswith("https://") and not providers.on_this_computer(url):
+            raise BackendError(f"{spec.title} is reached only over HTTPS, so the text read is encrypted on its way: "
+                               f"{url} is not an https:// address.")
+        super().__init__(base_url=url, api_key="-", timeout=timeout, opener=opener or _no_redirect_opener(),
+                         stall_timeout=stall_timeout, stream=stream, seed=seed)
+        self.base_url = url            # as the provider gives it (Gemini's ends in /openai, not /v1)
+        self.api_key = None            # the key is sent in the request's header only (`_headers`)
+        self._provider = provider
+        self._spec = spec
+        self.__key = key
+        q = spec.quirks
+        self._seed_field = q.get("seed", "seed")
+        if not self._seed_field:
+            self.seed = None           # a provider that takes no seed: none is sent, and none is recorded
+        self._max_field = q.get("max_tokens", "max_tokens")
+        self.formats = tuple(q.get("formats") or self.FORMATS)
+        self._format = self.formats[0]
+        self._dropped: dict[str, set[str]] = {}   # per model: the fields it refused, left out from then on
+        self._model = ""                          # the model of the request being made
+        self.model_note = None
+
+    @property
+    def provider(self) -> str:
+        return self._provider
+
+    def dropped(self, model: str) -> set[str]:
+        """The fields this model refused (temperature 0 on a reasoning model, a seed)."""
+        return self._dropped.get(model, set())
+
+    def seed_sent(self, model: str) -> int | None:
+        """The seed sent with this model's requests (None: none is sent)."""
+        if not self._seed_field or self.seed is None or self._seed_field in self.dropped(model):
+            return None
+        return int(self.seed)
+
+    @property
+    def title(self) -> str:
+        return self._spec.title
+
+    def __repr__(self) -> str:   # never the key
+        return f"CloudBackend({self._provider!r}, {self.base_url!r})"
+
+    def _scrub(self, text: str) -> str:
+        """A message without the key (or anything shaped like a key a provider may echo back)."""
+        t = str(text or "")
+        if self.__key:
+            t = t.replace(self.__key, "[key]")
+        return _KEY_SHAPES.sub("[key]", t)
+
+    def _headers(self) -> dict:
+        if self._spec.auth == "api-key":
+            return {"api-key": self.__key}
+        return {"Authorization": f"Bearer {self.__key}"}
+
+    def _request(self, path: str, body: dict | None = None):
+        from urllib.request import Request
+
+        return Request(f"{self.base_url}{path}", data=json.dumps(body).encode() if body is not None else None,
+                       method="POST" if body is not None else "GET",
+                       headers={"Content-Type": "application/json", **self._headers()})
+
+    def _body(self, model: str, system: str, user: str, cap: int) -> dict:
+        body = {"model": model, "stream": self.stream,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                self._max_field: cap}
+        if "temperature" not in self.dropped(model):
+            body["temperature"] = 0
+        if self.seed_sent(model) is not None:
+            body[self._seed_field] = self.seed_sent(model)
+        return body
+
+    def _drop_refused(self, code: int, detail: str, body: dict) -> bool:
+        if code not in (400, 422):
+            return False
+        low = (detail or "").lower()
+        model = body.get("model", "")
+        for f in ("temperature", self._seed_field):
+            if f and f in body and f not in self.dropped(model) and f in low:
+                self._dropped.setdefault(model, set()).add(f)
+                return True
+        return False
+
+    def complete(self, kind: str, system: str, user: str, model: str, payload: dict) -> str:
+        try:
+            return super().complete(kind, system, user, model, payload)
+        except BackendError as e:
+            msg = self._scrub(str(e)).replace("The local server", self.title).replace("the local server", self.title)
+            if msg != str(e):
+                e.args = (msg,)
+            raise
+
+    def _error(self, e: Exception, model: str = "") -> BackendError:
+        from urllib.error import HTTPError
+
+        t = self.title
+        if isinstance(e, BackendError):
+            return BackendError(self._scrub(str(e))) if self._scrub(str(e)) != str(e) else e
+        if isinstance(e, HTTPError):
+            detail, raw = "", ""
+            try:
+                raw = e.read().decode()
+                d = json.loads(raw)
+                if isinstance(d, list) and d:   # Gemini: [{"error": {...}}]
+                    d = d[0]
+                detail = d.get("error", "") if isinstance(d, dict) else ""
+                if isinstance(detail, dict):
+                    detail = detail.get("message", "")
+                elif isinstance(d, dict) and not detail:
+                    detail = d.get("message", "") or d.get("detail", "")
+            except Exception:
+                pass
+            detail = self._scrub(str(detail or ""))[:300]
+            if 300 <= e.code < 400:
+                return BackendError(f"{t} answered with a redirect ({e.code}); Margin follows none, so the key is "
+                                    "never sent on. Check the address in Settings → AI.")
+            if e.code in (401, 403) or (e.code == 400 and ("API_KEY_INVALID" in raw or "API key not valid" in raw)):
+                err = BackendError(f"{t} refused the key ({e.code}). Check it in Settings → AI, or make a new one"
+                                   + (f" ({self._spec.key_hint})." if self._spec.key_hint else "."))
+                err.refused = True   # the key itself is wrong (the app's set-up forgets it), not a network problem
+                return err
+            if e.code == 429:
+                return BackendError(f"{t}: the limit of this key is reached (too many requests, or no credit left). "
+                                    f"Wait a minute and try again, or check your {t} account.")
+            if e.code == 404:
+                return BackendError(f"{t} does not offer the model {model!r} to this key. Check the model's name in "
+                                    "Settings → AI." if model else f"{t} did not find this address ({e.code}).")
+            if e.code >= 500:
+                return BackendError(f"{t} had a problem on its side ({e.code}). Try again in a few minutes.")
+            return BackendError(f"{t} refused the request ({e.code}): {detail or e.reason}")
+        if "timed out" in str(e).lower() or isinstance(e, TimeoutError):
+            return BackendError(f"{t} sent nothing for {self.stall_timeout} seconds. Try again later.")
+        return BackendError(f"Could not reach {t}. Check the internet connection.")
+
+    # -- information: no LM Studio calls ---------------------------------------------------------
+    def models(self, timeout: float = 10) -> list[str]:
+        if not self._spec.lists_models:
+            return []
+        ids = super().models(timeout)
+        prefix = self._spec.quirks.get("model_prefix")
+        if prefix:
+            ids = sorted(i[len(prefix):] if i.startswith(prefix) else i for i in ids)
+        return ids
+
+    def loaded(self, timeout: float = 3) -> list[str]:
+        return []
+
+    def inventory(self, timeout: float = 10) -> dict:
+        return {"models": self.models(timeout), "loaded": [], "modified": {}}
+
+    def digest(self, model: str) -> str | None:
+        return f"name:{self._provider}/{model}"
+
+    def check(self, model: str | None = None) -> dict:
+        out: dict = {"ok": True, "provider": self._provider, "models": self.models()}
+        if model:
+            out["model_available"] = model in out["models"] if self._spec.lists_models else True
+        if not self._spec.lists_models:
+            out["warning"] = (f"{self.title} does not list its models: the first task says whether "
+                              f"{model or 'the deployment name'} is right.")
+        return out
+
+
 # ---------------------------------------------------------------------------------------------
 # finding local servers
 # ---------------------------------------------------------------------------------------------
@@ -995,7 +1434,7 @@ class LocalBackend:
 # 0.13.7: the models the app offers to download into Ollama with one button, so a model on this computer needs no
 # terminal. The first reads and judges; the second is for search by meaning (optional).
 SUGGESTED_MODELS = (
-    {"name": "qwen3:8b", "use": "chat", "size": "about 5 GB"},
+    {"name": "qwen3.5:4b", "use": "chat", "size": "about 3.7 GB"},   # I6: modeladvice.MEDIUM_MODEL
     {"name": "nomic-embed-text", "use": "embed", "size": "about 0.3 GB"},
 )
 _MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*){0,2}(:[A-Za-z0-9][A-Za-z0-9._-]*)?")
@@ -1023,14 +1462,48 @@ OPENAI_PORTS = ("http://localhost:1234/v1", "http://localhost:8080/v1", "http://
 _DETECTED: dict = {}
 
 
+_WAKE_LOCK = __import__("threading").Lock()   # 0.19.15: one start of Ollama at a time (OllamaBackend.wake, embed)
+
+# 0.19.15: the local models a job of the app asked, as (server address, model), so that its Stop lets go of their memory
+# at once instead of leaving them in Ollama for its next 15 minutes. The app's job sets a set of its own here (copied into
+# the threads it starts); outside a job there is none and nothing is noted.
+USED: contextvars.ContextVar["set[tuple[str, str]] | None"] = contextvars.ContextVar("margin_used_models", default=None)
+
+
+def note_used(url: str, model: str) -> None:
+    got = USED.get()
+    if got is not None and model:
+        got.add((url.rstrip("/"), model))
+
+
+def let_go(models, runner: str | None = None) -> list[str]:
+    """Free the memory of these Ollama models, those still held (`/api/ps`): nothing is loaded to unload it. Returns
+    the models let go of. I6: with `runner` ("mlx"), only the models Ollama runs on that runner (`/api/tags`): at the
+    end of a local job its MLX model's prompt cache is not kept for Ollama's 15 minutes."""
+    done: list[str] = []
+    by_url: dict[str, set[str]] = {}
+    for url, model in models or ():
+        by_url.setdefault(url, set()).add(model)
+    for url, names in by_url.items():
+        be = OllamaBackend(base_url=url, timeout=10)
+        try:
+            held = set(be.loaded(timeout=5))
+        except BackendError:
+            continue
+        for m in sorted(names):
+            if runner is not None and be.details(m).get("runner") != runner:
+                continue
+            if any(be._same(m, h) for h in held) and be.unload(m):
+                done.append(m)
+    return done
+
+
 def ollama_version(url: str, timeout: float = 1.5) -> str | None:
     """The one probe of "does an Ollama answer here" (0.17.2: it was written three times): the version it reports
     ("" when it answers without one), or None when nothing answers within `timeout` seconds. Any 200 counts as
     answering. Each caller keeps its own time limit."""
-    from urllib.request import urlopen
-
     try:
-        with urlopen(f"{url.rstrip('/')}/api/version", timeout=timeout) as r:
+        with local_urlopen(f"{url.rstrip('/')}/api/version", timeout=timeout) as r:
             if r.status != 200:
                 return None
             try:
@@ -1163,6 +1636,7 @@ def _horizon(s: str) -> str:
 
 class BaselineBackend:
     name = "baseline"
+    provider = None
 
     def complete(self, kind: str, system: str, user: str, model: str, payload: dict) -> str:
         if kind == "extract":
@@ -1226,6 +1700,16 @@ class BaselineBackend:
         sa = set(a["label"].lower().split()) & set(b["label"].lower().split())
         qa = " ".join(a["snippets"][0]["text"].split()[:8]) if a["snippets"] else a["label"]
         qb = " ".join(b["snippets"][0]["text"].split()[:8]) if b["snippets"] else b["label"]
+        # link-v2: needs, shapes, clashes with, when a passage says so in the text patterns' words (either way round)
+        from .textrelations import stated
+
+        texts = [sn["text"] for sn in a["snippets"] + b["snippets"]]
+        fwd = next((r for r in (stated(x, a["label"], b["label"]) for x in texts) if r), None)
+        back = None if fwd else next((r for r in (stated(x, b["label"], a["label"]) for x in texts) if r), None)
+        if fwd or back:
+            one, two, q1, q2 = (1, 2, qa, qb) if fwd else (2, 1, qb, qa)
+            return {"relations": [{"a": one, "b": two, "relation": fwd or back, "confidence": 0.5,
+                                   "quote_a": q1, "quote_b": q2}]}
         return {"relations": [{"a": 1, "b": 2, "relation": "related" if sa else "different", "confidence": 0.5,
                                "quote_a": qa, "quote_b": qb}]}
 
@@ -1307,6 +1791,7 @@ class ClaudeCodeBackend:
     never handles its login."""
 
     name = "claude_code"
+    provider = providers.ANTHROPIC
 
     def __init__(self, router=None):
         self.router = router
@@ -1323,6 +1808,29 @@ class ClaudeCodeBackend:
         return None  # Claude Code reports no digest: the model is recorded as set for the helper
 
 
+class AgentCliBackend(ClaudeCodeBackend):
+    """An agent CLI of another provider on the person's own plan (stage 2 of other cloud providers: Codex, OpenAI;
+    Antigravity, Google): like Claude Code, nothing is asked from here; the app's runs prepare tasks and wait for them
+    in the queue, which the CLI answers through the Margin connector (agentcli.py starts it). The queue's models are
+    the ladder's aliases; the runner sends the provider's own (routing.Router.api_id)."""
+
+    def __init__(self, route: str, router=None):
+        super().__init__(router)
+        cli = providers.AGENT_CLIS[route]
+        self.name = route
+        self.provider = cli.provider
+        self.title = cli.title
+
+    def complete(self, kind: str, system: str, user: str, model: str, payload: dict) -> str:
+        raise BackendError(f"{self.title} answers through the task queue: press Start {self.title} in Margin.")
+
+
+NOT_REPEATABLE_MLX = ("Not guaranteed: this model runs on Ollama's MLX engine, which can word an answer differently "
+                      "when asked again, even with no randomness and a fixed seed (it does its sums in a slightly "
+                      "different order depending on what it read just before). In our tests the same words came back "
+                      "about 6 times in 10, and the same overall suggestion 19 times in 20.")
+
+
 def provenance(backend, model: str) -> dict:
     """What exactly answers: {"digest", "seed", "settings": {backend, num_ctx, think, think_budget, temperature}}."""
     name = getattr(backend, "name", "") or ""
@@ -1337,16 +1845,42 @@ def provenance(backend, model: str) -> dict:
     from .routing import ROUTE_NAMES
 
     settings = {"backend": name, "temperature": 0, "route": ROUTE_NAMES.get(name, name)}
-    if name in ("claude_code", "anthropic"):
-        # Claude Code sets no temperature and no seed; nor does the Claude API request (0.18.1: it was recorded as 0)
+    if name in ("claude_code", "anthropic") or name in providers.AGENT_CLIS:
+        # Claude Code sets no temperature and no seed; nor does the Claude API request (0.18.1: it was recorded as 0),
+        # nor the agent CLIs
         settings.pop("temperature")
+    if name in providers.AGENT_CLIS:   # which provider, and the provider's own model id the alias stood for
+        settings["provider"] = getattr(backend, "provider", None)
+        router = getattr(backend, "router", None)
+        if router is not None and getattr(router, "lineup", None):
+            settings["model_id"] = router.api_id(model)
+    if name == providers.CLOUD_ROUTE:  # another cloud provider: which one (never its key)
+        settings["provider"] = getattr(backend, "provider", None)
+        settings["route"] = providers.title(settings["provider"])
+        if "temperature" in backend.dropped(model):
+            settings.pop("temperature")
     if getattr(backend, "num_ctx", None):
         settings["num_ctx"] = int(backend.num_ctx)
     if name == "ollama":
         settings["think"] = ("judging" if getattr(backend, "think_kinds", None) else
                              {True: "on", False: "off", None: "default"}[getattr(backend, "think", None)])
         settings["think_budget"] = int(getattr(backend, "think_budget", 0) or 0)
-    return {"digest": digest, "seed": getattr(backend, "seed", None), "settings": settings}
+        # I6 (research section 3): the engine that ran it, as the results' Engine column says it: the runner Ollama
+        # chose for the build (mlx, llamacpp), its quantisation and Ollama's version. Asked once per backend; nothing
+        # loads a model
+        try:
+            det = backend.details(model) if hasattr(backend, "details") else {}
+            ver = backend.engine_version() if hasattr(backend, "engine_version") else None
+        except Exception:  # noqa: BLE001 - the record is made without them rather than not at all
+            det, ver = {}, None
+        if det.get("runner"):
+            settings["runner"] = det["runner"]
+        if det.get("quantization"):
+            settings["quantization"] = det["quantization"]
+        if ver:
+            settings["ollama"] = ver
+    seed = backend.seed_sent(model) if name == providers.CLOUD_ROUTE else getattr(backend, "seed", None)
+    return {"digest": digest, "seed": seed, "settings": settings}
 
 
 def repeatable(backend, model: str) -> dict:
@@ -1360,12 +1894,34 @@ def repeatable(backend, model: str) -> dict:
     if name == "anthropic":
         return {"repeatable": False, "seed": False, "note": "The Claude API takes no seed: answers are not guaranteed "
                                                             "to be the same twice, even at temperature 0."}
-    if name == "claude_code":
+    if name == "claude_code" or name in providers.AGENT_CLIS:
         return {"repeatable": False, "seed": False,
                 "note": "Claude Code takes no seed and no temperature: answers are not guaranteed to be the same "
                         "twice. Measure how much two readings differ with the acceptance runs (--again), or compare "
                         "a sample of labels."}
+    if name == "ollama" and hasattr(backend, "details"):
+        # I6 (research section 3): Ollama's MLX runner sums in another order depending on what it read just before
+        # (its prompt cache, ollama/ollama#16860), so two short questions in a row would look repeatable when a long
+        # run is not. Said without asking the model (which would load it).
+        try:
+            runner = backend.details(model).get("runner")
+        except Exception:  # noqa: BLE001
+            runner = None
+        if runner == "mlx":
+            return {"repeatable": False, "seed": getattr(backend, "seed", None) is not None, "runner": "mlx",
+                    "digest": backend.digest(model), "note": NOT_REPEATABLE_MLX}
     payload = {"claim": "Green hydrogen production can increase water stress in arid regions."}
+    if name == providers.CLOUD_ROUTE:  # another cloud provider: asked like a server, and named
+        a = backend.complete("expand", system_prompt("expand"), user_prompt("expand", payload), model, payload)
+        b = backend.complete("expand", system_prompt("expand"), user_prompt("expand", payload), model, payload)
+        same = a.strip() == b.strip()
+        who = f"{providers.title(backend.provider)} ({model})"
+        return {"repeatable": same, "seed": backend.seed_sent(model) is not None, "provider": backend.provider,
+                "model": model, "digest": backend.digest(model),
+                "note": (f"{who} gave the same answer twice. Cloud providers do not promise it: check again "
+                         "now and then." if same else
+                         f"{who} gave two different answers to the same question: it does not guarantee repeatable "
+                         "answers.")}
     a = backend.complete("expand", system_prompt("expand"), user_prompt("expand", payload), model, payload)
     b = backend.complete("expand", system_prompt("expand"), user_prompt("expand", payload), model, payload)
     same = a.strip() == b.strip()
@@ -1400,5 +1956,9 @@ def get_backend(name: str, **kw) -> Backend:
         return BaselineBackend()
     if name == "claude_code":
         return ClaudeCodeBackend()
+    if name in providers.AGENT_CLIS:
+        return AgentCliBackend(name)
+    if name == providers.CLOUD_ROUTE:
+        return CloudBackend(**kw)
     raise ValueError(f"unknown backend {name!r}; use 'auto', 'ollama', 'local', 'anthropic', 'claude_code' or "
                      "'baseline', or the file queue (export-tasks / import-results)")

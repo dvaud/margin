@@ -90,6 +90,33 @@ for _key, _value in {"routing.ROW_OF": _CD, "routing.CLAUDE_DEFAULTS": ("sonnet"
                      "taskqueue.SHORT": "codes to define from their examples",
                      "taskqueue.KIND_TITLE": "Code definitions from examples", "llm.OUTPUT_CAP": 1500}.items():
     SNAPSHOT[_key][_CD] = _value
+# D1 rest (the optional AI part): a group of the concept map named from passages (groupnames.py); queued after the themes
+_GN = "group_name"
+SNAPSHOT["routing.KINDS"] += (_GN,)
+SNAPSHOT["tasks.CORPUS_KINDS"] = ("label", "link", "theme", "resolve", "group_name")
+SNAPSHOT["tasks.KINDS"] += (_GN,)
+_rows = list(SNAPSHOT["routing.ROWS"])
+_rows.insert(_rows.index((_CD, (_CD,), "Code definitions from examples")) + 1,
+             (_GN, (_GN,), "Names of groups of concepts"))
+SNAPSHOT["routing.ROWS"] = tuple(_rows)
+_order = list(SNAPSHOT["taskqueue.ORDER"])
+_order.insert(_order.index("theme") + 1, _GN)
+SNAPSHOT["taskqueue.ORDER"] = tuple(_order)
+for _key, _value in {"routing.ROW_OF": _GN, "routing.CLAUDE_DEFAULTS": ("haiku", "sonnet"), "routing.LOCAL_DEFAULTS": "large",
+                     "routing.HELPERS": "margin-namer", "prompts.VERSIONS": "group-name-v1", "taskqueue.BATCH": 5,
+                     "taskqueue.NOUN": ("group of concepts to name", "groups of concepts to name"),
+                     "taskqueue.SHORT": "groups of concepts to name",
+                     "taskqueue.KIND_TITLE": "Names of groups of concepts", "llm.OUTPUT_CAP": 400}.items():
+    SNAPSHOT[_key][_GN] = _value
+
+# I6: the small local model's short answer to a check (pointing.py): answered only on this computer (no Claude model,
+# helper, batch or row of its own), so it appears only in the tables of its names, prompt version and limit
+_PT = "point"
+SNAPSHOT["tasks.KINDS"] += (_PT,)
+for _key, _value in {"prompts.VERSIONS": "point-v1", "llm.OUTPUT_CAP": 24 + 14 * 60,
+                     "taskqueue.NOUN": ("set of excerpts to point at", "sets of excerpts to point at"),
+                     "taskqueue.SHORT": "sets of excerpts", "taskqueue.KIND_TITLE": "Pointing at sentences"}.items():
+    SNAPSHOT[_key][_PT] = _value
 
 
 def _table(key):
@@ -125,7 +152,8 @@ def test_the_other_tables_too():
         "extract": "Extracting claims (SDG pack)", "verify_set": "Checking VCA claims (SDG pack)",
         "verify": "Checking claims (SDG pack)", "split": "Splitting justifications (SDG pack)",
         "theory_codes": "Codes from a theory document", "code_definition": "A code's definition from its examples",
-        "theory_frame": "A framework from theory documents"}
+        "point": "Checking hypotheses (the small local model)",
+        "theory_frame": "A framework from theory documents", "group_name": "Names of groups of concepts"}
     assert _without_margins_kind(tasks.HANDLERS) == {"extract": tasks._store_extract, "split": tasks._store_split,
                                     "verify": tasks._store_verify, "verify_set": tasks._store_verify_set,
                                     "expand": tasks._store_expand, "check": tasks._store_check,
@@ -134,7 +162,8 @@ def test_the_other_tables_too():
                                     "link": tasks._store_link, "theme": tasks._store_theme,
                                     "resolve": tasks._store_resolve, "theory_codes": tasks._store_theory_codes,
                                     "code_definition": tasks._store_code_definition,
-                                    "theory_frame": tasks._store_theory_frame}
+                                    "group_name": tasks._store_group_name,
+                                    "theory_frame": tasks._store_theory_frame, "point": tasks._store_point}
     assert dict(routing.HELPER_MODEL)["margin-checker"] == "sonnet" and len(routing.HELPER_MODEL) == 7
     # the certainty of an answer, as 0.13.5 read it
     assert routing.certainty("verify", {"confidence": 0.4}) == 0.4

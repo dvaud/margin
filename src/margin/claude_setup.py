@@ -515,12 +515,14 @@ def _pid_runs_margin(pid: int) -> bool:
     return SLASH in cmd
 
 
-def _end_process(pid: int, proc=None, wait: float = 10.0) -> None:
-    """End a run: its whole process group (the helpers it started too) on Mac and Linux, the process tree on Windows."""
+def _end_process(pid: int, proc=None, wait: float = 10.0, alive=None) -> None:
+    """End a run: its whole process group (the helpers it started too) on Mac and Linux, the process tree on Windows.
+    `alive(pid)`: whether the process is still the run's (stage 2: an agent CLI's helper, agentcli.py), when there is
+    no `proc` to ask."""
     def gone() -> bool:
         if proc is not None:
             return proc.poll() is not None
-        return not _pid_runs_margin(pid)
+        return not (alive or _pid_runs_margin)(pid)
 
     if os.name == "nt":
         try:

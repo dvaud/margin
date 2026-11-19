@@ -88,6 +88,7 @@ margin --ws myproject export-qdc NAME codebook.qdc                  # one codebo
 margin --ws myproject import-qdc codebook.qdc [NAME] [--title T] [--codebook TITLE] [--home]   # a codebook from NVivo, ATLAS.ti, MAXQDA (.qdc or .qdpx)
 margin measure [--folder DIR] [--ws PROJECT] [--timings] [--report FILE.md]       # how well Margin reads
 margin validate prepare|score|report [--project NAME] [--again NAME] [--latest DIR] [--out FILE.md]   # the AI's answers against known right answers
+margin validate person --project NAME [--label NAME]   # a real project's judgements made by you, as right answers (no AI)
 ```
 
 ## Projects, Claude Code and the queue

@@ -156,7 +156,7 @@ routes (below); and in the acceptance measures against a person's reference shee
 
 ## The glossary and concepts
 
-The glossary is built without a model (`terms.py`; [Concepts](manual/explore.md#concepts)).
+The glossary is built without a model (`terms.py`; [Concepts](manual/concepts.md#concepts)).
 
 - **Candidates** are runs of one to four words that cross no punctuation and neither start nor end with a common word
   of the passage's language or a number. A candidate must occur at least 3 times in at least 2 documents.
@@ -267,9 +267,14 @@ hand, with neither ever seeing a model's answers. A recorded, dated run checks e
 passage as the app does, through the task queue, and keeps every answer with its model, prompt version and Margin
 version; `margin validate report` then gives, per kind, the share of right answers and Cohen's kappa against the gold
 set, the share of answers first rejected for a quote not in the text, and, from a second pass, how often the same
-answer came again. Each release carries it as `validation-report-ai.md`, made from the newest recorded run with no
-AI. Its limits: the documents are invented and tidier than real ones, the set is small (one hypothesis is about three
-points), and it is in English only.
+answer came again. Each release carries it as `validation-report-ai.md`, made from the newest recorded run of each
+route with no AI: a run answered by a local model is named after that model and set side by side with the run on
+Claude. Its limits: the documents are invented and tidier than real ones, the set is small (one hypothesis is about
+three points), and it is in English only. Beside it, the report can show **right answers from a real project, labelled
+by a person** (`margin validate person`, no AI): the excerpts an AI judged that the researcher then judged themselves,
+and the codes an AI gave that they accepted, changed or rejected (with the codes they added where the AI had
+labelled). Only what a person decided counts, never an answer left alone. These are real documents, but the person saw
+the AI's answer before deciding and chose what to look at, so the agreement is likely higher than on a blind sample.
 
 **Across versions.** Margin never redoes work by itself: results made by an earlier version stay as they were made
 ([Results across versions](manual/models.md#results-across-versions)).
@@ -282,8 +287,9 @@ points), and it is in English only.
   words. *Read more excerpts* and *Search with other words* look further.
 - **The quote check proves that the words are there**, not that the grade is right. The person's review checks the
   grade.
-- **The default models are validated only on a small invented gold set** (`validation-report-ai.md`), not on a
-  filled-in reference set of real documents ([MODEL_CHOICE.md](MODEL_CHOICE.md)).
+- **The default models are validated only on a small invented gold set** (`validation-report-ai.md`); a real
+  project's judgements made by a person can be set beside it (`margin validate person`), but the person saw the AI's
+  answers first ([MODEL_CHOICE.md](MODEL_CHOICE.md)).
 - **Agreement is not correctness**: kappa compares two readers, neither of them a gold standard.
 - **Claude's answers are not repeatable** the way a seeded local model's are.
 - **The stemmer is English.** It strips English endings from words in every language, so forms in other languages may

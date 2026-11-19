@@ -229,7 +229,13 @@ def _not_counted(items: list[dict], thr: float) -> list[dict]:
                             f"not counted: the AI was less sure of {'it' if len(below) == 1 else 'them'} than your "
                             f"strictness setting ({thr:.2f}) asks.", "rule": "below-strictness",
                     "refs": [_ref(x) for x in below]})
-    you = [x for x in items if x.get("waiting_for_you")]
+    sug = [x for x in items if x.get("waiting_for_you") and x.get("suggestion")]
+    if sug:   # I6: the local model's suggestions wait for the person's judgement
+        out.append({"text": f"{_cap(_n(len(sug), 'excerpt'))} read by the local model on this computer "
+                            f"{'waits' if len(sug) == 1 else 'wait'} for your own judgement: its suggestions decide "
+                            f"nothing, so until you judge {'it, it is' if len(sug) == 1 else 'them, they are'} not "
+                            "counted.", "rule": "local-suggestions", "refs": [_ref(x) for x in sug]})
+    you = [x for x in items if x.get("waiting_for_you") and not x.get("suggestion")]
     if you:
         out.append({"text": f"{_cap(_n(len(you), 'excerpt'))} from documents no AI may read "
                             f"{'waits' if len(you) == 1 else 'wait'} for your own judgement: until then "
@@ -298,7 +304,7 @@ def _as_ai(x: dict) -> dict:
     """An excerpt's row as `claim_status` takes it, without a person's judgement."""
     from .claimcheck import PERSON
 
-    if x.get("read_by") == "you":
+    if x.get("read_by") == "you" or x.get("suggestion"):   # I6: a local model's suggestion counts as nothing
         return {"verdict": "not_enough_info", "confidence": None, "model": PERSON, "user_verdict": None,
                 "doc_id": x["doc_id"]}
     v = x.get("ai_verdict")

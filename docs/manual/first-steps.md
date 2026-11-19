@@ -4,7 +4,7 @@
 
 > **In short**
 > - The first screen has three steps: **the AI** (*Set up Claude* does it all), **a project**, then **documents**.
-> - No Claude plan? Choose a model on your own computer, or no AI for now.
+> - No Claude plan? Choose Codex (a ChatGPT plan), Antigravity (a free Google account), a model on your own computer, or no AI for now.
 > - The sidebar groups the places (**Explore**, **Write**, **Check**), has a finder (<kbd>Ctrl</kbd>+<kbd>K</kbd>) and a line that always says where your text goes.
 > - Each document gets a setting for who may read it with AI.
 
@@ -31,13 +31,15 @@ switched off, so it cannot open your files. Margin runs Claude Code the same way
 
 *Set it up yourself instead* keeps the lines to type.
 
-**No Claude plan?** *No Claude plan? Other options* offers a model on this computer, or no AI for now. A model on
-this computer needs no terminal:
+**No Claude plan?** *No Claude plan? Other options* offers **Codex** (on a ChatGPT plan), **Antigravity** (on a free
+Google account), a model on this computer, or no AI for now. Codex and Antigravity ask first, naming the company the
+passages go to, and then show the same set-up card and guided steps as Claude Code ([Codex and
+Antigravity](other-agents.md)). A model on this computer needs no terminal:
 
 1. With no model server running, *Install Ollama* gets **Ollama** (free): it says the size of the download first
    (about 1.7 GB on Windows, 230 MB on a Mac), then installs and starts it, with a progress bar. If Ollama is on the
-   computer but not running (after an install, or on a later day), Margin starts it by itself and waits until it
-   answers: there is nothing to open and nothing to type. *Start Ollama* stays for when that did not work.
+   computer but not running (on a later day, say), press *Start Ollama*: Margin starts nothing AI by itself. The first
+   Start of a local model starts Ollama too, so there is nothing to open and nothing to type.
 2. With Ollama running but no model yet, Margin suggests the models that **fit this computer**, from its memory, free
    disk space and graphics card: one recommended, a smaller and quicker one, and a larger and more careful one
    beside it, each with its download size, how quick it will be here and what it is good for. *Download …* gets the
@@ -89,7 +91,7 @@ selects all of them.
 | --- | --- |
 | The name | *Margin*, and the project switch under it. |
 | *Find a feature or page* | The finder ([below](#the-finder)). <kbd>Ctrl</kbd>+<kbd>K</kbd>, or <kbd>⌘</kbd>+<kbd>K</kbd> on a Mac, opens it from anywhere. |
-| The project | *Overview*, *Documents*. |
+| The project | *Overview*, *Documents*, *Research log*. |
 | **Explore**, marked *AI on request* | *Search*, *Codes*, *Concepts*, *Themes*, *Skim* ([Explore](explore.md), [Skim one document](skim.md)). |
 | **Check**, marked *Uses the AI* | *Hypotheses* ([Check a hypothesis](check.md)). |
 | **Write**, marked *Uses the AI* | *Check a draft*, *Check citations*, *Outline*, *Find literature* ([Check a draft](drafts.md), [Check citations](citations.md), [Make an outline](outline.md), [Find literature](literature.md)). |
@@ -99,7 +101,6 @@ Each of these is a **place**. A place's other parts are **views**, shown as tabs
 
 | Place | Views |
 | --- | --- |
-| *Overview* | *Overview*, *Research log* ([Notes, the research log and earlier versions](notes-and-log.md#the-research-log)) |
 | *Documents* | *Documents*, *Notes* ([Highlights and notes](notes-and-log.md#highlights-and-notes)), *Bibliography* ([Your bibliography](bibliography.md)) |
 | *Codes* | *By document* (which codes each document addresses, [Explore](explore.md#codes)), *Codebooks* ([Make your own codebook](codebooks.md)) |
 | *Hypotheses* | *Answers*, *Evidence map* ([Read and review a result](review.md#the-evidence-map)) |
@@ -131,7 +132,7 @@ One status area of a fixed size, so the sidebar does not jump.
 
 Under it are *Settings*, *Quit* and **the theme icon**: a screen follows your computer, a sun is light, a moon is dark.
 Click it for the next one; hover it to see which is in use. When an update is ready, *Update* takes *Quit*'s place
-([Update](install.md#update)); *Quit* is then in *Settings → Technical*.
+([Update](install.md#update)); *Quit* is then in *Settings → General*.
 
 ### The Overview
 
@@ -163,8 +164,9 @@ A title with the AI mark and one short line under it, the views as tabs, a longe
 that opens on hover or click, and downloads as one quiet line of links (*Download Excel (.xlsx) · CSV*). Model names
 and other technical facts sit under *Technical details* and *Settings → Technical*, never on a working screen.
 
-The **Research log** button at the top right of every page opens a panel on the right: write an entry that is kept
-with the page you are on, and see that page's entries (*This page*) or all of them (*All*)
+The **Write in the log** button at the top right of every page opens the research log in a panel beside the page: write an entry
+that is kept with the page you are on, and see that page's entries (*This page*) or all of them (*All*); its foot link,
+*The whole research log*, opens the page of the same name, a place under *Project*
 ([The research log](notes-and-log.md#the-research-log)).
 
 A walk through a whole first project, from adding documents to the Excel file, is in [Your first project, start to finish](first-project.md).

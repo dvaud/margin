@@ -21,6 +21,14 @@ class ChecksApi:
         body = self._body()
         return {"job": self.app.start_read_local(name, hyp_id, force=bool(body.get("force"))).view()}
 
+    def post_judge_local(self, name, hyp_id, q):
+        """0.19.8: the excerpts that wait for the local model wait for the person instead ("Judge it myself")."""
+        return self.app.judge_local_yourself(name, hyp_id)
+
+    def post_local_again(self, name, hyp_id, q):
+        """0.19.12: "Let the local model read them": the way back from Judge it myself."""
+        return self.app.local_again(name, hyp_id)
+
     def get_suggest(self, name, q):
         text = _str(q, "text") or ""
         ws = self.app.ws(name)
@@ -103,7 +111,7 @@ class ChecksApi:
         # 0.14.3: why there is none, for the page to say it right: "model_per_task_off" (the setting is off, or demo
         # mode), "top_model" (Claude already runs it on the strongest model), "one_local_model", or "none"
         res["stronger_reason"] = None if res["stronger_model"] else (
-            "model_per_task_off" if off else "top_model" if router.route in ("claude_code", "anthropic")
+            "model_per_task_off" if off else "top_model" if router.route in routing.AUDITOR_ROUTES
             else "one_local_model" if router.route == "local" else "none")
         res["queue_command"] = f"/margin-run {taskqueue._quote_name(name)}"
         return res
@@ -336,7 +344,7 @@ class ChecksApi:
         from ..llm import repeatable
 
         self._body()
-        be, model = self.app.backend()
+        be, model = self.app.backend(wake=True)
         return {"model": model, **repeatable(be, model)}
 
     def put_judgement(self, name, claim_id, passage_id, q):
@@ -364,6 +372,38 @@ class ChecksApi:
         self.app.jobs.cancel(job)  # 0.18 (M6): a job waiting for its turn leaves the queue at once
         return {"job": job.view(full=False)}
 
+    def post_job_again(self, job_id, q):
+        """0.19.4: a job the local model was refused in for memory runs again; {"force": true}: Start it anyway."""
+        job = self.app.jobs.get(job_id)
+        try:
+            again = self.app.jobs.again(job, force_local=bool(self._body().get("force")))
+        except ValueError as e:
+            raise ApiError(409, str(e)) from e
+        return {"job": again.view()}
+
+    def _local_part(self, job_id):
+        job = self.app.jobs.get(job_id)
+        if not job.gate.involved:
+            raise ApiError(409, "This job has no work for the local model.")
+        if job.state not in ("queued", "running"):
+            raise ApiError(409, "This job has ended. Its excerpts that wait for the local model can be read from "
+                                "their own page.")
+        return job
+
+    def post_local_start(self, job_id, q):
+        """0.19.13: the local side's Start: the local model reads this job's local part (one Start covers the job);
+        {"force": true}: whatever memory this computer has free (Start it anyway)."""
+        job = self._local_part(job_id)
+        job.gate.open(force=bool(self._body().get("force")))
+        return {"job": job.view()}
+
+    def post_local_stop(self, job_id, q):
+        """0.19.13: the local side's Stop: the local model stops after the item in hand and the local part waits for
+        its Start again (the job's own Stop still ends everything)."""
+        job = self._local_part(job_id)
+        job.gate.close()
+        return {"job": job.view()}
+
     def post_benchmark(self, q):
         return {"job": self.app.start_benchmark(self._body()).view()}
 
@@ -373,9 +413,16 @@ class ChecksApi:
     def get_queue_preview(self, name, q):
         """What Claude Code would be sent for the next batch (read only: nothing is claimed or recorded)."""
         try:
-            return taskqueue.preview(self.app.ws(name), _str(q, "kind"), _int(q, "start", 0, 0, 1_000_000))
+            out = taskqueue.preview(self.app.ws(name), _str(q, "kind"), _int(q, "start", 0, 0, 1_000_000))
         except ValueError as e:
             raise ApiError(400, str(e)) from e
+        if not out.get("tasks") and not out.get("start") and not home.local_only():
+            from .. import claude_setup
+            if (claude_setup.run_state(name) or {}).get("running"):
+                # Claude Code started from the app is still at work but holds no task: say so, not "nothing waits"
+                out["note"] = ("Claude Code is still running, but it holds no task now: it has answered what it was "
+                               "sent, and nothing more waits for it yet. When the work gives it more, it is shown here.")
+        return out
 
     def post_queue_order(self, name, q):
         body = self._body()
@@ -434,23 +481,50 @@ class ChecksApi:
         return self.app.overview(name)
 
     def post_claude_code_start(self, name, q):
-        from .. import claude_setup
+        """Start the main route's agent on the project's queue: Claude Code (queue/claude-code, as since 0.9), or,
+        stage 2, Codex or Antigravity (queue/agent; both paths take the main route, whichever agent it is)."""
+        from .. import agentcli, claude_setup, providers
 
         body = self._body()
         self.app.ws(name)  # 404 for a project that does not exist
-        if self.app.settings().get("backend") != "claude_code":
-            raise ApiError(400, "Choose Claude Code as the AI in Settings first.")
+        b = self.app.settings().get("backend")
+        if b not in providers.AGENT_ROUTES:
+            raise ApiError(400 if "/claude-code" in (self.path or "") else 409,
+                           "Choose Claude Code, Codex or Antigravity as the AI in Settings first: the main AI now "
+                           "answers without the queue.")
         try:
             # 0.13.10: "For this run": the helpers named one by one ({helper: how many at once}); else the speed of
             # Settings (claude_speed) says how many helpers at once
+            if b in providers.AGENT_CLIS:
+                return agentcli.start_run(b, name, parallel=body.get("parallel"), helpers=body.get("helpers"))
             return claude_setup.start_run(name, parallel=body.get("parallel"), helpers=body.get("helpers"))
         except ValueError as e:
             raise ApiError(400, str(e)) from e
 
     def post_claude_code_stop(self, name, q):
-        from .. import claude_setup
+        """Stop the agent started from the app on this project (every agent's run, so a route changed meanwhile
+        leaves none going)."""
+        from .. import agentcli, claude_setup
 
         self._body()
+        b = self.app.settings().get("backend")
+        for route in agentcli.ROUTES:
+            if route != b:
+                other = agentcli.run_state(route, name)
+                if other.get("running"):
+                    agentcli.stop_run(route, name)
+                    self._release_run_claims(name, other.get("started_at") or "")
+        if b in agentcli.ROUTES:
+            if claude_setup.run_state(name).get("running"):
+                cbefore = claude_setup.run_state(name)
+                claude_setup.stop_run(name)
+                self._release_run_claims(name, cbefore.get("started_at") or "")
+            before = agentcli.run_state(b, name)
+            out = agentcli.stop_run(b, name)
+            if before.get("running") and before.get("started_at"):
+                self.app.ws(name)
+                self._release_run_claims(name, before["started_at"])
+            return out
         before = claude_setup.run_state(name)
         out = claude_setup.stop_run(name)
         if before.get("running") and before.get("started_at"):

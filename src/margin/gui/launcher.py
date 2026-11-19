@@ -274,37 +274,6 @@ def detach() -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# the model service
-# ---------------------------------------------------------------------------------------------
-def start_ollama(settings: dict) -> str | None:
-    """Start the Ollama app when the model service is Ollama on this computer and it is not running. Returns what
-    was started, or None (nothing needed, or Ollama is not installed)."""
-    from urllib.parse import urlparse
-
-    from ..llm import ollama_version
-
-    # the main AI, the local model for restricted documents (0.11) or search by meaning may be Ollama (0.11.1: with
-    # Claude as the main AI, Ollama was not started, so "Only a local AI" excerpts fell to the person's judgement)
-    uses = (settings.get("backend") in ("auto", "ollama") or settings.get("restricted_server") == "ollama"
-            or (settings.get("embed_backend") == "ollama" and settings.get("embed_model")))
-    if not uses:
-        return None
-    url = (settings.get("ollama_url") or "http://localhost:11434").rstrip("/")
-    if urlparse(url if "//" in url else "http://" + url).hostname not in ("localhost", "127.0.0.1", "::1"):
-        return None
-    if ollama_version(url, 1.0) is not None:   # 0.17.2: the one probe (llm.ollama_version)
-        return None  # running
-    from .. import ollama_setup   # 0.15.6: the same start as the page's Start Ollama button
-
-    if not ollama_setup.app_path():
-        return None
-    try:
-        return "ollama serve" if ollama_setup.start()["serve"] else "Ollama app"
-    except ValueError:
-        return None
-
-
-# ---------------------------------------------------------------------------------------------
 # making the icon
 # ---------------------------------------------------------------------------------------------
 def _args(home: str | None, local_only: bool) -> list[str]:

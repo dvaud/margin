@@ -143,7 +143,7 @@ def test_a_failed_further_search_counts_nowhere_but_your_judgement_does(mixed, m
     assert part["status"] == before["parts"][0]["status"]
     assert part["balance"] == before["parts"][0]["balance"]
     # a person's own judgement of an excerpt of the failed search counts (another search was answered)
-    x = second[0]
+    x = next(y for y in second if y["ai_read"])   # I6: a local suggestion's row (it waits for you) sorts after the others
     claimcheck.set_judgement(ws, hid, x["passage_id"], "refutes")
     got = next(y for y in claimcheck.result(ws, hid)["passages"] if y["passage_id"] == x["passage_id"])
     assert got["counted"] and claimcheck.hypothesis_result(ws, hid)["balance"]["docs_refuting"] >= 1
@@ -413,6 +413,11 @@ def test_an_answer_cut_off_is_asked_again(mixed, monkeypatch):
     assert [r["valid"] for r in got] == [0, 1]
     assert "cut off" in json.loads(got[0]["errors_json"])[0] and got[0]["raw_json"].startswith('{"evidence"')
     assert "YOUR PREVIOUS ANSWER HAD THESE PROBLEMS" in local.sent[-1] and "cut off" in local.sent[-1]
+    # I6: a local model's answer is a suggestion only: the check waits for the person, whose judgements decide
+    res = claimcheck.hypothesis_result(ws, hid)
+    assert res["status"] == "not_checked" and res["status_text"] == claimcheck.WAITING_YOU and res["suggestions"] > 0
+    lean = next(x for x in res["parts"][0]["passages"] if (x["suggestion"] or {}).get("lean"))
+    claimcheck.set_judgement(ws, hid, lean["passage_id"], lean["suggestion"]["lean"])
     assert claimcheck.hypothesis_result(ws, hid)["status"] in ("supported", "partially_supported", "contested")
 
 

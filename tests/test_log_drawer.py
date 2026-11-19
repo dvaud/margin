@@ -1,4 +1,5 @@
-"""0.17.0: the research log drawer (views/logdrawer.js), the panel beside every page.
+"""0.17.0: the research log drawer (views/logdrawer.js), the panel beside every page; since the team-navigation
+rework the research log only (no tabs), hidden on the Research log page.
 
 - the JS: the export, the page-to-filter mapping (also run in Node when it is installed), the subject in the POST body,
   the fallback line;
@@ -49,15 +50,17 @@ def test_the_post_carries_the_subject_and_the_words_match_the_brief():
     assert "payload.subject_kind = ctx.subject_kind" in JS and "payload.subject_id = ctx.subject_id" in JS
     assert "Nothing is kept with this page; showing all" in JS
     assert "A decision and why…" in JS and "Add to the log" in JS and "The whole research log" in JS
-    assert "on the Overview" in JS and "Kept with: " in JS and "This page" in JS
+    assert "on the Overview" not in JS and "Kept with: " in JS and "This page" in JS
+    # the foot: one link, to the Research log page
+    assert 'foot: link({ href: "#/log" }, "The whole research log") });' in JS
 
 
 def test_button_drawer_and_layout_are_wired():
     # 0.17.0 (design guide): the frame and its button are the drawer component's (lib.js drawer(), drawerButton())
     lib = (STATIC / "lib.js").read_text(encoding="utf-8")
-    assert 'drawer({ id: "logdrawer", title: "Research log"' in JS and "drawerButton({" in JS and "setDrawerOpen(" in JS
+    assert 'drawer({ id: "logdrawer", title: "Research log", icon: "notebook", control: which,' in JS and "drawerButton({" in JS and "setDrawerOpen(" in JS
     assert '"aria-expanded"' in lib and '"aria-label": title' in lib and 'h("aside"' in lib
-    assert 'closeLabel: "Close the panel"' in JS
+    assert 'closeLabel: "Close the research log"' in JS
     assert "Escape" in JS and "session(" in JS and "hashchange" in JS and "App.onChange" in JS
     assert "metaKey || e.ctrlKey" in JS
     # the drawer is a column beside the page (reserving its width) from 1000px, floats over it from 861px to 999px
@@ -141,14 +144,39 @@ def test_an_entry_written_with_a_subject_comes_back_from_the_subject_filter(api)
     assert r["entries"] == []
 
 
-# ------------------------------------------------------------------ the one door
-def test_the_button_is_the_one_door_and_opens_and_closes_the_log():
-    """The Research log button opens the log and, while it is open, closes it; it says which with aria-expanded."""
-    assert 'onClick: () => { if (open) close(true); else openIt(true); }' in JS
-    assert 'btn.setAttribute("aria-expanded", open ? "true" : "false")' in JS
-    # the body's attribute comes from setDrawerOpen; the button's own state from markDoors, after every open and close
-    assert "setDrawerOpen(true, null);" in JS and "setDrawerOpen(false, null);" in JS
-    assert JS.count("markDoors();") >= 3
-    # Margin is one person's: no second door, no team line, nothing waiting on a poller
-    for gone in ("teamLine", "team-state", "margin-sync-state", "wantSection", "Team"):
-        assert gone not in JS, gone
+# ------------------------------------------------------------------ the research log only, and not on its own page
+def test_the_drawer_is_the_research_log_only():
+    """The team-navigation rework: no tabs; the head holds the notebook icon, the title, the one control (This page |
+    All) and the close button; the body the write box, the note line and the entries; one button that opens and
+    closes it."""
+    assert "tabs:" not in JS and "tabRow" not in JS and "teamPanel" not in JS and "team.js" not in JS and "teamLine" not in JS
+    assert "margin-drawer" not in JS and "margin-sync" not in JS and "phoneCount" not in JS
+    assert "sections: [h(\"div\", { class: \"log-new\" }, ta, h(\"div\", { class: \"log-new-foot\" }, keptWith, addBtn)), note, list]," in JS
+    assert 'const note = h("p", { class: "muted small log-show", hidden: true });' in JS
+    assert "onClick: () => (open ? close(true) : openIt(true)) });" in JS
+    # the open state is the body's attribute and the button's aria-expanded, both from setDrawerOpen
+    assert "setDrawerOpen(showing(), btn);" in JS
+    # the note line's rule: a section without its own line under it (components.css 4.19)
+    assert rule(".drawer-section.log-show") == {"margin": "0", "padding-bottom": "0", "border-bottom": "0"}
+
+
+def test_the_drawer_and_its_button_hide_on_the_research_log_page():
+    """#/log has the write box and every entry: the drawer and its button hide there; the remembered open state comes
+    back on the next page."""
+    assert "const onLogPage = () => /^#\\/log\\/?(?:\\?|$)/.test(location.hash);" in JS
+    assert "const showing = () => open && !onLogPage();" in JS
+    place = JS[JS.index("function place() {"):JS.index("function openIt(")]
+    assert "btn.hidden = onLogPage();" in place and "aside.hidden = !showing();" in place
+    assert 'window.addEventListener("hashchange", () => { shown = PAGE; place(); refresh(); });' in JS
+    assert 'let open = session("logdrawer-open") === true;' in JS            # remembered, not changed by #/log
+    assert "if (!showing() || !App.project) return;" in JS                   # the log reads itself only when shown
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node is not installed")
+def test_the_research_log_page_test_in_node(tmp_path):
+    """onLogPage's pattern: #/log, #/log?x=1 and #/log/ are the page; #/logbook, #/overview are not."""
+    pattern = re.search(r"const onLogPage = \(\) => (/.+/)\.test\(location\.hash\);", JS).group(1)
+    (tmp_path / "run.mjs").write_text(f"const rx = {pattern};\n"
+                                      "console.log(JSON.stringify(['#/log', '#/log?q=a', '#/log/', '#/logbook', '#/overview', ''].map((x) => rx.test(x))));\n")
+    got = json.loads(subprocess.run(["node", str(tmp_path / "run.mjs")], capture_output=True, text=True, check=True).stdout)
+    assert got == [True, True, True, False, False, False]

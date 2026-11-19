@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from .progress import Tracker
 from .. import claimcheck, llm
+from ..localgate import LocalGate
 from ..llm import BackendError
 
 MAX_UPLOAD = 2 * 1024 ** 3   # bytes per file
@@ -56,6 +57,15 @@ class Job:
         self.admitted = False           # it has had its turn in the project (it runs, or waits only for the model)
         self.blocker: Job | None = None  # the job it waits for, while it waits for its turn
         self.background = False         # started by the app itself (the shared folder's poller), not the person
+        # 0.19.4: the local model was refused for memory ({"need", "free", "short"}); how to run the job again
+        # (Jobs.again), and whether this run starts the local model whatever memory is free ("Start it anyway")
+        self.memory: dict | None = None
+        self.again_args: tuple | None = None
+        self.force_local = False
+        # 0.19.13: whether the local model may start in this job (localgate): it waits for its own Start when the job
+        # also has work for Claude
+        self.gate = LocalGate()
+        self.used_models: set[tuple[str, str]] = set()   # 0.19.15: (address, model) of the local models it asked
 
     def view(self, full: bool = True) -> dict:
         end = self.finished or time.time()
@@ -63,7 +73,17 @@ class Job:
                "created_at": self.created, "started_at": self.started, "finished_at": self.finished,
                "seconds": round(end - (self.started or end), 1), "error": self.error, "error_kind": self.error_kind,
                "scope": self.scope, "queue": self.queue, "waiting_for": self.waiting_for(),
-               "background": self.background, "where": job_where(self)}
+               "background": self.background, "where": job_where(self),
+               # 0.19.15: the person pressed Stop (many jobs then end "done" with what they had): its panel goes
+               "stopped": self.cancel.is_set()}
+        local = local_reader(self)
+        if local is not None:   # 0.19.6: the local model reads for it now, whatever Settings' AI is
+            out["local_model"] = local
+        # 0.19.13: its local part: whether it waits for its Start, how much waits, the model and its memory
+        out["local"] = self.gate.view()
+        if self.error_kind == "memory":   # 0.19.4: the numbers for the local panel, and whether it can run again
+            out["memory"] = self.memory
+            out["can_run_again"] = self.again_args is not None
         if full:
             out["progress"] = self.tracker.state() if self.tracker else self.progress
             out["result"] = self.result
@@ -80,9 +100,7 @@ class Job:
         """0.12: its work waits in the queue for Claude Code right now (not its own steps on this computer)."""
         if not self.queue or self.state not in ("queued", "running"):
             return False
-        if self.tracker is not None:
-            return ((self.tracker.model or {}).get("phase")) == "queue"
-        return isinstance(self.progress, dict) and bool(self.progress.get("queue"))
+        return (latest_report(self) or {}).get("phase") == "queue"
 
 
 # 0.18 (M6): jobs wait their turn. Jobs of one project that change the same things do not run at the same time: the
@@ -113,7 +131,8 @@ LANE_OF_KIND = {"ingest": "corpus", "new_reader": "reader", "index": "index"}
 BEHIND = {ALONE: {"index"}}
 
 # 0.19: where a job's work goes, for the sidebar's work box ("where" in the job's view): "here" (this computer only:
-# the reader, the embedding model, the local model), "crossref" (only DOIs go online), "none" (it reads no document:
+# the reader, the embedding model, the local model), "crossref" (only DOIs, or a title, first author's family name and
+# year, go online), "none" (it reads no document:
 # installs and downloads). A kind not named uses the AI of Settings, so the box names that AI.
 WHERE_OF_KIND = {
     **dict.fromkeys(("ingest", "index", "new_reader", "new_reader_preview", "keywords", "terms",
@@ -126,10 +145,45 @@ WHERE_OF_KIND = {
 
 def job_where(job: Job) -> str | None:
     """Where a job's work goes (WHERE_OF_KIND); None: the AI of Settings. One document read with the new reader is a
-    job of kind "reread", as reading one excerpt again with the AI is: its lane tells them apart."""
+    job of kind "reread", as reading one excerpt again with the AI is: its lane tells them apart. 0.19.6: "here" while
+    the local model reads for a job that otherwise uses the AI of Settings (themes from documents marked Only a local
+    AI are named by it, and the local panel's Start runs a job again on it): the sidebar said "to Claude"."""
     if job.kind == "reread" and job.lane == ALONE:
         return "here"
-    return WHERE_OF_KIND.get(job.kind)
+    where = WHERE_OF_KIND.get(job.kind)
+    if where is None and local_reader(job) is not None:
+        return "here"
+    return where
+
+
+def latest_report(job: Job) -> dict | None:
+    """0.19.6: the latest report of the model at work for a job: the local model's (or a local main model's), or
+    Claude Code's queue (phase "queue"); None before the first. A Tracker keeps one; a job of start_queued_job keeps
+    the model's and the queue's apart, each stamped with its time ("at"), so the later one is the one at work now."""
+    if job.tracker is not None:
+        return job.tracker.model
+    p = job.progress if isinstance(job.progress, dict) else {}
+    m = p.get("model") if isinstance(p.get("model"), dict) else None
+    q = p.get("queue") if isinstance(p.get("queue"), dict) else None
+    newer = (m if (m.get("at") or 0) > (q.get("at") or 0) else q) if m and q else m or q
+    if newer is None or newer is m:
+        return newer
+    return None if q.get("phase") == "queue_end" else {**q, "phase": "queue"}  # 0.19.14: the wait is over
+
+
+def local_reader(job: Job) -> str | None:
+    """0.19.6: the name of the local model (for documents marked Only a local AI) while it reads for a running job,
+    else None ("" when its name is not known). Its "done" between two passages counts only by Claude Code, whose
+    queue reports as soon as it has work again: the Claude API reports nothing, so after the local model's "done" it
+    may be Claude that reads."""
+    if job.state != "running":
+        return None
+    r = latest_report(job)
+    if not r or r.get("who") != "local" or r.get("phase") in ("queue", "refused", "ready"):
+        return None
+    if r.get("phase") == "done" and not job.queue:
+        return None
+    return str(r.get("model") or "")
 
 
 def conflicts(a: Job, b: Job) -> bool:
@@ -163,14 +217,24 @@ class Jobs:
 
     def start(self, kind: str, title: str, project: str | None, fn: Callable[[Job], Any], uses_model: bool,
               unique: bool = False, lane: str | None = None, serial: str | None = None, background: bool = False,
-              if_free: bool = False, scope: str | None = None) -> Job | None:
+              if_free: bool = False, scope: str | None = None, force_local: bool = False,
+              local_start: str | None = None) -> Job | None:
         """`unique`: when a job of this kind is already queued or running for the project, that one is returned and
         nothing starts (a second press of a button, or a second tab, must not do the same work twice).
 
         0.18 (M6): `lane` (default: by kind, LANE_OF_KIND) and `serial` say which jobs of the project this one may not
         run beside (see LANES); it waits for them in the queue. `background`: started by the app, not the person.
-        `if_free`: start only when it would not have to wait; None (nothing started) otherwise."""
+        `if_free`: start only when it would not have to wait; None (nothing started) otherwise.
+
+        0.19.13: `local_start` the job's local gate at the start ("go": the person's own Start of the local model,
+        "force": Start it anyway); by default it waits for that Start (0.20.1: also in a job whose work is all the
+        local model's)."""
         job = Job(kind, title, project)
+        job.again_args = (kind, title, project, fn, uses_model, lane, serial, scope)
+        job.force_local = force_local
+        if force_local or local_start in ("go", "force"):
+            job.gate.state = "force" if force_local or local_start == "force" else "go"
+        job.gate.should_stop = job.cancel.is_set
         job.lane = lane if lane is not None else LANE_OF_KIND.get(kind)
         job.serial, job.background, job.scope = serial, background, scope
         with self.lock:
@@ -200,25 +264,60 @@ class Jobs:
 
         def run():
             lock = self.model_lock if uses_model else None
+            held = {"thread": None}   # the job's turn at the model: let go while its local gate waits for the person
+
+            def release() -> bool:
+                if lock is None or held["thread"] != threading.get_ident():
+                    return False
+                held["thread"] = None
+                lock.release()
+                return True
+
+            def take() -> None:
+                if lock is None or held["thread"] is not None:
+                    return
+                while not lock.acquire(timeout=0.5):
+                    if job.cancel.is_set():
+                        return
+                held["thread"] = threading.get_ident()
+
             try:
                 self._wait_turn(job)
                 if lock:
                     while not lock.acquire(timeout=0.5):
                         if job.cancel.is_set():
                             raise Cancelled()
+                    held["thread"] = threading.get_ident()
+                job.gate.hold = (release, take, lambda: lock is None or held["thread"] is not None)
                 try:
                     if job.cancel.is_set():
                         raise Cancelled()
                     job.state, job.started = "running", time.time()
-                    job.result = fn(job)
+                    from .. import access
+                    from ..localgate import GATE
+
+                    token = access.FORCE_LOCAL.set(job.force_local)   # 0.19.4: Start it anyway, for this job only
+                    gate_token = GATE.set(job.gate)                   # 0.19.13: the local model waits for its Start
+                    used_token = llm.USED.set(job.used_models)        # 0.19.15: the local models it asks, for Stop
+                    try:
+                        job.result = fn(job)
+                        job.gate.drain(job.cancel.is_set)   # local items a feature handed over and did not wait for
+                    finally:
+                        llm.USED.reset(used_token)
+                        GATE.reset(gate_token)
+                        access.FORCE_LOCAL.reset(token)
                     job.state = "cancelled" if job.cancel.is_set() and job.result is None else "done"
                 finally:
-                    if lock:
+                    if lock and held["thread"] is not None:
+                        held["thread"] = None
                         lock.release()
             except Cancelled:
                 job.state = "cancelled"
             except llm.MemoryShort as e:  # 0.13.11: in plain words, not as "the AI model is not answering"
                 job.state, job.error, job.error_kind = "error", str(e), "memory"
+                job.memory = {"need": e.need, "free": e.free, "short": True, "model": e.model}
+                if not job.gate.memory:   # 0.19.13: the same numbers on its local part, which waits again
+                    job.gate.refused(e)
             except BackendError as e:
                 stopped = job.cancel.is_set() and str(e).startswith("Stopped")
                 job.state, job.error, job.error_kind = ("cancelled", None, None) if stopped else ("error", str(e), "backend")
@@ -229,6 +328,29 @@ class Jobs:
                 traceback.print_exc()
                 job.state, job.error, job.error_kind = "error", f"Unexpected problem: {e}", "internal"
             finally:
+                job.gate.end()   # 0.19.13: its local part reads nothing more once the job has ended (an error, say)
+                if job.cancel.is_set() and job.used_models:
+                    # 0.19.15: Stop lets go of the local models this job loaded, at once (not after Ollama's 15
+                    # minutes): nothing stays in memory that the person did not ask to keep working. A model another
+                    # job of the app still waits for or reads with is kept (it would only be loaded again)
+                    with self.lock:
+                        busy = set().union(*(j.used_models for j in self.jobs.values()
+                                             if j is not job and j.state in ("queued", "running")))
+                    free = set(job.used_models) - busy
+                    if free:
+                        threading.Thread(target=llm.let_go, args=(free,), daemon=True,
+                                         name=f"let-go-{job.id}").start()
+                elif job.used_models:
+                    # I6: a job that ended by itself lets go of an MLX model at once too: Ollama's MLX runner holds its
+                    # prompt cache (up to 8 GiB) for the 15 minutes the model is kept; a llama.cpp model stays, as it
+                    # does not grow. Nothing is loaded to unload it, and a model another job uses is kept
+                    with self.lock:
+                        busy = set().union(*(j.used_models for j in self.jobs.values()
+                                             if j is not job and j.state in ("queued", "running")))
+                    free = set(job.used_models) - busy
+                    if free:
+                        threading.Thread(target=llm.let_go, args=(free,), kwargs={"runner": "mlx"}, daemon=True,
+                                         name=f"let-go-mlx-{job.id}").start()
                 job.finished = time.time()
                 if job.tracker is not None:
                     job.tracker.finish()
@@ -242,6 +364,18 @@ class Jobs:
 
         threading.Thread(target=run, daemon=True, name=f"job-{kind}-{job.id}").start()
         return job
+
+    def again(self, job: Job, force_local: bool = False) -> Job:
+        """0.19.4: run a job the local model was refused in for memory again, the same work from the start (what it
+        had done is kept, as each kind resumes where it stopped); `force_local` starts the local model whatever memory
+        is free (the person chose "Start it anyway")."""
+        if job.error_kind != "memory" or job.again_args is None:
+            raise ValueError("Only a job the local model was not started in can run again from here.")
+        kind, title, project, fn, uses_model, lane, serial, scope = job.again_args
+        new = self.start(kind, title, project, fn, uses_model, lane=lane, serial=serial, scope=scope,
+                         force_local=force_local, local_start="go")  # 0.19.13: the person's own Start
+        new.queue = job.queue   # 0.19.6: still Claude Code's work (start_job sets it after Jobs.start): on hold, where
+        return new
 
     # -- 0.18 (M6): the project's queue --------------------------------------------------------------------------
     def _blocker(self, job: Job) -> Job | None:
@@ -546,6 +680,7 @@ def _filename(stem: str, ext: str) -> str:
 def _disposition(fname: str) -> str:
     from urllib.parse import quote
 
+    fname = re.sub(r"[\x00-\x1f\x7f]+", " ", fname)  # a line break in a name from someone's zip: no header of its own
     ascii_name = fname.encode("ascii", "replace").decode().replace("?", "_").replace('"', "")
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(fname)}"
 

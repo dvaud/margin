@@ -664,6 +664,9 @@ def test_api_map_calibration_new_documents_and_project_zip(api, tmp_path, monkey
         api("PUT", "/api/settings", {"k": 4})
         hids = [api.wait(api("POST", "/api/projects/Z/checks", {"text": t})[1]["job"]["id"])["result"]["hyp_id"]
                 for t in ("Working from home reduces commuting emissions.", "Remote work increases loneliness.")]
+        from helpers import agree_with_suggestions
+
+        agree_with_suggestions(api, "Z", hids)   # I6: the local model only suggests; the person's judgements count
         m = api("GET", "/api/projects/Z/map")[1]
         assert {h["hyp_id"] for h in m["hypotheses"]} == set(hids) and m["documents"] and m["cells"]
         assert all(set(c) <= {d["doc_id"] for d in m["documents"]} for c in m["cells"].values())

@@ -27,7 +27,9 @@ import uuid
 from . import __version__, prompts, taskkinds
 from .store import Workspace, now
 
-FIELDS = ("model", "digest", "prompt_version", "seed", "num_ctx", "think", "think_budget", "backend")
+FIELDS = ("model", "digest", "prompt_version", "seed", "num_ctx", "think", "think_budget", "backend",
+          "runner", "quantization", "ollama")   # I6: the engine; a run recorded before I6 has none (not a change)
+ENGINE_FIELDS = ("runner", "quantization", "ollama")
 RECORDED_SINCE = "0.15"  # the first version that records itself with its results
 
 
@@ -38,7 +40,34 @@ def version_label(v: str | None) -> str:
 
 def _settings_of(prov: dict) -> dict:
     s = dict(prov.get("settings") or {})
-    return {k: s.get(k) for k in ("backend", "num_ctx", "think", "think_budget")}
+    # I6: the engine too (Ollama's runner, the build's quantisation, Ollama's version), so a change of them is "what
+    # differs" from the last run
+    return {k: s.get(k) for k in ("backend", "num_ctx", "think", "think_budget", "runner", "quantization", "ollama")}
+
+
+RUNNER_WORDS = {"mlx": "MLX", "llamacpp": "llama.cpp", "ggml": "llama.cpp"}
+
+
+def engine_text(s: dict) -> str:
+    """I6: the engine of a local model's answers in one cell: "Ollama 0.40.16, MLX, nvfp4"; "" when not recorded."""
+    bits = []
+    if s.get("ollama"):
+        bits.append(f"Ollama {s['ollama']}")
+    if s.get("runner"):
+        bits.append(RUNNER_WORDS.get(s["runner"], s["runner"]))
+    if s.get("quantization"):
+        bits.append(s["quantization"])
+    return ", ".join(bits)
+
+
+# I6 (research section 3): said once in "How these results were made" whenever a local model's answers are in it, in
+# the place of implying they are repeatable by their seed
+LOCAL_NOTE = ("Suggestions from the model on this computer. They were made with no randomness (temperature 0) and a "
+              "fixed starting number (the seed above), by the exact model build named above. Even so, asking again can "
+              "give a differently worded suggestion: the program that runs the model does its sums in a slightly "
+              "different order depending on what it read just before. In our tests the same words came back about 6 "
+              "times in 10 on a Mac (9 in 10 with the other engine), and the same overall suggestion 19 times in 20. "
+              "These suggestions decide nothing: a person judged every passage, and only those judgements are counted.")
 
 
 def _routed(backend, kind: str, model: str) -> str:
@@ -91,6 +120,8 @@ def plan(ws: Workspace, kind: str, scope: str, backend, model: str) -> dict:
         was = {"model": before["model"], "digest": before["digest"], "prompt_version": before["prompt_version"],
                "seed": before["seed"], **(before.get("settings") or {})}
         for f in FIELDS:
+            if f in ENGINE_FIELDS and was.get(f) is None:
+                continue
             if was.get(f) != cur.get(f) and not (was.get(f) is None and cur.get(f) is None):
                 changed.append({"field": f, "was": was.get(f), "now": cur.get(f)})
     return {"now": cur, "last": before, "changed": changed, "seconds_per_task": seconds_per_task(ws, kind, model)}
@@ -149,12 +180,13 @@ def provenance_table(ws: Workspace, task_ids: list[str] | None = None, kinds: tu
             "COALESCE(r.helper, ''), COALESCE(r.app_version, '') ORDER BY r.kind, first")
     names = taskkinds.Table("run_name")  # 0.13.6: from the registry (taskkinds.py)
     out = []
-    claude_code = False
+    claude_code = local = False
     for r in ws.query(sql, args):
         s = json.loads(r["settings_json"] or "{}")
         route = r["route"] or s.get("route") or {"file queue": "file queue"}.get(s.get("backend"), "")
         cc = route == "Claude Code"
         claude_code = claude_code or cc
+        local = local or route.startswith("local model server")   # asked now, or a kept answer
         out.append({"Step": names.get(r["kind"], r["kind"]), "Route": route,
                     "Helper": r["helper"] or "",
                     "AI model": (f"{r['model']} (as set for the helper)" if cc else r["model"]) or "",
@@ -163,7 +195,8 @@ def provenance_table(ws: Workspace, task_ids: list[str] | None = None, kinds: tu
                     "Prompt version": r["prompt_version"] or "",
                     "Margin version": version_label(r["app_version"]),
                     "Seed": "" if r["seed"] is None else r["seed"],
-                    "Server": s.get("backend") or "", "Context length": s.get("num_ctx") or "",
+                    "Server": s.get("backend") or "", "Engine": engine_text(s),
+                    "Context length": s.get("num_ctx") or "",
                     "Reasoning": s.get("think") if s.get("think") is not None else "",
                     "Reasoning budget": s.get("think_budget") or "",
                     "Temperature": "" if cc else s.get("temperature", 0),
@@ -171,7 +204,9 @@ def provenance_table(ws: Workspace, task_ids: list[str] | None = None, kinds: tu
                     "First claimed": r["claimed"] or "", "First": r["first"] or "", "Last": r["last"] or ""})
     if not out:
         out.append({"Step": "No AI model answer is behind these rows (keyword and meaning passes are deterministic)."})
-    elif claude_code:
+    if local:
+        out.append({"Step": f"Note: {LOCAL_NOTE}"})
+    if out and claude_code:
         out.append({"Step": "Note: answers by Claude Code carry no seed and no model digest, so they are not "
                             "repeatable by seed the way a seeded local model's are; the model is the one set for its "
                             "helper. How much two readings differ is measured by the acceptance runs (see the manual)."})

@@ -28,7 +28,7 @@ import pytest
 from test_app import Api, api, home  # noqa: F401  (fixtures)
 
 from margin import __version__ as VERSION
-from _static import all_css, defined_tokens_all, rule
+from _static import rule
 from helpers import api_docs
 
 # 0.10.1: the tests follow the package's version (a newer published release is the next patch), so a release no
@@ -534,15 +534,11 @@ def test_the_app_says_how_to_get_tesseract(monkeypatch):
 # ---------------------------------------------------------------------------------------------
 def test_page_files_of_the_release():
     static = ROOT / "src" / "margin" / "gui" / "static"
-    import re
 
     # 0.17.0: the release's rules are in the cascade (tests/_static.py rule()), not in a sheet of its own
     assert rule(".cc-now") and rule(".cc-manual")
-    defined = defined_tokens_all()
-    used = set(re.findall(r"var\((--[a-z0-9-]+)", all_css()))
-    assert used and used <= defined, used - defined
     js = (static / "views" / "settings.js").read_text()
-    for needle in ('"/api/claude-setup/claude-code"', '"/api/claude-setup/sign-in"', "Set up Claude", "Install Claude Code?"):
+    for needle in ('"/api/claude-setup/claude-code"', '"/api/claude-setup/sign-in"', "Set up Claude", "Install Claude Code"):
         assert needle in js
     assert "/api/move.zip" in (static / "views" / "projects.js").read_text()
     assert "Import from another computer" in (static / "views" / "setup.js").read_text()

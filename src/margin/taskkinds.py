@@ -319,6 +319,12 @@ _core(name="code_definition", prompt_version="code-definition-v1", claude=("sonn
       noun=("code to define from its examples", "codes to define from their examples"),
       short="codes to define from their examples", title="Code definitions from examples",
       run_name="A code's definition from its examples", output_cap=1500)
+# D1 rest (the optional AI part): a group of the concept map named from passages where its concepts are mentioned
+# together (groupnames.py). One task per group.
+_core(name="group_name", prompt_version="group-name-v1", claude=("haiku", "sonnet"), local="large",
+      helper="margin-namer", row="group_name", row_title="Names of groups of concepts", batch=5, order=6.2,
+      noun=("group of concepts to name", "groups of concepts to name"), short="groups of concepts to name",
+      title="Names of groups of concepts", run_name="Names of groups of concepts", output_cap=400, corpus=True)
 # checks start on Sonnet (its helper runs at high effort, see agents/margin-checker.md); an unsure or twice rejected
 # judgement goes to the auditor, so the second opinion and the step-up stay on Opus (or Fable)
 _core(name="check", prompt_version="check-v5", certainty="evidence", claude=("sonnet", "auditor"), local="large",
@@ -326,6 +332,11 @@ _core(name="check", prompt_version="check-v5", certainty="evidence", claude=("so
       row_title="Judging excerpts (checks, reading again)", batch=1, order=3,
       noun=("set of excerpts to judge", "sets of excerpts to judge"), short="sets of excerpts",
       title="Judging excerpts", run_name="Checking hypotheses", output_cap=1500)
+# I6: the small local model's answer to a check (pointing.py): numbered sentences, no judgement; never queued for
+# Claude Code (no helper, no Claude model), answered only by a local model in the place of `check` (tasks.run_one)
+_core(name="point", prompt_version="point-v1", noun=("set of excerpts to point at", "sets of excerpts to point at"),
+      short="sets of excerpts", title="Pointing at sentences", run_name="Checking hypotheses (the small local model)",
+      output_cap=24 + 14 * 60)   # pointing.OUTPUT_CAP: a task's own follows its excerpts (pointing.cap)
 _core(name="reread", prompt_version="check-v5", certainty="evidence", claude=("sonnet", "auditor"), local="large",
       to_auditor=True, judging=True, helper="margin-checker", row="check", batch=1, order=4,
       noun=("excerpt to read again", "excerpts to read again"), short="excerpts to read again",
