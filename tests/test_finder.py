@@ -58,10 +58,10 @@ def test_index_covers_places_views_features_and_actions(found):
     assert found["addon"][0] == "Tide tables"            # an add-on's feature is found too
 
 
-def test_empty_query_lists_the_nine_places(found):
-    rows = found["queries"][""]
-    assert [k for _t, _h, k, _w in rows] == ["place"] * 9
-    assert [t for t, *_ in rows] == ["Overview", "Documents", "Research log", "Team", "Search", "Codes", "Concepts", "Themes", "Hypotheses"]
+def test_empty_query_lists_the_eight_places(found):
+    rows = found["queries"][""]   # Margin: ENLENS's nine places without the Team
+    assert [k for _t, _h, k, _w in rows] == ["place"] * 8
+    assert [t for t, *_ in rows] == ["Overview", "Documents", "Research log", "Search", "Codes", "Concepts", "Themes", "Hypotheses"]
 
 
 def test_limit_option(found):

@@ -1,10 +1,10 @@
 # Changelog
 
-## 0.17.1 (November 2026): Codex, Antigravity and other cloud providers, and a local model that waits for you
+## 0.17.2 (November 2026): Codex, Antigravity and other cloud providers, and a local model that waits for you
 
-0.17.0 was tagged but never released: its lockfile still named 0.16.0, so the release workflow stopped before any test
-ran. 0.17.1 is the same work with that fixed, the first release of the 0.17 series. What it brings is under 0.17.0
-below.
+0.17.0 and 0.17.1 were tagged but never released: 0.17.0's lockfile still named 0.16.0, and in 0.17.1 one test still
+expected ENLENS's Team in the sidebar. 0.17.2 is the same work with both fixed, the first release of the 0.17 series.
+What it brings is under 0.17.0 below.
 
 ### New in 0.17, in short
 
@@ -21,6 +21,7 @@ below.
 
 - **`uv.lock` names the version it locks.** The release commit of 0.17.0 left it at 0.16.0, and CI's
   `uv lock --check` stopped every test job at the install step.
+- **The finder's test counts Margin's eight places**, not ENLENS's nine with the Team (0.17.1's one failing test).
 
 ## 0.17.0 (November 2026): Codex, Antigravity and other cloud providers, and a local model that waits for you
 
