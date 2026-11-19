@@ -62,13 +62,13 @@ projects and settings (the `margin` folder in your home folder) are never touche
 - **[Use a model on your own computer](docs/manual/local-models.md)**, or no AI for some documents.
 
 <!-- new-in:start (written by `python tools/release.py prepare`: change the changelog entry, not this) -->
-## New in 0.16.0: ENLENS's new look, new readers, and notes with a research log
+## New in 0.17.0: Codex, Antigravity and other cloud providers, and a local model that waits for you
 
-- **A new look on every page, in Margin's colours.** A sidebar of seven places plus *Write* for Margin's own pages, and *Find* (Ctrl+K, or ⌘K on a Mac) for any page or setting.
-- **Notes, highlights and a research log.** Mark the words of a document, use a note as evidence in a check, and keep a dated record of what was decided, beside every page.
-- **History.** Compare and restore your themes, your judgements in a check, and your codebooks.
-- **Your own codebook in the app**, also made from the themes, from a theory document, or from NVivo, ATLAS.ti or MAXQDA.
-- **Readers 4, 5 and 6.** Tables, figures, Word files in full and cleaner PDFs, for the documents you move to them.
+- **More AIs to choose from.** Codex and Antigravity answer the queue on your own plan as Claude Code does, and *Another cloud provider* (OpenAI, Google Gemini, Mistral, Azure OpenAI, OpenRouter) works with an API key.
+- **Your local model starts only when you press its Start**, has its own panel wherever it has work, says when memory is short (*Start it anyway*), and only *suggests*: you judge what it read, or press *Judge it myself* instead.
+- **Settings in five tabs** (AI, Checking, Documents, General, Technical), and every change saves as you make it.
+- **The concept map grows:** named groups (the AI can draft the names, on request), zoom, links that *need*, *shape* or *clash with*, and pictures to download.
+- **Research log is a place in the sidebar**, with an **AI log** under it: which AI work sent what, to which provider.
 <!-- new-in:end -->
 
 How it works, in the manual: [Explore your documents](docs/manual/explore.md),

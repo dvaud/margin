@@ -1,5 +1,121 @@
 # Changelog
 
+## 0.17.0 (November 2026): Codex, Antigravity and other cloud providers, and a local model that waits for you
+
+Margin takes in ENLENS 0.19.4 to 0.20.3, again without its team features (*Left out, or made for Margin*, below).
+
+### New in 0.17, in short
+
+- **More AIs to choose from.** Codex and Antigravity answer the queue on your own plan as Claude Code does, and
+  *Another cloud provider* (OpenAI, Google Gemini, Mistral, Azure OpenAI, OpenRouter) works with an API key, with your
+  consent per document and per provider.
+- **Your local model starts only when you press its Start**, has its own panel wherever it has work, says when memory
+  is short (*Start it anyway*), and only *suggests*: you judge what it read, or press *Judge it myself* instead.
+- **Settings in five tabs** (AI, Checking, Documents, General, Technical), and every change saves as you make it.
+- **The concept map grows:** named groups (the AI can draft the names, on request), zoom, links that *need*, *shape* or
+  *clash with*, and pictures to download.
+- **Research log is a place in the sidebar**, with an **AI log** under it: which AI work sent what, to which provider.
+- **A notification when long work has finished**, and the role of many documents set at once.
+
+### More AIs, each with your consent (ENLENS 0.19.19 and 0.20.0)
+
+- **Codex and Antigravity, set up like Claude Code.** *Settings → AI → Subscription* offers them beside Claude Code;
+  they take the queue's work on your ChatGPT or Google plan. Each is closed in as far as it allows (Codex read-only,
+  Antigravity in a home folder and settings of its own, refused without its sandbox), and each consent says what its
+  maker does with the text on that kind of account.
+- **Another cloud provider, with an API key.** Its key is kept in your computer's keychain (or, where there is none, a
+  file only you can read), never in the settings or a zip. Every provider gets three tiers of models, applied by
+  themselves.
+- **Consent per document and per provider.** A document marked *Claude may read it* now lists which companies may read
+  it: Anthropic only, until you tick another. Work a provider may not read says so, and goes on once you allow it; the
+  queue hands passages only to the company of the agent that takes them.
+- **A model server on another computer no longer reads *Claude may read it* documents until you allow it.**
+
+### Your local model, under your control (ENLENS 0.19.4 to 0.19.15, 0.20.1)
+
+- **No model starts, or even loads, until you press its Start**, and *Stop* frees its memory at once.
+- **The AI run panel has two sides:** this computer on the left, the cloud on the right, each with its own Start.
+  Too little memory no longer ends the local part: it waits, with the numbers, for *Start it anyway*.
+- **Judge it myself** instead of starting the local model, and highlight the words that matter on an excerpt you judge;
+  changed your mind, let the local model read them after all.
+- **The local model is chosen for your computer** (memory, graphics card, free disk), and a short answer form lets the
+  small model finish a check.
+- **A slow local model shows that it keeps working**, can name themes again, and labelling goes on without it when it
+  cannot start.
+
+### Changes that can alter your results
+
+- **A local model only suggests.** Every excerpt a model on this computer reads now waits under *Awaiting manual
+  review* with its suggestion, and counts once you judge it. Checks read by a local model will show more excerpts
+  waiting for you, and fewer counted, until you do.
+- **The AI's link tasks propose *needs*, *shapes* and *clashes with*** (prompt `link-v2`), and making the glossary again
+  proposes them from the text too. Margin's own *elements of a practice* (requires, shapes, replaces, element of,
+  clashes with) stay, asked for when the codebook names practices and elements.
+- **A second opinion differs only from a first reading** (ENLENS 0.19.17): excerpts no model had read yet no longer
+  count as differences.
+
+### Exploring and the pages
+
+- **The concept map:** groups are named by their two most central concepts until you rename them, the AI drafts names
+  on request (marked *AI draft* until you use them), *Zoom in*, *Zoom out* and *Whole map*, line ends that show a link's
+  kind, and *PNG* or *SVG* downloads.
+- **Settings › AI is four choices** and shows only what the one you chose needs; the technical parts are in
+  *Technical*, as a list of what is set; *General* holds notifications, updates and your data.
+- **Research log** is a place of the *Project* group (Documents, Research log); the drawer hides on its page. The **AI
+  log** (from the line under its title) lists each time AI work sent excerpts to a cloud provider, with the model.
+- **A notification from your computer** when work you started that took more than 20 seconds has finished.
+- **Roles for many documents at once** from the Documents list's bar, with one research-log entry and *Undo*.
+- **Reading the new documents says what it changed** in the Hypotheses list; the second opinion's mark is shorter.
+- **Retractions are found for works without a DOI too**, by title, first author and year.
+
+### Privacy
+
+- **What leaves the computer in a retraction lookup grows by one thing:** besides DOIs, the title, the first author's
+  name and the year of a work without a DOI go to Crossref (ENLENS 0.19.16).
+- **The ledger of what was sent names the model** that read it, for the AI log.
+- **A file name cannot add headers to the app's answers** (ENLENS 0.20.3).
+
+### Fixed (from ENLENS)
+
+- On Windows, Margin sees Ollama when it runs, and *Read the theory* no longer answers "not allowed".
+- A task the local model was answering when the app closed is answered after all; *Stop* and *Remove* in the queue
+  panel leave alone a task a helper has just taken; *Stop* puts a further reading back as it was.
+- Once Claude Code has answered its part, nothing asks for Claude Code again; Enter in a "type the name to confirm" box
+  confirms once.
+- Long local runs no longer fill the memory (Ollama's MLX engine on a Mac).
+- A card no AI read no longer says "You agreed with the AI"; judging an excerpt no longer takes you up the page.
+
+### Left out, or made for Margin
+
+- **No team features**, as in 0.16.0: the team line under the project's name, the Team page, sharing, the owner's
+  settings (*Codebooks made in this project are shared*, *Default codebook for this project*, *Providers the team may
+  use*), two accounts of one person, group names that travel, and their routes, pages and tests. `solo.py` gained
+  stand-ins for ENLENS's `teamcodebooks`, `teamproviders` and `sharing._partner`: no team, no limit, everything yours.
+- **`keychain.py` comes in after all.** 0.16.0 left it out as a team module; ENLENS's other cloud providers keep their
+  API keys there.
+- **Margin's elements of a practice kept beside link-v2.** The two lists share two meanings: an answer is read in the
+  list its task asked for (*requires* and *clashes with* for elements, *needs* and *clashes* otherwise), and on a
+  concept's card the element links say *(as elements)*.
+- **No default codebook**, as before: *Settings › Documents › Codebook of the profiles* still offers *No codebook*.
+- **Margin's Write group, Check citations and Skim** are unchanged; *Find literature*'s e-mail address moved to
+  *Settings › Documents*.
+
+### Tests
+
+- ENLENS's new tests come in with Margin's names, without those of team features (tests of two copies, the shared
+  folder, the storage space, team codebooks and team providers); `tests/test_keychain.py` comes in with `keychain.py`.
+- New: `tests/test_m0_17_0_link_relations.py` (an answer is read in the list its task asked for: link-v2's words or
+  Margin's elements). ENLENS tests that assumed a team, a default codebook, the SDG pack's *Test a model* or link-v2
+  words in place of Margin's elements were changed to Margin's behaviour.
+- `tests/test_queue.py::test_claude_setup_starts_the_connector` fails on this computer, as it did for 0.16.0: the
+  test's Python does not have Margin installed as a package. CI installs it.
+
+### Not yet done
+
+- Not tried with a real Codex, Antigravity or another provider's API key, nor with a real signed-in Claude Code: the
+  tests use stand-ins.
+- Notifications were not tried on a real macOS or Windows desktop.
+
 ## 0.16.0 (November 2026): ENLENS's new look, new readers, and notes with a research log
 
 Margin takes in ENLENS 0.16.0 to 0.19.3, without its team features: Margin is for one person (*Left out, or made
