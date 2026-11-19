@@ -62,10 +62,10 @@ projects and settings (the `margin` folder in your home folder) are never touche
 - **[Use a model on your own computer](docs/manual/local-models.md)**, or no AI for some documents.
 
 <!-- new-in:start (written by `python tools/release.py prepare`: change the changelog entry, not this) -->
-## New in 0.17.0: Codex, Antigravity and other cloud providers, and a local model that waits for you
+## New in 0.17.1: Codex, Antigravity and other cloud providers, and a local model that waits for you
 
 - **More AIs to choose from.** Codex and Antigravity answer the queue on your own plan as Claude Code does, and *Another cloud provider* (OpenAI, Google Gemini, Mistral, Azure OpenAI, OpenRouter) works with an API key.
-- **Your local model starts only when you press its Start**, has its own panel wherever it has work, says when memory is short (*Start it anyway*), and only *suggests*: you judge what it read, or press *Judge it myself* instead.
+- **Your local model starts only when you press its Start**, has its own panel wherever it has work, and only *suggests*: you judge what it read, or press *Judge it myself* instead.
 - **Settings in five tabs** (AI, Checking, Documents, General, Technical), and every change saves as you make it.
 - **The concept map grows:** named groups (the AI can draft the names, on request), zoom, links that *need*, *shape* or *clash with*, and pictures to download.
 - **Research log is a place in the sidebar**, with an **AI log** under it: which AI work sent what, to which provider.

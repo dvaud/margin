@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.17.1 (November 2026): Codex, Antigravity and other cloud providers, and a local model that waits for you
+
+0.17.0 was tagged but never released: its lockfile still named 0.16.0, so the release workflow stopped before any test
+ran. 0.17.1 is the same work with that fixed, the first release of the 0.17 series. What it brings is under 0.17.0
+below.
+
+### New in 0.17, in short
+
+- **More AIs to choose from.** Codex and Antigravity answer the queue on your own plan as Claude Code does, and
+  *Another cloud provider* (OpenAI, Google Gemini, Mistral, Azure OpenAI, OpenRouter) works with an API key.
+- **Your local model starts only when you press its Start**, has its own panel wherever it has work, and only
+  *suggests*: you judge what it read, or press *Judge it myself* instead.
+- **Settings in five tabs** (AI, Checking, Documents, General, Technical), and every change saves as you make it.
+- **The concept map grows:** named groups (the AI can draft the names, on request), zoom, links that *need*, *shape* or
+  *clash with*, and pictures to download.
+- **Research log is a place in the sidebar**, with an **AI log** under it: which AI work sent what, to which provider.
+
+### Fixed
+
+- **`uv.lock` names the version it locks.** The release commit of 0.17.0 left it at 0.16.0, and CI's
+  `uv lock --check` stopped every test job at the install step.
+
 ## 0.17.0 (November 2026): Codex, Antigravity and other cloud providers, and a local model that waits for you
 
 Margin takes in ENLENS 0.19.4 to 0.20.3, again without its team features (*Left out, or made for Margin*, below).
