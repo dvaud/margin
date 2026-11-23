@@ -9,8 +9,8 @@ description = "Margin: a research and paper-writing companion. Explore your docu
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "pydantic>=2.5",
-  "pypdf>=4.0",
+  "pydantic>=2.14.4",
+  "pypdf>=7.1.1",
   "openpyxl>=3.1",
 ]
 
@@ -18,11 +18,11 @@ dependencies = [
 # the app (margin-gui) needs nothing beyond the core: it is a standard-library server and a static page
 gui = []
 fast = ["numpy>=1.24"]                 # faster semantic search on large projects (pure Python otherwise)
-anthropic = ["anthropic>=0.40"]        # the Claude API (cloud, opt-in)
+anthropic = ["anthropic>=2.11.0"]        # the Claude API (cloud, opt-in)
 connector = ["mcp>=2,<3"]
 pdfminer = ["pdfminer.six>=20231228"]
 ocr = ["pypdfium2>=4.20", "pillow>=10"]  # read scanned PDF pages; also needs the program tesseract (see the manual)
-ci = ["pyyaml>=6", "ruff>=0.6"]          # 0.18.1 (J1.7): what only CI's every-extra job adds (the shape of the workflows, the lint); in uv.lock
+ci = ["pyyaml>=6", "ruff>=0.17.6"]          # 0.18.1 (J1.7): what only CI's every-extra job adds (the shape of the workflows, the lint); in uv.lock
 dev = ["pytest>=8", "pytest-xdist>=3.5", "pytest-timeout>=2.3", "pytest-testmon>=2.1"]  # 2026-11-12: tests side by side (-n), a time limit per test; 2026-11-12: only the tests a change affects (--testmon)
 
 [project.scripts]
